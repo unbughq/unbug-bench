@@ -131,6 +131,11 @@ cheat AND a family variant in `guards/cheats/`; both must fail. Check prior atta
 for reopenings while repairing. Finish with a short `BUILD-NOTES.md` in the case directory:
 the family closed, its coverage and held-out variation, the two retained cheats, and what you checked.
 
+Make repairs as several small edits, not one reply that rewrites a large file: a reply cut at the
+model's output cap applies none of its edits. Write a long new file in parts. If the run gives you
+`output_capped: true`, your previous reply was cut that way and changed nothing; make the same
+repair again in smaller edits.
+
 The default is one round. A final `round: "precheck-fix"` pass fixes the supplied G1 problems
 and attack report, then returns for runner validation; do not start a new bug hunt or attack
 round. A remaining G1 problem stops the case before any more model calls.

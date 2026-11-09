@@ -139,7 +139,8 @@ class WallTests(unittest.TestCase):
         used={}
         with patch.object(gate.pwd,'getpwnam',side_effect=KeyError('missing')), \
              patch.object(gate.subprocess,'run') as command:
-            with self.assertRaises(KeyError):
+            # A missing isolated user is a classified pre-launch stop, not a bare KeyError.
+            with self.assertRaisesRegex(gate.BudgetError,'^model_wall_failed$'):
                 with self.enter(lease(),used): self.fail('launched without wall')
         command.assert_not_called();self.assertTrue(used['closed'])
         self.assertEqual(len(gate._RETAINED),self.retained)

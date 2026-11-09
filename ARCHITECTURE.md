@@ -184,6 +184,15 @@ delivery receipts as usual. G10 reruns because G17 and the receipts need this ru
 workspaces. A gate that asks for a repair, or a diagnosis that would extend, retires the case;
 a diagnosis that finds infrastructure holds it as for any case.
 
+An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
+before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
+ADMIT keeps only statement.md, which must match the old case's registry entry when one
+records it; promise.md and case.json are written from INPUTS once the old case.json (if any)
+matches the pin and source, or the old card names the same source. The case starts at WRITER
+whatever its old gates said, with a MiniMax or DeepSeek writer. Every family the old card
+names as a writer is an idea author and may not hold a reviewer role or the easy calibrator
+(`admit:import_idea_family`). Spend, screens and the one-candidate rule are as above.
+
 A rejected idea publishes `admit:<screen>_<evidence>` (`durable/admission_reasons.py`): the
 screen (dedup, freshness, realism, other) and a fixed evidence kind read from structured
 fields only, such as `freshness_upstream_fix`. The sealed card keeps per-candidate codes
@@ -196,6 +205,10 @@ worker RAM and record only case IDs (`admit:board_planned`, no registry returned
 control VM `plan` (dry run), `apply` (new board file plus change log) and `revert` change
 entry statuses only. Sealed, live and known_public entries stay; each duplicate group keeps
 its most advanced member; other abandoned entries are released.
+A first judge's duplicate or realism rejection is final only when a second family agrees
+(`run.dedup_second_opinion`, `run.realism_second_opinion`): never the writer's or the first
+judge's family, a free route first, refused up front when none qualifies. On a disagreement
+the idea goes on to the next screen. Cards record `second_opinion` {second_family, agreed}.
 
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
 any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
@@ -212,6 +225,10 @@ files. A free call that ends interrupted or denied leaves a plaintext end record
 (`status` → `free_errors`): an error label, HTTP status, provider error name and how many output events
 the CLI produced, never provider text. `factory/free_route_smoke.py` makes one $0 call per free model
 per account and prints only those fields.
+A usage-limit (quota) failure on an OpenCode account lane is published as a router health block on that
+lane's pool until its reset, even when it came from an unstructured CLI line, so later calls skip it
+instead of retrying it per call. A free lane's quota blocks that account's free lane only; a Go lane's
+quota blocks the account's Go lanes. Each pool learns its own limit from its first refused call.
 
 Codex (`codex/gpt-6.1-sol`, the strong calibrator's other family) has no gate either. Its lease
 maximum is $50 at the Codex list price (`CODEX_PROFILES`), lowered by funding. The runtime reads Codex's
@@ -245,14 +262,16 @@ attempt replays from its key whatever case money its job now carries.
 
 A case held by a `factory_bug` diagnosis resumes the same way, but only when the diagnosed step
 stopped on a factory check rather than a scientific result (`FACTORY_BUG_RESUMABLE`: today a
-writer's `writer:unchanged_repair`). It resumes at that diagnosed step, not at the diagnosis, so
+writer's `writer:unchanged_repair` or `writer:output_capped`). It resumes at that diagnosed step, not at the diagnosis, so
 the diagnosis is not replayed. A later diagnosis at that seq numbers its attempts after it
 (`renumber`). The lineage's count of these resumes carries into the new workflow and is added
 to the case's own `factory_bug_resumes` when a diagnosis is decided, so the policy's cap of three
 covers factory_bug holds across batches. Skips an earlier resume made at or above the diagnosed
 step are dropped, since the steps that now take those seqs never ran there. A writer round keeps the case hash it started
 from in `attack-state.json` (`round_start`, bound to the round's feedback), so a retry that
-restores an interrupted call's edits is not judged an unchanged repair.
+restores an interrupted call's edits is not judged an unchanged repair. A writer reply whose last
+step stopped at the output cap applied none of its edits: the round retries that repair within its
+call cap with `output_capped` set, and only a cap on the last call ends `writer:output_capped`.
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch

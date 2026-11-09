@@ -107,6 +107,21 @@ class AttackRecoveryTests(unittest.TestCase):
         self.assertEqual([call.args[4] for call in writer.call_args_list], ['builder-2'])
         self.early_review.assert_not_called()
 
+    def test_a_new_round_after_stress_measures_its_first_call_from_the_stress_snapshot(self):
+        # f46dac-2r writer:3/1: the first attempt of a round after a stress round. Its baseline is
+        # the case as the stress step left it, set before call 1, so real edits are never unchanged.
+        feedback = self.stress('{"complete": false, "blocking": ["reference misses stock update"]}')['feedback']
+        self.step(StepKind.WRITER, 2)
+        start = run.case_hash(self.c)
+        def edit(*args, **kwargs):
+            receipt = json.loads((self.c.work / 'attack-state.json').read_text())
+            self.assertEqual(receipt['round_start']['case'], start)
+            (self.c.case / 'repair.txt').write_text('the repair')
+            return 0
+        with patch.object(run, 'opencode', side_effect=edit) as writer:
+            self.assertEqual(run.engine_writer_round(self.c, 2, feedback)['outcome'], Outcome.OK)
+        self.assertEqual([call.args[4] for call in writer.call_args_list], ['builder-2'])
+
     def test_a_retry_from_a_receipt_without_a_round_start_is_not_called_unchanged(self):
         # f46dac-2's held snapshot: written before receipts carried the round start, after the
         # writer's interrupted edits. Its first retried call cannot be judged unchanged.
@@ -126,6 +141,67 @@ class AttackRecoveryTests(unittest.TestCase):
         with patch.object(run, 'opencode', return_value=0):
             result = run.engine_writer_round(self.c, 2, feedback)
         self.assertEqual(result, {'outcome': Outcome.EXHAUSTED, 'reason': 'writer:unchanged_repair'})
+
+    def transcript(self, name, *reasons, stamp=1):
+        folder = self.c.work / 'transcripts'; folder.mkdir(exist_ok=True)
+        rows = [{'type': 'step_finish', 'part': {'messageID': 'm', 'id': str(i), 'reason': r}}
+                for i, r in enumerate(reasons)]
+        (folder / f'{name}.{stamp}.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
+
+    def test_a_reply_cut_at_the_output_cap_is_retried_with_smaller_edits(self):
+        # 22e434-3 and f46dac-2r round 3: the writer's last request stopped at the 32k output cap,
+        # none of its edits applied, and the round was called an unchanged repair.
+        feedback = self.stress('{"complete": false, "blocking": ["reference misses stock update"]}')['feedback']
+        self.step(StepKind.WRITER, 2)
+        seen = []
+        def writer(c, models, text, cwd, name):
+            seen.append((name, json.loads(text)))
+            if name == 'builder-2': self.transcript(name, 'tool-calls', 'length')
+            else: (c.case / 'repair.txt').write_text('repaired in parts')
+        with patch.object(run, 'opencode', writer):
+            result = run.engine_writer_round(self.c, 2, feedback)
+        self.assertEqual(result['outcome'], Outcome.OK)
+        self.assertEqual([name for name, _ in seen], ['builder-2', 'builder-2-fix-1'])
+        self.assertNotIn('output_capped', seen[0][1])
+        self.assertIs(seen[1][1]['output_capped'], True)
+        self.assertEqual(seen[1][1]['precheck_problems'], seen[0][1]['precheck_problems'])
+        self.assertEqual(seen[1][1]['attack_report'], seen[0][1]['attack_report'])
+        self.assertEqual(self.c.card['writer_output_capped'], ['builder-2'])
+
+    def test_a_capped_reply_on_the_last_call_names_the_cap(self):
+        feedback = self.stress('{"complete": false, "blocking": ["reference misses stock update"]}')['feedback']
+        self.step(StepKind.WRITER, 2)
+        def writer(c, models, text, cwd, name): self.transcript(name, 'length')
+        with patch.object(run, 'opencode', writer):
+            result = run.engine_writer_round(self.c, 2, feedback)
+        self.assertEqual(result, {'outcome': Outcome.EXHAUSTED, 'reason': 'writer:output_capped'})
+        self.assertIn('writer:output_capped', run_engine_resumable())
+
+    def test_a_reply_that_finished_normally_is_still_an_unchanged_repair(self):
+        feedback = self.stress('{"complete": false, "blocking": ["reference misses stock update"]}')['feedback']
+        self.step(StepKind.WRITER, 2)
+        def writer(c, models, text, cwd, name):
+            self.transcript(name, 'length', stamp=1)       # an older call of the same name
+            self.transcript(name, 'length', 'stop', stamp=2)
+        with patch.object(run, 'opencode', writer):
+            result = run.engine_writer_round(self.c, 2, feedback)
+        self.assertEqual(result, {'outcome': Outcome.EXHAUSTED, 'reason': 'writer:unchanged_repair'})
+
+    def test_output_cap_reading(self):
+        self.assertFalse(run._output_capped(self.c, 'builder-1'))
+        self.transcript('builder-1', 'stop', 'length')
+        self.assertTrue(run._output_capped(self.c, 'builder-1'))
+        self.transcript('builder-1', 'length', 'stop', stamp=10)
+        self.assertFalse(run._output_capped(self.c, 'builder-1'))
+        (self.c.work / 'transcripts/builder-1-fix-1.5.jsonl').write_text(
+            'not json\n' + json.dumps({'type': 'assistant', 'message': {'stop_reason': 'max_tokens'}}) + '\n')
+        self.assertTrue(run._output_capped(self.c, 'builder-1-fix-1'))
+        self.assertFalse(run._output_capped(self.c, 'builder-1'), 'builder-1-fix-1 is another call')
+
+
+def run_engine_resumable():
+    from durable.engine import FACTORY_BUG_RESUMABLE
+    return FACTORY_BUG_RESUMABLE["writer"]
 
 
 if __name__ == "__main__":

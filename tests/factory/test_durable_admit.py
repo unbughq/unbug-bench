@@ -110,6 +110,7 @@ class AdmitTests(unittest.TestCase):
         self.worker = worker_step.Worker(self.home, sealer=AgeSealer(), runner=run)
         self.case_key, self.batch_key = os.urandom(32), os.urandom(32)
         self.calls, self.duplicate, self.model_error = [], None, None
+        self.second_agrees, self.second_judges = True, []
         # External search/model boundaries only; statement_precheck and idea_realism are real.
         self.freshness = patch.object(run, "_g2", return_value=(True, {"outcome": "fresh"})).start()
         self.addCleanup(patch.stopall)
@@ -135,6 +136,14 @@ class AdmitTests(unittest.TestCase):
         elif name == "reviewer-idea-realism":
             target = text.split('Write JSON to ')[1].split(': {')[0]
             pathlib.Path(target).write_text(json.dumps({"approve": True, "reason": "plausible"}))
+        elif name.endswith("-second-opinion-dedup"):
+            self.second_judges.append(models[0])
+            target = json.loads(text.rsplit("\n", 1)[-1])["result_path"]
+            pathlib.Path(target).write_text(json.dumps({"same_bug": self.second_agrees, "reason": "checked"}))
+        elif name.endswith("-second-opinion-idea-realism"):
+            self.second_judges.append(models[0])
+            target = text.split('Write JSON to ')[1].split(': {')[0]
+            pathlib.Path(target).write_text(json.dumps({"approve": not self.second_agrees, "reason": "checked"}))
         else:
             raise AssertionError("unexpected model invocation: " + name)
         if kwargs.get("on_complete"):
@@ -391,7 +400,7 @@ class AdmitTests(unittest.TestCase):
         # The fake builder proposes the same idea again; those tries judged nothing.
         self.assertEqual([r["codes"] for r in c.card["rejected_candidates"]], [
             {"screen": "dedup", "evidence": "board_duplicate", "judge_family": "z-ai",
-             "duplicate_of": CASE, "duplicate_status": "screening"}]
+             "duplicate_of": CASE, "duplicate_status": "screening", "second_family": "xiaomi", "agreed": True}]
             + [{"screen": "other", "evidence": "repeat_candidate"}] * 2)
         self.assertEqual(c.card["admission"]["reason"], "dedup_board_duplicate")
         self.assertIn("easy-calibrator-dedup", self.calls)
@@ -400,7 +409,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["candidate_attempts"], 3)
 
     def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None, writer="opencode-go/minimax-m3", link=False,
-                       repo="medusajs/medusa", lockfile=None, card_extra=None):
+                       repo="medusajs/medusa", lockfile=None, card_extra=None, meta=True):
         """A pre-durable checkpoint as run_artifacts.seal wrote it, rewrapped to the statement key:
         `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
         import worker_secrets
@@ -417,7 +426,10 @@ class AdmitTests(unittest.TestCase):
         app = {"repo": repo, "commit": commit}
         if lockfile is not None:
             app["lockfile_sha256"] = lockfile
-        (work / "case/case.json").write_text(json.dumps({"source": "port", "app": app}))
+        if meta:
+            # An October writer kept its draft's design in case.json as well.
+            (work / "case/case.json").write_text(json.dumps({"source": "port", "app": app, "leak_words": ["oversell"],
+                "ingredients": {"unstated_rules": ["old"]}, "promise_checks": ["old-judge-path"]}))
         (work / "case/guards").mkdir()
         (work / "case/guards/reference.py").write_text("print('guard')")
         (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 3, "source": "port",
@@ -459,6 +471,73 @@ class AdmitTests(unittest.TestCase):
             registry = result.registry
         self.calls.clear()
         return registry
+
+    def test_a_second_family_that_disagrees_lets_the_idea_through(self):
+        from dataclasses import replace
+        text = "# Candidate\n\nOversell under checkout."
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(text)).encode())
+        empty = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        first, blobs = self.run_admit(self.step(inputs, empty))
+        (self.home / "durable/blobs" / worker_step.blob_name(first.registry)).write_bytes(blobs[worker_step.blob_name(first.registry)])
+        # GLM calls it a duplicate; the second family (the reviewer, not the writer or GLM) disagrees.
+        self.duplicate, self.second_agrees = CASE, False
+        self.selected = "# Candidate\n\nA different bug: refunds exceed the order."
+        second_input = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(self.selected)).encode())
+        second = replace(self.step(second_input, first.registry), case_id="case-second")
+        result, outputs = self.run_admit(second)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
+        self.assertEqual(self.second_judges, ["openrouter/xiaomi/mimo-v2.6-pro"])
+        work, c = self.restore(second, result, outputs)
+        self.assertEqual(c.card["dedup"]["duplicate_of"], CASE)
+        self.assertEqual(c.card["dedup"]["second_opinion"], {"second_family": "xiaomi", "agreed": False})
+        from durable.admission_reasons import inspect_snapshot
+        self.assertEqual(inspect_snapshot(self.output(result.snapshot, outputs))["overturned"], ["dedup"])
+
+    def test_second_opinion_refuses_without_a_separate_family(self):
+        c = SimpleNamespace(models={"builder": ["openrouter/minimax/minimax-m3.1-flash"],
+                                    "attacker": ["openrouter/z-ai/glm-5.3-flash"],
+                                    "reviewers": [["openrouter/minimax/minimax-m3"]],
+                                    "easy_calibrator": ["openrouter/z-ai/glm-5.3-flash"]})
+        with self.assertRaises(ValueError):
+            run.second_opinion_chain(c, c.models["easy_calibrator"], (("reviewers", 0), ("attacker", None)))
+        # A free route is preferred among eligible judges, and its invocation names its own role.
+        c.models["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"]]
+        c.models["attacker"] = ["opencode/deepseek-v4.1-flash-free"]
+        self.assertEqual(run.second_opinion_chain(c, c.models["easy_calibrator"], (("reviewers", 0), ("attacker", None))),
+                         ("attacker", ["opencode/deepseek-v4.1-flash-free"]))
+
+    def test_second_opinion_passes_the_runtime_role_family_check(self):
+        """The real ModelRuntime._call binds an invocation to its role's pinned family; each second
+        judge's label must map to the role whose model it uses (review of #48)."""
+        import copy
+        import model_runtime
+        from budget import invocation_role
+        models = {"builder": ["openrouter/minimax/minimax-m3.1-flash"], "attacker": ["opencode/deepseek-v4.1-flash-free"],
+                  "reviewers": [["openrouter/xiaomi/mimo-v2.6-pro"], ["codex/gpt-6.1-sol"]],
+                  "easy_calibrator": ["openrouter/z-ai/glm-5.3-flash"]}
+        roles = {"writer": models["builder"][0], "stress_tester": models["attacker"][0],
+                 "reviewer": models["reviewers"][0][0], "reviewer2": models["reviewers"][1][0],
+                 "easy_calibrator": models["easy_calibrator"][0]}
+        runtime = model_runtime.ModelRuntime(pathlib.Path(self.home), None, None, None, None)
+        class Dispatched(Exception):
+            pass
+        cases = [(models["easy_calibrator"], (("reviewers", 0), ("attacker", None)), "-second-opinion-dedup", "stress_tester"),
+                 (models["reviewers"][0], (("reviewers", 1), ("easy_calibrator", None)), "-second-opinion-idea-realism", "reviewer2")]
+        for first, order, suffix, role in cases:
+            for drop in (False, True):
+                with self.subTest(suffix=suffix, fallback=drop):
+                    chosen = dict(models)
+                    if drop:   # the fallback judge (easy calibrator for realism, reviewer for dedup)
+                        chosen = {**models, "reviewers": models["reviewers"][:1]} if role == "reviewer2" else \
+                                 {**models, "attacker": ["openrouter/minimax/minimax-m3"]}
+                    c = SimpleNamespace(models=chosen, card={"roles": {k: {"model": v} for k, v in roles.items()}})
+                    prefix, chain = run.second_opinion_chain(c, first, order)
+                    label = prefix + suffix
+                    self.assertEqual(model_runtime.family(roles[invocation_role(label)]), model_runtime.family(chain[0]))
+                    # Real boundary: the family check passes, so the call reaches dispatch.
+                    with patch.object(model_runtime.copy, "copy", side_effect=Dispatched):
+                        with self.assertRaises(Dispatched):
+                            runtime._call(c, chain, "text", self.home, label)
 
     def test_board_dedup_records_only_groups_and_never_changes_the_board(self):
         from dataclasses import replace
@@ -731,7 +810,8 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:realism_rejected"))
         work, c = self.restore(step_input, result, outputs)
         self.assertEqual(c.card["rejected_candidates"][0]["codes"],
-                         {"screen": "realism", "evidence": "rejected", "judge_family": "xiaomi"})
+                         {"screen": "realism", "evidence": "rejected", "judge_family": "xiaomi",
+                          "second_family": "z-ai", "agreed": True})
         self.assertNotIn("private-reason-sentinel", json.dumps(c.card["rejected_candidates"]))
 
     def test_import_refuses_another_app_pin_or_an_unreadable_archive(self):
@@ -780,6 +860,134 @@ class AdmitTests(unittest.TestCase):
         result, outputs = self.run_admit(self.import_step(self.import_inputs(spent=3_000_000), registry,
                                                           self.legacy_archive(old, text)))
         self.assertEqual(result.reason, "admit:imported_written")
+
+    # Idea-only import (5813be, 25fbfa): only the admitted statement and case metadata survive.
+    OCTOBER_5813BE = {"roles": {"writer": {"model": "opencode/minimax-m3.1-flash-free"}},
+                      "model_transition": {"kind": "approved-paid-to-free",
+                                           "before": {"writer": {"model": "opencode-go/mimo-v2.6-pro"}},
+                                           "after": {"writer": {"model": "opencode/minimax-m3.1-flash-free"}}},
+                      "continuation_budget": {"cost": 2.5, "events": [
+                          {"id": "e1", "role": "writer", "invocation": "builder-1",
+                           "configured_model": "opencode-go/mimo-v2.6-pro", "cost": 1.0}]}}
+
+    def idea_value(self):
+        value = self.real_inputs("unused", import_spent_usd_micros=2_500_000, import_mode="idea_only")
+        value.pop("candidate")
+        # The default reviewer is MiMo, an idea author's family, which no judge may share; GLM may.
+        value["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"]]
+        return value
+
+    def idea_inputs(self, value=None):
+        return self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value or self.idea_value()).encode())
+
+    def test_idea_only_import_keeps_the_statement_and_starts_at_writer(self):
+        old, text = "case-20261017T212113Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        # The October writer moved from MiMo to MiniMax and the draft passed G1: the strict import refuses.
+        archive = self.legacy_archive(old, text, writer=None, card_extra=self.OCTOBER_5813BE)
+        result, _ = self.run_admit(self.import_step(self.import_inputs(), registry, archive))
+        self.assertEqual(result.reason, "admit:import_writer_conflict")
+        step_input = self.import_step(self.idea_inputs(), registry, archive)
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))   # WRITER, not STRESS
+        check_result_for(step_input.step, result)
+        self.assertIn("reviewer-idea-realism", self.calls)
+        self.assertFalse(any(name.startswith("builder-selection") for name in self.calls))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(sorted(p.name for p in (work / "case").iterdir()), ["case.json", "promise.md", "statement.md"])
+        self.assertEqual((work / "case/statement.md").read_text(), text)
+        # The October case.json held the old draft's design: only the batch's metadata remains.
+        self.assertEqual(json.loads((work / "case/case.json").read_text()), {
+            "source": "port", "app": {"repo": "medusajs/medusa", "commit": "a" * 40},
+            "promise_paths": ["store-checkout"], "promise_checks": [], "leak_words": []})
+        for gone in ("gate-cache", "public-search.json", "freshness-verdict.json", "agent-state", ".casekey"):
+            self.assertFalse((work / gone).exists(), gone)
+        self.assertEqual((c.card["gates"], c.card["failed_gate"]), ({}, None))
+        self.assertEqual(c.card["imported_from"], {"case": old, "source": "port", "gates": {"G1": "pass", "G2": "pass"},
+                                                   "failed_gate": None, "spent_usd": 2.5, "mode": "idea_only",
+                                                   "idea_families": ["minimax", "xiaomi"], "case_json": "checked",
+                                                   "written": False})
+        entries = self.registry_doc(result, outputs)["registry"]["entries"]
+        self.assertEqual(entries[CASE]["statement_sha256"], hashlib.sha256(text.encode()).hexdigest())
+        # A statement other than the one the old case had admitted is not that idea.
+        self.calls.clear()
+        edited = self.legacy_archive(old, text + "\nEdited later.", writer=None, card_extra=self.OCTOBER_5813BE)
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(), registry, edited))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_idea_statement"))
+        self.assertEqual(self.calls, [])
+
+    def test_idea_only_import_keeps_idea_authors_out_of_judging_and_needs_a_supported_writer(self):
+        old, text = "case-20261017T212113Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        archive = self.legacy_archive(old, text, writer=None, card_extra=self.OCTOBER_5813BE)
+        mimo_reviewer = self.idea_value()
+        mimo_reviewer["models"]["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"]]
+        mimo_dedup = self.idea_value()
+        mimo_dedup["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"]]
+        mimo_dedup["models"]["easy_calibrator"] = ["openrouter/xiaomi/mimo-v2.6-pro"]
+        for value in (mimo_reviewer, mimo_dedup):
+            result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
+            self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_idea_family"))
+        # Slot 1's writer is Claude: idea-only hands the statement only to MiniMax or DeepSeek.
+        value = self.idea_value(); value.pop("models"); value["rotation_slot"] = 1
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_idea_writer"))
+        # No author recorded at all: the family rule cannot be checked, so the import refuses.
+        bare = self.legacy_archive(old, text, writer=None)
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(), registry, bare))
+        self.assertEqual(result.reason, "admit:import_writer_none")
+        self.assertEqual(self.calls, [])
+
+    def test_unpinned_idea_only_import_takes_a_supported_writer_slot(self):
+        import model_runtime
+        from model_router import family
+        old, text = "case-20261020T095024Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        value = self.idea_value(); value.pop("models")
+        inputs = self.idea_inputs(value)
+        for card_extra, authors in ((self.OCTOBER_5813BE, {"minimax", "xiaomi"}),
+                                    ({"roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}}, {"deepseek"}),
+                                    # October ledger events name no role; `models_used` names the builder calls.
+                                    ({"roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}},
+                                      "models_used": {"builder-1": "opencode-go/mimo-v2.6-pro"}}, {"deepseek", "xiaomi"})):
+            with self.subTest(authors=authors):
+                archive = self.legacy_archive(old, text, writer=None, card_extra=card_extra)
+                step_input = self.import_step(inputs, registry, archive)
+                result, outputs = self.run_admit(step_input)
+                # Past the family checks; the offline router has no bounded route for the table's models.
+                self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "router:unbounded_route"))
+                _, c = self.restore(step_input, result, outputs)
+                roles = c.card["roles"]
+                self.assertIn(family(roles["writer"]["model"]), authors)   # an author's family, when supported
+                self.assertNotIn(family(roles["reviewer"]["model"]), authors)
+                self.assertEqual(roles["writer"]["model"], model_runtime.rotation(c.card["rotation_slot"])["writer"]["model"])
+        self.assertEqual(self.calls, [])
+
+    def test_idea_only_import_rebuilds_missing_case_metadata_from_the_batch(self):
+        old, text = "case-20261020T095024Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        archive = self.legacy_archive(old, text, writer=None, meta=False, gates={},
+                                      card_extra={"roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}})
+        result, _ = self.run_admit(self.import_step(self.import_inputs(), registry, archive))
+        self.assertEqual(result.reason, "admit:import_layout_meta")   # the strict import still needs it
+        step_input = self.import_step(self.idea_inputs(), registry, archive)
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(json.loads((work / "case/case.json").read_text()), {
+            "source": "port", "app": {"repo": "medusajs/medusa", "commit": "a" * 40},
+            "promise_paths": ["store-checkout"], "promise_checks": [], "leak_words": []})
+        self.assertEqual((c.card["imported_from"]["case_json"], c.card["imported_from"]["idea_families"]),
+                         ("missing", ["deepseek"]))
+        # Without case.json only the old card names the source; it must be this batch's.
+        hunt = self.legacy_archive(old, text, writer=None, meta=False,
+                                   card_extra={"source": "hunt", "roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}})
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(), registry, hunt))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_source"))
+        # An unknown import mode is malformed INPUTS.
+        value = self.idea_value(); value["import_mode"] = "draft_only"
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
+        self.assertEqual(result.reason, "admit:inputs_invalid")
 
     def test_batch_ordinals_follow_existing_role_rotation(self):
         from dataclasses import replace

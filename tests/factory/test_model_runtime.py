@@ -222,5 +222,55 @@ class ModelRuntimeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class DiagnosisLoopbackTests(unittest.TestCase):
+    def test_a_route_without_a_local_gate_opens_no_loopback_rule(self):
+        # f46dac-2r: a diagnosis on the Codex route (model_call_gate.FreeCall) failed before the
+        # model started, reading gate.server, which only the proxy Gate has.
+        import model_call_gate
+        commands = []
+        with model_runtime.diagnosis_loopback(None, lambda c, cmd, **kw: commands.append(cmd),
+                                              model_call_gate.FreeCall(None), True):
+            pass
+        self.assertEqual(commands, [])
+
+    def test_a_gated_route_opens_and_removes_its_listener_rules(self):
+        commands = []
+        gate = types.SimpleNamespace(server=types.SimpleNamespace(server_port=40123))
+        with model_runtime.diagnosis_loopback(None, lambda c, cmd, **kw: commands.append(cmd), gate, True):
+            self.assertEqual([cmd[4] for cmd in commands], ['-I', '-I'])
+        self.assertEqual([cmd[4] for cmd in commands], ['-I', '-I', '-D', '-D'])
+        self.assertTrue(all('40123' in cmd for cmd in commands))
+
+    def test_a_failed_rule_change_is_a_classified_stop(self):
+        # 22e434-3 and f46dac-2r: a diagnosis on the gated MiMo route was leased, never started,
+        # and stopped usage_monitor:<class>. A failed rule change now names itself.
+        from budget import BudgetError
+        gate = types.SimpleNamespace(server=types.SimpleNamespace(server_port=40123))
+        for failing in ('-I', '-D'):
+            with self.subTest(failing=failing):
+                commands = []
+                def command(c, cmd, **kw):
+                    commands.append(cmd)
+                    if cmd[4] == failing: raise RuntimeError('iptables: exit 1')
+                with self.assertRaises(BudgetError) as raised:
+                    with model_runtime.diagnosis_loopback(None, command, gate, True): pass
+                self.assertEqual(str(raised.exception), 'diagnosis_loopback_failed')
+        def cancelled(c, cmd, **kw): raise BudgetError('cancelled')
+        with self.assertRaises(BudgetError) as raised:
+            with model_runtime.diagnosis_loopback(None, cancelled, gate, True): pass
+        self.assertEqual(str(raised.exception), 'cancelled')
+
+    def test_a_missing_isolated_user_is_a_classified_stop(self):
+        import model_call_gate
+        from budget import BudgetError
+        gate = types.SimpleNamespace(server=types.SimpleNamespace(server_port=40123))
+        gate.close = lambda release_socket: closed.append(release_socket)
+        closed, lease = [], types.SimpleNamespace(lease_id='0' * 32)
+        with self.assertRaises(BudgetError) as raised:
+            with model_call_gate._wall_access(gate, lease, 'factory-no-such-user-x'): pass
+        self.assertEqual(str(raised.exception), 'model_wall_failed')
+        self.assertEqual(closed, [True])   # no rule was attempted, so the gate's socket is released
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -208,20 +208,29 @@ def diagnosis_environment(env, driver, lease, home):
 
 @contextmanager
 def diagnosis_loopback(c, command, gate, enabled):
-    """Permit exactly A's ephemeral listener, before the pilot LOCAL rejection."""
+    """Permit exactly A's ephemeral listener, before the pilot LOCAL rejection.
+
+    A failed rule change stops as diagnosis_loopback_failed, a classified fault, never as the
+    command's own exception, which the runtime could name only by its class (RuntimeError)."""
     rules = []
     try:
-        if enabled:
+        # A Codex call has no local gate (model_call_gate.FreeCall): it reaches its provider over
+        # the public network the pilot wall leaves open, so there is no listener to admit.
+        if enabled and getattr(gate, 'server', None) is not None:
             port = str(gate.server.server_port)
             for rule in (["-d", "127.0.0.1", "-p", "tcp", "--dport", port, "-j", "ACCEPT"],
                          ["-p", "tcp", "-m", "conntrack", "--ctdir", "ORIGINAL",
                           "--ctorigdst", "127.0.0.1", "--ctorigdstport", port, "-j", "ACCEPT"]):
-                command(c, ['sudo', 'iptables', '-w', '5', '-I', 'factory-pilot', '1', *rule], check=True)
+                try: command(c, ['sudo', 'iptables', '-w', '5', '-I', 'factory-pilot', '1', *rule], check=True)
+                except BudgetError: raise
+                except Exception as error: raise BudgetError('diagnosis_loopback_failed') from error
                 rules.append(rule)
         yield
     finally:
         for rule in reversed(rules):
-            command(c, ['sudo', 'iptables', '-w', '5', '-D', 'factory-pilot', *rule], check=True)
+            try: command(c, ['sudo', 'iptables', '-w', '5', '-D', 'factory-pilot', *rule], check=True)
+            except BudgetError: raise
+            except Exception as error: raise BudgetError('diagnosis_loopback_failed') from error
 
 
 def pinned_cli(kind):
@@ -298,6 +307,9 @@ def free_usage_settled(lease):
     """A failed free call's usage needs no settling before the next route: it is bounded at $0 and
     checked only against OpenCode's report (founder 2026-11-08). Its receipt keeps the evidence."""
     return lease.route in FREE_ROUTES and lease.max_usd == 0
+
+
+OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]
 
 
 def call_failure_reason(label, route):
@@ -471,6 +483,11 @@ class ModelRuntime:
                     reason = call_failure_reason(str(error), lease.route)
                     if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
+                if failure.get('reason') == 'quota' and lease.account in OPENCODE_ACCOUNTS:
+                    # An OpenCode Go account's usage limit covers every call on that account, not this
+                    # one: publish it (router health blocks the account until its reset) instead of
+                    # excluding one lane, so later calls stop retrying an exhausted account.
+                    failure = {k: v for k, v in failure.items() if k != 'per_call'}
                 from durable.classify import FAILURE_STOPS
                 if failure.get('source_stop') not in FAILURE_STOPS:
                     failure = {k: v for k, v in failure.items() if k != 'source_stop'}
@@ -721,8 +738,11 @@ class ModelRuntime:
                 if diagnosis and driver == 'opencode':
                     env.pop('OPENCODE_ENABLE_EXA', None)
                     if model in GATED_OPENROUTER:
-                        cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])
-                        cfg['permission'].update(webfetch='deny', websearch='deny')
+                        try:
+                            cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])
+                            cfg['permission'].update(webfetch='deny', websearch='deny')
+                        except (KeyError, ValueError, TypeError, AttributeError) as error:
+                            raise BudgetError('diagnosis_config_invalid') from error
                         env['OPENCODE_CONFIG_CONTENT'] = json.dumps(cfg)
                     # The gate replaces env, including its inline config and isolation flags.
                     cmd[1] = '--preserve-env=' + ','.join(env)
@@ -748,6 +768,12 @@ class ModelRuntime:
             raise
         except Exception as error:
             self.progress(c, 'role:' + progress_role, 'failed', time.monotonic() - progress_started)
+            if (getattr(c, 'engine', None) is not None
+                    and (getattr(c, 'model_process_state', None) or {}).get('started') is False):
+                # The model process never started, so this call spent nothing: its reservation is
+                # released as uninvoked (ModelRuntime._call). Not a usage-monitor fault, whose
+                # unknown usage would book the attempt's whole grant as waste (policy.settles_lost).
+                raise BudgetError('model_launch_failed:' + type(error).__name__) from error
             raise BudgetError('usage_monitor:' + type(error).__name__) from error
         except BaseException:
             self.progress(c, 'role:' + progress_role, 'interrupted', time.monotonic() - progress_started)

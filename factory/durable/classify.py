@@ -6,9 +6,10 @@ codex_error". `classify` implements the contract's `Classifier` protocol.
 
 Rules:
 - Pure: no I/O, no clock, no engine import. The same input always gives the same result.
-- A reason is never built from stop text. Every reason is a member of the fixed set
-  REASONS, so nothing a stop carries (paths, routes, messages) can reach the engine
-  database or the public card.
+- A known stop's reason is a member of the fixed set REASONS. An unknown stop gets
+  "infra:raw_<label>" only when its bare head is a code identifier (RAW_STOP_PREFIX);
+  otherwise UNCLASSIFIED. Nothing a stop carries after its head (paths, routes, messages)
+  can reach the engine database, and no label-built reason reaches the public card.
 - Broken runs (model-CLI errors, stalls, timeouts, pauses, accounting faults, runner
   exceptions, and any stop not listed here) are INFRA_ERROR. They are never scored.
 - Every PROVIDER_LIMIT has a finite retry_at: a trusted reset time when the caller has
@@ -74,6 +75,8 @@ _FIXED = {
     "admission_dedup_invalid": (_I, "admit:dedup_invalid"),
     "admission_idea_review_unavailable": (_I, "admit:idea_review_unavailable"),
     "admission_idea_review_invalid": (_I, "admit:idea_review_invalid"),
+    "admission_second_opinion_unavailable": (_I, "admit:second_opinion_unavailable"),
+    "admission_second_opinion_invalid": (_I, "admit:second_opinion_invalid"),
     "freshness_evidence_unavailable": (_I, "infra:freshness_evidence_unavailable"),
     "freshness_review_unavailable": (_I, "infra:freshness_review_unavailable"),
     "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
@@ -96,6 +99,15 @@ _FIXED = {
     'stress_category_state_invalid': (_I, 'infra:stress_category_state_invalid'),
     'stress_publication_not_quiescent': (_I, 'infra:stress_publication_not_quiescent'),
     'stress_validation_exhausted': (_I, 'infra:stress_validation_exhausted'),
+    # Writer-path stops that used to fall through to infra:unclassified_stop. run.run_step turns an
+    # exception it does not know into its class name, and these names miss _EXCEPTION's suffixes.
+    "InvalidInfra": (_I, "infra:invalid_execution"),          # bin/run_validity.py: no valid verdict
+    "InfrastructureExhausted": (_I, "infra:execution_retries_exhausted"),   # run_validity.retry
+    "TimeoutExpired": (_I, "infra:timeout"),                 # subprocess timeout from run.py sh()
+    # Router and route plumbing reached by any model call, the writer's included.
+    "provider_wait_unsettled": (_I, "infra:provider_wait_unsettled"),        # model_router.await_lease
+    "provider_wait_record_missing": (_I, "infra:provider_wait_record_missing"),  # run.write_provider_wait
+    "route_feature_unsupported": (_I, "infra:route_feature_unsupported"),    # model_call_gate free route
     "RouterUnavailable": (_I, "infra:router_unavailable"),
     "router_unavailable": (_I, "infra:router_unavailable"),
     "unbounded_route": (_I, "infra:router_unavailable"),
@@ -111,6 +123,12 @@ _FIXED = {
     "unpriced_usage": (_I, "infra:unpriced_usage"),
     "free_route_mismatch": (_I, "infra:free_route_mismatch"),
     "usage_monitor": (_I, "infra:usage_monitor"),
+    # A runner fault before the model process started (model_runtime._invoke): usage is known, $0.
+    "model_launch_failed": (_I, "infra:model_launch_failed"),
+    # Named pre-launch steps of a walled or diagnosis call; each settles at its known $0 like the above.
+    "diagnosis_loopback_failed": (_I, "infra:diagnosis_loopback_failed"),
+    "diagnosis_config_invalid": (_I, "infra:diagnosis_config_invalid"),
+    "model_wall_failed": (_I, "infra:model_wall_failed"),
     "usage_reservation_exceeded": (_I, "infra:usage_reservation_exceeded"),
     "reservation_spend_unknown": (_I, "infra:reservation_spend_unknown"),
     "reservation_event_missing": (_I, "infra:reservation_event_missing"),
@@ -152,6 +170,21 @@ _EXCEPTION = re.compile(r"[A-Z][A-Za-z0-9]*(Error|Exception|Exit|Interrupt)")
 
 UNCLASSIFIED = "infra:unclassified_stop"
 
+# A stop no table knows names itself, so the next occurrence can be read from the attempt
+# record without opening its DIAGNOSTIC: "infra:raw_<label>". The label is the stop's bare
+# head (a BudgetError label such as freshness_public_match, or an exception class name such
+# as InvalidInfra, snake-cased) and only when it is a code identifier: lowercase snake text,
+# or a CamelCase class name with nothing after it, no digits, short enough for REASON.
+# Anything else (paths, messages, routes, long or mixed text) stays UNCLASSIFIED.
+# These reasons are never published (PUBLISHED_REASONS is fixed); operator views show them.
+RAW_STOP_PREFIX = "infra:raw_"
+# A diagnosis whose cleanup also failed keeps its first error as the cause, named here:
+# "diagnosis:cf_<label>" (durable/steps/diagnosis.py; diagnosis_invocation.invoke).
+CLEANUP_PREFIX = "diagnosis:cf_"
+RAW_REASON = re.compile(r"(?:infra:raw|diagnosis:cf)_[a-z][a-z_]*")
+_SNAKE_LABEL = re.compile(r"[a-z][a-z_]*")
+_CLASS_LABEL = re.compile(r"_*[A-Z][A-Za-z]*")
+
 # run.provider_preflight's roles and the CLI's own stop, in short fixed forms (REASON allows 32).
 PREFLIGHT_ROLES = {"stress_tester": "stress", "strong_tester": "strong", "easy_tester": "easy",
                    "reviewer": "review", "reviewer2": "second"}
@@ -187,7 +220,7 @@ IMPORT_REASONS = frozenset("admit:" + code for code in (
     "import_key", "import_layout", "import_layout_root", "import_layout_card", "import_layout_meta",
     "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
     "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid",
-    "import_recertify"))
+    "import_recertify", "import_idea_writer", "import_idea_family", "import_idea_statement"))
 # Admission rejections (durable/admission_reasons.py REJECTION_CODES): the screen and a fixed
 # evidence kind, never the idea.
 REJECTION_REASONS = frozenset("admit:" + code for code in (
@@ -245,6 +278,29 @@ def _lookup(stop) -> tuple[Outcome, Optional[str], str]:
     return _I, None, UNCLASSIFIED
 
 
+def stop_label(stop) -> Optional[str]:
+    """The content-free snake_case label of a stop, or None. See RAW_STOP_PREFIX."""
+    if not isinstance(stop, str) or len(stop) > 4096:
+        return None
+    head, rest = _head(stop)
+    if _SNAKE_LABEL.fullmatch(head):
+        label = head
+    elif _CLASS_LABEL.fullmatch(head) and not rest:
+        label = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", head.lstrip("_")).lower()
+    else:
+        return None
+    label = re.sub(r"_+", "_", label).strip("_")
+    return label if _SNAKE_LABEL.fullmatch(label) and len(label) <= 32 else None
+
+
+def labelled(prefix: str, label: Optional[str]) -> Optional[str]:
+    """prefix + label when the result is a valid REASON, else None."""
+    if label is None:
+        return None
+    reason = prefix + label
+    return reason if REASON.fullmatch(reason) and RAW_REASON.fullmatch(reason) else None
+
+
 def _retry_at(now: float, reset_at) -> float:
     if (type(reset_at) in (int, float) and math.isfinite(reset_at)
             and now < reset_at <= now + MAX_RESET_AHEAD_S):
@@ -265,6 +321,8 @@ def classify(stop, *, step, now: float, reset_at: Optional[float] = None) -> Cla
     if type(now) not in (int, float) or not math.isfinite(now):
         raise ContractError("now must be a finite number")
     outcome, case_code, reason = _lookup(stop)
+    if reason == UNCLASSIFIED:
+        reason = labelled(RAW_STOP_PREFIX, stop_label(stop)) or UNCLASSIFIED
     if case_code is not None:
         reason = f"{_STEP_STAGE[kind]}:{case_code}"
     return Classified(outcome, reason, _retry_at(float(now), reset_at) if outcome is _P else None)
@@ -307,4 +365,5 @@ def classify_wait(error, *, step, now, prior=()):
 
 
 __all__ = ["BACKOFF_S", "MAX_RESET_AHEAD_S", "REASONS", "CONTRACT_REASONS", "PUBLISHED_REASONS",
+           "RAW_REASON", "RAW_STOP_PREFIX", "CLEANUP_PREFIX", "stop_label", "labelled",
            "UNCLASSIFIED", "classify"]

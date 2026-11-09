@@ -163,8 +163,10 @@ def candidate_row(card, *, verdict=None, app_repo=None, statuses=None, problems=
     admission = card.get("admission") if isinstance(card.get("admission"), dict) else {}
     screen = SCREENS.get(admission.get("screen"))
     models = models if isinstance(models, dict) else card.get("models") if isinstance(card.get("models"), dict) else {}
+    second = None
     if screen == "dedup":
         row = {"screen": screen, "evidence": "board_duplicate", "judge_family": family(models.get("easy_calibrator") or [])}
+        second = (card.get("dedup") or {}).get("second_opinion")
         target = (card.get("dedup") or {}).get("duplicate_of")
         if isinstance(target, str) and _CASE.fullmatch(target):
             row["duplicate_of"] = target
@@ -178,10 +180,26 @@ def candidate_row(card, *, verdict=None, app_repo=None, statuses=None, problems=
     elif screen == "realism":
         reviewers = models.get("reviewers") or [[]]
         row = {"screen": screen, "evidence": "rejected", "judge_family": family(reviewers[0] if reviewers else [])}
+        second = (card.get("idea_realism") or {}).get("second_opinion")
     else:
         first = (problems or [None])[0]
         row = {"screen": "other", "evidence": _OTHER.get(first, "unknown")}
+    if isinstance(second, dict):   # a second family's check of a dedup or realism rejection
+        if second.get("second_family") in _FAMILIES | {"other"}:
+            row["second_family"] = second["second_family"]
+        if type(second.get("agreed")) is bool:
+            row["agreed"] = second["agreed"]
     return {k: v for k, v in row.items() if v is not None}
+
+
+def overturned(card):
+    """Screens whose first-judge rejection a second family overturned on this card's last candidate."""
+    found = []
+    for screen, field in (("dedup", "dedup"), ("realism", "idea_realism")):
+        second = (card.get(field) or {}).get("second_opinion") if isinstance(card.get(field), dict) else None
+        if isinstance(second, dict) and second.get("agreed") is False:
+            found.append(screen)
+    return found
 
 
 def reason_code(rows):
@@ -254,6 +272,8 @@ def inspect_snapshot(raw):
         out["imported_case"] = old_case
     if rows:
         out["reason"] = "admit:" + reason_code(rows)
+    if overturned(card):
+        out["overturned"] = overturned(card)
     return out
 
 

@@ -6,7 +6,7 @@ import re
 import subprocess
 import time
 
-from durable.classify import PUBLISHED_REASONS
+from durable.classify import PUBLISHED_REASONS, RAW_REASON
 from durable.contract import Outcome, Step
 from durable.guard import health as guard_health
 from durable.report import STATUSES
@@ -41,7 +41,9 @@ def _result(row, case_id, batch_id):
     if attempt is None or not isinstance(result, dict) or result.get('outcome') not in {v.value for v in Outcome}:
         return None
     reason = result.get('reason')
-    attempt.update(outcome=result['outcome'], reason=reason if isinstance(reason, str) and reason in PUBLISHED_REASONS else None,
+    # A self-naming stop label (classify.RAW_REASON) is shown here, to the operator; the public card drops it.
+    shown = isinstance(reason, str) and (reason in PUBLISHED_REASONS or RAW_REASON.fullmatch(reason) is not None)
+    attempt.update(outcome=result['outcome'], reason=reason if shown else None,
                    snapshot_saved=isinstance(result.get('snapshot'), dict))
     if _number(result.get('retry_at')):
         attempt['retry_at'] = result['retry_at']

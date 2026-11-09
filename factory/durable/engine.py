@@ -317,7 +317,9 @@ RESUMABLE_OUTCOMES = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.value)
 # where that step's stop is a factory check, never a scientific result: re-running a gate or a
 # stress review would re-roll a verdict. On 8 November f46dac-2's writer:2 retry took the
 # interrupted call's own edits as its starting point and stopped as an unchanged repair.
-FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair",)}
+# On 9 November 22e434-3's round-3 writer reply stopped at the 32k output cap with none of its edits
+# applied; writer:output_capped is that stop after the in-round retries are spent.
+FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair", "writer:output_capped")}
 MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many in a lineage
 
 
