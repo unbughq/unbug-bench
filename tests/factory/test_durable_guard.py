@@ -88,9 +88,9 @@ class GuardTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.f = Fake(self.tmp.name)
 
-    def tick(self, seconds=60, **kw):
+    def tick(self, seconds=60, router=None, **kw):
         self.f.clock += seconds
-        return self.f.guard().run(**kw)
+        return self.f.guard(**({"router": router} if router else {})).run(**kw)
 
     def test_a_campaign_watches_several_batches(self):
         f = self.f
@@ -240,6 +240,72 @@ class GuardTests(unittest.TestCase):
             self.tick()
             self.assertEqual(len(self.f.sent), 1, status)
             self.assertIn(phrase, self.f.sent[0])
+
+    def test_cases_waiting_on_credentials_or_the_router_read_degraded_and_alert(self):
+        # 9 November: the router certificate expired and the guard read healthy for twenty minutes.
+        for status in ("waiting_for_credentials", "waiting_for_router"):
+            with self.subTest(status=status):
+                self.f.sent.clear()
+                self.f.cases[0]["status"] = status
+                out = self.tick()
+                self.assertEqual((out["phase"], out["stalled"], out["hard_stop"]), ("degraded", status, None))
+                self.assertEqual(out["stalled_cases"], [REQUEST["case_id"]])
+                self.assertEqual(out["failed_checks"], [])
+                self.assertFalse((self.f.state_dir / "guard/degraded.json").exists())   # alerts, pauses nothing
+                self.tick()
+                self.assertEqual(len(self.f.sent), 1)
+                self.assertIn(REQUEST["case_id"], self.f.sent[0])
+                self.assertEqual((self.f.stopped, self.f.deleted), (0, []))
+                text = render_status({"batch": REQUEST["batch_id"], "sealed": 0, "cases": [],
+                                      "observation": {"guard": health(self.f.state_dir)}})
+                self.assertIn(f"Stalled           {status}: {REQUEST['case_id']}", text)
+        self.f.cases[0]["status"] = "running"
+        out = self.tick()
+        self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
+
+    def test_no_progress_for_fifteen_minutes_reads_degraded_and_alerts_once(self):
+        self.f.cases[0].update(stage="writer:1", writer_rounds=1)
+        for _ in range(15):
+            out = self.tick()
+            self.assertEqual(out["phase"], "healthy")
+        out = self.tick(90)
+        self.assertEqual((out["phase"], out["stalled"]), ("degraded", "no_progress"))
+        self.assertFalse((self.f.state_dir / "guard/degraded.json").exists())
+        self.tick()
+        self.assertEqual(len(self.f.sent), 1)
+        self.assertIn("No case has made progress for 15 minutes", self.f.sent[0])
+        self.f.cases[0]["stage"] = "stress:1"            # a step lands: healthy again
+        out = self.tick()
+        self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
+        self.assertEqual(self.f.stopped, 0)
+
+    def test_router_spend_counts_as_progress(self):
+        spent = [1.0]
+        for _ in range(20):
+            spent[0] += 0.01
+            out = self.tick(router=lambda: (spent[0], 100.0, 50.0))
+        self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
+
+    def test_a_case_parked_on_a_founder_decision_for_thirty_minutes_alerts(self):
+        self.f.cases.append({"case": "case-other", "status": "running"})
+        self.f.cases[0]["status"] = "held"
+        spent = [1.0]
+        for _ in range(30):                                # other work keeps moving
+            spent[0] += 0.01
+            out = self.tick(router=lambda: (spent[0], 100.0, 50.0))
+        self.assertEqual((out["phase"], out["founder_waits"]), ("healthy", []))
+        self.assertEqual(len(self.f.sent), 1)              # the existing immediate "held" message
+        spent[0] += 0.01
+        out = self.tick(90, router=lambda: (spent[0], 100.0, 50.0))
+        self.assertEqual((out["phase"], out["stalled"], out["founder_waits"]),
+                         ("degraded", "founder_wait", [REQUEST["case_id"]]))
+        self.assertFalse((self.f.state_dir / "guard/degraded.json").exists())
+        self.assertEqual(len(self.f.sent), 2)
+        self.assertIn(f"{REQUEST['case_id']} has waited 30 minutes (held) for a decision on its hold", self.f.sent[1])
+        self.f.cases[0]["status"] = "escalated"            # a new wait starts its own clock
+        out = self.tick(router=lambda: (spent[0] + 1, 100.0, 50.0))
+        self.assertEqual(out["founder_waits"], [])
+        self.assertEqual(self.f.stopped, 0)
 
     def test_controller_down_alerts_after_ten_minutes_and_keeps_the_worker(self):
         self.f.active = "failed"

@@ -172,6 +172,8 @@ def render_status(card: dict) -> str:
                   field('Last guard pass', stamp(guard.get('at')))]
         if guard.get('degraded_since') is not None:
             lines.append(field('Degraded since', stamp(guard['degraded_since']) + '  (new attempts paused)'))
+        if guard.get('stalled'):
+            lines.append(field('Stalled', f"{guard['stalled']}: {', '.join(guard.get('stalled_cases') or [])}"))
         if guard.get('failed_checks'):
             lines.append(field('Failing checks', ', '.join(guard['failed_checks'])))
         lines += [f'  NEEDS YOU: {message}' for message in guard.get('alerts', [])]
