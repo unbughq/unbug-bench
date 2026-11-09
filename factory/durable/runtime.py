@@ -33,6 +33,7 @@ from durable.workers import BoatPool, PoolError, ReleaseStore, LABEL_CASE, LABEL
 
 
 LOG = logging.getLogger("durable.runtime")
+OPENCODE_ACCOUNTS = ("opencode-go-key", "opencode-go-key-2")  # model_router.ACCOUNTS[2:4]
 DRAIN_S = 60.0             # units set TimeoutStopSec above this
 SWEEP_INTERVAL_S = 300.0   # a stray sandbox is deleted within one interval of the pass that sees it
 
@@ -201,6 +202,8 @@ class Runtime:
         if done.returncode:
             raise RuntimeErrorCode("worker_credentials_unavailable")
         names = list(config["accounts"])
+        # Founder 2026-11-08: the free models run on both OpenCode accounts, so every worker gets both.
+        names += [name for name in OPENCODE_ACCOUNTS if name not in names]
         if config.get("legacy_registry") is True:
             names.append("statements-key")
         return pack(base64.b64encode(done.stdout), config["router_client_file"], names=names)

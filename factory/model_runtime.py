@@ -181,7 +181,7 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     cfg["provider"]["opencode-go"] = go
     # Founder 2026-10-19: OpenCode v1.x answers Muse with "Invalid credential" unless the opencode provider points at Zen.
     cfg["provider"]["opencode"] = {"options": {"baseURL": "https://opencode.ai/zen/v1"}}
-    if model in ("opencode/minimax-m3.1-flash-free", "opencode/deepseek-v4.1-flash-free"):
+    if model in FREE_ROUTES:
         from free_models import provider_config
         cfg["provider"]["opencode"] = provider_config(case, model)
         cfg["small_model"] = model
@@ -438,6 +438,7 @@ class ModelRuntime:
             before = _read_json(getattr(c, 'ledger', '/nonexistent'), {})
             cleanup_before = len(c.card.get('cleanup_errors', []))
             outcome, receipt, failure, invoked, lost, cancelled = 'denied', None, None, False, None, False
+            end_error = None   # a free call's content-free end record for the router
             context.router_condition_since = None
             started = time.monotonic()
             try:
@@ -472,6 +473,9 @@ class ModelRuntime:
                     if code: raise BudgetError('process_error')
                     outcome = 'done'
             except BudgetError as error:
+                end_error = {'error_class': re.sub(r'[^a-z_]', '_', str(error).partition(':')[0].lower())[:40] or 'unknown',
+                             **{k: (getattr(error, 'provider_error', None) or {}).get(k)
+                                for k in ('http_status', 'error_name', 'events_seen')}}
                 cancelled = str(error) == 'cancelled'
                 failure = ({'reason': 'router_unavailable', 'model': lease.route} if lost is not None and lost.is_set()
                            else getattr(error, 'provider_failure', None))
@@ -497,6 +501,7 @@ class ModelRuntime:
                     reset = _read_json(getattr(c, 'ledger', '/nonexistent'), {}).get('claude_resets_at')
                     if model_router.finite(reset): failure = {**failure, 'reset_at': reset}
             except model_router.RouterUnavailable:
+                end_error = {'error_class': 'router_unavailable', 'http_status': None, 'error_name': None, 'events_seen': None}
                 failure = {'reason': 'router_unavailable', 'model': lease.route}
                 context.router_condition_since = time.monotonic()
             finally:
@@ -549,14 +554,15 @@ class ModelRuntime:
                             failure = {'reason': 'router_unavailable', 'model': lease.route}
                     # Every exit attempts release. A lost acknowledgement must never cause another CLI call.
                     release_started = time.monotonic()
-                    try: model_router.finish(lease.lease_id, outcome, receipt)
+                    if outcome == 'done' or lease.route not in FREE_ROUTES: end_error = None
+                    try: model_router.finish(lease.lease_id, outcome, receipt, end_error)
                     except model_router.RouterUnavailable:
                         if sys.exc_info()[1] is not None and failure is None and outcome != 'done':
                             c.card.setdefault('cleanup_errors', []).append({'stage':'lease_finish', 'error':'RouterUnavailable'})
                         else:
                             try:
                                 model_router._finish_until_known(lease, outcome, receipt, role, context, deadline,
-                                    since=context.router_condition_since or release_started)
+                                    since=context.router_condition_since or release_started, error=end_error)
                             except model_router.ProviderWait as error:
                                 error.previous_waits = prior_waits
                                 raise

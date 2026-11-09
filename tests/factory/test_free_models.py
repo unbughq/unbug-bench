@@ -56,7 +56,11 @@ with tempfile.TemporaryDirectory() as tmp:
         assert mini['options']['apiKey'] == '{env:OPENCODE_API_KEY}'
         assert mini['whitelist'] == ['minimax-m3.1-flash-free']
         deep = free_models.provider_config('case-fixture', 'opencode/deepseek-v4.1-flash-free')
-        assert deep['options'] == {'baseURL': 'https://opencode.ai/inference/openai/v1'}
+        # Founder 2026-11-08: DeepSeek free runs on an OpenCode account too, not anonymously.
+        assert deep['options'] == {'baseURL': 'https://opencode.ai/inference/openai/v1', 'apiKey': '{env:OPENCODE_API_KEY}'}
+        glm = free_models.provider_config('case-unrelated', 'opencode/glm-5.3-flash-free')
+        assert glm == {'options': {'baseURL': 'https://opencode.ai/zen/v1', 'apiKey': '{env:OPENCODE_API_KEY}'},
+                       'whitelist': ['glm-5.3-flash-free']}
         # 2026-10-20 founder: new cases use the free models too, on the run's own OpenCode key
         assert free_models.provider_config('case-unrelated', 'opencode/minimax-m3.1-flash-free')['options']['apiKey'] == '{env:OPENCODE_API_KEY}'
         config_paths = []

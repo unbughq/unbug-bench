@@ -78,11 +78,15 @@ class CheapTests(unittest.TestCase):
         # Free routes are bounded at $0, never a paid window (founder 2026-11-08).
         self.assertEqual(router.route_maximum(free)['max_usd'],0.0); self.assertEqual(router.funded_maximum(free,'5')['max_usd'],0.0)
         store=router.Store(self.root/'router.sqlite')
-        # The free route needs no account and comes first; the paid same-family fallback follows it.
-        for accounts in ([],['claude-token'],['openrouter-key']):
+        # The free route runs on either OpenCode account and comes first; the paid same-family fallback follows it.
+        for accounts,account in ((['opencode-go-key'],'opencode-go-key'),(['opencode-go-key-2','openrouter-key'],'opencode-go-key-2')):
             result=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=free,accounts=accounts,role='writer',deadline=time.time()+3600))
-            self.assertEqual((result['kind'],result['route'],result['max_usd']),('lease',free,0.0))
+            self.assertEqual((result['kind'],result['route'],result['account'],result['max_usd']),('lease',free,account,0.0))
             store.rpc('finish',dict(lease_id=result['lease_id'],outcome='denied',receipt=None))
+        # Never anonymously: with no OpenCode account and no paid account there is nothing to lease.
+        for accounts in ([],['claude-token']):
+            result=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=free,accounts=accounts,role='writer',deadline=time.time()+3600))
+            self.assertEqual(result['kind'],'wait')
         self.assertEqual(store.rpc('status',{})['leases'],[])
 
     def test_glm_profile_matches_primary_endpoint_record(self):

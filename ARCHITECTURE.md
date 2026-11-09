@@ -216,9 +216,19 @@ provider and its one model only, no outside config and no self-update. A calibra
 since behind the wall it reaches only a gate's port: it takes its chain's next bounded route, and a chain
 with none (GLM and MiniMax free today) is refused up front as `unbounded_route`. A full or failing free
 lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenRouter).
-A usage-limit (quota) failure on an OpenCode Go account is published as that account's router health
-block until its reset, even when it came from an unstructured CLI line, so later calls skip the exhausted
-account instead of retrying it per call.
+Each free model runs on both OpenCode accounts, never anonymously: the first account's free lane, then
+the second's, then the chain's fallback. Each account's free lane is its own router pool
+(`opencode-free:<account>`, seats from `capacities['opencode-free-account']` unless named; the old
+anonymous lane's `opencode-free` key does not apply to them), so a free model's
+limits never block that account's Go subscription lanes. Workers always receive both OpenCode account
+files. A free call that ends interrupted or denied leaves a plaintext end record in the router
+(`status` → `free_errors`): an error label, HTTP status, provider error name and how many output events
+the CLI produced, never provider text. `factory/free_route_smoke.py` makes one $0 call per free model
+per account and prints only those fields.
+A usage-limit (quota) failure on an OpenCode account lane is published as a router health block on that
+lane's pool until its reset, even when it came from an unstructured CLI line, so later calls skip it
+instead of retrying it per call. A free lane's quota blocks that account's free lane only; a Go lane's
+quota blocks the account's Go lanes. Each pool learns its own limit from its first refused call.
 
 Codex (`codex/gpt-6.1-sol`, the strong calibrator's other family) has no gate either. Its lease
 maximum is $50 at the Codex list price (`CODEX_PROFILES`), lowered by funding. The runtime reads Codex's

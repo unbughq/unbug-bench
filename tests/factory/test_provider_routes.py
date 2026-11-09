@@ -93,6 +93,9 @@ class ProviderRoutesTest(TestCase):
             health = store.rpc('status', {})['health']
             self.assertEqual({health[k]['reason'] for k in health if 'opencode-go-key' in k}, {'quota'})
             self.assertTrue(all(any(a in k for k in health) for a in ('opencode-go-key', 'opencode-go-key-2')))
+            # A free lane's quota blocks that account's free lane only, not its Go subscription lanes.
+            self.assertEqual({k for k, v in health.items() if v.get('blocked_until')},
+                             {'opencode-free:opencode-go-key', 'opencode-free:opencode-go-key-2'})
             # The next call goes straight to the fallback: no exhausted account is retried.
             tried.clear()
             runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
@@ -101,7 +104,8 @@ class ProviderRoutesTest(TestCase):
         self.assertEqual(model_runtime.call_failure_reason('provider_limit:x', 'openrouter/minimax/minimax-m3.1-flash'), 'quota')
 
     def test_fallback_is_shared_and_billing_is_explicit(self):
-        self.addCleanup(offline_router()[0].close)
+        stack, store = offline_router()
+        self.addCleanup(stack.close)
         c = SimpleNamespace(work=self.work, card={})
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
@@ -113,7 +117,13 @@ class ProviderRoutesTest(TestCase):
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
             runtime.call(c, [model_router.CHAINS[-1][0]], 't', '.', 'fixture')
-            self.assertEqual(tried, list(model_router.CHAINS[-1]))
+            # GLM free on each OpenCode account, then the Go subscription route.
+            self.assertEqual(tried, [model_router.CHAINS[-1][0], *model_router.CHAINS[-1]])
+            # Each failed free call left a content-free end record on its own account's lane.
+            rows = store.rpc('status', {})['free_errors']
+            self.assertEqual(sorted((r['account'], r['outcome'], r['error_class']) for r in rows),
+                             [('opencode-go-key', 'interrupted', 'opencode_error'),
+                              ('opencode-go-key-2', 'interrupted', 'opencode_error')])
             other = SimpleNamespace(card={})
             tried.clear()
             runtime.call(other, [model_router.CHAINS[-1][0]], 't', '.', 'fixture')
