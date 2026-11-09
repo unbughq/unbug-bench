@@ -131,6 +131,15 @@ def event_charge(event):
     return sum((Decimal(str(value)) for value in values), Decimal(0))
 
 
+def event_bound_charge(event):
+    """What a call's events count against its own reservation: their money, plus the list value
+    of Go plan steps (plan_list_cost_usd). A Go step costs no money while the plan pays, but its
+    call is still held to its OpenRouter twin's maximum by this value (check_reservation)."""
+    listed = event.get('plan_list_cost_usd', 0)
+    if not _number(listed): raise BudgetError('invalid_usage_price')
+    return event_charge(event) + Decimal(str(listed))
+
+
 def _event_components(event):
     values = [event.get(k, 0) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')]
     if event.get('priced') == 'subscription' and 'list_cost_usd' not in event and 'estimated_subscription_cost_usd' not in event:
@@ -176,6 +185,11 @@ def reserve_invocation(path, lease, maximum_usd, *, attempt, operation_id, call_
         return dict(row)
 
 
+def _bounded_cost(ledger):
+    """An unreserved call's cumulative limit (max_cost) counts Go plan steps at their list value."""
+    return ledger['cost'] + ledger.get('plan_list_cost_usd', 0)
+
+
 def attempt_limit(ledger, attempt):
     """Persist the cumulative baseline once per attempt, across parallel calls and replay.
 
@@ -200,7 +214,7 @@ def reservation_booked(ledger, lease_id, row, events=None):
     ids = set(row['event_ids']) | {i for i, e in events.items()
                                    if e.get('lease_id') == lease_id and e.get('invocation_id') == row['invocation_id']}
     if not ids <= events.keys(): return None   # a listed event is missing: the ledger cannot be trusted
-    return sum((event_charge(events[i]) for i in ids), Decimal(0))
+    return sum((event_bound_charge(events[i]) for i in ids), Decimal(0))
 
 
 def check_reservation(ledger, lease_id):
@@ -355,6 +369,11 @@ def _settle_leaf(ledger, receipt, wait_id=None):
     if gate is not None: bound = min(bound, gate)
     estimate = (max(Decimal(0), bound - booked).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
                 if not receipt['final_usage_known'] else Decimal(0))
+    if row.get('route') in GO_ROUTES:
+        # A Go plan call's unseen tail is still paid by the plan, so it books no money ("book Go
+        # at cost", founder 2026-11-09). Booking its whole maximum as case money is what filled
+        # cae763-2's and 22e434-3's $50 with no real spend.
+        estimate = Decimal(0)
     if row['state'] == 'estimated' and not receipt['final_usage_known']:
         # An estimate is already a ceiling (closed gate or maximum). Non-final
         # evidence never moves it, so it cannot grow between collections; only
@@ -941,7 +960,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         if resume:
             ledger['zero_token_streak'] = 0
             ledger.pop('active', None)
-        cause = ('cost_limit' if not reserved and ledger['cost'] >= max_cost else
+        cause = ('cost_limit' if not reserved and _bounded_cost(ledger) >= max_cost else
                  'total_call_limit' if not reserved and ledger['calls'] >= max_total_calls else
                  'call_limit' if max_calls == 0 else
                  'timeout' if timeout == 0 else
@@ -988,7 +1007,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 
     def check_limits():
         if collecting_usage: return  # accounting buffered output after the process was stopped
-        if not reserved and ledger['cost'] >= max_cost:
+        if not reserved and _bounded_cost(ledger) >= max_cost:
             raise BudgetError('cost_limit')
         if reserved:
             # reserve_invocation admitted this call's maximum against the attempt's limit, with
@@ -1269,19 +1288,25 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 or not all(_number(tokens.get(k)) for k in ('input', 'output', 'reasoning'))
                 or not all(_number(tokens['cache'].get(k)) for k in ('read', 'write'))):
             raise BudgetError('missing_usage')
+        plan_listed = None
         if configured_model in GO_ROUTES:
-            # A Go plan step is booked at its OpenRouter twin's list price whatever OpenCode reports
-            # (founder 2026-11-09): a $0 or low report must neither stop the call with an unknown final
-            # usage, which books the whole reservation, nor under-count the case budget.
-            part = dict(part, cost=max(float(part['cost']), go_step_cost(configured_model, tokens)))
+            # A Go plan step is paid by the founder's plan (Extra Usage off), so it books $0 to the
+            # case and the batch ("book Go at cost", founder 2026-11-09). Its OpenRouter twin's list
+            # value, whatever OpenCode reports, is kept as plan_list_cost_usd: it holds the call to
+            # its reservation and an unreserved call to max_cost, and is reported as list price.
+            plan_listed = max(float(part['cost']), go_step_cost(configured_model, tokens))
+            part = dict(part, cost=0)
         seen.add(identity)
         finishes.add(key)
         count += 1
         usages += 1
         ledger['cost'] += part['cost']
         ledger['calls'] += 1
+        if plan_listed is not None:
+            ledger['plan_list_cost_usd'] = ledger.get('plan_list_cost_usd', 0) + plan_listed
         ledger['events'].append({
             'id': identity, 'cost': part['cost'], 'tokens': tokens,
+            **({'priced': 'plan', 'plan_list_cost_usd': plan_listed} if plan_listed is not None else {}),
             'role': role or 'legacy_unattributed', 'invocation': invocation_name,
             'configured_model': configured_model,
             'model': part.get('model', event.get('model')),
@@ -1297,7 +1322,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             reported = (part.get('providerID', event.get('providerID')), part.get('modelID', event.get('modelID')))
             if any(v is not None for v in reported) and reported != tuple(str(configured_model).split('/', 1)):
                 raise BudgetError('free_route_mismatch')
-        if (part['cost'] == 0 and any([tokens[k] for k in ('input', 'output', 'reasoning')]
+        if (part['cost'] == 0 and not plan_listed and any([tokens[k] for k in ('input', 'output', 'reasoning')]
                                            + list(tokens['cache'].values()))
                 and not str(configured_model).endswith((':free', '-free'))):
             raise BudgetError('unpriced_usage')

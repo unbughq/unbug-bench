@@ -24,6 +24,7 @@ import budget
 import model_call_gate
 import model_router
 import model_runtime
+from durable import worker_step
 from durable.classify import classify
 from durable.contract import Grant, LimitedBy, Outcome, StepKind, StepResult
 from durable.policy import Action, Counters, decide
@@ -325,30 +326,72 @@ class AttemptBudget(unittest.TestCase):
         # Recreating the attempt context cannot reset its baseline after usage.
         self.assertEqual(budget.attempt_limit(ledger, self.attempt), Decimal(110))
 
-    def test_a_go_step_reported_at_zero_is_booked_at_its_twin_price_and_completes(self):
-        # Review of #66: a $0 Go step raised unpriced_usage with an unknown final usage, so settlement
-        # booked the whole $50 reservation and the case could not fall back. It is booked at the
-        # OpenRouter twin's list price instead, and the call completes with known usage.
-        route = 'opencode-go/deepseek-v4.1-flash'
-        lease = model_router.Lease(lease_id=uuid.uuid4().hex, expires_at=time.time()+60,
-            **next(r for r in model_router.routes(route) if r['route'] == route), **model_router.funded_maximum(route, '5'))
-        row = self.reserve(lease)
-        tokens = dict(input=1000, output=2000, reasoning=500, cache=dict(read=4000, write=0))
+    def go_lease(self, route='opencode-go/deepseek-v4.1-flash', funded='5'):
+        return model_router.Lease(lease_id=uuid.uuid4().hex, expires_at=time.time()+60,
+            **next(r for r in model_router.routes(route) if r['route'] == route), **model_router.funded_maximum(route, funded))
+
+    def run_go(self, lease, row, costs, tokens):
         events = [dict(type='step_finish', sessionID='s', part=dict(id=f'p{i}', messageID=f'm{i}', cost=cost, tokens=tokens))
-                  for i, cost in enumerate((0, 1e-9))]
+                  for i, cost in enumerate(costs)]
         command = [sys.executable, '-c', ''.join('print('+repr(json.dumps(e))+');' for e in events)]
         budget.run_budgeted(command, self.root, {}, self.root/'transcript', self.ledger, 3,
-            max_cost=None, case_budget=50, configured_model=route, concurrent=True,
+            max_cost=None, case_budget=50, configured_model=lease.route, concurrent=True,
             attempt=self.attempt, invocation_id=row['invocation_id'], lease_id=lease.lease_id,
             containment=False)
+
+    def test_a_go_step_books_no_money_and_keeps_its_twin_list_value_for_its_bound(self):
+        # Founder 2026-11-09, "book Go at cost": the Go plan pays (Extra Usage off), so a Go step
+        # books $0 to case and batch money. Before, it booked its OpenRouter twin's list price, and
+        # cae763-2 and 22e434-3 used their $50 with no real spend. A $0 report still completes with
+        # known usage (review of #66): it is not unpriced, it is the plan's price.
+        lease = self.go_lease()
+        row = self.reserve(lease)
+        tokens = dict(input=1000, output=2000, reasoning=500, cache=dict(read=4000, write=0))
+        self.run_go(lease, row, (0, 1e-9), tokens)
         # Twin: $0.14/M input, $0.42/M output and reasoning, $0.0042/M cache read.
         step = (1000 * .14 + 2500 * .42 + 4000 * .0042) / 1_000_000
         ledger = json.loads(self.ledger.read_text())
         self.assertEqual(ledger['terminal_stop'], 'complete')
-        self.assertEqual([e['cost'] for e in ledger['events']], [step, step])
-        self.assertAlmostEqual(ledger['cost'], 2 * step)
+        self.assertEqual([e['cost'] for e in ledger['events']], [0, 0])
+        self.assertEqual([e['plan_list_cost_usd'] for e in ledger['events']], [step, step])
+        self.assertEqual(ledger['cost'], 0)
+        self.assertAlmostEqual(ledger['plan_list_cost_usd'], 2 * step)
+        self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], 0)
         self.assertEqual(ledger['invocation_reservations'][lease.lease_id]['event_ids'], ['s:m0:p0', 's:m1:p1'])
+        # The running call is still held to its maximum by its list value.
         self.assertAlmostEqual(float(budget.outstanding_reservations(ledger)), 5 - 2 * step)
+        # What the durable ledger books for the attempt: only the still-pending hold, nothing for the
+        # steps themselves, and their list value as list price.
+        usage = worker_step.usage_since({'calls': 0, 'total': Decimal(0), 'known': Decimal(0), 'list': Decimal(0)},
+                                        self.ledger, 50_000_000)
+        held = worker_step._micros_up(budget.outstanding_reservations(ledger))
+        self.assertEqual((usage.calls, usage.paid_usd_micros), (2, held))
+        self.assertEqual(usage.list_usd_micros, worker_step._micros_up(Decimal(str(ledger['plan_list_cost_usd']))))
+
+    def test_a_go_call_is_still_stopped_at_its_twin_maximum(self):
+        # Bounded per call: a Go call whose list value passes its reservation stops, as a paid one would.
+        lease = self.go_lease(funded='0.001')
+        row = self.reserve(lease)
+        big = dict(input=10_000, output=10_000, reasoning=0, cache=dict(read=0, write=0))   # $0.0056 at the twin
+        with self.assertRaises(budget.BudgetError) as stop:
+            self.run_go(lease, row, (0,), big)
+        self.assertEqual(str(stop.exception), 'usage_reservation_exceeded')
+        self.assertEqual(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'], 0)
+
+    def test_a_go_call_with_unknown_final_usage_books_no_gap(self):
+        # Its unseen tail is paid by the plan too; the whole maximum used to be booked as case money.
+        lease = self.go_lease()
+        row = self.reserve(lease)
+        receipt = dict(lease_id=lease.lease_id, final_usage_known=False, events=[], booked_event_ids=[],
+                       outcome='interrupted')
+        directory = self.root / 'usage-receipts'; directory.mkdir(exist_ok=True)
+        (directory / (lease.lease_id + '.json')).write_text(json.dumps(receipt))
+        budget.complete_invocation(self.root, self.ledger, lease.lease_id)
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(Decimal(ledger['invocation_reservations'][lease.lease_id]['estimated_gap_usd']), 0)
+        self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], 0)
+        self.assertEqual(budget.outstanding_reservations(ledger), 0)
+        self.assertNotEqual(Decimal(row['maximum_usd']), 0)
 
     def test_runtime_passes_reservation_to_real_monitor_and_settles(self):
         usage = dict(input_tokens=1, output_tokens=1, cache_read_input_tokens=0,

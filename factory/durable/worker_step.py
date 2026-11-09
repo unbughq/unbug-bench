@@ -664,6 +664,7 @@ def ledger_totals(path):
     for event in events.values():
         try:
             listed += sum(Decimal(str(v)) for v in _event_components(event)[1:])
+            listed += Decimal(str(event.get('plan_list_cost_usd', 0)))   # a Go plan step's list value
         except Exception:
             pass
     calls = ledger.get("calls", 0)
