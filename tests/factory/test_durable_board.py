@@ -102,6 +102,16 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(self.systemctl_calls, 1)          # one controller read covers every batch
         self.assertEqual(self.before, self.ledger.rows())  # nothing written
 
+    def test_money_rebooked_as_waste_leaves_the_case_on_the_board_as_in_the_ledger(self):
+        # A factory_bug resume rebooks the diagnosed step's money (SqlLedger.book_waste): the board
+        # must show it as waste and not as the case's, the same as the ledger's own case balance.
+        self.assertTrue(self.ledger.book_waste('case-alpha/1/admit/1', 'factory_bug'))
+        alpha = self.read()['cases'][0]
+        self.assertEqual(alpha['spend_usd_micros'], {'spent': 3 * M, 'held': 5 * M, 'waste': 3 * M,
+                                                    'case_used': 5 * M, 'list_price': 6 * M, 'calls': 5})
+        self.assertEqual(alpha['spend_usd_micros']['case_used'],
+                         self.ledger.case_balance('b-live', 'case-alpha', 50 * M)['used'])
+
     def test_board_follows_the_records_instead_of_going_stale(self):
         first = self.read()['cases'][0]
         self.cards['case-alpha'].update(status='sealed', stage='sealed', hard=False, passed=[f'G{i}' for i in range(1, 18)])
