@@ -613,7 +613,10 @@ class RouterTests(unittest.TestCase):
              patch.object(router,'SECRETS',secrets),patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
             runtime.call(c,[model],'',c.case,'builder-quota')
         self.assertEqual(seen,['opencode-go-key','opencode-go-key-2'])
-        self.assertTrue(all(not row.get('blocked_until') for row in self.store.rpc('status',{})['health'].values()))
+        # 8 November: a Go account's usage limit covers the whole account, so it is published and
+        # blocks only that account until its reset; the other account stays open.
+        health=self.store.rpc('status',{})['health']
+        self.assertEqual({k:v['reason'] for k,v in health.items() if v.get('blocked_until')},{'opencode-go-key':'quota'})
 
     def test_claude_retry_metadata_switches_shared_account(self):
         from test_budget import emit

@@ -216,6 +216,9 @@ provider and its one model only, no outside config and no self-update. A calibra
 since behind the wall it reaches only a gate's port: it takes its chain's next bounded route, and a chain
 with none (GLM and MiniMax free today) is refused up front as `unbounded_route`. A full or failing free
 lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenRouter).
+A usage-limit (quota) failure on an OpenCode Go account is published as that account's router health
+block until its reset, even when it came from an unstructured CLI line, so later calls skip the exhausted
+account instead of retrying it per call.
 
 Codex (`codex/gpt-6.1-sol`, the strong calibrator's other family) has no gate either. Its lease
 maximum is $50 at the Codex list price (`CODEX_PROFILES`), lowered by funding. The runtime reads Codex's
