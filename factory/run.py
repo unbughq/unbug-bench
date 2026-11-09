@@ -2096,15 +2096,36 @@ def stop_pilot(c, user):
 
 
 
+PILOT_TEARDOWN_S = 300   # its own window: the diagnosis may have used its step's whole deadline
+
+
+def release_pilot_home(c, home):
+    """Unmount a diagnosis pilot's tmpfs home (make_pilots), then remove what is left on disk.
+    Nothing of a pilot's home survives into the next pilot: a mount that stays is an error."""
+    if sh(c, ["sudo", "mountpoint", "-q", "--", home]) == 0:
+        sh(c, ["sudo", "umount", "--", home], check=True)
+    shred_tree(home, sudo=True)
+    if sh(c, ["sudo", "mountpoint", "-q", "--", home]) == 0:
+        raise RuntimeError("pilot home still mounted")
+
+
 def dispose_diagnosis_pilot(c):
-    """Each stage's failure carries its name (cleanup_stage) for the diagnosis cleanup stop."""
+    """Each stage's failure carries its name (cleanup_stage) for the diagnosis cleanup stop.
+
+    22e434-3r2 (9 November) stopped infra:dcf_pilot_home_timeout: the home's shred ran in what was
+    left of the diagnosis step's deadline. Teardown now has its own window and cancellation does
+    not reach it, and the diagnosis home is a tmpfs that is unmounted rather than shredded."""
+    import copy, processes
+    cleanup = copy.copy(c)
+    cleanup.role_cancel = None
     stage = 'pilot_stop'
     try:
-        present = stop_pilot(c, 'pilot')
-        stage = 'pilot_wall'; pilot_wall(c, 'pilot', None, remove=True)
-        stage = 'pilot_home'; shred_tree(pilot_home('pilot'), sudo=True)
-        stage = 'pilot_userdel'
-        if present: sh(c, ['sudo', 'userdel', 'pilot'], check=True)
+        with processes.deadline(PILOT_TEARDOWN_S, independent=True):
+            present = stop_pilot(cleanup, 'pilot')
+            stage = 'pilot_wall'; pilot_wall(cleanup, 'pilot', None, remove=True)
+            stage = 'pilot_home'; release_pilot_home(cleanup, pilot_home('pilot'))
+            stage = 'pilot_userdel'
+            if present: sh(cleanup, ['sudo', 'userdel', 'pilot'], check=True)
     except Exception as error:
         failure = RuntimeError('pilot disposal failed')
         failure.cleanup_stage, failure.cleanup_error = stage, type(error).__name__
@@ -2121,9 +2142,16 @@ def make_pilots(c, identities, concurrent, *, diagnosis=False):
         # homes. A later repair or interrupted attempt must not reuse live sessions.
         sh(c, ["sudo", "pkill", "-KILL", "-u", user])
         pilot_wall(c, user, slot, remove=True)
-        shred_tree(home, sudo=True)
+        release_pilot_home(c, home)   # refuses a leftover home that is still mounted
         sh(c, ["sudo", "userdel", user])
         sh(c, ["sudo", "useradd", "-m", "-s", "/bin/bash", user], check=True)
+        if diagnosis:
+            # A memory-backed home: teardown is an unmount, however much the diagnosis wrote.
+            import pwd
+            entry = pwd.getpwnam(user)
+            sh(c, ["sudo", "mount", "-t", "tmpfs", "-o",
+                   f"mode=0700,size=2g,nodev,nosuid,uid={entry.pw_uid},gid={entry.pw_gid}",
+                   "tmpfs", home], check=True)
         for d in (() if diagnosis else (".config/opencode", ".local/share/opencode/auth.json")):
             if (HOME / d).exists(): sh(c, ["sudo", "cp", "-a", "--parents", d, home], cwd=HOME, check=True)
         sh(c, ["sudo", "chown", "-R", f"{user}:{user}", home], check=True)
