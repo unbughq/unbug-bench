@@ -102,6 +102,9 @@ class FreeRoutes(unittest.TestCase):
             self.assertEqual(runtime_prices(go), runtime_prices(twin))
             self.assertEqual({r['account'] for r in model_router.routes(go) if r['route'] == go}, {'opencode-go-key', 'opencode-go-key-2'})
             self.assertEqual({r['billing'] for r in model_router.routes(go) if r['route'] == go}, {'subscription'})
+        # Muse is bounded on both routes, so a case whose October writer is Muse (86b100) can run again.
+        for route in ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'):
+            self.assertGreater(model_router.route_maximum(route)['max_usd'], 0)
         # OpenCode books each Go step at the twin's list price, not its own figure.
         with patch.dict('os.environ', {}, clear=False):
             config = json.loads(model_runtime.opencode_config('opencode-go/mimo-v2.6-pro').read_text())
@@ -157,10 +160,11 @@ class FreeRoutes(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), ['opencode/glm-5.3-flash-free'], 'x', '/', name, user=user)
                 self.assertEqual(len(seen.pop()[1]), 3)
-                # A Go-only chain (Muse's Go route is unbounded) has nothing behind the wall: refused, not slept on.
-                with self.assertRaises(model_router.ProviderWait) as stop:
+                # Muse (86b100's writer) keeps only its gated OpenRouter route behind the wall: never the Go plan.
+                with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), ['opencode-go/muse-spark-1.3-contributor'], 'x', '/', name, user=user)
-                self.assertEqual(stop.exception.wait.reason, 'unbounded_route')
+                muse = 'opencode-go/muse-spark-1.3-contributor'
+                self.assertEqual(seen.pop()[1], ('opencode-go-key/' + muse, 'opencode-go-key-2/' + muse))
             # An unwalled role still gets the free lane.
             with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                 runtime._call(SimpleNamespace(card={}), [FREE], 'x', '/', 'attacker-1')

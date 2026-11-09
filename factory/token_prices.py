@@ -10,11 +10,6 @@ CODEX_PRICES = {"codex/gpt-6.1-sol": (2.0, 0.10, 10.0)}  # input, cached input, 
 CLAUDE_PRICES = {"claude/claude-opus-5-5": (4.0, 0.20, 8.0, 20.0),
                  "claude/claude-opus-4-5-20251101": (5.0, 0.5, 10.0, 25.0)}
 
-# These are the existing runtime's pinned overrides, not new provider quotes.
-PAID_PRICES = {'openrouter/meta/muse-spark-1.3-contributor': (.10, .20, .002, .10)}
-PAID_PRICES['opencode-go/muse-spark-1.3-contributor'] = PAID_PRICES['openrouter/meta/muse-spark-1.3-contributor']
-
-
 # OpenRouter endpoint quotes and primary limit contracts, checked 2026-10-30.
 # Full source records: tests/factory/fixtures/router-cheap-{price-records,source-evidence}.json.gz.
 # Output holds deliberately exceed the requested cap; reasoning mapping is not assumed.
@@ -32,6 +27,11 @@ GATED_OPENROUTER = {
     'openrouter/z-ai/glm-5.3-flash': dict(endpoint='deepinfra/fp4',
         prices=('0.15', '0.03', '0.5'), context=1048576, output=943718, windows=2,
         cache_write='0', source_date='2026-11-06'),
+    # OpenRouter /api/v1/models/meta/muse-spark-1.3-contributor/endpoints, read 2026-11-09: one endpoint,
+    # Meta (meta/muse-spark-1.3-contributor-20260902), $0.10 in / $0.002 cache read / $0.20 out, no cache write.
+    'openrouter/meta/muse-spark-1.3-contributor': dict(endpoint='meta',
+        prices=('0.1', '0.002', '0.2'), context=1048576, output=943718, windows=2,
+        cache_write='0', source_date='2026-11-09'),
 }
 
 
@@ -53,7 +53,8 @@ def free_maximum(route):
 GO_TWINS = {'opencode-go/deepseek-v4.1-flash': 'openrouter/deepseek/deepseek-v4.1-flash',
             'opencode-go/minimax-m3.1-flash': 'openrouter/minimax/minimax-m3.1-flash',
             'opencode-go/mimo-v2.6-pro': 'openrouter/xiaomi/mimo-v2.6-pro',
-            'opencode-go/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash'}
+            'opencode-go/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash',
+            'opencode-go/muse-spark-1.3-contributor': 'openrouter/meta/muse-spark-1.3-contributor'}
 GO_ROUTES = frozenset(GO_TWINS)
 
 
@@ -100,7 +101,7 @@ def runtime_prices(route):
     if route in GATED_OPENROUTER:
         incoming, cached, outgoing = map(float, GATED_OPENROUTER[route]['prices'])
         return dict(input=incoming, output=outgoing, cache_read=cached, cache_write=0)
-    return dict(zip(('input', 'output', 'cache_read', 'cache_write'), PAID_PRICES[route]))
+    raise KeyError(route)
 
 
 def invocation_maximum(model, bounds):
@@ -128,7 +129,6 @@ def invocation_maximum(model, bounds):
         rates = max(incoming, cached, written), outgoing
     elif model in GATED_OPENROUTER:
         prices = GATED_OPENROUTER[model]['prices']; rates = prices[0], prices[2]
-    elif model in PAID_PRICES: rates = PAID_PRICES[model][:2]
     elif isinstance(model, str) and model.endswith(('-free', ':free')): rates = (0, 0)
     else: return None
     maximum = bounds['requests'] * (bounds['input_tokens'] * Decimal(str(rates[0]))
