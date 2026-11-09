@@ -1076,6 +1076,23 @@ class Resume(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
         self.assertEqual(start(r, f"{C1}/4/writer:2/3")["opened"]["snapshot"], f"snapshot {C1}/4/writer:2/2")
 
+    def test_a_factory_bug_resume_names_the_diagnosed_attempts_as_waste(self):
+        # Their money was lost to our own bug: runtime.start books it as waste (ledger.book_waste)
+        # before it counts what the case used. A resume after an infra stop names nothing.
+        r, out = run(self.FACTORY_BUG)
+        self.addCleanup(r.close)
+        self.resume(r)
+        self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()),
+                         [f"{C1}/4/writer:2/1", f"{C1}/4/writer:2/2"])
+        r2, _ = run(self.STOPPED)
+        self.addCleanup(r2.close)
+        self.resume(r2, {"1/diagnosis/4": {"verdict": "close_to_passing"}})
+        self.assertEqual(json.loads((r2.work / "waste-keys.json").read_text()), [])
+        r3, _ = run({**self.STOPPED, "script": {**self.STOPPED["script"], "1/diagnosis/*": {"verdict": "not_converging"}}})
+        self.addCleanup(r3.close)
+        self.resume(r3)
+        self.assertEqual(json.loads((r3.work / "waste-keys.json").read_text()), {"refused": "resume:not_stopped_by_infra"})
+
     def test_factory_bug_resumes_count_across_the_lineage(self):
         r, out = run(self.FACTORY_BUG)
         self.addCleanup(r.close)

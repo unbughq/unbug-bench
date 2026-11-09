@@ -329,6 +329,18 @@ MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many 
 
 
 def resume_point(case_id: str) -> dict:
+    """Where a case stopped by an infrastructure failure continues (_resume_point)."""
+    return _resume_point(case_id)[0]
+
+
+def factory_bug_waste_keys(case_id: str) -> list:
+    """The idempotency keys of the attempts a factory_bug diagnosis found lost to our own bug: every
+    recorded attempt of the diagnosed step, when the case resumes after such a diagnosis, else none.
+    Their money is waste, never the case's (ledger.book_waste with reason factory_bug)."""
+    return _resume_point(case_id)[1]
+
+
+def _resume_point(case_id: str) -> tuple:
     """Where a case stopped by an infrastructure failure continues, from its recorded attempts.
 
     The case keeps its ID, so its key, artifacts, snapshot card and admission binding stay valid;
@@ -378,6 +390,7 @@ def resume_point(case_id: str) -> dict:
         for k, steps in r.get("renumber", {}).items():
             for name, n in steps.items():
                 renumber.setdefault(int(k), {})[name] = max(renumber.get(int(k), {}).get(name, 0), n)
+    waste_keys = []
     if not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
         # The diagnosed step is the one that ran last at seq - 1. A factory_bug resume can give that
         # seq to a new step while an older diagnosis there kept higher-numbered attempts; those belong
@@ -402,6 +415,7 @@ def resume_point(case_id: str) -> dict:
             raise ContractError("resume:factory_bug_resumes_exhausted")
         # A later diagnosis at that seq numbers its attempts after this one, so its key is new.
         renumber[seq] = {StepKind.DIAGNOSIS.value: max(renumber.get(seq, {}).get(StepKind.DIAGNOSIS.value, 0), attempt)}
+        waste_keys = [attempts[(seq - 1, a)].workflow_id for a in diagnosed]
         seq, attempt, factory_bug_resumes = seq - 1, diagnosed[-1], factory_bug_resumes + 1
     skip = {}
     for r in earlier:
@@ -411,9 +425,9 @@ def resume_point(case_id: str) -> dict:
         # diagnosis after an infra stop): the steps that now take those seqs never ran there.
         skip = {k: v for k, v in skip.items() if k < seq}
     skip[seq] = max(skip.get(seq, 0), attempt)
-    return {"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())},
-            "factory_bug_resumes": factory_bug_resumes,
-            "renumber": {str(k): v for k, v in sorted(renumber.items())}}
+    return ({"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())},
+             "factory_bug_resumes": factory_bug_resumes,
+             "renumber": {str(k): v for k, v in sorted(renumber.items())}}, waste_keys)
 
 
 # ---- the attempt workflow ------------------------------------------------------------------------
@@ -1602,6 +1616,10 @@ class Engine:
         if decision:
             DBOS.register_queue(decision_queue(spec.batch_id), global_concurrency=1,
                                 polling_interval_sec=self.timing.queue_poll_s, on_conflict="always_update")
+
+    def factory_bug_waste_keys(self, case_id: str) -> list:
+        """See the module function: what a resume of this case books as waste first."""
+        return factory_bug_waste_keys(case_id)
 
     def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None,
                     resume_of: Optional[str] = None):

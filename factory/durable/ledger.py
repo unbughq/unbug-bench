@@ -48,6 +48,21 @@ ATTEMPTS = sa.Table(
     sa.Index("durable_ledger_attempt_case", "batch_id", "case_id"),
 )
 
+# Money a settled attempt spent that was later found lost to our own infrastructure, booked
+# as waste after the fact (book_waste). A separate table, not an edit of the attempt row: the
+# row stays exactly as settle() wrote it, so a repeated settle() stays idempotent, and
+# create_all adds the table to a live database without a migration.
+REBOOKED = sa.Table(
+    "durable_ledger_rebooked_waste", _META,
+    sa.Column("idempotency_key", sa.String(256), sa.ForeignKey("durable_ledger_attempt.idempotency_key"),
+              primary_key=True),
+    sa.Column("reason", sa.String(32), nullable=False),
+)
+# Why money was rebooked. factory_bug: a diagnosis found the step stopped on our own bug, so
+# the money its attempts spent was lost to us, not used by the case. (Infra errors, router
+# outages and calls cut by our restarts already settle as waste: policy.settles_as_waste.)
+WASTE_REASONS = frozenset({"factory_bug"})
+
 
 def _make_engine(url: str) -> sa.Engine:
     parsed = sa.engine.make_url(url)
@@ -121,22 +136,25 @@ class SqlLedger:
     def _batch_sums(conn, batch_id: str) -> tuple[int, int, int]:
         """(held, spent, waste) of one batch."""
         a = ATTEMPTS.c
+        is_waste = sa.or_(a.waste, a.idempotency_key.in_(sa.select(REBOOKED.c.idempotency_key)))
         held = sa.func.coalesce(sa.func.sum(sa.case((a.state == HELD, a.granted_usd_micros), else_=0)), 0)
         spent = sa.func.coalesce(sa.func.sum(sa.case((a.state == SETTLED, a.paid_usd_micros),
                                                      (a.state == LOST, a.granted_usd_micros), else_=0)), 0)
-        waste = sa.func.coalesce(sa.func.sum(sa.case((sa.and_(a.state == SETTLED, a.waste), a.paid_usd_micros),
+        waste = sa.func.coalesce(sa.func.sum(sa.case((sa.and_(a.state == SETTLED, is_waste), a.paid_usd_micros),
                                                      (a.state == LOST, a.granted_usd_micros), else_=0)), 0)
         row = conn.execute(sa.select(held, spent, waste).where(a.batch_id == batch_id)).one()
         return int(row[0]), int(row[1]), int(row[2])
 
     @staticmethod
     def _case_used(conn, batch_id: str, case_id: str) -> int:
-        """The case's own money in use: holds and non-waste spend of steps that draw on it."""
+        """The case's own money in use: holds and non-waste spend of steps that draw on it. Money
+        rebooked as waste (book_waste) is the batch's, not the case's."""
         a = ATTEMPTS.c
         used = sa.func.coalesce(sa.func.sum(sa.case((a.state == HELD, a.granted_usd_micros),
                                                     (a.state == SETTLED, a.paid_usd_micros), else_=0)), 0)
-        return int(conn.execute(sa.select(used).where(a.batch_id == batch_id, a.case_id == case_id,
-                                                      a.draws_case_money, sa.not_(a.waste))).scalar_one())
+        return int(conn.execute(sa.select(used).where(
+            a.batch_id == batch_id, a.case_id == case_id, a.draws_case_money, sa.not_(a.waste),
+            a.idempotency_key.not_in(sa.select(REBOOKED.c.idempotency_key)))).scalar_one())
 
     def _row(self, conn, key: str):
         return conn.execute(sa.select(ATTEMPTS).where(ATTEMPTS.c.idempotency_key == key)).one_or_none()
@@ -240,6 +258,34 @@ class SqlLedger:
                          .values(state=state, waste=waste, calls=usage.calls, paid_usd_micros=usage.paid_usd_micros,
                                  list_usd_micros=usage.list_usd_micros))
 
+    def book_waste(self, idempotency_key: str, reason: str) -> bool:
+        """Rebook a settled attempt's spend as waste: our own infrastructure lost it, so it leaves
+        the case's money. It stays in the batch's spent and still counts against the bound, as all
+        waste does. Idempotent on the key. Returns True when this call moved money; False when the
+        attempt was already waste (settled with waste=True, lost, or rebooked), drew no case money,
+        or never reserved (it spent nothing). A held attempt is refused: book its settle first."""
+        _key(idempotency_key)
+        if reason not in WASTE_REASONS:
+            raise LedgerError("unknown waste reason")
+        with self._engine.connect() as conn:
+            batch_id = conn.execute(sa.select(ATTEMPTS.c.batch_id)
+                                    .where(ATTEMPTS.c.idempotency_key == idempotency_key)).scalar_one_or_none()
+        if batch_id is None:
+            return False
+        with self._engine.begin() as conn:
+            self._lock_batch(conn, batch_id)
+            row = self._row(conn, idempotency_key)
+            if row.state == HELD:
+                raise LedgerError("attempt is still held")
+            if row.state == LOST or row.waste or not row.draws_case_money:
+                return False
+            booked = conn.execute(sa.select(REBOOKED.c.reason)
+                                  .where(REBOOKED.c.idempotency_key == idempotency_key)).scalar_one_or_none()
+            if booked is not None:
+                return False
+            conn.execute(REBOOKED.insert().values(idempotency_key=idempotency_key, reason=reason))
+            return True
+
     # ---- reads -------------------------------------------------------------------------------
 
     def balance(self, batch_id: str) -> dict:
@@ -263,8 +309,10 @@ class SqlLedger:
         return {"used": used, "remaining": max(0, case_limit_usd_micros - used)}
 
     def rows(self) -> dict:
-        """Both tables in key order, as plain values (for replay comparison and audit)."""
+        """Every table in key order, as plain values (for replay comparison and audit)."""
         with self._engine.connect() as conn:
             return {"batches": [tuple(r) for r in conn.execute(sa.select(BATCHES).order_by(BATCHES.c.batch_id))],
                     "attempts": [tuple(r) for r in conn.execute(sa.select(ATTEMPTS)
-                                                                 .order_by(ATTEMPTS.c.idempotency_key))]}
+                                                                 .order_by(ATTEMPTS.c.idempotency_key))],
+                    "rebooked": [tuple(r) for r in conn.execute(sa.select(REBOOKED)
+                                                                 .order_by(REBOOKED.c.idempotency_key))]}
