@@ -180,12 +180,14 @@ class Guard:
                  ours: Callable, count: Callable, delete: Callable, notify: Optional[Callable] = None,
                  router: Optional[Callable] = None, low_credit_usd: float = LOW_CREDIT_USD,
                  grace_s: float = GRACE_S, escalate_s: float = ESCALATE_S,
-                 checkpoint_grace_s: float = CHECKPOINT_GRACE_S, clock=time.time, sleep=time.sleep):
+                 checkpoint_grace_s: float = CHECKPOINT_GRACE_S, clock=time.time, sleep=time.sleep,
+                 preflight: Optional[Callable] = None):
         self.request, self.directory = request, Path(directory)
         self.boat, self.rpc, self.service, self.ours, self.count = boat, rpc, service, ours, count
         self.delete, self.checkpoint_grace_s, self.router = delete, checkpoint_grace_s, router
         self.low_credit_usd = low_credit_usd
         self.notify = notify
+        self.preflight = preflight   # preflight.py: advance warnings; they alert, never degrade
         # A campaign watches one batch (batch_id) or several started side by side (batch_ids).
         self.batches = list(request.get("batch_ids") or [request["batch_id"]])
         self.grace_s, self.escalate_s = grace_s, escalate_s
@@ -470,9 +472,18 @@ class Guard:
             health["phase"] = "degraded"   # after the marker: a stall alerts, it pauses nothing
         if self.evidence:
             self.save("evidence.json", (self.load("evidence.json", []) + self.evidence)[-EVIDENCE_KEPT:])
+        health["warnings"] = self._warnings(health, now)
         self._alerts(health, now)
         self.save("status.json", health)
         return health
+
+    def _warnings(self, health: dict, now: float) -> dict:
+        if self.preflight is None or health["hard_stop"] or health["finished"]:
+            return {}
+        try:
+            return self.preflight(now)
+        except Exception:   # preflight never raises by design; this keeps a bug in it harmless
+            return {"preflight:unknown": "Could not check the known limits ahead. They are unknown."}
 
     # -- alerts: one message per condition, while it lasts --
 
@@ -507,6 +518,7 @@ class Guard:
         if credit is not None and credit < self.low_credit_usd:
             out["provider_credit"] = (f"Provider account credit is ${credit:.2f}, below ${self.low_credit_usd:.0f}. "
                                       "Top it up before calls start being refused.")
+        out.update(health.get("warnings") or {})
         for case in self.load("scorecard.json", {}).get("cases", []):
             if not isinstance(case, dict):
                 continue
