@@ -84,9 +84,12 @@ def _numbers(value):
 
 def cleanup_errors(card):
     """Fixed operational labels only; paths and exception messages stay sealed."""
-    stages={'model_scratch','model_process','model_join','model_containment','lease_finish'}
+    from durable.classify import CLEANUP_STAGES
+    stages={'model_scratch','model_process','model_join','model_containment','lease_finish',
+            *('diagnosis_'+stage for stage in CLEANUP_STAGES)}   # diagnosis_invocation.invoke
     errors={'TimeoutExpired','TimeoutError','CalledProcessError','PermissionError','FileNotFoundError',
-            'OSError','RuntimeError','RouterUnavailable','BudgetError','containment_unavailable','cancellation_failed'}
+            'OSError','RuntimeError','RouterUnavailable','BudgetError','ValueError',
+            'containment_unavailable','cancellation_failed'}
     rows=card.get('cleanup_errors',[]) if isinstance(card,dict) else []
     if not isinstance(rows,list):return []
     return [{'stage':row['stage'],'error':row['error']} for row in rows[:32]
