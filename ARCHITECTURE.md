@@ -79,7 +79,9 @@ Images may supply `~/bench-source/prepare.py` to verify their bound public sourc
 and prune obsolete files restored by a snapshot overlay. This runs before release
 qualification and key delivery; changed source fails preparation.
 The control units and setup script live under `control/`. ADMIT reuses the existing
-selector, registry, freshness and idea-realism screens. DIAGNOSIS uses the existing
+selector, registry, freshness and idea-realism screens. Unless INPUTS pins `rotation_slot`
+or models, a new case's rotation slot cycles by the count of other cases on the registry
+board, which batches carry forward, so one-case batches still rotate. DIAGNOSIS uses the existing
 review contract through an isolated pilot user. These paths passed combined offline
 qualification; live worker qualification remains before replacing the production
 release.
