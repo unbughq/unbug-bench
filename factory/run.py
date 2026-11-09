@@ -699,7 +699,11 @@ def statement_precheck(c):
     if not ok:
         c.precheck_problems = ["candidate public freshness screen failed"]
         c.card["admission"] = {"status": "rejected", "screen": "public_freshness"}; return False
-    if not idea_realism(c) and realism_second_opinion(c):
+    # Founder 2026-11-09: a recertified case was built and passed G9 (realism of the built case);
+    # the pre-build idea screen re-judges that question from the statement alone, so it is skipped.
+    if c.card.get("recertify"):
+        c.card["idea_realism"] = {"approve": True, "carried_from": "G9"}
+    elif not idea_realism(c) and realism_second_opinion(c):
         c.precheck_problems = ["candidate idea realism review failed"]
         c.card["admission"] = {"status": "rejected", "screen": "idea_realism"}; return False
     c.card["admission"] = {"status": "passed"}

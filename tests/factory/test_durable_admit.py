@@ -655,7 +655,9 @@ class AdmitTests(unittest.TestCase):
         check_result_for(step_input.step, result)
         # Fresh search evidence here; expired evidence would top up with the writer and stress tester.
         self.assertFalse(any(name.startswith("builder") for name in self.calls))
-        self.assertIn("reviewer-idea-realism", self.calls)   # admission's screens still run
+        # Dedup and freshness still run; idea realism is skipped, since the built case passed G9.
+        self.assertNotIn("reviewer-idea-realism", self.calls)
+        self.assertFalse(any("second-opinion-idea-realism" in name for name in self.calls))
         work, c = self.restore(step_input, result, outputs)
         self.assertEqual((c.card["gates"], c.card["failed_gate"]), ({}, None))
         self.assertEqual(c.card["models"]["builder"], ["openrouter/minimax/minimax-m3.1-flash"])
@@ -666,6 +668,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["recertify"], {"case": old, "routes": {"easy_calibrator": "openrouter/z-ai/glm-5.3-flash"},
                                                "gate_results": {"G5": {"reference": "solved"}, "G13": {"ok": True}}})
         self.assertIs(c.card["imported_from"]["recertify"], True)
+        self.assertEqual(c.card["idea_realism"], {"approve": True, "carried_from": "G9"})
 
     def test_a_sealed_archive_without_its_statement_takes_the_one_the_board_holds(self):
         # 86b100: the October seal stored statement.md beside the archive, so the tar lacks it.
