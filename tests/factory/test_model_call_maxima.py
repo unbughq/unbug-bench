@@ -146,6 +146,7 @@ class MaximaTests(unittest.TestCase):
             try: return any(r['route'] in FREE_ROUTES for r in router.routes(model, router.ACCOUNTS))
             except ValueError: return False
         qualified |= {m for m in models if reaches_free(m)}
+        qualified |= GO_ROUTES   # each Go plan route is bounded at its OpenRouter twin's maximum
         for model in models:
             result = store.rpc('acquire', dict(paid_protocol=1,id=uuid.uuid4().hex, model=model, accounts=list(router.ACCOUNTS),
                 role='writer', deadline=time.time()+3600))

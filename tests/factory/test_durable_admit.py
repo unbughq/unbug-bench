@@ -700,7 +700,11 @@ class AdmitTests(unittest.TestCase):
         muse["models"]["builder"] = ["openrouter/meta/muse-spark-1.3-contributor"]
         muse["roles"]["writer"]["model"] = "openrouter/meta/muse-spark-1.3-contributor"
         archive = self.legacy_archive(old, text, writer=None, gates=muse["gates"], card_extra=muse)
-        result, _ = self.run_admit(self.import_step(self.recertify_inputs(), registry, archive))
+        # Muse (86b100's October writer) is capped since 2026-11-09, so an unbounded writer is simulated here.
+        import model_router
+        bounded = model_router.route_maximum
+        with patch.object(model_router, 'route_maximum', lambda r: None if 'muse' in r else bounded(r)):
+            result, _ = self.run_admit(self.import_step(self.recertify_inputs(), registry, archive))
         self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "router:unbounded_route"))
 
     @patch.object(__import__('model_router'), 'CHAINS', WALLED_GLM_UNBOUNDED)
