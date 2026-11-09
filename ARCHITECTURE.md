@@ -252,14 +252,16 @@ attempt replays from its key whatever case money its job now carries.
 
 A case held by a `factory_bug` diagnosis resumes the same way, but only when the diagnosed step
 stopped on a factory check rather than a scientific result (`FACTORY_BUG_RESUMABLE`: today a
-writer's `writer:unchanged_repair`). It resumes at that diagnosed step, not at the diagnosis, so
+writer's `writer:unchanged_repair` or `writer:output_capped`). It resumes at that diagnosed step, not at the diagnosis, so
 the diagnosis is not replayed. A later diagnosis at that seq numbers its attempts after it
 (`renumber`). The lineage's count of these resumes carries into the new workflow and is added
 to the case's own `factory_bug_resumes` when a diagnosis is decided, so the policy's cap of three
 covers factory_bug holds across batches. Skips an earlier resume made at or above the diagnosed
 step are dropped, since the steps that now take those seqs never ran there. A writer round keeps the case hash it started
 from in `attack-state.json` (`round_start`, bound to the round's feedback), so a retry that
-restores an interrupted call's edits is not judged an unchanged repair.
+restores an interrupted call's edits is not judged an unchanged repair. A writer reply whose last
+step stopped at the output cap applied none of its edits: the round retries that repair within its
+call cap with `output_capped` set, and only a cap on the last call ends `writer:output_capped`.
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch

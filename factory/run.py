@@ -2595,6 +2595,28 @@ def _writer_round_start(c, receipt_path, n):
     return {"case": case_hash(c), "feedback": digest}
 
 
+def _output_capped(c, name):
+    """True when the newest transcript of call `name` ended its last model step at the output cap.
+    A reply cut there applies none of its edits, so the case looks unchanged though the writer worked."""
+    folder = c.work / "transcripts"
+    runs = []
+    for path in folder.glob(f"{name}.*.jsonl") if folder.is_dir() else ():
+        stamp = path.name[len(name) + 1:-len(".jsonl")]
+        if stamp.isdigit(): runs.append((int(stamp), path))
+    if not runs: return False
+    last = None
+    for line in max(runs)[1].read_text(errors="replace").splitlines():
+        try: event = json.loads(line)
+        except ValueError: continue
+        if not isinstance(event, dict): continue
+        part, message = event.get("part"), event.get("message")
+        if event.get("type") == "step_finish" and isinstance(part, dict):
+            last = part.get("reason")
+        elif event.get("type") == "assistant" and isinstance(message, dict) and message.get("stop_reason"):
+            last = message["stop_reason"]
+    return last in ("length", "max_tokens")
+
+
 def engine_writer_round(c, n, feedback):
     """WRITER round n: today's writer call, G1 and early checks; a G1 or early-check failure goes back
     to the writer within the round, bounded by the runner's round cap."""
@@ -2611,16 +2633,27 @@ def engine_writer_round(c, n, feedback):
     receipt_path = c.work / "attack-state.json"
     requested = bool(problems or report)
     start = _writer_round_start(c, receipt_path, n)
+    capped = False
     for call in range(1, c.args.rounds + 1):
         before = start["case"] if call == 1 else case_hash(c)
         atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                    "report": f"round-{n}.json", "round_start": start, "repair_pending": True})
+        name = f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}"
+        more = {"output_capped": True} if capped else {}
         opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n,
-                 attack_report=str(report) if report else None, precheck_problems=problems)),
-                 c.case, f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}")
+                 attack_report=str(report) if report else None, precheck_problems=problems, **more)),
+                 c.case, name)
         c.card["builder_rounds"] = n
         if requested and before is not None and case_hash(c) == before:
-            return {"outcome": Outcome.EXHAUSTED, "reason": "writer:unchanged_repair"}
+            # A final reply cut at the output cap is not a refusal to repair: retry the same repair
+            # within the round's call cap, telling the writer to make smaller edits.
+            capped = _output_capped(c, name)
+            if capped and call < c.args.rounds:
+                c.card.setdefault("writer_output_capped", []).append(name)
+                continue
+            return {"outcome": Outcome.EXHAUSTED,
+                    "reason": "writer:output_capped" if capped else "writer:unchanged_repair"}
+        capped = False
         problems = g1(c)[1]["problems"] or None
         if not problems and not c.args.dry_run: problems = early_checks(c)
         if not problems:
