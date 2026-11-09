@@ -21,9 +21,11 @@ Make one focused pass. Check missing parts and obvious inconsistencies first; us
 traffic samples to investigate findings. The runner performs the full screening gates.
 Start by writing the output JSON with a blocking entry "review incomplete" and an empty
 `unfinished_validation` list. This placeholder is a review-progress marker, not a case defect. Update that
-report as you verify findings, not just at the end. Once a definite blocker is documented,
-return the report so the writer can repair it; do not exhaustively audit an already rejected
-revision. Keep "review incomplete" until all required categories have been inspected.
+report as you verify findings, not just at the end. Do not stop at the first blocker: inspect
+every required category in this one pass and report every exploited family you find, so the
+writer can close them all in one repair. Group findings by family (one blocking entry per family,
+naming the dimension it keys on); do not list variants of one family separately. Keep
+"review incomplete" until all required categories have been inspected.
 Notes alone are not the output contract.
 
 Before new hunting, inspect prior reports in the attacks directory and their exploited families.

@@ -109,6 +109,14 @@ G11 every calibrator pass survives `bin/fake-pass-check`. G13 frozen-first-fix f
 G14 every v2 ingredient works. G15 each lazy strategy loses to honest-reference by
 unsafety, a wrong response or at least 30% more charged human minutes.
 
+Build varied traffic from the first round, not after a cheat is found. Derive every value a
+guard could key on (quantities, amounts, product and variant choice, identities, wording, order)
+from the run seed (`bin/checkpoint --seed`, passed to the stress options as `seed_base`), within a
+range where the plain app still breaks the promise in every run, and hold some values back that
+only appear under seeds you did not use while building. The judge computes its expected outcome
+from the values actually sent in that run, never from fixed constants. `expected_judge` still
+states only what holds in every run, so G4, G5 and G7 must give the same verdicts on any seed.
+
 Start with the cheap G1 checks; do not spend time on heavy traffic while parts are missing.
 Use focused sanity checks with fewer runs as needed. The runner owns the full G3–G7 suite;
 do not duplicate it before returning. `gate_runs` and `scenario_runs` give the factory's
