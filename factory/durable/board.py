@@ -22,6 +22,9 @@ from typing import Optional
 # Statuses that end a case: nothing more will happen to it in its batch.
 FINAL = ("sealed", "retired", "not_admitted", "stopped_admission", "engine_error")
 LIVE_WORKFLOW = ("PENDING", "ENQUEUED")
+# A batch workflow in one of these states has ended. Any other value, including an unread
+# one, is not evidence that it ended, so its unfinished cases stay on the live board.
+ENDED_WORKFLOW = ("SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED")
 
 
 def _ledger(config) -> tuple[list[str], dict]:
@@ -86,7 +89,7 @@ def _row(batch: str, batch_workflow: Optional[str], case: dict, money: dict, now
                         if previous else None),
         'worker': context.get('worker', {}).get('state', 'unavailable'),
         'batch_workflow': batch_workflow or 'UNKNOWN',
-        'live': (batch_workflow in LIVE_WORKFLOW) and case['status'] not in FINAL,
+        'live': batch_workflow not in ENDED_WORKFLOW and case['status'] not in FINAL,
     }
     if 'hard' in case:
         row['hard'] = case['hard']
@@ -125,7 +128,11 @@ def read_board(config, *, client=None, live_only: bool = False, now: Optional[fl
             except Exception:
                 board['unavailable'].append(batch)
                 continue
-            workflow = seen['observation'].get('workflow', {}).get('status')
+            missing = seen['observation'].get('unavailable', [])
+            # observe() reports a failed workflow read here instead of raising: keep the batch
+            # state unknown and say so, rather than reading the gap as an ended batch.
+            board['unavailable'] += [f'{batch}:{section}' for section in missing if section == 'workflows']
+            workflow = None if 'workflows' in missing else seen['observation'].get('workflow', {}).get('status')
             for case in seen['cases']:
                 board['cases'].append(_row(batch, workflow, case, money, at))
     except Exception:
@@ -176,7 +183,15 @@ def render_board(board: dict) -> str:
         gates = ' '.join(r['gates_passed']) or '-'
         if r['failed_gate']:
             gates += f" ({r['failed_gate']} failed)"
-        status = r['status'] + (f" ({r['reason']})" if r['reason'] else '') + ('' if r['live'] or r['status'] in FINAL else ' [batch ended]')
+        if r['status'] in FINAL:
+            note = ''
+        elif r.get('batch_workflow') in ENDED_WORKFLOW:
+            note = ' [batch ended]'
+        elif r.get('batch_workflow') not in LIVE_WORKFLOW:
+            note = ' [batch state unknown]'
+        else:
+            note = ''
+        status = r['status'] + (f" ({r['reason']})" if r['reason'] else '') + note
         table.append((r['case'], status, r['stage'], str(r['writer_round']), gates,
                       money(r['spend_usd_micros']['spent']), stamp(r['last_event_at']), ago(r['quiet_for_s'])))
     widths = [max(len(row[i]) for row in table) for i in range(len(header))]

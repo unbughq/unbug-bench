@@ -58,7 +58,7 @@ class ClientTests(unittest.TestCase):
                  'cases': [{'batch': 'b-x', 'case': 'case-one', 'status': 'running', 'stage': 'writer:2',
                             'writer_round': 2, 'gates_passed': ['G1'], 'failed_gate': None, 'reason': None,
                             'spend_usd_micros': {'spent': 2_000_000, 'held': 0, 'waste': 0}, 'last_event_at': 900,
-                            'quiet_for_s': 100, 'live': True}]}
+                            'quiet_for_s': 100, 'batch_workflow': 'PENDING', 'live': True}]}
         self.response.write_text(json.dumps(board))
         code, out, err = self.call('board', '--live')
         self.assertEqual((code, err), (0, ''))

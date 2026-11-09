@@ -136,6 +136,30 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(board['unavailable'], ['ledger'])
         self.assertNotIn('private', json.dumps(board))
 
+    def test_an_unread_batch_workflow_is_unknown_not_ended(self):
+        client = self.client(); rows = client.list_workflows
+        def flaky(workflow_ids=None, **kwargs):
+            if workflow_ids == ['b-live']:
+                raise TimeoutError('observability query timed out')
+            return rows(workflow_ids=workflow_ids, **kwargs)
+        client.list_workflows = flaky
+        with patch('durable.observation._controller', return_value={'state': 'active'}):
+            board = read_board(self.config, client=client, now=10_000)
+            live = read_board(self.config, client=client, now=10_000, live_only=True)
+        alpha = next(r for r in board['cases'] if r['case'] == 'case-alpha')
+        self.assertEqual((alpha['batch_workflow'], alpha['live']), ('UNKNOWN', True))
+        self.assertEqual((board['live'], board['unavailable']), (1, ['b-live:workflows']))
+        self.assertEqual([r['case'] for r in live['cases']], ['case-alpha'])
+        text = render_board(board)
+        self.assertIn('[batch state unknown]', text)
+        self.assertNotIn('batch ended', text)
+        self.assertIn('b-live:workflows', text)
+        self.workflows['b-live'].status = 'SUCCESS'   # a batch that really ended is still shown as ended
+        with patch('durable.observation._controller', return_value={'state': 'active'}):
+            ended = read_board(self.config, client=self.client(), now=10_000)
+        self.assertIn('[batch ended]', render_board(ended))
+        self.assertEqual(ended['live'], 0)
+
     def test_campaign_script_reads_the_campaign_config(self):
         import campaign_board
         dsn = self.root / 'dsn'; dsn.write_text(self.config['database_url'] + '\n')
