@@ -206,6 +206,8 @@ class RouterUnavailable(RuntimeError):
 
 PAID_CEILING = 11_630_000_000
 CREDIT_OVERLAP = 900
+GENERATION = re.compile(r'gen-[A-Za-z0-9_-]{1,120}')
+PAID_STATES = ('pending', 'unknown', 'settled', 'reconciled')
 
 
 def _nano(value, rounding=ROUND_CEILING):
@@ -226,25 +228,54 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 
 
-def available_credit(token=None):
+def _openrouter_data(path, token, timeout=2):
     """Read-only, bounded observation. Never expose credentials/provider diagnostics."""
     if token is None: token = os.environ.get('OPENROUTER_API_KEY')
     if not token: return None
-    request = urllib.request.Request('https://openrouter.ai/api/v1/credits',
+    request = urllib.request.Request('https://openrouter.ai/api/v1/' + path,
         headers={'Authorization': 'Bearer ' + token})
     try:
         opener = urllib.request.build_opener(_NoRedirect)
-        with opener.open(request, timeout=2) as response:
+        with opener.open(request, timeout=timeout) as response:
             raw = response.read(16385)
             if len(raw) > 16384: return None
             data = json.loads(raw, parse_float=Decimal)['data']
-            credit, usage = data['total_credits'], data['total_usage']
-            if any(type(v) not in (int, Decimal) or not Decimal(v).is_finite() or v < 0 for v in (credit, usage)):
-                return None
-            value = Decimal(credit) - Decimal(usage)
-            return value if value >= 0 else None
+            return data if isinstance(data, dict) else None
     except Exception:
         return None
+
+
+def _amount(value):
+    return Decimal(value) if type(value) in (int, Decimal) and Decimal(value).is_finite() and value >= 0 else None
+
+
+def _credits(token):
+    data = _openrouter_data('credits', token)
+    if data is None: return None
+    credit, usage = _amount(data.get('total_credits')), _amount(data.get('total_usage'))
+    return None if credit is None or usage is None else (credit, usage)
+
+
+def available_credit(token=None):
+    observed = _credits(token)
+    if observed is None: return None
+    value = observed[0] - observed[1]
+    return value if value >= 0 else None
+
+
+def account_usage(token=None):
+    """Everything the provider account has been charged, across all of its keys and all time."""
+    observed = _credits(token)
+    return None if observed is None else observed[1]
+
+
+def generation_cost(generation, token=None):
+    """The provider's own charge for one generation, and the model that served it."""
+    if not isinstance(generation, str) or not GENERATION.fullmatch(generation): return None
+    data = _openrouter_data('generation?id=' + generation, token, timeout=5)
+    if data is None or data.get('id') != generation or not isinstance(data.get('model'), str): return None
+    cost = _amount(data.get('total_cost'))
+    return None if cost is None else (cost, data['model'])
 
 
 def production_database(config):
@@ -259,6 +290,12 @@ def production_database(config):
 
 def _paid_envelope(operation, data):
     fields = {'lease_id', 'request_id'} | ({'usage'} if operation == 'paid_settle' else set())
+    if operation == 'paid_settle' and isinstance(data, dict) and 'generation' in data:
+        # The provider's id for an unconfirmed call, so its real charge can be looked up later.
+        if data['generation'] is not None and (not isinstance(data['generation'], str)
+                                               or not GENERATION.fullmatch(data['generation'])):
+            raise ValueError('invalid paid request')
+        fields = fields | {'generation'}
     if (not isinstance(data, dict) or set(data) != fields or any(
             not isinstance(data[k], str) or not re.fullmatch('[a-f0-9]{32}', data[k])
             for k in ('lease_id', 'request_id'))):
@@ -269,20 +306,21 @@ def _paid_counts(db, since):
     """Total charges, and charges the provider's balance may not show yet. A settled or unknown
     request older than the credit window is already in that balance; counting it again blocked
     calls with credit to spare (7 November). An unknown row's time is when it became unknown, or
-    its lease's end for rows written before that was recorded; with neither it stays counted."""
+    its lease's end for rows written before that was recorded; with neither it stays counted.
+    A reconciled row carries a provider-derived bound below its hold, never above it."""
     total = outstanding = 0
     for hold, charge, state, settled, ended in db.execute(
             'SELECT p.hold,p.charge,p.state,p.settled_at,l.expires FROM paid_requests p LEFT JOIN leases l ON l.id=p.lease_id'):
         if (type(hold) is not int or hold < 0 or type(charge) is not int or not 0 <= charge <= hold
-                or state not in ('pending', 'unknown', 'settled') or
-                (state != 'settled' and charge != hold) or
-                (state == 'settled' and not finite(settled))):
+                or state not in PAID_STATES or
+                (state in ('pending', 'unknown') and charge != hold) or
+                (state in ('settled', 'reconciled') and not finite(settled))):
             raise ValueError('invalid paid ledger')
         total += charge
         if state == 'unknown':
             at = settled if finite(settled) else ended if finite(ended) else None
             if at is None or at >= since: outstanding += charge
-        elif state != 'settled' or settled >= since: outstanding += charge
+        elif state == 'pending' or settled >= since: outstanding += charge
     return total, outstanding
 
 
@@ -335,6 +373,8 @@ class Store:
                              'hold INTEGER, charge INTEGER, state TEXT, settled_at REAL, usage TEXT);')
             if 'seen' not in {row[1] for row in db.execute('PRAGMA table_info(requests)')}:
                 db.execute('ALTER TABLE requests ADD COLUMN seen REAL NOT NULL DEFAULT 0')
+            if 'generation' not in {row[1] for row in db.execute('PRAGMA table_info(paid_requests)')}:
+                db.execute('ALTER TABLE paid_requests ADD COLUMN generation TEXT')
             if approved_ceiling is not None:
                 # Operator configuration changes the limit, never the retained charges.
                 db.execute('BEGIN IMMEDIATE')
@@ -390,7 +430,9 @@ class Store:
                     for i, r, e in db.execute('SELECT id,route,expires FROM leases WHERE outcome IS NULL')])
                 account = db.execute('SELECT ceiling,credit FROM paid_account WHERE id=1').fetchone()
                 total, outstanding = _paid_counts(db, now - CREDIT_OVERLAP)
+                states = dict(db.execute("SELECT state,COUNT(*) FROM paid_requests GROUP BY state").fetchall())
                 result['paid'] = dict(total_usd=_dollars(total), outstanding_usd=_dollars(outstanding),
+                    unknown_requests=states.get('unknown', 0), reconciled_requests=states.get('reconciled', 0),
                     ceiling_usd=_dollars(account[0]) if account else None,
                     available_credit_usd=_dollars(account[1]) if account and account[1] is not None else None)
             elif operation == 'capacity':
@@ -545,7 +587,7 @@ class Store:
         if total + hold > ceiling or outstanding + hold > credit: return denied('credit')
         db.execute('INSERT OR REPLACE INTO paid_account VALUES (1,?,?)', (ceiling, credit))
         frozen = dict(profile, price_source=lease['price_source'])
-        db.execute('INSERT INTO paid_requests VALUES (?,?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO paid_requests (id,lease_id,route,profile,hold,charge,state,settled_at,usage) VALUES (?,?,?,?,?,?,?,?,?)',
             (data['request_id'], data['lease_id'], lease['route'], json.dumps(frozen), hold, hold, 'pending', None, None))
         return dict(granted=True)
 
@@ -557,10 +599,78 @@ class Store:
             return dict(settled=row[3] == 'settled' and row[4] == usage)
         charge = _paid_charge(json.loads(row[1]), data['usage'])
         known = charge is not None and charge <= row[2]
-        db.execute('UPDATE paid_requests SET charge=?,state=?,settled_at=?,usage=? WHERE id=?',
+        db.execute('UPDATE paid_requests SET charge=?,state=?,settled_at=?,usage=?,generation=? WHERE id=?',
             (charge if known else row[2], 'settled' if known else 'unknown', now,
-             usage if known else None, data['request_id']))
+             usage if known else None, None if known else data.get('generation'), data['request_id']))
         return dict(settled=known)
+
+    def reconcile(self, *, cost_reader=None, usage_reader=None, limit=25):
+        """Bring unknown charges down to what the provider says it charged, never above the hold.
+
+        An unknown row books its whole hold (10 November: 51 such rows made about $29 of spend that
+        never happened, and the ceiling refused calls). Two provider observations correct that:
+        1. A row whose generation id was recorded settles at that generation's own reported cost.
+        2. The account's all-time usage bounds the rest. Everything charged before the credit
+           window is in it, so unknown rows that old cost at most that usage less the
+           provider-reported costs of settled rows equally old. When the booked unknown charges
+           exceed that, each is scaled down to its share, rounded up, and marked reconciled.
+        Provider I/O runs outside the ledger transaction; nothing is ever raised or refunded on
+        the worker's word alone."""
+        with closing(sqlite3.connect(self.path, timeout=10)) as db:
+            pending = db.execute("SELECT id,generation FROM paid_requests WHERE state='unknown' "
+                                 "AND generation IS NOT NULL ORDER BY settled_at LIMIT ?", (limit,)).fetchall()
+        costs = {}
+        for identity, generation in pending if cost_reader else ():
+            try: costs[identity] = (generation, cost_reader(generation))
+            except Exception: pass
+        observed_at, usage = self.clock(), None
+        if usage_reader:
+            try:
+                value = usage_reader()
+                if value is not None: usage = _nano(value, ROUND_CEILING)
+            except Exception: pass
+        now = self.clock()
+        result = dict(generations=0, bounded=0, released_usd=_dollars(0))
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            db.execute('PRAGMA synchronous=FULL')
+            db.execute('BEGIN IMMEDIATE')
+            before, _ = _paid_counts(db, now)
+            for identity, (generation, observed) in costs.items():
+                row = db.execute('SELECT route,hold,state,generation FROM paid_requests WHERE id=?', (identity,)).fetchone()
+                if (observed is None or not row or row[2] != 'unknown' or row[3] != generation
+                        or observed[1] != row[0].partition('/')[2]
+                        or db.execute("SELECT 1 FROM paid_requests WHERE generation=? AND id!=? AND state!='unknown'",
+                                      (generation, identity)).fetchone()):
+                    continue
+                charge = _nano(observed[0], ROUND_CEILING)
+                if charge > row[1]: continue
+                db.execute("UPDATE paid_requests SET charge=?,state='settled',settled_at=COALESCE(settled_at,?),usage=? WHERE id=?",
+                    (charge, now, json.dumps(dict(cost=str(observed[0]), source='generation'), sort_keys=True), identity))
+                result['generations'] += 1
+            if usage is not None:
+                cutoff, known, pool = observed_at - CREDIT_OVERLAP, 0, []
+                for identity, charge, state, settled, ended, recorded in db.execute(
+                        'SELECT p.id,p.charge,p.state,p.settled_at,l.expires,p.usage FROM paid_requests p '
+                        'LEFT JOIN leases l ON l.id=p.lease_id'):
+                    at = settled if finite(settled) else ended if state == 'unknown' and finite(ended) else None
+                    if at is None or at >= cutoff: continue
+                    if state == 'settled':
+                        try: cost = json.loads(recorded)['cost']
+                        except (TypeError, ValueError, KeyError): continue
+                        if type(cost) in (int, float, str):
+                            try: known += _nano(cost, ROUND_FLOOR)
+                            except ValueError: pass
+                    elif state in ('unknown', 'reconciled'): pool.append((identity, charge, at))
+                booked = sum(charge for _, charge, _ in pool)
+                bound = max(0, usage - known)
+                if booked > bound:
+                    for identity, charge, at in pool:
+                        db.execute("UPDATE paid_requests SET charge=?,state='reconciled',settled_at=? WHERE id=?",
+                                   (-(-charge * bound // booked), at, identity))
+                    result['bounded'] = len(pool)
+            after, _ = _paid_counts(db, now)
+            result['released_usd'] = _dollars(before - after)
+        return result
 
 
 def router_request(url, token, operation, data, *, ca_file=None, ca_pem=None):
@@ -847,16 +957,33 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
 
+RECONCILE_SECONDS = 60
+
+
+def reconcile_forever(store, stopped=None, interval=RECONCILE_SECONDS):
+    stopped = stopped or threading.Event()
+    while not stopped.wait(interval):
+        try: store.reconcile(cost_reader=generation_cost, usage_reader=account_usage)
+        except Exception: pass  # The next pass tries again; unknown rows keep their holds meanwhile.
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, required=True)
+    parser.add_argument('--reconcile-once', action='store_true',
+                        help='reconcile unknown paid charges against the provider, print the paid status, exit')
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
-    token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
-    server = Server(('0.0.0.0', 8765), Store(production_database(config), capacities=config.get('capacities'),
+    store = Store(production_database(config), capacities=config.get('capacities'),
         accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit,
-        paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=config.get('disabled_routes', ())), token)
+        paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=config.get('disabled_routes', ()))
+    if args.reconcile_once:
+        result = store.reconcile(cost_reader=generation_cost, usage_reader=account_usage)
+        print(json.dumps(dict(result, paid=store.rpc('status', {})['paid']), sort_keys=True)); return
+    token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
+    server = Server(('0.0.0.0', 8765), store, token)
     server.enable_tls(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
+    threading.Thread(target=reconcile_forever, args=(store,), daemon=True).start()
     server.serve_forever()
 
 
