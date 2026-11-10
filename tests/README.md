@@ -15,7 +15,9 @@ python3 tests/run.py integration tools control
 python3 tests/run.py --list
 ```
 
-Scripts run in parallel, one per CPU by default. Set `-j N` or `TEST_JOBS=N` to
+Scripts run in parallel, one per CPU by default. A script listed in `SPLIT_BY_CLASS` in
+`tests/run.py` runs as one job per test class (the engine file, which starts a real engine per
+test, was 21 minutes as a single job). Set `-j N` or `TEST_JOBS=N` to
 change that, and use `-j 1` to check whether a failure only happens in parallel.
 Every suite on the host shares `TEST_SLOTS` (default: CPU count) slot locks in
 `TEST_SLOT_DIR` (default `/tmp/unbug-test-slots`), which caps total load.
