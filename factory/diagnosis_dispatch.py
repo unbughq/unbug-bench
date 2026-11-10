@@ -30,4 +30,8 @@ def reviewer(c):
 
 
 def validate(c, manifest, root, raw):
-    return d.validate_result(json.loads(raw), case=c.case_id, generation=manifest['generation'], evidence_root=root)
+    # A reviewer's result that is not JSON is an invalid result like any other, not a crash of this
+    # step (json.JSONDecodeError and UnicodeDecodeError are ValueErrors).
+    try: value = json.loads(raw)
+    except ValueError: raise d.BudgetError('diagnosis_result_invalid') from None
+    return d.validate_result(value, case=c.case_id, generation=manifest['generation'], evidence_root=root)
