@@ -61,7 +61,9 @@ def codex_usage_feed(home, user=None):
     cmd = ['bash', '-c', script, 'bash', str(home)]
     if user: cmd = ['sudo', '-n', '-H', '-u', user] + cmd
     def feed():
-        try: result = subprocess.run(cmd, capture_output=True, timeout=30)
+        # cwd='/': a walled user can't enter the runner's home; find then fails to restore its starting
+        # directory and, under pipefail, the whole read fails (10 Nov: 86b100's G16 Codex calls).
+        try: result = subprocess.run(cmd, capture_output=True, timeout=30, cwd='/')
         except (OSError, subprocess.TimeoutExpired): return None
         return result.stdout.decode(errors='replace') if result.returncode == 0 else None
     return feed
