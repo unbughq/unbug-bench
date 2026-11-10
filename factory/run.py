@@ -2792,6 +2792,19 @@ def _split_panel(c, gate):
     return bool(match) and 0 < int(match[1]) < int(match[2])
 
 
+def gate_crash_stop(card):
+    """The GATES stop for a gate that crashed: "infrastructure_exhausted:<gate>:<ErrorClass>", so the
+    attempt record names the gate and the exception (durable/classify.py turns it into g<n>:crash_<class>).
+    The card keeps the bare terminal_stop that diagnosis reads."""
+    stop = card.get("terminal_stop") or "infrastructure_exhausted"
+    crash = card.get("infrastructure_gate")
+    if stop == "infrastructure_exhausted" and isinstance(crash, dict):
+        gate, error = crash.get("gate"), crash.get("error_type")
+        if isinstance(gate, str) and isinstance(error, str) and gate and error:
+            return f"{stop}:{gate}:{error}"
+    return stop
+
+
 def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
@@ -2814,7 +2827,7 @@ def engine_gates(c):
         "reviewers_fairness", "reviewers_realism", "calibrators", "difficulty")}, sort_keys=True, default=str).encode()
     base = {"passed": passed, "receipt": receipt}
     if c.stopped or c.card.get("infrastructure_gate"):
-        return {**base, "stop": c.card.get("terminal_stop") or "infrastructure_exhausted"}
+        return {**base, "stop": gate_crash_stop(c.card)}
     failed = c.card.get("failed_gate")
     if not failed: return {**base, "outcome": Outcome.OK, "reason": "engine:gates_passed"}
     detail = c.card.get("failed_detail")

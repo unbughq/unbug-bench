@@ -824,6 +824,21 @@ class HookTests(unittest.TestCase):
             self.assertEqual(out["passed"], ("G1",))
             self.assertEqual(out.get("feedback") is not None, repairable)
 
+    def test_engine_gates_crash_stop_names_gate_and_class(self):
+        c, _ = self.context(StepKind.GATES)
+        def crashed(c):
+            c.stopped = True
+            c.card["terminal_stop"] = "infrastructure_exhausted"
+            c.card["infrastructure_gate"] = {"gate": "G3", "error_type": "CalledProcessError",
+                                             "classification": "invalid-infra", "exhausted": True}
+            c.card["gates"]["G3"] = "invalid-infra"
+        with patch.object(run, "run_gates", side_effect=crashed):
+            out = run.engine_gates(c)
+        self.assertEqual(out["stop"], "infrastructure_exhausted:G3:CalledProcessError")
+        self.assertEqual(c.card["terminal_stop"], "infrastructure_exhausted")   # diagnosis reads the bare stop
+        self.assertEqual(run.gate_crash_stop({"terminal_stop": "paused"}), "paused")
+        self.assertEqual(run.gate_crash_stop({}), "infrastructure_exhausted")
+
     def test_engine_gate_checkpoint_uses_explicit_hook_and_no_legacy_upload(self):
         c, _ = self.context(StepKind.GATES)
         c.recipient = run.FOUNDER_RECIPIENT; c.args.dry_run = False; c.args.no_early_probe = True
