@@ -74,6 +74,18 @@ def parallel_gates(c):
     return under_engine(c) and getattr(c.args, "parallel_gates", False) is True
 
 
+def parallel_attack(c):
+    """Cases admitted with parallel_attack under the engine: a stress round's category attackers
+    run together (stress_progress.run). Running cases keep the serial round."""
+    return under_engine(c) and getattr(c.args, "parallel_attack", False) is True
+
+
+def concurrent_attack(c):
+    """Snapshots wait until every category attacker of the round has joined."""
+    from durable.checkpoints import concurrent_section
+    return concurrent_section(c)
+
+
 def parallel_calibrators(c):
     # Engine snapshots are deferred to quiescent points (durable.checkpoints.concurrent_section);
     # only cases admitted with parallel_gates use it, so running cases keep their serial G10.
@@ -2496,7 +2508,7 @@ ENGINE_COST_CAP = 1e9
 ENGINE_SETTINGS = ("rounds", "runs", "scenario_runs", "pilot_tries", "pilot_runs", "calibrator_minutes",
                    "max_role_calls", "max_total_calls", "no_progress_minutes", "max_zero_tokens",
                    "agent_timeout", "max_repairs", "bench_workers", "concurrent_roles", "no_early_probe",
-                   "parallel_gates")
+                   "parallel_gates", "parallel_attack")
 # The CASE_SNAPSHOT subset of c.work, exactly (top-level names and globs).
 SNAPSHOT_RETAINED = (
     "case", "scorecard.json", "continuation-budget.json", "usage-receipts",
@@ -2992,6 +3004,8 @@ def argument_parser():
     p.add_argument("--parallel-gates", action=argparse.BooleanOptionalAction, default=False,
                    help="engine cases admitted with it: parallel calibrators and G10 overlap at quiescent checkpoints, "
                         "G2/G8/G9 beside the bench gates")
+    p.add_argument("--parallel-attack", action=argparse.BooleanOptionalAction, default=False,
+                   help="engine cases admitted with it: a stress round's category attackers run together")
     p.add_argument("--pilot-tries", type=int, default=3)
     p.add_argument("--no-early-probe", action="store_true", help="skip the one strong-tester try after G5")
     p.add_argument("--calibrator-minutes", type=float, default=30,  # founder may change; strong tries took ~20 min (2026-10-18)

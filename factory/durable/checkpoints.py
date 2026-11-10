@@ -148,7 +148,11 @@ def model_call(c, models, cwd, name, invoke, *, text=None):
     after the guard is copied home and the owner channel has joined.
     """
     root = Path(cwd)
-    if not root.is_relative_to(c.work):
+    # engine_parallel_call: a stress round's category attackers run together in c.work
+    # (stress_progress.run). A workspace receipt would mix their files and the same-case lock
+    # would serialise them, so they are counted like isolated calls: snapshots wait for the
+    # join, and the retained answer replays a completed call.
+    if not root.is_relative_to(c.work) or getattr(c, 'engine_parallel_call', False):
         _count(c, 'isolated_model_active', 1)
         try:
             return invoke()
