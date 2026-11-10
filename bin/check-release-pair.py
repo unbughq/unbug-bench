@@ -60,7 +60,7 @@ def check_strategy_interface(plumbing_source: Path, bench_source: Path) -> None:
         raise ValueError("expected one module.simulate call and one strategy simulate definition")
     call, definition = calls[0], definitions[0]
     positional = definition.args.posonlyargs + definition.args.args
-    accepted = {arg.arg for arg in positional + definition.args.kwonlyargs}
+    accepted = {arg.arg for arg in definition.args.args + definition.args.kwonlyargs}
     if any(isinstance(arg, ast.Starred) for arg in call.args):
         raise ValueError("strategy simulate call has dynamic positional arguments")
     if len(call.args) > len(positional) and definition.args.vararg is None:
@@ -68,6 +68,8 @@ def check_strategy_interface(plumbing_source: Path, bench_source: Path) -> None:
     for keyword in call.keywords:
         if keyword.arg is None:
             raise ValueError("strategy simulate call has dynamic keyword arguments")
+        if keyword.arg in {arg.arg for arg in positional[:len(call.args)]}:
+            raise ValueError(f"strategy simulate receives {keyword.arg} twice")
         if keyword.arg not in accepted and definition.args.kwarg is None:
             raise ValueError(f"strategy simulate does not accept {keyword.arg}=")
 
