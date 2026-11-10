@@ -267,6 +267,9 @@ class CodexRoute(unittest.TestCase):
             run.return_value = SimpleNamespace(returncode=1, stdout=b'')
             self.assertIsNone(sudo())                                     # unreadable: the budget stops the call
         self.assertEqual(run.call_args.args[0][:5], ['sudo', '-n', '-H', '-u', 'pilot'])
+        # A walled user can't enter the runner's home: find exits non-zero restoring its start directory
+        # (10 Nov, 86b100's G16 Codex calls), so the read always starts at /.
+        self.assertEqual(run.call_args.kwargs.get('cwd'), '/')
 
 
 if __name__ == '__main__':
