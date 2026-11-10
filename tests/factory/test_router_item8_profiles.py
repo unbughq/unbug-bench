@@ -52,7 +52,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(maximum, dict(max_usd=.690001, max_input_tokens=13800020, max_output_tokens=3450005,
             price_source='token_prices:2026-10-31:openrouter:minimax/minimax-m3.1-flash:tenstorrent/fp8:0.05,0.005,0.2:joint-gate-v1'))
         normalized = gate.openrouter_body(json.dumps(dict(model=paid['id'], messages=[dict(role='user',content='synthetic')])).encode(), MINIMAX)
-        self.assertEqual(normalized['provider'], dict(only=['tenstorrent/fp8'], allow_fallbacks=False,
+        self.assertEqual(normalized['provider'], dict(order=['tenstorrent/fp8'], only=['tenstorrent/fp8'], allow_fallbacks=False,
             require_parameters=True, max_price=dict(prompt=.05, completion=.2, request=0, image=0)))
         self.assertEqual(normalized['max_tokens'], 32768)
         self.assertEqual(router.route_maximum('opencode/minimax-m3.1-flash-free')['max_usd'], 0)
@@ -80,7 +80,8 @@ class ProfileTests(unittest.TestCase):
         maximum=router.route_maximum(MINIMAX)
         self.assertEqual(maximum['max_usd'],1.4155786)
         wire=gate.openrouter_body(json.dumps({'model':endpoint['model_id'],'messages':[{'role':'user','content':'synthetic'}]}),MINIMAX)
-        self.assertEqual(wire['provider']['only'],['minimax'])
+        self.assertEqual(wire['provider']['only'],['gmicloud/fp8','streamlake/fp8','minimax'])  # cheaper first, pin last
+        self.assertEqual(wire['provider']['order'],wire['provider']['only'])
         self.assertEqual(wire['provider']['max_price'],dict(prompt=.15,completion=.6,request=0,image=0))
 
     def test_claude_public_contract_and_exact_aliases(self):

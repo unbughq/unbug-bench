@@ -16,15 +16,17 @@ CLAUDE_PRICES = {"claude/claude-opus-5-5": (4.0, 0.20, 8.0, 20.0),
 OPENROUTER_OUTPUT = 32768
 GATED_OPENROUTER = {
     # Current official-provider contract: router-minimax-price-record.json.gz.
-    'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='minimax',
+    # cheaper: endpoints tried before the pin, each at or below the pin's input and output price, same
+    # or better precision, tools/tool_choice/max_tokens/reasoning supported, healthy (live /endpoints, 2026-11-10 09:16Z).
+    'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='minimax', cheaper=('gmicloud/fp8', 'streamlake/fp8'),
         prices=('0.15', '0.015', '0.6'), context=1048576, output=524288, windows=3,
         cache_write='0', source_date='2026-11-06'),
-    'openrouter/xiaomi/mimo-v2.6-pro': dict(endpoint='xiaomi/fp8',
+    'openrouter/xiaomi/mimo-v2.6-pro': dict(endpoint='xiaomi/fp8', cheaper=('deepinfra/fp8',),
         prices=('0.435', '0.0036', '0.87'), context=1048576, output=131072, windows=3, cache_write='0'),
-    'openrouter/deepseek/deepseek-v4.1-flash': dict(endpoint='deepinfra/fp8',
+    'openrouter/deepseek/deepseek-v4.1-flash': dict(endpoint='deepinfra/fp8', cheaper=('morph/fp8',),
         prices=('0.14', '0.0042', '0.42'), context=1048576, output=1048576, windows=2, cache_write='0'),
     # Pinned primary endpoint quote: router-glm-price-record.json.gz.
-    'openrouter/z-ai/glm-5.3-flash': dict(endpoint='deepinfra/fp4',
+    'openrouter/z-ai/glm-5.3-flash': dict(endpoint='deepinfra/fp4', cheaper=('relace/fp4', 'morph/fp8'),
         prices=('0.15', '0.03', '0.5'), context=1048576, output=943718, windows=2,
         cache_write='0', source_date='2026-11-06'),
     # OpenRouter /api/v1/models/meta/muse-spark-1.3-contributor/endpoints, read 2026-11-09: one endpoint,
