@@ -304,7 +304,7 @@ def _paid_charge(profile, usage):
 class Store:
     """One short SQLite transaction per RPC; no process-local availability cache."""
     def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None,
-                 paid_ceiling_usd=None):
+                 paid_ceiling_usd=None, disabled_routes=()):
         approved_ceiling = None if paid_ceiling_usd is None else _nano(paid_ceiling_usd, ROUND_FLOOR)
         if approved_ceiling is not None and approved_ceiling > 2**63 - 1:
             raise ValueError('invalid paid ceiling')
@@ -314,6 +314,12 @@ class Store:
         if any(a not in ACCOUNTS for a in self.accounts): raise ValueError('unapproved account')
         if any(type(n) is not int or not 0 <= n <= 100 for n in self.capacities.values()):
             raise ValueError('invalid lane capacity')
+        # Route prefixes the operator has switched off (e.g. "opencode-go/" while the Go plan's weekly
+        # quota is spent): never leased or counted, while other routes of the same account pool, such
+        # as free MiniMax on the Go accounts, stay leasable. A pool's capacity cannot do this.
+        self.disabled_routes = tuple(disabled_routes or ())
+        if any(not isinstance(r, str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{2,200}', r) for r in self.disabled_routes):
+            raise ValueError('invalid disabled route')
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute('PRAGMA synchronous=FULL')
@@ -334,6 +340,9 @@ class Store:
                     raise ValueError('paid ceiling below retained spending')
                 db.execute('INSERT INTO paid_account(id,ceiling,credit) VALUES(1,?,NULL) '
                            'ON CONFLICT(id) DO UPDATE SET ceiling=excluded.ceiling', (approved_ceiling,))
+
+    def _routes(self, model, accounts, funding=None):
+        return [r for r in _bounded_routes(model, accounts, funding) if not r['route'].startswith(self.disabled_routes)]
 
     def rpc(self, operation, data, *, handling_started=None):
         started = time.monotonic() if handling_started is None else handling_started
@@ -382,7 +391,7 @@ class Store:
                     ceiling_usd=_dollars(account[0]) if account else None,
                     available_credit_usd=_dollars(account[1]) if account and account[1] is not None else None)
             elif operation == 'capacity':
-                choices = [r for r in _bounded_routes(data['route'], self.accounts) if r['route'] == data['route']]
+                choices = [r for r in self._routes(data['route'], self.accounts) if r['route'] == data['route']]
                 # Alternatives sharing a wallet/account do not create extra capacity.
                 pools = {r['pool']: free(r) for r in choices}
                 result = {'slots': sum(pools.values())}
@@ -400,7 +409,7 @@ class Store:
                 identity = data['id']
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
-                choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts], data.get('funding_usd'))
+                choices = [r for r in self._routes(data['model'], [a for a in data['accounts'] if a in self.accounts], data.get('funding_usd'))
                            if (r['route'] not in GATED_OPENROUTER or type(data.get('paid_protocol')) is int and data['paid_protocol'] == 1)
                            and eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
@@ -424,7 +433,7 @@ class Store:
                     for route in choices:
                         if not free(route): continue
                         if any(any(eligible(r) and r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
-                                   for r in _bounded_routes(p['model'], p['accounts'])) for p in older): continue
+                                   for r in self._routes(p['model'], p['accounts'])) for p in older): continue
                         expires = min(now + LEASE_SECONDS, data['deadline'])
                         db.execute('INSERT INTO leases VALUES (?,?,?,NULL,NULL)', (identity, json.dumps(route), expires))
                         result = dict(kind='lease', lease_id=identity, **route, expires_at=expires)
@@ -843,7 +852,7 @@ def main():
     token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
     server = Server(('0.0.0.0', 8765), Store(production_database(config), capacities=config.get('capacities'),
         accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit,
-        paid_ceiling_usd=config.get('paid_ceiling_usd')), token)
+        paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=config.get('disabled_routes', ())), token)
     server.enable_tls(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
     server.serve_forever()
 
