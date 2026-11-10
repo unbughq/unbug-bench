@@ -605,7 +605,7 @@ class Handler(BaseHTTPRequestHandler):
         for key in ('User-Agent', 'x-app'):
             if self.headers.get(key): headers[key] = self.headers[key]
         connection = http.client.HTTPSConnection('openrouter.ai' if paid else 'api.anthropic.com', timeout=gate.remaining())
-        usage, sent = None, False
+        usage, sent, parser = None, False, None
         try:
             with gate.state.lock:
                 if gate.state.closed: return
@@ -644,9 +644,13 @@ class Handler(BaseHTTPRequestHandler):
             if paid_id is not None:
                 # Complete before downstream EOF; late completion after close
                 # cannot refund centrally. Failed RPC leaves the entire hold.
+                # An unconfirmed call names its generation, so the router can ask the provider
+                # what it really charged instead of booking the whole hold for good.
+                generation = getattr(parser, 'identity', None) if not known and paid else None
+                if not isinstance(generation, str) or not model_router.GENERATION.fullmatch(generation): generation = None
                 try:
                     model_router._rpc('paid_settle', dict(lease_id=gate.state.lease.lease_id,
-                        request_id=paid_id, usage=usage if known else None))
+                        request_id=paid_id, usage=usage if known else None, generation=generation))
                 except model_router.RouterUnavailable: pass
 
     def do_GET(self): self.error(400, 'invalid_request_error', 'route_feature_unsupported')

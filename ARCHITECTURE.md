@@ -305,6 +305,14 @@ wallet spending limit including all retained charges. Restart applies an explici
 limit transactionally without resetting settled or uncertain spending; live wallet
 credit is checked separately on every paid request. Without this setting, the
 historical first-use qualification ceiling remains fixed across restarts.
+An unconfirmed paid request books its whole hold until the provider says otherwise.
+The gate passes the call's OpenRouter generation id with an unconfirmed settle, and a
+router pass every minute (or `model_router.py --reconcile-once`) settles such a row at
+that generation's reported `total_cost`, never above its hold, and one generation
+settles one row. Older unknown rows are bounded by the account's all-time usage: rows
+older than the credit window together cost at most that usage less the provider-reported
+costs of settled rows equally old, so their charges are scaled down to that bound and
+marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and
