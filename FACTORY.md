@@ -78,6 +78,18 @@ checkpoint. **Gate strictness and verdicts are unchanged; gates alone certify qu
 Explicitly raising a stopped case's budget and/or rounds permits checkpoint recovery
 with cumulative spending and the latest stress findings retained; it never passes a gate.
 
+**FOUNDER DECISION 2026-11-10:** a case is attacked at most twice (`ATTACK_ROUNDS`,
+`factory/durable/engine.py`). A stress round covers all four categories before it reports,
+so the writer gets every finding in one list; a finding ends its own category, never the
+round. The findings of the first round are fixed and the case is attacked once more. The
+findings of the second round get one final writer fix, whose own checks replay every saved
+cheat, and the case then goes to the gates whatever round, extension or writer-round count
+it has reached. A gate repair after that is not attacked again. This restores the 16 October
+path (builder, attacker, final fix, gates): since the durable rebuild a case reached the
+gates only after a clean stress round, which 0 of 26 finished rounds were, so no fresh case
+was ever gated. A case that began under the older rule keeps its recorded rounds and is
+governed by the cap from the step it continues at. Gate strictness is unchanged.
+
 The pre-approved continuation ceilings are `--max-role-calls 250`, `--max-total-calls 700`
 and `--max-cost 5` (observed priced OpenCode events). Sized from case 2 (2026-10-15): its
 writer used 176 calls in round 1 alone and three rounds used about 490; one round plus the

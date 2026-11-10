@@ -859,7 +859,8 @@ class HookTests(unittest.TestCase):
                 patch.object(run, "loop_freshness", side_effect=lambda c, result, report: (result, report)):
             self.assertEqual(run.engine_writer_round(c, 1, None)["outcome"], Outcome.OK)
             result = run.engine_stress_round(c, 1)
-        self.assertEqual(names, ["builder-1", "attacker-1"])
+        # One attacker call per stress category: a finding ends its category, never the round.
+        self.assertEqual(names, ["builder-1"] + ["attacker-1"] * 4)
         self.assertEqual(result["reason"], "stress:findings")
         self.assertIn("still broken", json.loads(result["feedback"])["problems"])
         self.assertFalse(hasattr(run, "write_and_attack"))

@@ -332,6 +332,9 @@ FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair", "writer:output_ca
 # failed three times in calibrator setup (the pilot-home teardown fixed by #61), then a diagnosis
 # said factory_bug. A GATES step with any other outcome among its attempts is never resumed.
 FACTORY_BUG_RESUMABLE_INFRA = ("gates",)
+# FACTORY.md 4, founder 2026-11-10: a case is attacked at most this many times. Findings of the
+# last attack get one writer fix and the case then goes to GATES, which alone certify quality.
+ATTACK_ROUNDS = 2
 MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many in a lineage
 
 
@@ -447,8 +450,13 @@ def _resume_point(case_id: str) -> tuple:
         # diagnosis after an infra stop): the steps that now take those seqs never ran there.
         skip = {k: v for k, v in skip.items() if k < seq}
     skip[seq] = max(skip.get(seq, 0), attempt)
+    # The attack cap governs from the seq an earlier workflow of this case first applied it. A case
+    # that only ever ran under the older rule is governed from the seq it resumes at.
+    caps = [r["attack_cap_from"] for r in earlier if r.get("attack_cap_from") is not None]
+    caps += [c for c in (DBOS.get_event(w.workflow_id, "attack_cap_from", timeout_seconds=0) for w in runs)
+             if c is not None]
     return ({"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())},
-             "factory_bug_resumes": factory_bug_resumes,
+             "factory_bug_resumes": factory_bug_resumes, "attack_cap_from": min(caps, default=seq),
              "renumber": {str(k): v for k, v in sorted(renumber.items())}}, waste_keys)
 
 
@@ -679,10 +687,32 @@ class _Case:
         # is no longer replayed (its diagnosis). A step of that name at that seq numbers after them.
         self.renumber: dict = {}
         self.recertify_repair = False   # resume_point: a recertified case retired at a repairable gate
+        # Attack cap (ATTACK_ROUNDS). attack_rounds counts stress rounds that returned findings.
+        # attack_cap_from is the first seq the cap governs: a case that began under the older rule
+        # (stress had to come back clean) replays its recorded rounds unchanged below it.
+        self.attack_rounds = 0
+        self.attack_cap_from: Optional[int] = None
+        self.final_fix = False          # the next writer round is followed by GATES, not stress
 
     @property
     def replaying(self) -> bool:
         return self.seq < self.resume_seq
+
+    def attack_capped(self) -> bool:
+        """After a step at self.seq: has this case used its attack rounds, so no further stress runs?"""
+        if self.attack_rounds < ATTACK_ROUNDS:
+            return False
+        if self.attack_cap_from is None:
+            # A workflow that passed this point before the cap existed keeps looping as recorded.
+            if not DBOS.patch("attack_cap"):
+                return False
+            self.attack_cap_from = self.seq
+            DBOS.set_event("attack_cap_from", self.seq)   # resume_point carries it to a later workflow
+        return self.seq >= self.attack_cap_from
+
+    def attack_cap_active(self) -> bool:
+        return (self.attack_rounds >= ATTACK_ROUNDS and self.attack_cap_from is not None
+                and self.seq >= self.attack_cap_from)
 
     # -- records and messages --
 
@@ -699,6 +729,7 @@ class _Case:
             "case_id": self.case_id, "replacement_of": self.replacement_of, "status": self.status,
             "stage": self.stage, "reason": self.last_reason, "passed": list(self.passed),
             "failed_gate": self.failed_gate, "writer_rounds": self.writer_rounds_used,
+            "attack_rounds": self.attack_rounds,   # stress rounds that returned findings (cap: ATTACK_ROUNDS)
             "extensions": self.extensions_used, "diagnoses": self.diagnoses_used, "verdict": self.verdict,
             "hard": None if self.sealed is None else self.sealed["hard"]})
 
@@ -988,15 +1019,25 @@ class _Case:
                 if action is Action.ADVANCE:
                     if not self.in_extension:
                         self.writer_rounds_used += 1
-                    phase = "stress"
+                    phase, self.final_fix = ("gates" if self.final_fix else "stress"), False
                 else:
                     phase, feedback = self.stopped(action)
             elif phase == "stress":
                 step = Step(StepKind.STRESS, self.round)
                 action, r = self.run_seq(step, ruling=ruling)
                 ruling = None
+                findings = (r is not None and r.outcome is Outcome.OK and r.feedback is not None
+                            and action in (Action.REPAIR, Action.DIAGNOSE))
+                if findings:
+                    self.attack_rounds += 1
                 if action is Action.ADVANCE:
                     phase = "gates"
+                elif findings and self.attack_capped():
+                    # The last attack: one writer fix of its findings, then GATES whatever round or
+                    # extension this is. The writer's own checks replay every saved cheat first.
+                    self.final_fix = True
+                    self.round += 1
+                    phase, feedback = "writer", r.feedback
                 elif action is Action.REPAIR:
                     self.round += 1
                     phase, feedback = "writer", r.feedback
@@ -1022,12 +1063,16 @@ class _Case:
                     self.recertify = False                 # resumed for repair: an ordinary case from here
                     self.round += 1
                     phase, feedback = "writer", r.feedback
+                    # The October case had its attack round then. Like any gate repair after the last
+                    # attack, this fix goes back to GATES, which now run every gate on it.
+                    self.final_fix = True
                 elif action is Action.REPAIR and self.recertify:
                     self.stop_line(Action.RETIRE)
                     self.finish("retired")
                 elif action is Action.REPAIR:
                     self.round += 1
                     phase, feedback = "writer", r.feedback
+                    self.final_fix = self.attack_cap_active()   # a gate repair is not attacked again
                 else:
                     phase, feedback = self.stopped(action)
             elif phase == "seal":
@@ -1090,6 +1135,7 @@ class _Case:
         self.in_extension = True
         self.ext_before, self.ext_after = self.passed, ()
         self.round += 1
+        self.final_fix = self.attack_cap_active()   # an extension of a capped case skips its stress round
         return "writer", r.feedback
 
     def escalate(self) -> Ref:
@@ -1128,6 +1174,9 @@ def case_workflow(job: dict) -> dict:
         case.lineage_factory_bug_resumes = resume.get("factory_bug_resumes", 0)
         case.renumber = {int(seq): steps for seq, steps in resume.get("renumber", {}).items()}
         case.recertify_repair = resume.get("recertify_repair") is True
+        if resume.get("attack_cap_from") is not None:
+            case.attack_cap_from = resume["attack_cap_from"]
+            DBOS.set_event("attack_cap_from", case.attack_cap_from)
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
@@ -1211,6 +1260,8 @@ class _Batch:
                              "renumber": self.resume.get("renumber", {})}
             if self.resume.get("recertify_repair") is True:   # absent otherwise: older jobs replay unchanged
                 job["resume"]["recertify_repair"] = True
+            if self.resume.get("attack_cap_from") is not None:
+                job["resume"]["attack_cap_from"] = self.resume["attack_cap_from"]
             self.case_ids[workflow_id] = case_id
         with SetWorkflowID(workflow_id):
             DBOS.start_workflow(case_workflow, job)
