@@ -109,6 +109,9 @@ def run(runner, c, number, report, receipt, completed):
             sequence = len(row['results'])
             output = directory / f'{category}-{sequence}.json'
             before = set(row['done'])
+            # The request asks the attacker to retain prior findings, so only a blocking entry it did
+            # not get back from us is this category's own finding.
+            known = {json.dumps(item, sort_keys=True) for item in result['blocking']}
             context = copy.copy(c)
             context.stress_category_call = True
             def request(target):
@@ -160,7 +163,7 @@ def run(runner, c, number, report, receipt, completed):
                                and not value['unfinished_validation'])
             row['exhausted'] = not row['complete'] and (set(row['done']) == before or set(row['done']) == set(subchecks))
             atomic_json(c.work / 'stress-publication.json', {'pending': True, 'identity': digest(state)})
-            row['found'] = bool(value['blocking'])
+            row['found'] = any(json.dumps(item, sort_keys=True) not in known for item in value['blocking'])
             save()
             result = aggregate()
             publish(c)
