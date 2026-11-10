@@ -132,6 +132,38 @@ class Calibrators(unittest.TestCase):
         self.assertEqual(len(c.published), 1, "one snapshot once both workspaces joined")
 
 
+class RunningCases(unittest.TestCase):
+    def case(self, config=None, receipt=None, dry_run=False):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        path = pathlib.Path(tmp.name) / "attack-state.json"
+        if receipt is not None: path.write_text(json.dumps(receipt))
+        card = {} if config is None else {"recovery_config": config}
+        c = types.SimpleNamespace(card=card, args=types.SimpleNamespace(dry_run=dry_run, bench_workers=1, parallel_gates=False))
+        return c, path
+
+    def test_an_older_case_adopts_the_settings_at_a_new_writer_round(self):
+        c, path = self.case({"bench_workers": 1, "rounds": 8}, {"engine": True, "round": 2})
+        self.assertTrue(run.adopt_parallel_checks(c, 3, path))
+        self.assertEqual(c.card["recovery_config"], {"bench_workers": 2, "parallel_gates": True, "rounds": 8})
+        self.assertEqual((c.args.bench_workers, c.args.parallel_gates), (2, True))
+
+    def test_a_card_without_settings_adopts_them(self):
+        c, path = self.case()
+        self.assertTrue(run.adopt_parallel_checks(c, 1, path))
+        self.assertEqual(c.card["recovery_config"], {"bench_workers": 2, "parallel_gates": True})
+
+    def test_a_retry_of_a_round_that_began_keeps_its_settings(self):
+        c, path = self.case({"bench_workers": 1}, {"engine": True, "round": 3, "repair_pending": True})
+        self.assertFalse(run.adopt_parallel_checks(c, 3, path))
+        self.assertEqual((c.card["recovery_config"], c.args.bench_workers), ({"bench_workers": 1}, 1))
+
+    def test_an_explicit_flag_and_practice_cases_are_left_alone(self):
+        for config, dry in (({"parallel_gates": False}, False), ({"bench_workers": 1}, True)):
+            c, path = self.case(config, dry_run=dry)
+            self.assertFalse(run.adopt_parallel_checks(c, 1, path))
+            self.assertEqual((c.card["recovery_config"], c.args.bench_workers), (config, 1))
+
+
 class Admission(unittest.TestCase):
     def card(self, **inputs):
         value = {"seed": 7, "source": "port", **inputs}

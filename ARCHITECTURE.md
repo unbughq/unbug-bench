@@ -114,8 +114,11 @@ can still be lost. Completion receipts reuse work only under matching instructio
 inputs and release bindings. Same-case mutable model calls serialize for coherent
 snapshots, and isolated calibrator snapshots wait until their workspaces join.
 Cases admitted since 10 November carry `bench_workers: 2` and `parallel_gates: true` in their
-`recovery_config` (`durable/steps/admit.py` `NEW_CASE_SETTINGS`; recertified imports and cards
-admitted earlier keep their own settings). For those cases G10's two calibrators run at once and
+`recovery_config` (`durable/steps/admit.py` `NEW_CASE_SETTINGS`; recertified imports keep their
+own settings). A case admitted earlier adopts them when a new writer round begins
+(`run.adopt_parallel_checks`): every check and gate runs again after a writer round, a retry of a
+round that already began keeps its settings, and an explicit `parallel_gates` on the card is never
+overridden. For those cases G10's two calibrators run at once and
 may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second thread after G1,
 joining before G6. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
