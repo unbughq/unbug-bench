@@ -80,6 +80,8 @@ def case_entry(card: dict, allowlist: Iterable[str] = ()) -> dict:
     shown = reason if isinstance(reason, str) and REASON.fullmatch(reason) and reason in set(allowlist) else None
     entry = {"case": card["case_id"], "status": status, "stage": _stage(card.get("stage")), "gates": gates,
              "writer_rounds": _count(card.get("writer_rounds"), "writer_rounds"),
+             # Cards from before the attack cap carry no count.
+             "attack_rounds": _count(card.get("attack_rounds", 0), "attack_rounds"),
              "extensions": _count(card.get("extensions"), "extensions"), "replacement_of": replacement_of,
              "reason": shown}
     if status == "sealed":
@@ -132,7 +134,7 @@ def render_text(card: dict) -> str:
         why = f" ({c['reason']})" if c["reason"] else ""
         rep = f" replaces {c['replacement_of']}" if c["replacement_of"] else ""
         lines.append(f"  {c['case']}: {c['status']} at {c['stage']}{why}{extra}; rounds {c['writer_rounds']}, "
-                     f"extensions {c['extensions']}{rep}; {gates}")
+                     f"attacks with findings {c.get('attack_rounds', 0)}, extensions {c['extensions']}{rep}; {gates}")
     return "\n".join(lines) + "\n"
 
 
@@ -204,6 +206,7 @@ def render_status(card: dict) -> str:
             field('Workflow update', stamp(context.get('workflow', {}).get('updated_at'))),
             field('Worker record', f"{worker.get('id') or '-'} ({worker.get('state', 'unavailable')})"),
             field('Writer rounds', case['writer_rounds']), field('Extensions', case['extensions']),
+            field('Attacks with findings', case.get('attack_rounds', 0)),
             field('Gates', '  '.join(f'{g}={value.upper()}' for g, value in case['gates'].items()) or 'none reported')]
         if case.get('reason'):
             lines.append(field('Case reason', case['reason']))

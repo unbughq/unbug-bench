@@ -713,6 +713,7 @@ class _Case:
             "case_id": self.case_id, "replacement_of": self.replacement_of, "status": self.status,
             "stage": self.stage, "reason": self.last_reason, "passed": list(self.passed),
             "failed_gate": self.failed_gate, "writer_rounds": self.writer_rounds_used,
+            "attack_rounds": self.attack_rounds,   # stress rounds that returned findings (cap: ATTACK_ROUNDS)
             "extensions": self.extensions_used, "diagnoses": self.diagnoses_used, "verdict": self.verdict,
             "hard": None if self.sealed is None else self.sealed["hard"]})
 
