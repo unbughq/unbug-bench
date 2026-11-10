@@ -36,6 +36,17 @@ class GatePipeline:
     early_gates: tuple
     saved_cheat_check: Callable
     dry_skip: dict
+    # Model/network gates that need no bench instance. When side_lane(c) is true they run in
+    # order on their own thread after G1, beside the bench gates, and join before the first
+    # gate that follows them (G6, where G10 may start overlapping).
+    side_gates: tuple = ()
+    side_lane: Callable = lambda c: False
+
+    def section(self, c):
+        """Defer engine snapshots while two threads work on this case."""
+        if getattr(c, "engine", None) is None: return contextlib.nullcontext()
+        from durable.checkpoints import concurrent_section
+        return concurrent_section(c)
 
     def window(self, c, gate):
         """One monotonic window for a mechanical gate. Callers wrap every retry in it; nested windows only shrink."""
@@ -189,10 +200,85 @@ class GatePipeline:
             c.card["gates"][gate] = "invalid-infra"
             c.card.get("gate_results", {}).pop(gate, None)
 
+        def record(gate, outcome, started, finished, quiescent):
+            """Card and log entries of one finished gate; True when the loop must stop."""
+            ok, info = outcome.ok, outcome.info
+            if outcome.crashed:
+                stop_infrastructure(gate, outcome)
+                return True
+            self.log(c, gate, "pass" if ok else "FAIL", json.dumps(info), f"{finished - started:.0f}s")
+            c.card["gates"][gate] = "pass" if ok else "fail"
+            c.card.setdefault("gate_results", {})[gate] = info
+            c.card.setdefault("gate_minutes", {})[gate] = round((finished - started) / 60, 1)
+            self.after_gate(c, gate, ok, quiescent)
+            if not ok:
+                c.card["failed_gate"] = gate
+                c.card["failed_detail"] = info.get("problems") or info
+                return True
+            return False
+
+        def quiet(gate=None):
+            # Engine snapshots defer themselves inside a concurrent section, so every boundary may
+            # ask for one. Elsewhere only a boundary with no other gate running is quiescent.
+            if getattr(c, "engine", None) is not None: return True
+            return (future is None or gate == "G10") and lane["future"] is None
+
+        order = list(getattr(c, "audit_gates", self.gates))
+        side = ([g for g in order if g in self.side_gates]
+                if self.side_gates and not a.dry_run and self.side_lane(c) else [])
+        # Start after G1 when it comes first: an invalid case should not reach the reviewers.
+        side_after = "G1" if side and "G1" in order and order.index("G1") < order.index(side[0]) else None
+        side_join = next((g for g in order[order.index(side[-1]) + 1:] if g not in side), None) if side else None
+        lane = {"future": None, "hash": None, "section": None}
+
+        def side_run():
+            results = []
+            for gate in side:
+                self.budget_boundary(c)
+                started = time.time()
+                outcome = run_gate(gate)
+                results.append((gate, outcome, started, time.time()))
+                if outcome.crashed or not outcome.ok: break
+            return results
+
+        def side_start():
+            lane["hash"] = self.case_hash(c)
+            lane["section"] = self.section(c)
+            lane["section"].__enter__()
+            self.log(c, "+".join(side), "start (beside bench gates)")
+            lane["future"] = side_pool.submit(contextvars.copy_context().run, side_run)
+
+        def side_finish():
+            """Join the lane and record its gates in order. True when the loop must stop."""
+            future, lane["future"] = lane["future"], None
+            try:
+                results = future.result()
+            finally:
+                section, lane["section"] = lane["section"], None
+                section.__exit__(None, None, None)
+            if self.case_hash(c) != lane["hash"]:
+                # A freshness top-up may edit the case; bench gates beside it saw another revision.
+                gate = side[0]
+                self.log(c, gate, "case changed while gates ran in parallel")
+                c.card["gates"][gate] = "invalid-infra"
+                c.card["failed_gate"] = gate
+                c.card["failed_detail"] = {"error": "case_changed_during_parallel_gates"}
+                return True
+            stop = False
+            for gate, outcome, started, finished in results:
+                stop = record(gate, outcome, started, finished, quiet()) or stop
+            return stop
+
         future, g10_started = None, None
         pool = ThreadPoolExecutor(max_workers=1)
+        side_pool = ThreadPoolExecutor(max_workers=1) if side else None
+        g10_section = None
         try:
-            for gate in getattr(c, "audit_gates", self.gates):
+            if side and side_after is None: side_start()
+            for gate in order:
+                if gate in side: continue
+                if lane["future"] is not None and (lane["future"].done() or gate == side_join):
+                    if side_finish(): break
                 self.budget_boundary(c)
                 if a.dry_run and gate in self.dry_skip:
                     c.card["gates"][gate] = f"skipped ({self.dry_skip[gate]})"; continue
@@ -211,41 +297,57 @@ class GatePipeline:
                         c.role_cancel = threading.Event()
                         g10_started = time.time()
                         self.log(c, "G10", "start (overlapping bench gates)")
+                        g10_section = self.section(c)
+                        g10_section.__enter__()
                         future = pool.submit(contextvars.copy_context().run, run_gate, "G10")
                 started = g10_started if gate == "G10" and future is not None else time.time()
                 if gate == "G10" and future is not None:
-                    outcome = future.result()  # joined before G11; same card/log format
+                    try:
+                        outcome = future.result()  # joined before G11; same card/log format
+                    finally:
+                        if g10_section is not None:
+                            g10_section.__exit__(None, None, None); g10_section = None
                 else:
                     outcome = run_gate(gate)
-                ok, info = outcome.ok, outcome.info
-                if outcome.crashed:
-                    stop_infrastructure(gate, outcome)
-                    break
-                self.log(c, gate, "pass" if ok else "FAIL", json.dumps(info), f"{time.time() - started:.0f}s")
-                c.card["gates"][gate] = "pass" if ok else "fail"
-                c.card.setdefault("gate_results", {})[gate] = info
-                c.card.setdefault("gate_minutes", {})[gate] = round((time.time() - started) / 60, 1)
-                self.after_gate(c, gate, ok, future is None or gate == "G10")
-                if not ok:
-                    c.card["failed_gate"] = gate
-                    c.card["failed_detail"] = info.get("problems") or info
-                    break
+                if record(gate, outcome, started, time.time(), quiet(gate)): break
+                if side_after == gate and side: side_start()
+            if lane["future"] is not None:
+                failed = c.card.get("failed_gate")
+                detail = c.card.get("failed_detail")
+                side_finish()
+                later = c.card.get("failed_gate")
+                if failed and later != failed and order.index(failed) < order.index(later):
+                    # Report the earliest failure in gate order, where a serial pass would have stopped.
+                    c.card["failed_gate"], c.card["failed_detail"] = failed, detail
             if not c.card.get("failed_gate"): self.budget_boundary(c)
         finally:
-            if future is not None:
-                error = sys.exc_info()[1]
-                budget_boundary = isinstance(error, BudgetError) and str(error) == 'budget_exhausted'
-                cancelling = not future.done() and not budget_boundary
-                if cancelling: c.role_cancel.set()
-                pool.shutdown(wait=True)  # model cancellation kills its process group
-                # Stop/provider errors in the tester must reach main's checkpoint path.
-                try:
-                    outcome = future.result()
-                    if outcome.crashed and not c.card.get('failed_gate'):
-                        stop_infrastructure('G10', outcome)
-                except BudgetError as error:
-                    if not (cancelling and str(error) == "cancelled"): raise
-            else:
-                pool.shutdown(wait=True)
+            error = sys.exc_info()[1]
+            try:
+                if future is not None:
+                    budget_boundary = isinstance(error, BudgetError) and str(error) == 'budget_exhausted'
+                    cancelling = not future.done() and not budget_boundary
+                    if cancelling: c.role_cancel.set()
+                    pool.shutdown(wait=True)  # model cancellation kills its process group
+                    if g10_section is not None:
+                        g10_section.__exit__(None, None, None); g10_section = None
+                    # Stop/provider errors in the tester must reach main's checkpoint path.
+                    try:
+                        outcome = future.result()
+                        if outcome.crashed and not c.card.get('failed_gate'):
+                            stop_infrastructure('G10', outcome)
+                    except BudgetError as error:
+                        if not (cancelling and str(error) == "cancelled"): raise
+                else:
+                    pool.shutdown(wait=True)
+            finally:
+                if lane["future"] is not None:
+                    # An exception left the lane running: let it finish (reviewer calls have no
+                    # cancellation), then leave its section so the deferred snapshot publishes.
+                    try: lane["future"].result()
+                    except BaseException: pass
+                    lane["future"] = None
+                if lane["section"] is not None:
+                    lane["section"].__exit__(None, None, None); lane["section"] = None
+                if side_pool is not None: side_pool.shutdown(wait=True)
 
 

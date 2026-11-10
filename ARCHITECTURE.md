@@ -113,6 +113,15 @@ fetches the latest committed snapshot; progress not fetched before a worker loss
 can still be lost. Completion receipts reuse work only under matching instructions,
 inputs and release bindings. Same-case mutable model calls serialize for coherent
 snapshots, and isolated calibrator snapshots wait until their workspaces join.
+Cases admitted since 10 November carry `bench_workers: 2` and `parallel_gates: true` in their
+`recovery_config` (`durable/steps/admit.py` `NEW_CASE_SETTINGS`; recertified imports and cards
+admitted earlier keep their own settings). For those cases G10's two calibrators run at once and
+may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second thread after G1,
+joining before G6. Any snapshot requested while two threads work on the case is deferred
+(`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
+case edited during that lane fails the step as infrastructure. The writer step records fixed
+phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
+progress and the card's `phase_times`.
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control

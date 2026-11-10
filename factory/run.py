@@ -33,6 +33,8 @@ STATEMENTS_RECIPIENT = PROMPTS.parent / "statements-recipient.txt"
 FOUNDER_RECIPIENT = "age13u0yesmknrnw9z2ff2nnmlk5lf8r2hutrt5mv0lh7nal8jfdkq4qewh0fy"
 GATES = ["G1", "G2", "G3", "G4", "G5", "G16", "G8", "G9", "G6", "G13", "G14", "G15", "G7", "G10", "G17", "G11"]  # cheap rejectors first
 # Review (G8/G9) right after G5, 2026-10-18: 2 of the first 3 cases to reach it failed fairness after ~9 h of checks.
+# Model/network gates beside the bench gates for cases admitted with parallel_gates (2026-11-10).
+SIDE_GATES = ("G2", "G8", "G9")
 EARLY_GATES = ["G3", "G4", "G5"]  # also run right after the writer, before the stress tester (results reused if unchanged)
 DRY_SKIP = {"G2": "model gate", "G8": "model gate", "G9": "model gate", "G10": "model gate", "G15": "v1 fixture has no v2 baseline or pending ingredients"}
 DRY_SKIP.update({"G16": "independent model fix", "G17": "model diagnosis"})
@@ -67,8 +69,15 @@ def no_fixed_port_services(c, keys):
     except Exception: return False  # unsure: run serially
 
 
+def parallel_gates(c):
+    """Cases admitted with parallel_gates under the engine (durable.steps.admit NEW_CASE_SETTINGS)."""
+    return under_engine(c) and getattr(c.args, "parallel_gates", False) is True
+
+
 def parallel_calibrators(c):
-    if under_engine(c): return False  # Quiescent checkpoints require joined role workspaces.
+    # Engine snapshots are deferred to quiescent points (durable.checkpoints.concurrent_section);
+    # only cases admitted with parallel_gates use it, so running cases keep their serial G10.
+    if under_engine(c) and not parallel_gates(c): return False
     if not getattr(c.args, "concurrent_roles", False): return False
     import bench
     try:
@@ -149,6 +158,33 @@ def public_progress(c, stage, status, elapsed_seconds=None, reused=False):
     except OSError as error:
         # Telemetry failure must not turn a finished check into discarded work.
         c.card['public_progress_error'] = type(error).__name__
+
+
+@contextlib.contextmanager
+def writer_phase(c, phase, **where):
+    """Time one fixed writer-step phase: public progress (codes and seconds only) and the card.
+
+    The card keeps every occurrence (round, call) so time to seal can be split into model
+    time and check time; public progress keeps the latest per phase.
+    """
+    started, status = time.time(), "interrupted"
+    public_progress(c, "phase:writer:" + phase, "running")
+    try:
+        yield
+        status = "completed"
+    except (BudgetError, PauseRequested, model_router.ProviderWait):
+        raise  # stops and provider waits: "interrupted"
+    except Exception:
+        status = "failed"
+        raise
+    finally:
+        elapsed = max(0.0, time.time() - started)
+        public_progress(c, "phase:writer:" + phase, status, elapsed)
+        rows = c.card.setdefault("phase_times", [])
+        rows.append({"step": "writer", "phase": phase, "status": status, **where,
+                     "started_at": datetime.datetime.fromtimestamp(started, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+                     "seconds": round(elapsed, 1)})
+        del rows[:-400]
 
 
 def command_error_tail(path, start, env):
@@ -880,7 +916,8 @@ def _gate_pipeline():
         case_hash=case_hash, log=log, publish=public_progress,
         budget_boundary=case_budget_boundary, after_gate=_gate_completed,
         overlap_reason=g10_overlap_reason, gates=tuple(GATES),
-        early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP)
+        early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP,
+        side_gates=SIDE_GATES, side_lane=parallel_gates)
 
 
 def checked_gate(c, gate):
@@ -2268,7 +2305,8 @@ def g10(c):
             child.args = copy.copy(c.args); child.args.bench_workers = 1
             child.pilot_user, child.factory_slot, child.pilot_passes = user, slot, []
             contexts.append(child)
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        from durable.checkpoints import concurrent_section
+        with concurrent_section(c), ThreadPoolExecutor(max_workers=2) as pool:
             try:
                 futures = [pool.submit(contextvars.copy_context().run, calibrate, child, role) for child, role in zip(contexts, ('strong_calibrator', 'easy_calibrator'))]
                 for future in as_completed(futures): future.result()
@@ -2276,7 +2314,7 @@ def g10(c):
             except BaseException as error:
                 if not (isinstance(error, BudgetError) and str(error) == 'budget_exhausted'):
                     c.role_cancel.set()
-                raise  # executor joins all workers before seal/wipe
+                raise  # executor joins all workers before seal/wipe; the section then publishes
         c.pilot_passes = [guard for child in contexts for guard in child.pilot_passes]
     else:
         if getattr(c.args, "concurrent_roles", False): log(c, "G10", "serial: endpoint isolation, memory allowance or budget resume require the original path")
@@ -2457,7 +2495,8 @@ ENGINE_COST_CAP = 1e9
 # Runner settings a case keeps across steps, from the private card's recovery_config.
 ENGINE_SETTINGS = ("rounds", "runs", "scenario_runs", "pilot_tries", "pilot_runs", "calibrator_minutes",
                    "max_role_calls", "max_total_calls", "no_progress_minutes", "max_zero_tokens",
-                   "agent_timeout", "max_repairs", "bench_workers", "concurrent_roles", "no_early_probe")
+                   "agent_timeout", "max_repairs", "bench_workers", "concurrent_roles", "no_early_probe",
+                   "parallel_gates")
 # The CASE_SNAPSHOT subset of c.work, exactly (top-level names and globs).
 SNAPSHOT_RETAINED = (
     "case", "scorecard.json", "continuation-budget.json", "usage-receipts",
@@ -2699,7 +2738,8 @@ def engine_writer_round(c, n, feedback):
         c.card["builder_rounds"] = n
         return {"outcome": Outcome.OK, "reason": "writer:practice"}
     problems, report = _feedback_input(c, feedback)
-    engine_prepare_bench(c)
+    with writer_phase(c, "bench_prepare", round=n):
+        engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
     receipt_path = c.work / "attack-state.json"
     requested = bool(problems or report)
@@ -2711,9 +2751,10 @@ def engine_writer_round(c, n, feedback):
                                    "report": f"round-{n}.json", "round_start": start, "repair_pending": True})
         name = f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}"
         more = {"output_capped": True} if capped else {}
-        opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n,
-                 attack_report=str(report) if report else None, precheck_problems=problems, **more)),
-                 c.case, name)
+        with writer_phase(c, "writer_model", round=n, call=call):
+            opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n,
+                     attack_report=str(report) if report else None, precheck_problems=problems, **more)),
+                     c.case, name)
         c.card["builder_rounds"] = n
         if requested and before is not None and case_hash(c) == before:
             # A final reply cut at the output cap is not a refusal to repair: retry the same repair
@@ -2725,11 +2766,15 @@ def engine_writer_round(c, n, feedback):
             return {"outcome": Outcome.EXHAUSTED,
                     "reason": "writer:output_capped" if capped else "writer:unchanged_repair"}
         capped = False
-        problems = g1(c)[1]["problems"] or None
-        if not problems and not c.args.dry_run: problems = early_checks(c)
+        with writer_phase(c, "g1", round=n, call=call):
+            problems = g1(c)[1]["problems"] or None
+        if not problems and not c.args.dry_run:
+            with writer_phase(c, "early_checks", round=n, call=call):
+                problems = early_checks(c)
         if not problems:
             if not c.args.dry_run:
-                ensure_freshness(c)
+                with writer_phase(c, "freshness", round=n, call=call):
+                    ensure_freshness(c)
             atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                        "report": f"round-{n}.json", "round_start": start, "awaiting_stress": True})
             return {"outcome": Outcome.OK, "reason": "writer:validated"}
@@ -2795,8 +2840,8 @@ def _split_panel(c, gate):
 def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
-    if not c.args.dry_run and not g1(c)[1]["problems"]:
-        ensure_freshness(c)
+    if not c.args.dry_run and not parallel_gates(c) and not g1(c)[1]["problems"]:
+        ensure_freshness(c)  # parallel_gates: G2 is ensure_freshness, in the lane beside the bench gates
     for key in ("gates", "gate_results", "gate_minutes"): c.card[key] = {}
     c.card["failed_gate"] = None
     for key in ("failed_detail", "infrastructure_gate", "terminal_stop", "kept_gate_source"): c.card.pop(key, None)
@@ -2939,6 +2984,9 @@ def argument_parser():
     p.add_argument("--continue-g11-review", action="store_true", help="continue a restored sealed audit, preserving its notes and remaining budget")
     p.add_argument("--concurrent-roles", action=argparse.BooleanOptionalAction, default=True,  # founder, 2026-10-17
                    help="run the two calibrators at once on isolated users and bench instances (Linux firewall required); --no-concurrent-roles for serial")
+    p.add_argument("--parallel-gates", action=argparse.BooleanOptionalAction, default=False,
+                   help="engine cases admitted with it: parallel calibrators and G10 overlap at quiescent checkpoints, "
+                        "G2/G8/G9 beside the bench gates")
     p.add_argument("--pilot-tries", type=int, default=3)
     p.add_argument("--no-early-probe", action="store_true", help="skip the one strong-tester try after G5")
     p.add_argument("--calibrator-minutes", type=float, default=30,  # founder may change; strong tries took ~20 min (2026-10-18)
