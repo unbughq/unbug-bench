@@ -977,6 +977,81 @@ class Restart(unittest.TestCase):
             self.assertGreaterEqual(s2, e1, spans)
 
 
+class AttackCap(unittest.TestCase):
+    """FACTORY.md 4 (2026-11-10): at most two attack rounds; the last one's findings get one fix, then GATES."""
+
+    FOUND = {f"1/stress:{n}/1": {"feedback": True} for n in range(1, 9)}
+
+    def test_the_second_attacks_findings_get_one_fix_and_the_case_goes_to_gates(self):
+        r, out = run({"script": dict(self.FOUND)})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "writer:2", "stress:2", "writer:3", "gates:3", "seal"])
+        self.assertEqual(start(r, f"{C1}/6/writer:3/1")["opened"]["feedback"], f"findings {C1}/5/stress:2/1")
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(card(out, C1)["writer_rounds"], 3)
+
+    def test_a_clean_second_attack_needs_no_final_fix(self):
+        r, out = run({"script": {"1/stress:1/1": {"feedback": True}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "writer:2", "stress:2", "gates:2", "seal"])
+
+    def test_a_gate_repair_after_the_last_attack_is_not_attacked_again(self):
+        r, out = run({"script": {**self.FOUND, "1/gates:3/1": {
+            "outcome": "gate_failed", "gate": "G5", "repairable": True, "passed": ["G1", "G2"]}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "writer:2", "stress:2", "writer:3", "gates:3",
+                                       "writer:4", "gates:4", "seal"])
+        self.assertEqual(start(r, f"{C1}/8/writer:4/1")["opened"]["feedback"], f"repair {C1}/7/gates:3/1")
+
+    def test_the_final_fix_runs_even_when_the_writer_rounds_are_used_up(self):
+        # Without the cap this case would be diagnosed after stress:2 and never see GATES.
+        r, out = run({"spec": {"max_writer_rounds": 2, "max_cases_started": 1}, "script": dict(self.FOUND)})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "writer:2", "stress:2", "writer:3", "gates:3", "seal"])
+        self.assertEqual(card(out, C1)["diagnoses"], 0)
+
+    def test_a_workflow_from_before_the_cap_keeps_the_clean_stress_rule(self):
+        r, out = run({"disabled_patches": ["attack_cap"],
+                      "script": {f"1/stress:{n}/1": {"feedback": True} for n in (1, 2, 3)}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "writer:2", "stress:2", "writer:3", "stress:3",
+                                       "writer:4", "stress:4", "gates:4", "seal"])
+
+    def resume(self, r, script):
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 2},
+                        "resume_of": C1, "script": script}, workdir=r.work)
+        return r2.run()
+
+    LOST = {"outcome": "infra_error", "reason": "infra:stalled", "diagnostic": True, "checkpoint": True}
+
+    def test_a_case_stopped_under_the_old_rule_resumes_under_the_cap(self):
+        # cae763 and the other looping cases of 10 November: rounds of findings, then an infra stop.
+        r, out = run({"disabled_patches": ["attack_cap"],
+                      "spec": {"max_infra_retries_per_step": 2, "max_cases_started": 1},
+                      "script": {**{f"1/stress:{n}/1": {"feedback": True} for n in (1, 2, 3)},
+                                 "1/writer:4/*": self.LOST, "1/diagnosis/*": self.LOST}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        before = len(r.starts(1))
+        last = r.keys(1)[-1]
+        out = self.resume(r, {f"1/diagnosis/{int(last[2]) + 1}": {"verdict": "close_to_passing"}})
+        # Its recorded rounds replay unchanged; the extension's fix goes to GATES with no further attack.
+        self.assertEqual([k[1] for k in r.keys(1)[before:]], ["diagnosis", "writer:5", "gates:5", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+
+    def test_a_capped_case_stopped_at_gates_replays_its_final_fix_when_resumed(self):
+        r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 1},
+                      "script": {**self.FOUND, "1/gates:3/*": self.LOST, "1/diagnosis/*": self.LOST}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(steps(r, 1)[:7], ["admit", "writer:1", "stress:1", "writer:2", "stress:2", "writer:3", "gates:3"])
+        before = len(r.starts(1))
+        last = r.keys(1)[-1]
+        out = self.resume(r, {f"1/diagnosis/{int(last[2]) + 1}": {"verdict": "close_to_passing"}})
+        self.assertEqual([k[1] for k in r.keys(1)[before:]], ["diagnosis", "writer:4", "gates:4", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+
+
 class Resume(unittest.TestCase):
     """A case stopped by an infrastructure failure continues where it stopped, under its own ID."""
 
