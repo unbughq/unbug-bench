@@ -491,6 +491,14 @@ class ModelRuntime:
                     # one: publish it (router health blocks the account until its reset) instead of
                     # excluding one lane, so later calls stop retrying an exhausted account.
                     failure = {k: v for k, v in failure.items() if k != 'per_call'}
+                elif (failure.get('per_call') and failure.get('reason') == 'outage' and lease.route in FREE_ROUTES
+                      and lease.account in OPENCODE_ACCOUNTS and not str(error).startswith('refusal:')):
+                    # A free model on an OpenCode account that fails without a usable answer (an OpenCode
+                    # error, a crashed CLI, a broken usage report) is published as an outage of that one
+                    # lane: the router blocks only that account's lane for this route, with its usual
+                    # backoff, so later calls go to the next lane instead of retrying it every time
+                    # (9 November: exhausted accounts' refusals did not read as quota).
+                    failure = {k: v for k, v in failure.items() if k != 'per_call'}
                 from durable.classify import FAILURE_STOPS
                 if failure.get('source_stop') not in FAILURE_STOPS:
                     failure = {k: v for k, v in failure.items() if k != 'source_stop'}
