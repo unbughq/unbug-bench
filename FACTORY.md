@@ -125,9 +125,10 @@ exhausted cost/total-call ceilings need higher explicit flags, not a reset.
 Execution order: G1, G2, G3, G4, G5, G8, G9, G6, G13, G14, G15, G7, G10, G11, then G12. G8–G9 (review) also run in the writing phase once the stress tester is satisfied, so complaints go back to the writer in the same run (founder 2026-10-18: 2 of the first 3 cases failed fairness after ~9 h of checks).
 G13–G15 depend on scripted strategies, never contestant performance. All gate results and
 failed_detail are recorded on the scorecard using structural counts, not case content.
-Strategies that ask for the very same bench execution (same scenario and guard bytes, report, runs,
-seed) share one execution inside a runner process and are scored separately; no run count or pass
-rule changes (`bin/strategy` `execute_shared`).
+The G15 strategies that ask for the very same bench execution (same scenario and guard bytes, report,
+runs, seed) share one execution inside a runner process and are scored separately, so ask-everything
+is scored on honest-reference's runs instead of a second sample of them. G13 never shares with G15.
+Pass rules and `--scenario-runs` are unchanged (`bin/strategy` `execute_shared`).
 
 **Not copied from Olympus:** "the strongest models must fail" (that would skew results
 against our contestants' model) and "deterministic tests only" (our bugs depend on timing

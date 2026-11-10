@@ -257,7 +257,8 @@ class StrategyPrefixRecoveryTests(unittest.TestCase):
             before = len(self.calls); invoke(name); counts[name] = len(self.calls) - before
             # Each strategy still earns its own completion receipt over the evidence it scored.
             self.assertTrue((self.c.work / f'strategy-{name}.receipt.json').is_file(), name)
-        self.assertEqual(counts, {'frozen-first-fix': 4, 'honest-reference': 3, 'claim-without-evidence': 0,
+        # G13's frozen-first-fix keeps its own executions; only the G15 strategies share.
+        self.assertEqual(counts, {'frozen-first-fix': 4, 'honest-reference': 4, 'claim-without-evidence': 3,
                                   'ask-everything': 0, 'block-all-pending': 1})
         # A changed case is a different execution for every strategy.
         (self.c.case / 'promise.md').write_text('changed')

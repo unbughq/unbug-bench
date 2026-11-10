@@ -1305,13 +1305,14 @@ def strategy_run(c, name):
                     "inputs": gate_state.inputs(c, gate, BENCH)}
         return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     def shared_signature():
-        # One binding for every strategy: whatever would invalidate a G13 or a G15 strategy run
-        # invalidates an execution shared between them.
+        # One binding per gate: the G15 strategies share with each other, never with G13's
+        # frozen-first-fix, so G13 keeps its own independent executions (bench runs are timing
+        # dependent; two gates must not rest on one sample).
         case_files = tree_digest(c.case)
         for metadata in ("freshness.jsonl", "BUILD-NOTES.md"):
             case_files.pop(metadata, None)
-        identity = {"version": 1, "case": case_files,
-                    "inputs": [gate_state.inputs(c, gate, BENCH) for gate in ("G13", "G15")]}
+        gate = "G13" if name == "frozen-first-fix" else "G15"
+        identity = {"version": 1, "case": case_files, "gate": gate, "inputs": gate_state.inputs(c, gate, BENCH)}
         return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     def evidence_directory(root, relative):
         relative = pathlib.PurePosixPath(relative)

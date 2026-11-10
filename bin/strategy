@@ -160,8 +160,8 @@ def claim_report(key, paths, frozen=False, decision=None):
 
 def execute_shared(execute, shared, used, scenarios, guard, report, runs, seed, label, *, workers, binding=None):
     """Strategies that differ only in scoring ask for the very same execution (ask-everything is
-    honest-reference plus ten questions; claim-without-evidence is frozen-first-fix; all share the
-    establish step). `shared` lives for one runner process: an identical request (same scenario and
+    honest-reference plus ten questions; all share the establish step). The factory's binding keeps
+    G13's frozen-first-fix apart from the G15 strategies. `shared` lives for one runner process: an identical request (same scenario and
     guard bytes, report, runs, seed, workers, and the factory's binding of case plus execution
     implementation) is executed once and its completed checkpoint is scored by each strategy. One
     strategy never counts the same checkpoint for two of its own steps."""
