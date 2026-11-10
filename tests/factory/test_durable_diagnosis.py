@@ -120,6 +120,14 @@ class DiagnosisTests(unittest.TestCase):
                                          fix_required='private fix')
         if self.corrupt == 'hash': result['evidence'][0]['sha256'] = '0' * 64
         if self.corrupt == 'mutate': (inputs / evidence).write_bytes(b'changed')
+        if self.corrupt in ('writer_receipt', 'writer_receipt_first_round'):
+            # A writer round's receipt names the stress report that follows it, not an existing one.
+            (c.work / 'attack-state.json').write_text(json.dumps(
+                {'engine': True, 'round': 2, 'report': 'round-2.json', 'repair_pending': True}))
+            if self.corrupt == 'writer_receipt':
+                (c.work / 'attacks').mkdir(exist_ok=True)
+                (c.work / 'attacks/round-1.json').write_text('{}')
+                (c.work / 'engine-feedback.json').write_text(json.dumps({'attack_report': 'round-1.json'}))
         if self.corrupt == 'processing':
             (c.work / 'attack-state.json').write_text(json.dumps({'report': '../private-invalid'}))
         return json.dumps(result).encode()
@@ -166,6 +174,22 @@ class DiagnosisTests(unittest.TestCase):
                 result, _ = self.execute()
                 self.assertEqual(result.outcome, k.Outcome.INFRA_ERROR)
                 self.assertIsNone(result.verdict)
+
+    def test_a_close_verdict_on_a_case_stopped_in_a_writer_round_gives_feedback(self):
+        for corrupt, report in (('writer_receipt', 'round-1.json'), ('writer_receipt_first_round', None)):
+            with self.subTest(corrupt=corrupt):
+                self.corrupt = corrupt
+                result, outputs = self.execute()
+                self.assertEqual((result.outcome, result.verdict), (k.Outcome.OK, k.Verdict.CLOSE_TO_PASSING))
+                self.assertEqual(json.loads(self.opened(result.feedback, outputs))['attack_report'], report)
+
+    def test_a_processing_failure_names_its_cause(self):
+        for corrupt, reason in (('json', 'infra:diagnosis_result_invalid'), ('raise', 'infra:raw_runtime_error'),
+                                ('processing', 'infra:raw_value_error')):
+            with self.subTest(corrupt=corrupt):
+                self.corrupt = corrupt
+                result, _ = self.execute()
+                self.assertEqual((result.outcome, result.reason), (k.Outcome.INFRA_ERROR, reason))
 
     def test_cleanup_failure_names_the_first_error(self):
         for corrupt, outcome, reason in (
