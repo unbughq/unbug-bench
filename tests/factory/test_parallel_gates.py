@@ -164,6 +164,44 @@ class RunningCases(unittest.TestCase):
             self.assertEqual((c.card["recovery_config"], c.args.bench_workers), (config, 1))
 
 
+class GatesEntry(unittest.TestCase):
+    def context(self, config=None, dry=False):
+        return types.SimpleNamespace(engine=object(), stopped=False,
+            card={} if config is None else {"recovery_config": dict(config)},
+            args=types.SimpleNamespace(dry_run=dry, bench_workers=1, parallel_gates=False))
+
+    def test_old_card_adopts_without_changing_bench_workers_or_other_settings(self):
+        for config in (None, {"bench_workers": 1, "rounds": 8}):
+            c = self.context(config)
+            self.assertTrue(run.adopt_parallel_gates(c))
+            self.assertEqual(c.card["recovery_config"], {**(config or {}), "parallel_gates": True})
+            self.assertEqual(c.args.bench_workers, 1)
+            self.assertTrue(run.parallel_gates(c))
+
+    def test_explicit_pins_dry_runs_and_non_engine_contexts_are_unchanged(self):
+        for flag in (False, True):
+            c = self.context({"parallel_gates": flag})
+            c.args.parallel_gates = flag
+            self.assertFalse(run.adopt_parallel_gates(c))
+            self.assertEqual(c.card["recovery_config"]["parallel_gates"], flag)
+        c = self.context(dry=True)
+        self.assertFalse(run.adopt_parallel_gates(c))
+        c = self.context()
+        del c.engine
+        self.assertFalse(run.adopt_parallel_gates(c))
+
+    def test_gates_adopts_before_freshness_and_pipeline_dispatch(self):
+        c = self.context({"bench_workers": 1})
+        def validate(ctx):
+            self.assertTrue(run.parallel_gates(ctx))
+            self.assertEqual(ctx.args.bench_workers, 1)
+            ctx.card["gates"] = {g: "pass" for g in run.GATES}
+        with mock.patch.object(run, "ensure_freshness") as freshness, \
+                mock.patch.object(run, "validate_and_repair", validate):
+            self.assertEqual(run.engine_gates(c)["reason"], "engine:gates_passed")
+        freshness.assert_not_called()
+
+
 class Admission(unittest.TestCase):
     def card(self, **inputs):
         value = {"seed": 7, "source": "port", **inputs}

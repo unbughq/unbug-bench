@@ -123,7 +123,12 @@ overridden (`false` is the only pin; an older card's `bench_workers` is replaced
 may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second thread after G1,
 joining before G6. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
-case edited during that lane fails the step as infrastructure. The writer step records fixed
+case edited during that lane fails the step as infrastructure. Older cards without a
+`parallel_gates` setting also adopt it at GATES entry (`run.adopt_parallel_gates`), keeping their
+existing `bench_workers` and all other settings. Explicit settings and dry runs are unchanged.
+G3 prepares the slots before overlap is considered; isolation and memory checks still limit
+parallelism. This adoption does not change gate-function bindings or imply a measured speedup.
+The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
 progress and the card's `phase_times`.
 
