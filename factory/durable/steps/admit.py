@@ -505,7 +505,8 @@ def _admitted_before(root, case_id):
 
 
 # 2026-11-10: two bench instances per check, parallel calibrators and model gates beside the
-# bench gates (run.parallel_calibrators, GatePipeline side lane). Recertified imports keep theirs.
+# bench gates (run.parallel_calibrators, GatePipeline side lane). Recertified imports keep theirs
+# unless a gate sends them to a writer round, where run.adopt_parallel_checks applies these.
 NEW_CASE_SETTINGS = {"bench_workers": 2, "parallel_gates": True}
 
 
