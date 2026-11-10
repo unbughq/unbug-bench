@@ -1329,6 +1329,32 @@ class Resume(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
         self.assertEqual(start(r, f"{C1}/{gseq}/gates:1/4")["opened"]["snapshot"], f"snapshot {C1}/{gseq}/gates:1/3")
 
+    # 2abb0a and 1110b on 10 November: a writer step ended infra:invalid_execution on every attempt.
+    def test_a_writer_step_that_only_stopped_on_infra_resumes_after_a_factory_bug(self):
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
+                      "script": {"1/writer:1/*": {"outcome": "infra_error", "reason": "infra:invalid_execution",
+                                                  "checkpoint": True},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        seq, kind, _ = r.keys(1)[-1]
+        self.assertEqual(kind, "diagnosis")
+        before = len(r.starts(1))
+        out = self.resume(r, {"1/writer:1/*": {}})
+        wseq = str(int(seq) - 1)
+        self.assertEqual(r.keys(1)[before], (wseq, "writer:1", "4"))
+        self.assertFalse([k for k in r.keys(1)[before:] if k[1] == "diagnosis"])
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+
+    def test_a_writer_step_with_a_non_infra_stop_among_its_attempts_is_not_resumed_this_way(self):
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
+                      "script": {"1/writer:1/1": {"outcome": "infra_error", "reason": "infra:invalid_execution"},
+                                 "1/writer:1/2": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
+
     def test_a_gates_step_on_a_reused_seq_is_judged_by_its_own_attempts(self):
         # The first diagnosis took seq 5 with two attempts. After the resume, a release makes SEAL
         # rerun GATES, which takes seq 5 with one attempt: the old diagnosis/2 there is not its history.
