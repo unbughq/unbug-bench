@@ -398,6 +398,21 @@ def _resume_point(case_id: str) -> tuple:
             for name, n in steps.items():
                 renumber.setdefault(int(k), {})[name] = max(renumber.get(int(k), {}).get(name, 0), n)
     waste_keys = []
+    gates_repair = (latest.output.get("status") == "retired" and isinstance(result, dict)
+                    and attempts[(seq, attempt)].workflow_id.split("/")[2].split(":")[0] == StepKind.GATES.value
+                    and result.get("outcome") == Outcome.GATE_FAILED.value and result.get("repairable") is True
+                    and result.get("feedback") is not None)
+    if gates_repair:
+        # Founder 2026-11-10: a recertified case retired only because a gate asked for a repair
+        # (recertify never rewrites) continues as an ordinary case: the GATES seq replays, its
+        # feedback goes to a writer round, then STRESS and every gate run again (run.engine_writer_round
+        # drops the kept October verdicts). Only that retirement qualifies.
+        skip = {}
+        for r in earlier:
+            skip.update({int(k): v for k, v in r.get("skip", {}).items()})
+        return ({"seq": seq + 1, "skip": {str(k): v for k, v in sorted(skip.items())},
+                 "factory_bug_resumes": factory_bug_resumes, "recertify_repair": True,
+                 "renumber": {str(k): v for k, v in sorted(renumber.items())}}, waste_keys)
     if not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
         # The diagnosed step is the one that ran last at seq - 1. A factory_bug resume can give that
         # seq to a new step while an older diagnosis there kept higher-numbered attempts; those belong
@@ -663,6 +678,7 @@ class _Case:
         # After a factory_bug resume: {seq: {step name: attempts}} recorded there by a step that
         # is no longer replayed (its diagnosis). A step of that name at that seq numbers after them.
         self.renumber: dict = {}
+        self.recertify_repair = False   # resume_point: a recertified case retired at a repairable gate
 
     @property
     def replaying(self) -> bool:
@@ -1002,6 +1018,10 @@ class _Case:
                 self.in_extension = False
                 if action is Action.ADVANCE:
                     phase = "seal"
+                elif action is Action.REPAIR and self.recertify and self.recertify_repair and self.seq == self.resume_seq - 1:
+                    self.recertify = False                 # resumed for repair: an ordinary case from here
+                    self.round += 1
+                    phase, feedback = "writer", r.feedback
                 elif action is Action.REPAIR and self.recertify:
                     self.stop_line(Action.RETIRE)
                     self.finish("retired")
@@ -1107,6 +1127,7 @@ def case_workflow(job: dict) -> dict:
         # Earlier factory_bug resumes of this lineage: their diagnoses are no longer replayed.
         case.lineage_factory_bug_resumes = resume.get("factory_bug_resumes", 0)
         case.renumber = {int(seq): steps for seq, steps in resume.get("renumber", {}).items()}
+        case.recertify_repair = resume.get("recertify_repair") is True
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
@@ -1188,6 +1209,8 @@ class _Batch:
             job["resume"] = {"seq": self.resume["seq"], "skip": self.resume["skip"],
                              "factory_bug_resumes": self.resume.get("factory_bug_resumes", 0),
                              "renumber": self.resume.get("renumber", {})}
+            if self.resume.get("recertify_repair") is True:   # absent otherwise: older jobs replay unchanged
+                job["resume"]["recertify_repair"] = True
             self.case_ids[workflow_id] = case_id
         with SetWorkflowID(workflow_id):
             DBOS.start_workflow(case_workflow, job)

@@ -1174,6 +1174,29 @@ class Resume(unittest.TestCase):
         from durable.engine import FACTORY_BUG_RESUMABLE
         self.assertEqual(set(FACTORY_BUG_RESUMABLE), {"writer", "stress"})   # never gates, admit or seal
 
+    # 86b100 on 10 November: its recertify G16 asked for a repair, which retires a recertified case.
+    def test_a_recertified_case_retired_at_a_repairable_gate_resumes_into_a_writer_repair(self):
+        sealed = {'1/admit/1': {'reason': 'admit:imported_sealed'},
+                  '1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
+                                  'passed': ['G1', 'G2', 'G10']}}
+        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        before = len(r.starts(1))
+        out = self.resume(r)
+        # The GATES seq replays; its feedback goes to a writer round, then stress and gates run again.
+        self.assertEqual(r.keys(1)[before:], [('3', 'writer:2', '1'), ('4', 'stress:2', '1'),
+                                              ('5', 'gates:2', '1'), ('6', 'seal', '1')])
+        self.assertEqual(start(r, f'{C1}/3/writer:2/1')['opened']['feedback'], f'repair {C1}/2/gates:1/1')
+        self.assertEqual(out['result']['cases'], {C1 + '@b-u': 'sealed'})
+
+    def test_a_case_retired_by_a_verdict_is_still_not_resumed(self):
+        r, out = run({'spec': {'max_cases_started': 1},
+                      'script': {'1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G3', 'repairable': False}}})
+        self.addCleanup(r.close)
+        self.assertNotEqual(out['result']['cases'], {C1: 'sealed'})
+        self.assertEqual(self.resume(r), {'refused': 'resume:not_stopped_by_infra'})
+
     # 18681d on 9 November: recertify G16 failed three times in calibrator setup, then factory_bug.
     GATES_INFRA = {"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
                    "script": {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",

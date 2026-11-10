@@ -2699,6 +2699,11 @@ def engine_writer_round(c, n, feedback):
         c.card["builder_rounds"] = n
         return {"outcome": Outcome.OK, "reason": "writer:practice"}
     problems, report = _feedback_input(c, feedback)
+    # A recertified case that a gate sent back for repair (engine recertify_repair resume) is being
+    # rewritten: its kept October verdicts no longer describe this tree, so every gate runs again.
+    if c.card.pop("recertify", None) is not None:
+        c.card["recertify_rewritten"] = True
+        c.card.pop("kept_gate_source", None)
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
     receipt_path = c.work / "attack-state.json"
