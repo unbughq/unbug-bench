@@ -1260,6 +1260,14 @@ def g14_binding(c):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
+def shared_strategy_checkpoints(c):
+    """Identical strategy executions run once per runner process (bin/strategy execute_shared).
+    Not persisted: after a restart each strategy's own receipt and checkpoint cache decide."""
+    if not isinstance(getattr(c, "strategy_shared", None), dict):
+        c.strategy_shared = {}
+    return c.strategy_shared
+
+
 def strategy_run(c, name):
     """Only completed runner validations with intact evidence survive a restart."""
     import gate_state
@@ -1295,6 +1303,16 @@ def strategy_run(c, name):
         gate = "G13" if name == "frozen-first-fix" else "G15"
         identity = {"version": 5, "case": case_files, "strategy": name,
                     "inputs": gate_state.inputs(c, gate, BENCH)}
+        return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    def shared_signature():
+        # One binding per gate: the G15 strategies share with each other, never with G13's
+        # frozen-first-fix, so G13 keeps its own independent executions (bench runs are timing
+        # dependent; two gates must not rest on one sample).
+        case_files = tree_digest(c.case)
+        for metadata in ("freshness.jsonl", "BUILD-NOTES.md"):
+            case_files.pop(metadata, None)
+        gate = "G13" if name == "frozen-first-fix" else "G15"
+        identity = {"version": 1, "case": case_files, "gate": gate, "inputs": gate_state.inputs(c, gate, BENCH)}
         return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     def evidence_directory(root, relative):
         relative = pathlib.PurePosixPath(relative)
@@ -1371,7 +1389,8 @@ def strategy_run(c, name):
     receipt_path.unlink(missing_ok=True)
     result = module.simulate(c.case, name, c.args.scenario_runs, c.seed, factory_workers=workers,
                              checkpoint_cache_dir=c.work / ('strategy-' + name + '-checkpoints'),
-                             checkpoint_binding=signature, restored_results_root=c.work / "bench-results")
+                             checkpoint_binding=signature, restored_results_root=c.work / "bench-results",
+                             shared=shared_strategy_checkpoints(c), shared_binding=shared_signature)
     if not completed(result):
         raise ValueError("incomplete strategy result")
     try:

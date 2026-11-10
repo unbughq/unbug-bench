@@ -36,8 +36,10 @@ class StrategyReuseTests(unittest.TestCase):
             p.start(); self.addCleanup(p.stop)
 
     def simulate(self, case, name, runs, seed, factory_workers, checkpoint_cache_dir, checkpoint_binding,
-                 restored_results_root):
+                 restored_results_root, shared, shared_binding):
         self.calls += 1
+        self.assertIs(shared, self.c.strategy_shared)
+        self.assertIsInstance(shared_binding(), str)
         self.assertEqual(factory_workers, self.c.args.bench_workers)
         self.assertEqual(checkpoint_cache_dir, self.c.work / ('strategy-' + name + '-checkpoints'))
         self.assertEqual(restored_results_root, self.c.work / 'bench-results')
@@ -242,6 +244,30 @@ class StrategyPrefixRecoveryTests(unittest.TestCase):
         self.assertEqual(self.invoke(), result)
         self.assertEqual(len(self.calls), 4)
         self.assertTrue(self.c.card['strategy_reuse']['honest-reference'])
+
+    def test_one_runner_executes_identical_strategy_steps_once(self):
+        self.interrupt_at = None
+        def invoke(name):
+            with patch.object(run, 'BENCH', self.root), patch.object(self.module, 'BENCH', self.root), \
+                 patch.object(run, 'bench_manifest', lambda: self.implementation), \
+                 patch.object(run, 'strategy_module', lambda: self.module), patch.object(self.module, 'checkpoint', self.driver):
+                return run.strategy_run(self.c, name)
+        counts = {}
+        for name in ('frozen-first-fix', 'honest-reference', 'claim-without-evidence', 'ask-everything', 'block-all-pending'):
+            before = len(self.calls); invoke(name); counts[name] = len(self.calls) - before
+            # Each strategy still earns its own completion receipt over the evidence it scored.
+            self.assertTrue((self.c.work / f'strategy-{name}.receipt.json').is_file(), name)
+        # G13's frozen-first-fix keeps its own executions; only the G15 strategies share.
+        self.assertEqual(counts, {'frozen-first-fix': 4, 'honest-reference': 4, 'claim-without-evidence': 3,
+                                  'ask-everything': 0, 'block-all-pending': 1})
+        # A changed case is a different execution for every strategy.
+        (self.c.case / 'promise.md').write_text('changed')
+        before = len(self.calls); invoke('ask-everything')
+        self.assertEqual(len(self.calls), before + 4)
+        # A fresh runner process shares nothing in memory; the strategy's own receipt decides.
+        del self.c.strategy_shared
+        before = len(self.calls); invoke('ask-everything')
+        self.assertEqual(len(self.calls), before)
 
     def test_moved_prefix_tampered_missing_inputs_seed_and_code_invalidate(self):
         self.restore_prefix()
