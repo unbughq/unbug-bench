@@ -12,12 +12,15 @@ import threading
 _LOCK = threading.RLock()
 _ROLES = {"writer", "stress_tester", "reviewer", "strong_tester", "easy_tester", "second_writer", "diagnoser"}
 _STATUSES = {"running", "completed", "failed", "interrupted"}
+# Fixed writer-step phases (run.writer_phase), for measuring time to seal.
+PHASES = ("bench_prepare", "writer_model", "g1", "early_checks", "freshness")
 
 
 def _stage(stage):
     return isinstance(stage, str) and (re.fullmatch(r"(?:early:)?G(?:[1-9]|1[0-7])", stage) is not None
            or re.fullmatch(r"comparison(?::(?:stress|G(?:[1-9]|1[0-7])))?", stage) is not None
-           or stage in {"role:" + role for role in _ROLES})
+           or stage in {"role:" + role for role in _ROLES}
+           or stage in {"phase:writer:" + phase for phase in PHASES})
 
 
 def _timestamp(value):

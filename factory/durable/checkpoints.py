@@ -1,11 +1,14 @@
 """Worker-local completion receipts; only encrypted snapshots cross the worker boundary."""
 import base64
+import contextlib
 import hashlib
 import json
 from pathlib import Path
 import threading
 
 _INIT_LOCK = threading.Lock()
+# Counters only; never held across a model call or a snapshot, unlike checkpoint_lock.
+_COUNT_LOCK = threading.Lock()
 
 
 def _lock(c):
@@ -17,10 +20,53 @@ def _lock(c):
 from registry import atomic_json
 
 
+def _count(c, name, delta):
+    with _COUNT_LOCK:
+        value = getattr(c.engine, name, 0) + delta
+        setattr(c.engine, name, value)
+        return value
+
+
+def _unsettled(c):
+    with _COUNT_LOCK:
+        return getattr(c.engine, 'isolated_model_active', 0) > 0 or getattr(c.engine, 'concurrent_sections', 0) > 0
+
+
 def checkpoint(c):
+    """Publish a snapshot only at a quiescent point; otherwise defer it to the next one.
+
+    Inside a concurrent section another thread may be writing retained work, so a
+    snapshot taken there could be torn. The request is remembered and published when
+    the last section joins. The check runs before taking checkpoint_lock, which a
+    same-case model call holds for its whole run in the other thread.
+    """
+    if _unsettled(c):
+        c.engine.checkpoint_deferred = True
+        return False
     with _lock(c):
-        if getattr(c.engine, 'isolated_model_active', 0): return False
+        if _unsettled(c):
+            c.engine.checkpoint_deferred = True
+            return False
+        c.engine.checkpoint_deferred = False
         return getattr(c, 'engine_checkpoint', lambda: True)()
+
+
+@contextlib.contextmanager
+def concurrent_section(c):
+    """Parallel work on one case (G10's two calibrators, gates beside bench gates).
+
+    Snapshots requested inside wait until every section has joined, then one is published.
+    Outside the engine this does nothing.
+    """
+    if getattr(c, 'engine', None) is None:
+        yield
+        return
+    _count(c, 'concurrent_sections', 1)
+    try:
+        yield
+    finally:
+        if _count(c, 'concurrent_sections', -1) == 0 and getattr(c.engine, 'checkpoint_deferred', False):
+            checkpoint(c)
 
 
 def directory(c):
@@ -103,11 +149,11 @@ def model_call(c, models, cwd, name, invoke, *, text=None):
     """
     root = Path(cwd)
     if not root.is_relative_to(c.work):
-        c.engine.isolated_model_active = getattr(c.engine, 'isolated_model_active', 0) + 1
+        _count(c, 'isolated_model_active', 1)
         try:
             return invoke()
         finally:
-            c.engine.isolated_model_active -= 1
+            _count(c, 'isolated_model_active', -1)
     # ponytail: serialize same-case calls that mutate retained work. Cases still
     # run concurrently; isolated owner channels must remain outside this lock.
     with _lock(c):
