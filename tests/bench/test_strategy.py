@@ -377,6 +377,73 @@ class StrategyTests(unittest.TestCase):
             self.assertTrue(all(all(s['delivery'] == 'announced' for s in history[:-1]) for history, _ in seen))
             self.assertNotIn('pending', results['honest-reference']['skipped'])
 
+    def test_identical_executions_run_once_across_strategies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); case = root / 'case'; case.mkdir(); fixture(case)
+            seen = []
+            def driver(scenarios, guard, report, runs, seed, label):
+                seen.append(label)
+                summary = execute(scenarios, guard, report, runs, seed, label)
+                path = root / 'results/runs' / str(len(seen)) / 'checkpoint.json'
+                write(path, summary)
+                summary['_evidence_path'] = str(path)
+                return summary
+            alone = {s: strategy.simulate(case, s, execute=execute) for s in strategy.STRATEGIES}
+            shared = {}
+            order = ('honest-reference', 'claim-without-evidence', 'ask-everything', 'block-all-pending', 'frozen-first-fix')
+            counts, results = {}, {}
+            for name in order:
+                before = len(seen)
+                results[name] = strategy.simulate(case, name, execute=driver, shared=shared)
+                counts[name] = len(seen) - before
+            # ask-everything is honest-reference plus questions; frozen-first-fix is claim-without-evidence;
+            # every strategy shares the establish step; block-all-pending shares the steps before its first block.
+            self.assertEqual(counts, {'honest-reference': 4, 'claim-without-evidence': 3, 'ask-everything': 0,
+                                      'block-all-pending': 1, 'frozen-first-fix': 0})
+            for name in order:
+                self.assertEqual(results[name]['steps'], alone[name]['steps'], name)
+                self.assertEqual(results[name]['totals'], alone[name]['totals'], name)
+                paths = results[name]['_evidence_paths']
+                self.assertEqual(len(paths), 4); self.assertEqual(len(set(paths)), 4, 'one checkpoint per step')
+            self.assertEqual(results['ask-everything']['_evidence_paths'], results['honest-reference']['_evidence_paths'])
+            # Different runs, seed, workers or guard bytes are different executions.
+            strategy.simulate(case, 'ask-everything', execute=driver, shared=shared, seed=2)
+            self.assertEqual(len(seen), 12)
+            strategy.simulate(case, 'ask-everything', execute=driver, shared=shared, factory_workers=2)
+            self.assertEqual(len(seen), 16)
+            (case / 'guards/reference/db.sql').write_text('-- changed fixture')
+            strategy.simulate(case, 'ask-everything', execute=driver, shared=shared)
+            self.assertEqual(len(seen), 17, 'only the step run under the changed guard executes again')
+            # Missing evidence is never reused.
+            pathlib.Path(results['honest-reference']['_evidence_paths'][1]).unlink()
+            strategy.simulate(case, 'honest-reference', execute=driver, shared=shared)
+            self.assertEqual(len(seen), 18, 'only the step whose evidence is gone executes again')
+
+    def test_incomplete_or_live_window_executions_are_never_shared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); case = root / 'case'; case.mkdir(); fixture(case)
+            seen = []
+            def driver(*args):
+                seen.append(args[-1])
+                summary = execute(*args)
+                summary['runs'] = 2
+                path = root / 'results/runs' / str(len(seen)) / 'checkpoint.json'
+                write(path, summary); summary['_evidence_path'] = str(path)
+                return summary
+            shared = {}
+            for _ in range(2): strategy.simulate(case, 'honest-reference', runs=3, execute=driver, shared=shared)
+            self.assertEqual(len(seen), 8); self.assertEqual(shared, {})
+            meta = json.loads((case / 'case.json').read_text()); meta['steps'].append('quiet')
+            write(case / 'case.json', meta)
+            write(case / 'scenarios/quiet/scenario.json', {'id': 'quiet', 'delivery': 'unannounced'})
+            write(case / 'scenarios/quiet/key.json', {'correct_responses': ['keep']})
+            window = {'runs': 1, 'latest_claims': {}, 'claims_score': {'unsafe_checkpoint': False,
+                      'response_correct': True, 'human_minutes': {'total': 0}, 'exposure': {}}}
+            live = Mock(side_effect=execute)
+            with patch.object(strategy, 'silent_checkpoint', return_value=window):
+                for _ in range(2): strategy.simulate(case, 'honest-reference', execute=live, shared=shared)
+            self.assertEqual(live.call_count, 8); self.assertEqual(shared, {})
+
     def test_public_practice_shape_and_skips(self):
         case = _BENCH_ROOT
         for name in strategy.STRATEGIES:

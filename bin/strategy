@@ -158,8 +158,40 @@ def claim_report(key, paths, frozen=False, decision=None):
     return out
 
 
+def execute_shared(execute, shared, used, scenarios, guard, report, runs, seed, label, *, workers, binding=None):
+    """Strategies that differ only in scoring ask for the very same execution (ask-everything is
+    honest-reference plus ten questions; claim-without-evidence is frozen-first-fix; all share the
+    establish step). `shared` lives for one runner process: an identical request (same scenario and
+    guard bytes, report, runs, seed, workers, and the factory's binding of case plus execution
+    implementation) is executed once and its completed checkpoint is scored by each strategy. One
+    strategy never counts the same checkpoint for two of its own steps."""
+    import copy, hashlib
+    from strategy_resume import complete, tree
+    try:
+        identity = {**claims.scoring_identity(), 'binding': binding() if binding is not None else None, 'scenarios': [tree(p) for p in scenarios], 'guard': tree(guard),
+                    'guard_name': pathlib.Path(guard).name, 'report': report, 'runs': runs, 'seed': seed, 'workers': workers}
+        key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    except (OSError, ValueError, TypeError):
+        return execute(scenarios, guard, report, runs, seed, label)
+    def files(summary):
+        try: return tree(pathlib.Path(summary['_evidence_path']).parent)
+        except (OSError, ValueError, TypeError, KeyError): return None
+    kept = shared.get(key)
+    if kept is not None and kept[0]['_evidence_path'] not in used and files(kept[0]) == kept[1]:
+        used.add(kept[0]['_evidence_path'])
+        return copy.deepcopy(kept[0])
+    summary = execute(scenarios, guard, report, runs, seed, label)
+    # Only a completed execution with intact evidence on disk is offered to another strategy.
+    evidence = files(summary) if complete(summary, runs) else None
+    if evidence and 'checkpoint.json' in evidence:
+        shared[key] = (copy.deepcopy(summary), evidence)
+        used.add(summary['_evidence_path'])
+    return summary
+
+
 def simulate(case, strategy, runs=3, seed=1, execute=None, factory_workers=1,
-             checkpoint_cache_dir=None, checkpoint_binding=None, restored_results_root=None):
+             checkpoint_cache_dir=None, checkpoint_binding=None, restored_results_root=None, shared=None,
+             shared_binding=None):
     if factory_workers < 1: raise ValueError("factory-workers must be positive")
     if execute is None:
         from functools import partial
@@ -172,6 +204,9 @@ def simulate(case, strategy, runs=3, seed=1, execute=None, factory_workers=1,
         execute = partial(execute_cached, execute, workers=factory_workers, cache_dir=checkpoint_cache_dir,
                           binding=checkpoint_binding, results_root=BENCH / 'results',
                           restored_results_root=restored_results_root)
+    if shared is not None and not any(step['delivery'] == 'unannounced' for step in ordered):
+        from functools import partial
+        execute = partial(execute_shared, execute, shared, set(), workers=factory_workers, binding=shared_binding)
     ingredients = load(case / 'case.json', {}).get('ingredients', {})
     available = {'pending': any(s['delivery'] == 'pending' for s in ordered),
                  'blind': bool(ingredients.get('blind')) or any(
