@@ -336,6 +336,9 @@ FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair", "writer:output_ca
 # returned no writing and no findings, so it qualifies too. 2abb0a's writer step also met provider
 # limits (router:quota, router:credit) among those attempts: a call a provider or our router
 # refused returned nothing either, so a provider limit counts as such a stop.
+# cae763 on 10 November: its writer:6 ran out of case money once (resumed under the rule above),
+# then stopped five times on infrastructure. Each of those attempts returned nothing, so a step
+# whose attempts mix the two kinds qualifies; any attempt with another outcome still refuses.
 FACTORY_BUG_RESUMABLE_INFRA = ("gates", "writer", "stress")
 FACTORY_BUG_INFRA_STOPS = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.value)
 # FACTORY.md 4, founder 2026-11-10: a case is attacked at most this many times. Findings of the
@@ -366,8 +369,8 @@ def _resume_point(case_id: str) -> tuple:
     infrastructure or provider failure: never after a verdict, a gate, an exhausted limit or a
     founder's decision. One exception is a recertified case retired because a gate asked for a
     repair (see gates_repair below). The other is a case held by a factory_bug diagnosis of a factory
-    check or of a writer or stress step that ran out of case money (FACTORY_BUG_RESUMABLE) or of a GATES, writer or stress step that only ever stopped on infrastructure
-    or a provider limit (FACTORY_BUG_RESUMABLE_INFRA): it resumes at the diagnosed step, its diagnosis is not replayed,
+    check or of a writer or stress step that ran out of case money (FACTORY_BUG_RESUMABLE) or of a GATES, writer or stress step that only ever stopped on infrastructure,
+    a provider limit or (before an earlier such resume) one of those factory checks (FACTORY_BUG_RESUMABLE_INFRA): it resumes at the diagnosed step, its diagnosis is not replayed,
     and the resume counts against the lineage's factory_bug_resumes."""
     if type(case_id) is not str or not CASE_ID.fullmatch(case_id):
         raise ContractError("resume:bad_case")
@@ -437,8 +440,14 @@ def _resume_point(case_id: str) -> tuple:
         kind = name.split(":")[0] if name else None
         factory_check = (isinstance(stopped, dict) and stopped.get("outcome") == Outcome.EXHAUSTED.value
                          and stopped.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
-        infra_only = (kind in FACTORY_BUG_RESUMABLE_INFRA and bool(stops)
-                      and all(isinstance(s, dict) and s.get("outcome") in FACTORY_BUG_INFRA_STOPS for s in stops))
+        # Every attempt returned nothing: it stopped on infrastructure or a provider limit, or (an
+        # attempt before an earlier factory_bug resume of this step) on one of the factory checks
+        # above. No repair was judged and no verdict given, so this is a retry, never a re-roll.
+        def returned_nothing(s):
+            return isinstance(s, dict) and (
+                s.get("outcome") in FACTORY_BUG_INFRA_STOPS
+                or s.get("outcome") == Outcome.EXHAUSTED.value and s.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
+        infra_only = (kind in FACTORY_BUG_RESUMABLE_INFRA and bool(stops) and all(returned_nothing(s) for s in stops))
         if not (latest.output.get("status") == "held"
                 and attempts[(seq, attempt)].workflow_id.split("/")[2] == StepKind.DIAGNOSIS.value
                 and isinstance(result, dict) and result.get("outcome") == Outcome.OK.value

@@ -1364,6 +1364,38 @@ class Resume(unittest.TestCase):
         self.assertEqual(r.keys(1)[before], (str(int(seq) - 1), "writer:1", "4"))
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
 
+    # cae763 on 10 November: writer:6 ran out of case money, was resumed, then stopped on infrastructure.
+    def test_a_writer_step_that_stopped_on_case_money_then_infra_resumes_after_a_factory_bug(self):
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:money", "checkpoint": True},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        lost = {"outcome": "infra_error", "reason": "infra:invalid_execution", "checkpoint": True}
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1},
+                        "resume_of": C1, "script": {"1/writer:1/2": lost, "1/writer:1/3": lost,
+                                                    "1/diagnosis/*": {"verdict": "factory_bug"}}}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
+        before = len(r.starts(1))
+        r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1,
+                        "script": {"1/writer:1/*": {}}}, workdir=r.work)
+        out = r3.run()
+        self.assertEqual(r.keys(1)[before][1:], ("writer:1", "4"))
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "sealed"})
+
+    def test_a_mixed_step_with_any_other_outcome_is_still_refused(self):
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:money", "checkpoint": True},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1},
+                        "resume_of": C1, "script": {"1/writer:1/2": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                                    "1/diagnosis/*": {"verdict": "factory_bug"}}}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
+        r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1, "script": {}},
+                       workdir=r.work)
+        self.assertEqual(r3.run(), {"refused": "resume:not_stopped_by_infra"})
+
     def test_a_writer_step_with_a_non_infra_stop_among_its_attempts_is_not_resumed_this_way(self):
         r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
                       "script": {"1/writer:1/1": {"outcome": "infra_error", "reason": "infra:invalid_execution"},
