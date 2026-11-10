@@ -695,7 +695,8 @@ class _Case:
         return self.seq >= self.attack_cap_from
 
     def attack_cap_active(self) -> bool:
-        return self.attack_cap_from is not None and self.seq >= self.attack_cap_from
+        return (self.attack_rounds >= ATTACK_ROUNDS and self.attack_cap_from is not None
+                and self.seq >= self.attack_cap_from)
 
     # -- records and messages --
 
