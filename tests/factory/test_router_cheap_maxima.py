@@ -151,7 +151,9 @@ class CheapTests(unittest.TestCase):
             self.assertEqual(body['max_tokens'],32768);self.assertEqual(body['reasoning']['max_tokens'],32768)
             self.assertEqual(body['usage'],{'include':True});self.assertEqual(body['stream_options'],{'include_usage':True})
             incoming,_,outgoing=map(float,profile['prices'])
-            self.assertEqual(body['provider'],dict(only=[profile['endpoint']],allow_fallbacks=False,require_parameters=True,
+            endpoints=[*profile.get('cheaper',()),profile['endpoint']]
+            self.assertEqual(endpoints[-1],profile['endpoint']);self.assertEqual(len(set(endpoints)),len(endpoints))
+            self.assertEqual(body['provider'],dict(order=endpoints,only=endpoints,allow_fallbacks=False,require_parameters=True,
                              max_price=dict(prompt=incoming,completion=outgoing,request=0,image=0)))
             if profile['endpoint']=='deepinfra/fp8':
                 tags={e['tag'] for e in PRICES[1]['response']['data']['endpoints']}
@@ -326,7 +328,7 @@ class CheapTests(unittest.TestCase):
                     with active.state.condition:self.assertTrue(active.state.condition.wait_for(lambda:not active.state.active,timeout=1))
                 self.assertEqual(used['validated_requests'],1);self.assertEqual(used['unknown_requests'],0)
             path,body,auth=seen[-1];self.assertEqual(path,'/api/v1/chat/completions')
-            self.assertEqual(body['provider']['only'],[GATED_OPENROUTER[route]['endpoint']])
+            self.assertEqual(body['provider']['only'],[*GATED_OPENROUTER[route].get('cheaper',()),GATED_OPENROUTER[route]['endpoint']])
             self.assertEqual(auth,'Bearer synthetic-upstream-only')
         self.assertEqual(len(seen),len(GATED_OPENROUTER))
 

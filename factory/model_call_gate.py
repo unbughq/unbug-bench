@@ -444,7 +444,10 @@ def openrouter_body(raw, route):
         if (not isinstance(schema, dict) or set(schema) - {'name', 'description', 'schema', 'strict'}
                 or not isinstance(schema.get('schema'), dict)): raise ValueError('unsupported schema')
     incoming, _, outgoing = map(float, profile['prices'])
-    body['provider'] = dict(only=[profile['endpoint']], allow_fallbacks=False, require_parameters=True,
+    # Cheaper endpoints first (founder 2026-11-10), then the pin; max_price stays the pin's tariff, so
+    # the per-call bound and the booked amount never rise, and OpenRouter refuses any dearer endpoint.
+    endpoints = [*profile.get('cheaper', ()), profile['endpoint']]
+    body['provider'] = dict(order=endpoints, only=endpoints, allow_fallbacks=False, require_parameters=True,
                            max_price=dict(prompt=incoming, completion=outgoing, request=0, image=0))
     return body
 
