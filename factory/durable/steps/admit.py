@@ -506,7 +506,9 @@ def _admitted_before(root, case_id):
 
 # 2026-11-10: two bench instances per check, parallel calibrators and model gates beside the
 # bench gates (run.parallel_calibrators, GatePipeline side lane). Recertified imports keep theirs.
-NEW_CASE_SETTINGS = {"bench_workers": 2, "parallel_gates": True}
+# Also 2026-11-10: the last attack's open findings go to G8/G9 (run.attack_open_findings), and one
+# non-blocking attack round follows passing gates (run.engine_seal_audit). Both are non-blocking.
+NEW_CASE_SETTINGS = {"bench_workers": 2, "parallel_gates": True, "attack_open_findings": True, "seal_audit": True}
 
 
 def _card(value, case_id, dry_run, admitted_before=0):

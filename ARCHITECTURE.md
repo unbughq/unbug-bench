@@ -122,6 +122,16 @@ joining before G6. Any snapshot requested while two threads work on the case is 
 case edited during that lane fails the step as infrastructure. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
 progress and the card's `phase_times`.
+The same new-case settings carry `attack_open_findings` and `seal_audit` (FACTORY.md 4). GATES
+gives the G8/G9 panel the last attack's open findings (`factory/attack_audit.py`) and, when its
+gates pass, returns `engine:gates_passed_audit`. The engine then runs one STRESS step at the
+same round before SEAL (`_Case.seal_audit`, `run_seq(audit=True)`, which returns instead of
+waiting for money or a provider). On the worker a STRESS step on a fully gated case is the audit
+(`run.engine_seal_audit`): its files are `attacks/audit-<n>.json` and `attacks/round-audit-<n>*`,
+it returns `stress:audit_{clean,findings,cheat}` with no feedback, and the card's `audit` field
+reaches the public scorecard. An unfinished audit is `not_run` and SEAL restores the GATES
+snapshot. The open-findings count stays on the sealed scorecard only: a public field for it
+needs a `StepResult` field in `contract.py`.
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
