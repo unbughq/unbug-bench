@@ -552,6 +552,101 @@ class RetryTests(unittest.TestCase):
         state = run.jload(self.work/report['category_state'])['categories']
         self.assertEqual([k for k,v in state.items() if v.get('found')], ['wrong_fixes'])
 
+    # Parallel attack (2026-11-10): the round's category attackers run together.
+    def parallel(self):
+        self.patch(run, 'parallel_attack', lambda c: True)
+        seen = {'now': 0, 'most': 0}
+        guard = threading.Lock()
+        def enter():
+            with guard:
+                seen['now'] += 1; seen['most'] = max(seen['most'], seen['now'])
+            threading.Event().wait(.5)   # hold the call open so attackers that run together overlap
+            with guard: seen['now'] -= 1
+        return seen, enter
+
+    def categories_asked(self, calls):
+        return sorted(json.loads(text.split('CATEGORY MODE (overrides whole-review completion instructions):\n')[1].split('\n')[0])['category']
+                      for name, _, text in calls if name.startswith('attacker-'))
+
+    def test_parallel_attackers_run_together_and_merge_every_category(self):
+        self.c.args.rounds=1
+        seen, enter = self.parallel()
+        def emit(config,value):
+            enter()
+            if config['category'] in ('wrong_fixes','fairness'):
+                value.update(blocking=['defect in '+config['category']])
+        self.stress_setup(emit)
+        result = self.stress_round(self.c,{})
+        self.assertEqual(result['reason'], 'stress:findings')
+        self.assertGreater(seen['most'], 1)
+        report = run.jload(self.work/'attacks/round-1.json')
+        self.assertEqual(sorted(report['blocking']), ['defect in fairness','defect in wrong_fixes'])
+        self.assertEqual({k for k,v in report['coverage'].items() if v['complete']}, set(stress_progress.CATEGORIES))
+        # One writer call, then each category exactly once. Attackers that ran together carry their
+        # own invocation name; one refused a seat beside the others ran after them as a serial call.
+        self.assertEqual(self.categories_asked(self.calls), sorted(stress_progress.CATEGORIES))
+        names = [call[0] for call in self.calls if call[0].startswith('attacker-')]
+        together = [n for n in names if n != 'attacker-1']
+        self.assertEqual(len(together), len(set(together)))
+        self.assertTrue(set(together) <= {'attacker-1-'+k for k in stress_progress.CATEGORIES})
+        self.assertGreater(len(together), 1)
+        self.assertFalse(run.jload(self.work/'stress-publication.json')['pending'])
+        # Every attacker's usage is booked to its own call: nothing is attributed twice.
+        receipts = [run.jload(p) for p in sorted((self.work/'usage-receipts').glob('*.json'))]
+        booked = [i for r in receipts for i in r.get('booked_event_ids', [])]
+        self.assertEqual(len(booked), len(set(booked)))
+
+    def test_a_parallel_round_asks_the_same_question_as_a_serial_round(self):
+        self.c.args.rounds=1
+        def requests():
+            rows = {}
+            for name, _, text in self.calls:
+                if not name.startswith('attacker-'): continue
+                config = json.loads(text.split('CATEGORY MODE (overrides whole-review completion instructions):\n')[1].split('\n')[0])
+                rows[config['category']] = (config['required_subchecks'], config['completed_subchecks'], config['retained_findings']['blocking'])
+            return rows
+        self.stress_setup(lambda *a:None)
+        self.assertEqual(self.stress_round(self.c,{})['reason'], 'stress:clean')
+        serial = requests()
+        del self.calls[:]
+        shutil.rmtree(self.work/'attacks'); (self.work/'attack-state.json').unlink()
+        shutil.rmtree(self.work/'ordinary-retries')
+        self.parallel()
+        self.assertEqual(self.stress_round(self.c,{})['reason'], 'stress:clean')
+        self.assertEqual(requests(), serial)
+        self.assertTrue([call for call in self.calls if call[0].startswith('attacker-1-')])
+        self.assertEqual(set(serial), set(stress_progress.CATEGORIES))
+
+    def test_a_parallel_attacker_that_stops_keeps_the_others_and_only_the_unfinished_rerun(self):
+        seen, enter = self.parallel()
+        stopped=[False]
+        def emit(config,value):
+            enter()
+            if config['category']=='fairness' and not stopped[0]:
+                stopped[0]=True
+                raise budget.BudgetError('timeout')
+        self.stress_setup(emit)
+        with self.assertRaisesRegex(budget.BudgetError, '^timeout$'): self.stress_round(self.c,{})
+        report = run.attack_report(self.work/'attacks/round-1.json')
+        self.assertEqual((report['status'], report['complete'], report['stop_reason']), ('pending', False, 'timeout'))
+        done = {k for k,v in report['coverage'].items() if v['complete']}
+        self.assertNotIn('fairness', done)
+        self.assertGreater(len(done), 1)
+        self.assertTrue(run.jload(self.work/'stress-publication.json')['pending'])
+        before = len(self.calls)
+        self.fresh_context()
+        self.assertEqual(self.stress_round(self.c,copy.deepcopy(self.c.card))['reason'], 'stress:clean')
+        # Finished categories are kept; only the unfinished ones are asked again.
+        self.assertEqual(self.categories_asked(self.calls[before:]), sorted(set(stress_progress.CATEGORIES)-done))
+        self.assertFalse(run.jload(self.work/'stress-publication.json')['pending'])
+
+    def test_parallel_attack_is_off_unless_the_case_was_admitted_with_it(self):
+        self.assertFalse(run.argument_parser().parse_args([]).parallel_attack)
+        self.assertIn('parallel_attack', run.ENGINE_SETTINGS)
+        self.stress_setup(lambda *a:None)
+        self.stress_round(self.c,{})
+        self.assertEqual({call[0] for call in self.calls}, {'builder-1','attacker-1'})
+
     def test_publication_kill_keeps_completed_category_on_resume(self):
         killed=[False]
         def checkpoint():

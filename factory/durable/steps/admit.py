@@ -506,7 +506,9 @@ def _admitted_before(root, case_id):
 
 # 2026-11-10: two bench instances per check, parallel calibrators and model gates beside the
 # bench gates (run.parallel_calibrators, GatePipeline side lane). Recertified imports keep theirs.
-NEW_CASE_SETTINGS = {"bench_workers": 2, "parallel_gates": True}
+# parallel_attack: the four category attackers of a stress round run together (stress_progress.run).
+# The off switch is an explicit "parallel_attack": false in a case's INPUTS recovery_config.
+NEW_CASE_SETTINGS = {"bench_workers": 2, "parallel_gates": True, "parallel_attack": True}
 
 
 def _card(value, case_id, dry_run, admitted_before=0):

@@ -122,6 +122,16 @@ joining before G6. Any snapshot requested while two threads work on the case is 
 case edited during that lane fails the step as infrastructure. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
 progress and the card's `phase_times`.
+Cases admitted with `parallel_attack: true` (the same `NEW_CASE_SETTINGS`; an explicit `false` in
+a case's INPUTS `recovery_config` is the off switch) run a stress round's four category attackers
+at once (`stress_progress.run`). Each attacker is its own call `attacker-<round>-<category>`,
+because usage is booked per invocation name; they share the case workspace, the round's one
+diagnostic allowance and the same request as a serial round. These calls take no workspace
+receipt and no same-case lock (`engine_parallel_call`): a completed one replays from its
+retained answer, snapshots and the stress publication marker wait for the join, and the
+round's findings are merged there. An attacker refused a seat or a money hold beside the
+others is not a stop: its category runs afterwards on the serial path. A worker lost before
+the join repeats the round's unfinished and unpublished categories.
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control

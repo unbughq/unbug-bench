@@ -91,6 +91,61 @@ class DeferredSnapshots(unittest.TestCase):
         self.assertTrue(cp.checkpoint(self.c))
 
 
+class ParallelAttackCalls(unittest.TestCase):
+    """stress_progress.run: a round's category attackers work in c.work at the same time."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.c = engine_context(pathlib.Path(self.tmp.name))
+
+    def test_calls_run_together_take_no_receipt_and_snapshot_once_at_the_join(self):
+        import copy
+        both = threading.Barrier(2, timeout=10)
+        def call(name):
+            context = copy.copy(self.c)
+            context.engine_parallel_call = True
+            def invoke():
+                both.wait()   # passes only if neither call holds the same-case lock
+                (self.c.work / (name + ".json")).write_text("{}")
+                self.assertFalse(cp.checkpoint(context))
+                return 0
+            self.assertEqual(cp.model_call(context, ["m"], self.c.work, name, invoke, text="t"), 0)
+        with cp.concurrent_section(self.c):
+            threads = [threading.Thread(target=call, args=(n,)) for n in ("attacker-1-a", "attacker-1-b")]
+            for t in threads: t.start()
+            for t in threads: t.join()
+            self.assertEqual(self.c.published, [])
+        self.assertEqual(len(self.c.published), 1)
+        self.assertEqual(self.c.engine.isolated_model_active, 0)
+        self.assertFalse((self.c.work / "engine-checkpoints").exists())   # no workspace receipt
+
+    def test_attackers_that_run_together_share_the_round_s_one_diagnostic_allowance(self):
+        import model_runtime
+        c = types.SimpleNamespace(work=self.c.work, args=types.SimpleNamespace(bench_workers=1))
+        own = model_runtime.diagnostic_env(c, "attacker-2", "stress_tester", {})
+        c.diagnostic_name = "attacker-2"
+        shared = model_runtime.diagnostic_env(c, "attacker-2-fairness", "stress_tester", {})
+        self.assertEqual(shared["FACTORY_STRATEGY_DIAGNOSTIC"], own["FACTORY_STRATEGY_DIAGNOSTIC"])
+        self.assertTrue(own["FACTORY_STRATEGY_DIAGNOSTIC"].endswith("diagnostic-budgets/attacker-2"))
+
+    def test_a_round_s_cost_counts_its_category_attackers(self):
+        import model_runtime
+        ledger = {"events": [{"invocation": "builder-2", "cost": 9.0}, {"invocation": "attacker-2-fairness", "cost": 2.0},
+                             {"invocation": "attacker-2-wrong_fixes", "cost": 1.5}, {"invocation": "attacker-2", "cost": .5},
+                             {"invocation": "attacker-2-freshness", "cost": 40.0}]}
+        with mock.patch.object(model_runtime, "update_case_budget", return_value=(ledger, None)):
+            self.assertEqual(model_runtime.writer_round_estimate(self.c), 13.0)
+
+    def test_without_the_mark_a_call_in_the_workspace_keeps_its_lock_and_receipt_path(self):
+        seen = []
+        def invoke():
+            seen.append(cp._lock(self.c)._is_owned())
+            return 1   # not a settled success: no receipt is written, the lock was still held
+        cp.model_call(self.c, ["m"], self.c.work, "attacker-1", invoke, text="t")
+        self.assertEqual(seen, [True])
+
+
 class Calibrators(unittest.TestCase):
     def test_engine_cases_need_the_admission_flag(self):
         c = types.SimpleNamespace(engine=object(), args=types.SimpleNamespace(concurrent_roles=True), case=pathlib.Path("/nonexistent"))
@@ -138,11 +193,14 @@ class Admission(unittest.TestCase):
         return admit._card(value, "case-new", value.get("dry_run", False))
 
     def test_new_cases_get_parallel_settings(self):
-        self.assertEqual(self.card()["recovery_config"], {"bench_workers": 2, "parallel_gates": True})
+        self.assertEqual(self.card()["recovery_config"],
+                         {"bench_workers": 2, "parallel_gates": True, "parallel_attack": True})
 
     def test_explicit_inputs_win(self):
         config = self.card(recovery_config={"bench_workers": 1, "rounds": 3})["recovery_config"]
-        self.assertEqual(config, {"bench_workers": 1, "parallel_gates": True, "rounds": 3})
+        self.assertEqual(config, {"bench_workers": 1, "parallel_gates": True, "parallel_attack": True, "rounds": 3})
+        off = self.card(recovery_config={"parallel_attack": False})["recovery_config"]
+        self.assertIs(off["parallel_attack"], False)   # the off switch
 
     def test_recertified_and_practice_cases_keep_theirs(self):
         self.assertEqual(self.card(recertify=True, recovery_config={"rounds": 8})["recovery_config"], {"rounds": 8})

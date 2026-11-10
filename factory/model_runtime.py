@@ -261,6 +261,8 @@ def diagnostic_env(c, name, role, env):
     """Bound prescribed author strategy diagnostics, never trusted gate execution."""
     env = {k: v for k, v in env.items() if not k.startswith('FACTORY_STRATEGY_')}
     if role in ('writer', 'stress_tester'):
+        # Category attackers that run together share the round's one allowance.
+        name = getattr(c, 'diagnostic_name', name)
         if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
             raise ValueError('invalid diagnostic invocation name')
         env.update(FACTORY_STRATEGY_DIAGNOSTIC=str(c.work / 'diagnostic-budgets' / name),
@@ -293,11 +295,14 @@ def case_budget_boundary(c, model=None):
 
 
 def writer_round_estimate(c):
+    from stress_progress import CATEGORIES as categories   # stress_progress imports this module
     ledger, _ = update_case_budget(c)
     rounds = {}
     for event in ledger.get('events', []):
         cost = sum(event.get(k, 0) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd'))
-        match = re.fullmatch(r'(?:builder|attacker)-(\d+)', event.get('invocation') or '')
+        # attacker-N-<category>: the category attackers of a parallel_attack round.
+        match = re.fullmatch(r'(?:builder|attacker)-(\d+)(?:-(?:' + '|'.join(categories) + '))?',
+                             event.get('invocation') or '')
         if match:
             n = match[1]
             rounds[n] = rounds.get(n, 0) + cost
