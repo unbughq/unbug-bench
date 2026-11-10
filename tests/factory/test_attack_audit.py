@@ -164,10 +164,16 @@ class SealAudit(Harness):
         self.assertEqual(out['reason'], 'stress:audit_clean')
         self.assertEqual(self.c.card['seal_audit']['freshness_requests'], 1)
 
-    def test_an_unfinished_audit_with_no_findings_is_infra(self):
-        out, _ = self.audit({**report([]), 'complete': False})
-        self.assertEqual(out['reason'], 'stress:interrupted_review')
-        self.assertNotIn('seal_audit', self.c.card)
+    def test_an_unfinished_audit_is_infra_even_with_findings(self):
+        for result in ({**report([]), 'complete': False}, {**report([CHEAT]), 'complete': False},
+                       {**report([CHEAT]), 'unfinished_validation': ['diagnostic allowance exhausted']}):
+            with self.subTest(result=result):
+                self.c.card.pop('seal_audit', None)
+                for p in (self.root / 'attacks').iterdir():
+                    if p.is_file(): p.unlink()
+                out, _ = self.audit(result)
+                self.assertEqual(out['reason'], 'stress:interrupted_review')
+                self.assertNotIn('seal_audit', self.c.card)
 
     def test_only_a_gated_case_with_the_setting_is_audited(self):
         for change in ({'failed_gate': 'G5'}, {'gates': {}}, {'recertify': {'case': 'x'}}):

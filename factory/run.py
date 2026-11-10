@@ -2887,7 +2887,8 @@ def engine_seal_audit(c, n):
     result = attack_report(report)
     if result is None: return infra("malformed_report")
     findings = [v for v in result["blocking"] if v.strip().lower() != "review incomplete"]
-    if (not result["complete"] or result["unfinished_validation"]) and not findings:
+    if not result["complete"] or result["unfinished_validation"]:
+        # Partial coverage is an unfinished audit even with findings in hand: retry, then not_run.
         return infra("interrupted_review")
     scratch = c.work / "attacks" / f"round-{label}"
     confirmed, unverified = [], []

@@ -905,6 +905,8 @@ class _Case:
                 # A later call may not fit even after earlier calls spent money.
                 # Grow only until the ledger applies the batch bound.
                 requested_minimum = min(2**63 - 1, max(job["request"] * 2, 1))
+            if audit and is_operational_wait(result):
+                return action, result   # a credential or router wait never holds up a seal
             if is_operational_wait(result):
                 self.status = ("waiting_for_credentials" if result.reason in (
                     "router:credential_expiring", "infra:credentials_unavailable") else "waiting_for_router")

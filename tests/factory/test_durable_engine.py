@@ -1071,7 +1071,8 @@ class SealAudit(unittest.TestCase):
 
     def test_an_audit_that_cannot_finish_is_not_run_and_seal_uses_the_gates_snapshot(self):
         for name, spec in (("infra", {"outcome": "infra_error", "reason": "infra:stalled"}),
-                           ("provider", {"outcome": "provider_limit", "reason": "router:quota", "retry_in": 30, "paid": 0})):
+                           ("provider", {"outcome": "provider_limit", "reason": "router:quota", "retry_in": 30, "paid": 0}),
+                           ("credentials", {"outcome": "infra_error", "reason": "infra:credentials_unavailable"})):
             with self.subTest(name):
                 r, out = run({"spec": {"max_infra_retries_per_step": 1, "max_cases_started": 1},
                               "script": {**self.FOUND, "1/stress:3/*": spec}})
@@ -1079,6 +1080,8 @@ class SealAudit(unittest.TestCase):
                 self.assertEqual(out["result"]["cases"], {C1: "sealed"})
                 self.assertEqual(card(out, C1)["audit"], "not_run")
                 self.assertEqual(card(out, C1)["diagnoses"], 0)
+                if name == "credentials":   # an operational wait ends the audit at once
+                    self.assertEqual(steps(r, 1).count("stress:3"), 1)
                 seal = next(x for x in r.worker_log() if x["op"] == "start" and "/seal/" in x["key"])
                 self.assertEqual(seal["opened"]["snapshot"], f"snapshot {C1}/7/gates:3/1")
 
