@@ -518,8 +518,39 @@ class RetryTests(unittest.TestCase):
         result = self.stress_round(self.c,{})
         self.assertEqual(result['reason'], 'stress:findings')
         self.assertIn('authored definite defect', result['feedback'].decode())
-        self.assertEqual(len(self.calls),2)
+        # One writer call, then one call per category: a finding ends its category, never the round.
+        self.assertEqual(len(self.calls),1+len(stress_progress.CATEGORIES))
         self.assertEqual(run.jload(self.work/'attacks/round-1.json')['blocking'],['authored definite defect'])
+
+    def test_one_round_reports_the_findings_of_every_category(self):
+        self.c.args.rounds=1
+        def emit(config,value):
+            if config['category'] in ('wrong_fixes','fairness'):
+                value.update(blocking=['defect in '+config['category']])
+        self.stress_setup(emit)
+        result = self.stress_round(self.c,{})
+        self.assertEqual(result['reason'], 'stress:findings')
+        report = run.jload(self.work/'attacks/round-1.json')
+        self.assertEqual(report['blocking'],['defect in wrong_fixes','defect in fairness'])
+        self.assertEqual({k for k,v in report['coverage'].items() if v['complete']}, set(stress_progress.CATEGORIES))
+        self.assertEqual(len(self.calls),1+len(stress_progress.CATEGORIES))
+
+    def test_an_attacker_that_repeats_retained_findings_still_covers_later_categories(self):
+        self.c.args.rounds=1
+        def emit(config,value):
+            # The request says "Retain prior findings": a compliant attacker copies them back.
+            value.update(blocking=list(config['retained_findings']['blocking']))
+            if config['category']=='wrong_fixes' and not config['completed_subchecks']:
+                value.update(category_complete=False, completed_subchecks=[], blocking=['defect in wrong_fixes'])
+        self.stress_setup(emit)
+        result = self.stress_round(self.c,{})
+        self.assertEqual(result['reason'], 'stress:findings')
+        report = run.jload(self.work/'attacks/round-1.json')
+        self.assertEqual(report['blocking'],['defect in wrong_fixes'])
+        self.assertEqual({k for k,v in report['coverage'].items() if v['complete']},
+                         set(stress_progress.CATEGORIES)-{'wrong_fixes'})
+        state = run.jload(self.work/report['category_state'])['categories']
+        self.assertEqual([k for k,v in state.items() if v.get('found')], ['wrong_fixes'])
 
     def test_publication_kill_keeps_completed_category_on_resume(self):
         killed=[False]

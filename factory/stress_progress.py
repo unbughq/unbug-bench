@@ -94,17 +94,24 @@ def run(runner, c, number, report, receipt, completed):
     save()
     result = aggregate()
     publish(c)
-    if result['blocking'] or result['complete']:
+    if result['complete']:
         finish(result); return
+    # One round covers every category (FACTORY.md 4, 2026-11-10): a finding ends its own category,
+    # never the round, so the writer gets every category's findings in one fix. Stopping at the
+    # first finding gave one category per round, and the next round found the next category's.
     for category, subchecks in CATEGORIES.items():
         row = state['categories'].setdefault(category, {'complete': False, 'done': [], 'results': [], 'exhausted': False})
-        if row['complete']: continue
+        if row['complete'] or row.get('found'): continue
         while not row['complete']:
             if row['exhausted'] or runner.attack_diagnostic_unfinished(c, number):
+                if result['blocking']: break   # findings in hand: report them, this category stays uncovered
                 raise BudgetError('stress_validation_exhausted')
             sequence = len(row['results'])
             output = directory / f'{category}-{sequence}.json'
             before = set(row['done'])
+            # The request asks the attacker to retain prior findings, so only a blocking entry it did
+            # not get back from us is this category's own finding.
+            known = {json.dumps(item, sort_keys=True) for item in result['blocking']}
             context = copy.copy(c)
             context.stress_category_call = True
             def request(target):
@@ -156,10 +163,12 @@ def run(runner, c, number, report, receipt, completed):
                                and not value['unfinished_validation'])
             row['exhausted'] = not row['complete'] and (set(row['done']) == before or set(row['done']) == set(subchecks))
             atomic_json(c.work / 'stress-publication.json', {'pending': True, 'identity': digest(state)})
+            row['found'] = any(json.dumps(item, sort_keys=True) not in known for item in value['blocking'])
             save()
             result = aggregate()
             publish(c)
-            if result['blocking']:
-                finish(result); return
-            if row['exhausted']: raise BudgetError('stress_validation_exhausted')
+            if row['found']: break
+            if row['exhausted']:
+                if result['blocking']: break
+                raise BudgetError('stress_validation_exhausted')
     finish(result)

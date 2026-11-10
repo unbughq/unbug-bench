@@ -98,7 +98,12 @@ application version for the database lifetime and register admission queues befo
 recovered work can enqueue. Attach to existing workflow IDs when resuming.
 
 The case sequence is ADMIT → WRITER → STRESS → GATES → SEAL, with bounded repair,
-diagnosis, extension and reviewer-escalation paths. ADMIT is serialized per batch;
+diagnosis, extension and reviewer-escalation paths. STRESS runs at most `ATTACK_ROUNDS`
+(2) times with findings: the last round's findings get one writer fix (`final_fix`) and
+the case goes to GATES without another stress round, also from an extension or a gate
+repair. The first seq the cap governs (`attack_cap_from`) is recorded as a DBOS event
+under the `attack_cap` patch and carried by `resume_point`, so older workflows and
+resumed lineages replay their recorded rounds unchanged. ADMIT is serialized per batch;
 the active scheduler checks its recorded deadline after funding, before the first
 ADMIT dispatch. Queued or unfunded admissions expire with their holds released;
 an ADMIT already dispatched may continue across the cutoff and provider waits.
