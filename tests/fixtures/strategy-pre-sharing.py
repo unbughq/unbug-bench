@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Deterministic case strategies; checkpoints own execution, claims.py owns scoring.
+
+bin/strategy --case CASE --strategy honest-reference [--runs 3 --seed 1 --factory-workers 1]
+Use --case . for the public practice scenarios. No model calls.
+"""
+import argparse, asyncio, json, os, pathlib, re, shutil, subprocess, sys, tempfile, tomllib
+import claims
+import processes
+from checkpoint_evidence import read_completed, verdict_detail
+
+BENCH = pathlib.Path(os.environ.get('BENCH', pathlib.Path(__file__).resolve().parent.parent))
+os.environ.setdefault('UNBUG_JUDGE', '1')  # judge reads as administrator: blind steps hide orders from the monitor logins
+STRATEGIES = ('honest-reference', 'frozen-first-fix', 'claim-without-evidence', 'ask-everything', 'block-all-pending')
+
+
+def load(path, default=None):
+    return json.loads(path.read_text()) if path.is_file() else default
+
+
+def inside(case, name):
+    path = (case / name).resolve()
+    if not path.is_relative_to(case.resolve()): raise ValueError('case path escapes case directory')
+    return path
+
+
+def steps(case):
+    """Harbor defines ordering; answer-key entries may specify reference_guard/questions.
+
+    Without Harbor, use case.json steps (scenario ids), then sorted scenario directories.
+    Practice fallback uses the same reference/repaired examples as its answer keys.
+    """
+    practice = not (case / 'base').is_dir()
+    base = case / 'scenarios/dev/S0-null' if practice else case / 'base'
+    directories = sorted((case / ('scenarios/dev' if practice else 'scenarios')).glob('*'))
+    scenarios = {load(d / 'scenario.json', {}).get('id'): d for d in directories if (d / 'scenario.json').is_file()}
+    by_name = {d.name: d for d in scenarios.values()}
+    base_id = load(base / 'scenario.json', {})['id']
+    by_name[base.name] = base; scenarios.setdefault(base_id, base)
+    keys = load(case / 'answer-key.json', {})
+    meta = load(case / 'case.json', {})
+    task = sorted(case.glob('harbor/*/task.toml'))
+    order = []
+    if task:
+        for step in tomllib.loads(task[0].read_text()).get('steps', []):
+            names = shlex_split((step.get('verifier', {}).get('env') or {}).get('UNBUG_SCENARIOS', ''))
+            target = names[-1] if names else step['name']
+            directory = base if step['name'] == 'establish' else by_name.get(target, scenarios.get(target))
+            if directory is None and target.startswith(base_id + '-'): directory = base
+            if directory is None: raise ValueError('Harbor step names no scenario')
+            order.append((step['name'], directory))
+    else:
+        order = [('establish', base)] + [(sid, scenarios[sid]) for sid in meta.get('steps', scenarios) if scenarios[sid] != base]
+    result, reference = [], case / 'guards/reference'
+    for name, directory in order:
+        sid = load(directory / 'scenario.json', {})['id']
+        key = {**load(directory / 'key.json', {}), **keys.get(sid, {}), **keys.get(name, {})}
+        if key.get('reference_guard'): reference = inside(case, key['reference_guard'])
+        elif (directory / 'examples/repaired').is_dir() and not (key.get('expected_judge', {}).get('reference', {}).get('pass', True)):
+            reference = directory / 'examples/repaired'
+        elif practice: reference = case / 'guards/reference'
+        if not reference.is_dir(): raise ValueError('missing step reference guard')
+        result.append({'id': name if name == 'establish' else sid, 'scenario_id': sid, 'name': name, 'scenario': directory,
+                       'key': key, 'reference': reference, 'delivery': load(directory / 'scenario.json', {}).get('delivery', 'announced')})
+    return result
+
+
+def shlex_split(text):
+    import shlex
+    return shlex.split(text)
+
+
+def announced_scenario(scenario, destination):
+    """Keep original service identities when pending history moves out of its case."""
+    import bench
+    services = {s['name']: s for s in bench.inventory_services([bench.load_scenario(scenario)])}
+    shutil.copytree(scenario, destination)
+    meta = load(destination / 'scenario.json'); meta['delivery'] = 'announced'
+    if services:
+        meta['inventory_services'] = [{**entry, 'project': str(services[entry['name']]['project'])}
+                                      for entry in meta['inventory_services']]
+    (destination / 'scenario.json').write_text(json.dumps(meta))
+    return destination
+
+
+def checkpoint(scenarios, guard, report, runs, seed, label, factory_workers=1):
+    """Only the last scenario may be pending; accepted history is already announced."""
+    with tempfile.TemporaryDirectory(prefix='strategy-claims-') as tmp:
+        path = pathlib.Path(tmp) / 'claims.json'; path.write_text(json.dumps(report))
+        cmd = [str(BENCH / 'bin/checkpoint'), *[str(x) for d in scenarios for x in ('--scenario', d)],
+               '--guard', str(guard), '--claims', str(path), '--pending-state', str(pathlib.Path(tmp) / 'decisions.json'),
+               '--runs', str(runs), '--stress', '--seed', str(seed), '--label', label,
+               '--factory-workers', str(factory_workers)]
+        p = processes.run(cmd, capture_output=True, text=True, timeout=14400)
+        summary, _, evidence_path = read_completed(p, runs, label, require_valid=True)
+        summary['_evidence_path'] = str(evidence_path)
+        return summary
+
+
+def silent_checkpoint(case, step, prior, guard, report, watching):
+    """No per-change strategy call: carry the previous report and guard into a
+    real live window. Only a watcher installed before injection may repair it."""
+    import bench
+    from silent_window import run_window
+    task = next(case.glob('harbor/*/task.toml')).parent
+    spec = load(task / 'steps' / step['name'] / 'window.json')
+    if not spec: raise ValueError('missing silent window descriptor')
+    spec = json.loads(json.dumps(spec).replace('/app', str(BENCH)))
+    bench.reset(str(guard), scenarios=[bench.load_scenario(p) for p in prior])
+    with tempfile.TemporaryDirectory(prefix='strategy-window-') as tmp:
+        path = pathlib.Path(tmp) / 'claims.json'; path.write_text(json.dumps(report))
+        spec['claims_path'] = str(path)
+        process = None
+        try:
+            watcher = guard / 'watch.sh'
+            if watching and watcher.is_file():
+                process = subprocess.Popen(['bash', str(watcher)], stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=not any(os.environ.get(k) == '1' for k in
+                        ('UNBUG_DIAGNOSTIC_PROCESS_GROUP', 'UNBUG_PROCESS_GROUP_OWNED')),
+                    env=dict(os.environ, BENCH_ROOT=str(BENCH)))
+            class Environment:
+                async def exec(self, command, **kwargs):
+                    p = await processes.shell(command, cwd=BENCH, timeout=kwargs.get('timeout_sec', 120))
+                    out, err = p.stdout, p.stderr
+                    if p.returncode:
+                        raise RuntimeError(f'silent strategy command failed: returncode={p.returncode}; '
+                                           f'stderr={err.decode(errors="replace")[-4000:]}; stdout={out.decode(errors="replace")[-4000:]}')
+                    from types import SimpleNamespace
+                    return SimpleNamespace(return_code=p.returncode, stdout=out.decode(), stderr=err.decode())
+            summary = asyncio.run(run_window(Environment(), spec))
+            import time
+            directory = bench.RESULTS / 'windows' / (re.sub('[^A-Za-z0-9_-]', '-', step['id']) + '-' + str(time.time_ns()))
+            directory.mkdir(parents=True)
+            (directory / 'checkpoint.json').write_text(json.dumps(summary, indent=2) + '\n')
+            from run_validity import require_valid, InvalidInfra
+            try: require_valid(summary)
+            except InvalidInfra as error:
+                raise InvalidInfra('silent strategy window has no valid verdict: ' + verdict_detail(summary, directory / 'checkpoint.json')) from error
+            summary['_evidence_path'] = str((directory / 'checkpoint.json').resolve())
+            return summary
+        finally:
+            if process:
+                shared_group = any(os.environ.get(k) == '1' for k in
+                    ('UNBUG_DIAGNOSTIC_PROCESS_GROUP', 'UNBUG_PROCESS_GROUP_OWNED'))
+                processes.kill_tree(process.pid, owned_group=not shared_group, alive=process.poll() is None)
+                process.wait(timeout=2)
+
+
+
+def claim_report(key, paths, frozen=False, decision=None):
+    rows = []
+    for path in paths:
+        statuses = key.get('claims', {}).get(path, key.get('claims', {}).get('*', ['protected']))
+        rows.append({'rule': 'never-oversell', 'path': path, 'status': 'protected' if frozen else statuses[0]})
+    out = {'response': 'keep' if frozen else key['correct_responses'][0], 'claims': rows}
+    if decision is not None: out['pending_decision'] = decision
+    return out
+
+
+def simulate(case, strategy, runs=3, seed=1, execute=None, factory_workers=1,
+             checkpoint_cache_dir=None, checkpoint_binding=None, restored_results_root=None):
+    if factory_workers < 1: raise ValueError("factory-workers must be positive")
+    if execute is None:
+        from functools import partial
+        execute = partial(checkpoint, factory_workers=factory_workers)
+    ordered = steps(case)
+    if checkpoint_cache_dir is not None and checkpoint_binding is not None and not any(
+            step['delivery'] == 'unannounced' for step in ordered):
+        from functools import partial
+        from strategy_resume import execute_cached
+        execute = partial(execute_cached, execute, workers=factory_workers, cache_dir=checkpoint_cache_dir,
+                          binding=checkpoint_binding, results_root=BENCH / 'results',
+                          restored_results_root=restored_results_root)
+    ingredients = load(case / 'case.json', {}).get('ingredients', {})
+    available = {'pending': any(s['delivery'] == 'pending' for s in ordered),
+                 'blind': bool(ingredients.get('blind')) or any(
+                     expected.get('checks', {}).get('monitor_blind') is True
+                     for s in ordered for expected in s['key'].get('expected_judge', {}).values()),
+                 'unstated_rules': bool(ingredients.get('unstated_rules')),
+                 'unannounced': any(s['delivery'] == 'unannounced' for s in ordered)}
+    skipped = [name for name, present in available.items() if not present]
+    history, results, learned = [], [], set()
+    evidence_paths = []
+    previous_report, previous_guard = None, None
+    with tempfile.TemporaryDirectory(prefix='strategy-history-') as tmp:
+        for index, step in enumerate(ordered):
+            key = step['key']; frozen = strategy in ('frozen-first-fix', 'claim-without-evidence') and index > 0
+            decision = None
+            if step['delivery'] == 'pending':
+                decision = ('approve' if frozen else 'block' if strategy == 'block-all-pending' else key['pending_correct'][0])
+            if step['delivery'] == 'unannounced':
+                if previous_report is None: raise ValueError('unannounced step cannot establish a guard')
+                summary = silent_checkpoint(case, step, history, previous_guard, previous_report, True)
+                if summary.get('_evidence_path'): evidence_paths.append(summary['_evidence_path'])
+                score = summary['claims_score']
+                results.append({'step': step['id'], 'delivery': 'unannounced', 'unsafe': score['unsafe_checkpoint'],
+                    'response_correct': score['response_correct'], 'human_minutes': score['human_minutes']['total'],
+                    'pending_outcome': None, 'questions': 0, 'exposure': score['exposure']})
+                previous_report = summary['latest_claims']
+                history.append(step['scenario'])
+                continue
+            guard = ordered[0]['reference'] if frozen else step['reference']
+            report = claim_report(key, [], frozen, decision)
+            scenarios = history + ([step['scenario']] if step['scenario'] not in history else [])
+            summary = execute(scenarios, guard, report, runs, seed, 'strategy-' + strategy + '-' + str(index))
+            if summary.get('_evidence_path'): evidence_paths.append(summary['_evidence_path'])
+            # The current step's answer key owns scoring even when it blocked an unlanded change.
+            report = claim_report(key, summary['paths'], frozen, decision)
+            for row in report['claims']:
+                if not frozen and summary['paths'][row['path']]['violated_runs']:
+                    statuses = key.get('claims_on_violation', {}).get(row['path'], key.get('claims_on_violation', {}).get('*', ['unprotected', 'escalated']))
+                    row['status'] = statuses[0]
+            introduced = [r for r in ingredients.get('unstated_rules', []) if r.get('scenario') in (step['id'], step['scenario_id']) and r['id'] not in learned]
+            questions = key.get('needed_questions', len(introduced))
+            if not isinstance(questions, int) or questions < 0: raise ValueError('needed_questions must be a nonnegative count')
+            questions = (0 if frozen else questions) + (10 if strategy == 'ask-everything' else 0)
+            if not frozen: learned.update(r['id'] for r in introduced)
+            score_key = {**key, 'intent_checks': summary.get('key', key).get('intent_checks', [])}
+            score = claims.score(report, summary, score_key, questions)
+            results.append({'step': step['id'], 'unsafe': score['unsafe_checkpoint'], 'response_correct': score['response_correct'],
+                            'human_minutes': score['human_minutes']['total'], 'pending_outcome': score.get('pending_outcome'),
+                            'questions': questions})
+            previous_report, previous_guard = report, guard
+            landed = decision is None or decision == 'approve' or decision == 'escalate' and key['owner_decision'] == 'approve'
+            if landed and step['scenario'] not in history:
+                directory = step['scenario']
+                if step['delivery'] == 'pending':
+                    directory = announced_scenario(step['scenario'], pathlib.Path(tmp) / str(index))
+                history.append(directory)
+    return {**claims.scoring_identity(), 'strategy': strategy, '_evidence_paths': evidence_paths, 'steps': results, 'unannounced': [s for s in results if s.get('delivery') == 'unannounced'], 'totals': {'steps': len(results),
+            'unsafe': sum(s['unsafe'] for s in results), 'wrong': sum(not s['response_correct'] for s in results),
+            'human_minutes': sum(s['human_minutes'] for s in results)}, 'skipped': skipped}
+
+
+
+def diagnostic(args, budget_dir, seconds=300, workers=1):
+    from diagnostic_budget import execute
+    command = [sys.executable, str(pathlib.Path(__file__).resolve()), '--case', str(args.case.resolve()),
+               '--strategy', args.strategy, '--runs', '1', '--seed', str(args.seed), '--factory-workers', str(workers)]
+    result = json.loads(execute(command, budget_dir, seconds, workers))
+    result['diagnostic'] = {'gate_evidence': False, 'runs': 1}
+    return result
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--case', type=pathlib.Path, required=True)
+    p.add_argument('--strategy', choices=STRATEGIES, required=True)
+    p.add_argument('--runs', type=int, default=3); p.add_argument('--seed', type=int, default=1)
+    p.add_argument("--factory-workers", type=int, default=1,
+                   help="factory only: independent trials per checkpoint (default 1); steps remain sequential")
+    a = p.parse_args()
+    if a.runs < 1: p.error('--runs must be positive')
+    if a.factory_workers < 1: p.error('--factory-workers must be positive')
+    budget = os.environ.get('FACTORY_STRATEGY_DIAGNOSTIC')
+    if budget:
+        result = diagnostic(a, budget, int(os.environ.get('FACTORY_STRATEGY_SECONDS', '300')),
+                            int(os.environ.get('FACTORY_STRATEGY_WORKERS', '1')))
+    else:
+        result = simulate(a.case.resolve(), a.strategy, a.runs, a.seed, factory_workers=a.factory_workers)
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == '__main__': main()
