@@ -82,6 +82,19 @@ class FailedWorkflow(unittest.TestCase):
         with self.assertRaises(ContractError):
             report.case_entry(dict(base, status="running", cleanup_error=True))
 
+    def test_the_seal_audit_is_a_fixed_public_code(self):
+        base = {"case_id": "case-t-1", "status": "sealed", "stage": "sealed", "writer_rounds": 1,
+                "extensions": 0, "hard": False}
+        self.assertNotIn("audit", report.case_entry(base))
+        self.assertNotIn("audit", report.case_entry(dict(base, audit=None)))
+        for value in report.AUDITS:
+            self.assertEqual(report.case_entry(dict(base, audit=value))["audit"], value)
+        for value in ("private text", True, 1):
+            with self.assertRaises(ContractError):
+                report.case_entry(dict(base, audit=value))
+        text = report.render_text(report.scorecard("b", [dict(base, audit="cheat")]))
+        self.assertIn("audit=cheat (out of the exam)", text)
+
     def test_worker_creation_wait_shows_only_fixed_public_reasons(self):
         base = {"case_id": "case-t-1", "status": "waiting_for_worker", "stage": "admit", "passed": [],
                 "failed_gate": None, "writer_rounds": 0, "extensions": 0, "replacement_of": None}

@@ -66,6 +66,9 @@ def retain_delivery(c, r):
 def verify_exam_metadata(card, case_id):
     """Pre-decryption rejection only. This does not admit an exam."""
     verify_source(card, case_id)
+    if (card.get("seal_audit") or {}).get("cheat") is not False and "seal_audit" in card:
+        # run.engine_seal_audit: a cheat replayed after the gates passed keeps the case out until fixed.
+        raise ValueError("seal audit replayed a working cheat; the case stays out of the exam until fixed")
     if card.get("dry_run") or any(card["gates"].get(g) != "pass" for g in ("G16", "G17")):
         raise ValueError("exam requires the same completed fairness checks for every case")
     from exam_responder import contract

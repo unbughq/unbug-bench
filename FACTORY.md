@@ -90,6 +90,20 @@ gates only after a clean stress round, which 0 of 26 finished rounds were, so no
 was ever gated. A case that began under the older rule keeps its recorded rounds and is
 governed by the cap from the step it continues at. Gate strictness is unchanged.
 
+**FOUNDER DECISION 2026-11-10 (two non-blocking checks, new cases only):**
+- *Open attack findings.* The last attack's blocking findings that no kept cheat replays
+  (no passing cheat of that name in `guards/cheats`, so neither the writer's early checks nor
+  G6 re-test them) are given to the G8/G9 panel with the case. The panel judges each by its
+  own fairness and realism rules; a finding alone is not a reason to reject. The scorecard
+  records `attack_open_findings` (round, findings, replayed, open).
+- *Seal audit.* When the gates pass, one more attack round runs before SEAL. It never edits the
+  case, sets a gate or asks for a repair, and the case seals whatever it finds. Each cheat the
+  attacker says passed is replayed once on the case's own traffic; a cheat that replays sets
+  `seal_audit.cheat` on the sealed scorecard, and the exam refuses that case until it is fixed.
+  An audit that cannot finish (money, a provider limit, infrastructure) is recorded as
+  `not_run` and the case seals from its GATES snapshot. The two-round attack cap is unchanged:
+  the audit is not an attack round.
+
 The pre-approved continuation ceilings are `--max-role-calls 250`, `--max-total-calls 700`
 and `--max-cost 5` (observed priced OpenCode events). Sized from case 2 (2026-10-15): its
 writer used 176 calls in round 1 alone and three rounds used about 490; one round plus the

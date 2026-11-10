@@ -56,6 +56,9 @@ def verified_seal(value) -> Optional[dict]:
     return {"archive": {"digest": archive.digest, "kind": archive.kind.value}, "hard": value["hard"]}
 
 
+AUDITS = ("running", "clean", "findings", "cheat", "not_run")
+
+
 def case_entry(card: dict, allowlist: Iterable[str] = ()) -> dict:
     """One public row, checked field by field so nothing but codes and numbers gets out."""
     if not isinstance(card, dict) or not isinstance(card.get("case_id"), str) or not CASE_ID.fullmatch(card["case_id"]):
@@ -84,6 +87,11 @@ def case_entry(card: dict, allowlist: Iterable[str] = ()) -> dict:
              "attack_rounds": _count(card.get("attack_rounds", 0), "attack_rounds"),
              "extensions": _count(card.get("extensions"), "extensions"), "replacement_of": replacement_of,
              "reason": shown}
+    audit = card.get("audit")   # the seal audit (engine.seal_audit); cards from before it carry none
+    if audit is not None:
+        if audit not in AUDITS:
+            raise ContractError("bad audit")
+        entry["audit"] = audit
     if status == "sealed":
         if type(card.get("hard")) is not bool:
             raise ContractError("a sealed card says whether it is hard")
@@ -131,6 +139,8 @@ def render_text(card: dict) -> str:
         extra = f" hard={c['hard']}" if "hard" in c else ""
         if c.get("cleanup_error"):
             extra += " cleanup unconfirmed"
+        if c.get("audit"):
+            extra += f" audit={c['audit']}" + (" (out of the exam)" if c["audit"] == "cheat" else "")
         why = f" ({c['reason']})" if c["reason"] else ""
         rep = f" replaces {c['replacement_of']}" if c["replacement_of"] else ""
         lines.append(f"  {c['case']}: {c['status']} at {c['stage']}{why}{extra}; rounds {c['writer_rounds']}, "
@@ -214,6 +224,8 @@ def render_status(card: dict) -> str:
             lines.append(field('WARNING', 'Seal cleanup unconfirmed'))
         if 'hard' in case:
             lines.append(field('Hard case', 'yes' if case['hard'] else 'no'))
+        if case.get('audit'):
+            lines.append(field('Seal audit', case['audit'] + (' (out of the exam until fixed)' if case['audit'] == 'cheat' else '')))
         if case.get('replacement_of'):
             lines.append(field('Replaces', case['replacement_of']))
         if active:

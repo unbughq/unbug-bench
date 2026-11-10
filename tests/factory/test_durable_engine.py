@@ -1052,6 +1052,52 @@ class AttackCap(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
 
 
+class SealAudit(unittest.TestCase):
+    """2026-11-10: a new case's passing GATES ask for one more attack before SEAL. It never blocks the seal."""
+
+    FOUND = {"1/stress:1/1": {"feedback": True}, "1/stress:2/1": {"feedback": True},
+             "1/gates:3/1": {"reason": "engine:gates_passed_audit"}}
+
+    def test_a_cheat_found_after_the_gates_is_recorded_and_the_case_still_seals(self):
+        r, out = run({"script": {**self.FOUND, "1/stress:3/1": {"reason": "stress:audit_cheat"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "writer:2", "stress:2", "writer:3", "gates:3",
+                                       "stress:3", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(card(out, C1)["audit"], "cheat")
+        # The audit does not count as an attack round, and SEAL restores the audit's snapshot (its record).
+        self.assertEqual(card(out, C1)["attack_rounds"], 2)
+        self.assertEqual(start(r, f"{C1}/9/seal/1")["opened"]["snapshot"], f"snapshot {C1}/8/stress:3/1")
+
+    def test_an_audit_that_cannot_finish_is_not_run_and_seal_uses_the_gates_snapshot(self):
+        for name, spec in (("infra", {"outcome": "infra_error", "reason": "infra:stalled"}),
+                           ("provider", {"outcome": "provider_limit", "reason": "router:quota", "retry_in": 30, "paid": 0})):
+            with self.subTest(name):
+                r, out = run({"spec": {"max_infra_retries_per_step": 1, "max_cases_started": 1},
+                              "script": {**self.FOUND, "1/stress:3/*": spec}})
+                self.addCleanup(r.close)
+                self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+                self.assertEqual(card(out, C1)["audit"], "not_run")
+                self.assertEqual(card(out, C1)["diagnoses"], 0)
+                seal = next(x for x in r.worker_log() if x["op"] == "start" and "/seal/" in x["key"])
+                self.assertEqual(seal["opened"]["snapshot"], f"snapshot {C1}/7/gates:3/1")
+
+    def test_a_case_whose_gates_do_not_ask_gets_no_audit(self):
+        r, out = run({"script": {"1/stress:1/1": {"feedback": True}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "writer:2", "stress:2", "gates:2", "seal"])
+        self.assertIsNone(card(out, C1)["audit"])
+
+    def test_a_seal_retry_does_not_audit_again(self):
+        r, out = run({"script": {**self.FOUND, "1/stress:3/1": {"reason": "stress:audit_clean"},
+                                 "1/gates:3/2": {"reason": "engine:gates_passed_audit"},
+                                 "1/seal/1": {"outcome": "infra_error", "reason": "infra:stalled"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(steps(r, 1).count("stress:3"), 1)
+        self.assertEqual(card(out, C1)["audit"], "clean")
+
+
 class Resume(unittest.TestCase):
     """A case stopped by an infrastructure failure continues where it stopped, under its own ID."""
 

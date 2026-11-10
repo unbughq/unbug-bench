@@ -13,6 +13,7 @@ from case_contract import CaseContract, ingredient_problems as case_ingredients
 from run_artifacts import RunArtifacts, shred_tree
 import model_runtime
 import model_router
+import attack_audit
 from token_prices import FREE_ROUTES
 from model_runtime import (family, model_effort, rotation, update_case_budget,
                            case_budget_boundary, pinned_cli, OPENCODE_BIN)
@@ -1952,9 +1953,13 @@ def review(c):
         out = d / "verdict.json"
         text = prompt('reviewer', run_context(c, case_dir=str(d / 'case'), mode='case', verdict_path=str(out)))
         text += engine_review_ruling(c)
+        note = attack_audit.review_note(getattr(c, "open_attack_findings", None))
+        text += note
         if under_engine(c):
-            vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out,
-                {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', '')},
+            identity = {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', '')}
+            if note:   # only then: a case with nothing open keeps the retained answers it had
+                identity['open_attack_findings'] = c.open_attack_findings['open_findings']
+            vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out, identity,
                 'panel', '{fairness: {approve: boolean, findings: array}, realism: {approve: boolean, findings: array}}',
                 lambda v: isinstance(v, dict) and all(isinstance(v.get(k), dict) and
                     type(v[k].get('approve')) is bool for k in ('fairness', 'realism')))
@@ -2447,6 +2452,15 @@ def scorecard_text(card):
              f"wipe: {json.dumps(card.get('wipe'))}   wall: {card.get('wall_minutes')} min" + (f"   error: {card['error']}" if card.get("error") else "")]
     if card.get('batch_release_sha256'):
         lines.append(f"model calls: {(card.get('continuation_budget') or {}).get('calls', 0)} (telemetry)")
+    if card.get("attack_open_findings"):
+        o = card["attack_open_findings"]
+        lines.append(f"open attack findings: {o.get('open')} of {o.get('findings')} from attack round {o.get('round')} "
+                     f"({o.get('replayed')} replayed by kept cheats), shown to G8/G9")
+    if card.get("seal_audit"):
+        a = card["seal_audit"]
+        lines.append(f"seal audit: {a.get('result')}; findings {a.get('findings')}, cheats replayed "
+                     f"{a.get('cheats_confirmed')} of {a.get('cheats_claimed')} claimed"
+                     + ("; OUT OF THE EXAM until fixed" if a.get("cheat") else ""))
     if card.get("terminal_stop"): lines.append("STOPPED: " + card["terminal_stop"])
     if card.get("checkpoint_error"): lines.append("checkpoint error: " + card["checkpoint_error"])
     if card.get("dry_run_roundtrip"): lines.append(f"seal round trip: {json.dumps(card['dry_run_roundtrip'])}")
@@ -2496,7 +2510,7 @@ ENGINE_COST_CAP = 1e9
 ENGINE_SETTINGS = ("rounds", "runs", "scenario_runs", "pilot_tries", "pilot_runs", "calibrator_minutes",
                    "max_role_calls", "max_total_calls", "no_progress_minutes", "max_zero_tokens",
                    "agent_timeout", "max_repairs", "bench_workers", "concurrent_roles", "no_early_probe",
-                   "parallel_gates")
+                   "parallel_gates", "attack_open_findings", "seal_audit")
 # The CASE_SNAPSHOT subset of c.work, exactly (top-level names and globs).
 SNAPSHOT_RETAINED = (
     "case", "scorecard.json", "continuation-budget.json", "usage-receipts",
@@ -2795,6 +2809,8 @@ def engine_stress_round(c, n):
         return {"outcome": Outcome.OK, "reason": "stress:practice"}
     if (c.card.get("admission_freshness") or {}).get("outcome") == "public_match":
         return {"outcome": Outcome.OK, "reason": "stress:public_match"}
+    if seal_audit_due(c):
+        return engine_seal_audit(c, n)
     infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
@@ -2836,6 +2852,63 @@ def engine_stress_round(c, n):
     return {"outcome": Outcome.OK, "reason": "stress:clean"}
 
 
+def seal_audit_due(c):
+    """A STRESS step on a case whose GATES all passed is the seal audit: nothing else follows GATES but SEAL."""
+    gates = c.card.get("gates") or {}
+    return (getattr(c.args, "seal_audit", False) is True and under_engine(c) and not c.card.get("failed_gate")
+            and all(g in gates for g in GATES) and "fail" not in gates.values() and not c.card.get("recertify"))
+
+
+def engine_seal_audit(c, n):
+    """The seal audit: one more attack on the gated case, then a replay of each cheat it says passed.
+
+    Non-blocking. It never edits the case, never sets a gate, never asks for a repair: the case seals
+    whatever it finds. A replayed cheat (the attacker's own guard passes one bench run on the case)
+    sets seal_audit.cheat on the scorecard, which keeps the sealed case out of the exam
+    (sealed_audit.verify_exam_metadata). Freshness requests are counted, not resolved: G2 has passed."""
+    from durable.contract import Outcome
+    from registry import atomic_json
+    infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
+    engine_prepare_bench(c)
+    (c.work / "attacks").mkdir(exist_ok=True)
+    label = attack_audit.AUDIT_LABEL.format(n)
+    report = c.work / "attacks" / f"{label}.json"
+    binding = attack_binding(c)
+    receipt = {"engine": True, "round": label, "binding": binding, "report": report.name, "review_pending": True}
+    def completed():
+        receipt.update(phase="validated", review_pending=False, review_completed=True,
+                       report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
+    case_budget_boundary(c)
+    try:
+        stress_categories(c, label, report, receipt, completed)
+    finally:
+        atomic_json(c.work / "seal-audit-state.json", receipt)
+    if binding != attack_binding(c): return infra("case_changed")
+    result = attack_report(report)
+    if result is None: return infra("malformed_report")
+    findings = [v for v in result["blocking"] if v.strip().lower() != "review incomplete"]
+    if (not result["complete"] or result["unfinished_validation"]) and not findings:
+        return infra("interrupted_review")
+    scratch = c.work / "attacks" / f"round-{label}"
+    confirmed, unverified = [], []
+    for name in attack_audit.claimed_cheats(result):
+        guard = attack_audit.find_guard(scratch, name)
+        if guard is None:
+            unverified.append(name)
+            continue
+        replayed = []
+        try:
+            cheat_runs(c, c.seed, label, guards=[guard], runs=1, deadline=time.monotonic() + 1800, failures=replayed)
+        except (RuntimeError, TimeoutError, subprocess.TimeoutExpired, ValueError, OSError) as error:
+            log(c, "SEAL AUDIT", f"replay of {name} did not run: {type(error).__name__}")
+            unverified.append(name)
+            continue
+        (confirmed if replayed else unverified).append(name)
+    c.card["seal_audit"] = attack_audit.audit_record(label, result, confirmed, unverified)
+    if binding != attack_binding(c): return infra("case_changed")
+    return {"outcome": Outcome.OK, "reason": "stress:audit_" + c.card["seal_audit"]["result"]}
+
+
 def _split_panel(c, gate):
     """Independent reviewers genuinely disagree: some, but not all, approve."""
     match = re.fullmatch(r"([0-9]+)/([0-9]+)", str(c.card.get("reviewers_fairness" if gate == "G8" else "reviewers_realism")))
@@ -2857,16 +2930,27 @@ def engine_gates(c):
         c.card["gate_results"] = {g: v for g, v in recertify.get("gate_results", {}).items() if g in RECERTIFY_KEPT}
         c.card["kept_gate_source"] = {"case": recertify["case"], "kind": "recertify", "gates": list(RECERTIFY_KEPT)}
         c.audit_gates = list(RECERTIFY_RERUN)
+    if getattr(c.args, "attack_open_findings", False) is True and under_engine(c):
+        found = attack_audit.open_findings(c.work, c.case)
+        c.open_attack_findings = found
+        for name in ("votes", "votes_hash"):
+            c.__dict__.pop(name, None)   # the panel request changes with what is open
+        if found is not None:
+            c.card["attack_open_findings"] = {k: v for k, v in found.items() if k != "open_findings"}
     validate_and_repair(c)
     passed = tuple(g for g in GATES if c.card["gates"].get(g) == "pass")
-    receipt = json.dumps({key: c.card.get(key) for key in (
-        "gates", "gate_results", "gate_minutes", "failed_gate", "failed_detail", "early_gates", "infrastructure_gate",
-        "reviewers_fairness", "reviewers_realism", "calibrators", "difficulty")}, sort_keys=True, default=str).encode()
+    keys = ("gates", "gate_results", "gate_minutes", "failed_gate", "failed_detail", "early_gates", "infrastructure_gate",
+            "reviewers_fairness", "reviewers_realism", "calibrators", "difficulty")
+    keys += ("attack_open_findings",) if "attack_open_findings" in c.card else ()
+    receipt = json.dumps({key: c.card.get(key) for key in keys}, sort_keys=True, default=str).encode()
     base = {"passed": passed, "receipt": receipt}
     if c.stopped or c.card.get("infrastructure_gate"):
         return {**base, "stop": c.card.get("terminal_stop") or "infrastructure_exhausted"}
     failed = c.card.get("failed_gate")
-    if not failed: return {**base, "outcome": Outcome.OK, "reason": "engine:gates_passed"}
+    if not failed:
+        # The engine runs the seal audit only for a case that asks for it here (seal_audit, new cases).
+        audit = getattr(c.args, "seal_audit", False) is True and not c.args.dry_run and "seal_audit" not in c.card
+        return {**base, "outcome": Outcome.OK, "reason": "engine:gates_passed_audit" if audit else "engine:gates_passed"}
     detail = c.card.get("failed_detail")
     stage = failed.lower()
     if failed in ("G8", "G9") and _split_panel(c, failed):
@@ -2992,6 +3076,12 @@ def argument_parser():
     p.add_argument("--parallel-gates", action=argparse.BooleanOptionalAction, default=False,
                    help="engine cases admitted with it: parallel calibrators and G10 overlap at quiescent checkpoints, "
                         "G2/G8/G9 beside the bench gates")
+    p.add_argument("--attack-open-findings", action=argparse.BooleanOptionalAction, default=False,
+                   help="engine cases admitted with it: the last attack's findings no saved cheat replays go to G8/G9 "
+                        "and the scorecard (non-blocking)")
+    p.add_argument("--seal-audit", action=argparse.BooleanOptionalAction, default=False,
+                   help="engine cases admitted with it: one more attack round after the gates pass; a replayed cheat "
+                        "flags the sealed case and keeps it out of the exam (non-blocking)")
     p.add_argument("--pilot-tries", type=int, default=3)
     p.add_argument("--no-early-probe", action="store_true", help="skip the one strong-tester try after G5")
     p.add_argument("--calibrator-minutes", type=float, default=30,  # founder may change; strong tries took ~20 min (2026-10-18)

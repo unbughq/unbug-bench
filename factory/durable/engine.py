@@ -341,6 +341,11 @@ FACTORY_BUG_INFRA_STOPS = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.val
 # FACTORY.md 4, founder 2026-11-10: a case is attacked at most this many times. Findings of the
 # last attack get one writer fix and the case then goes to GATES, which alone certify quality.
 ATTACK_ROUNDS = 2
+# The seal audit (founder, 2026-11-10): a case whose GATES pass with this reason (new cases only,
+# run.engine_gates) gets one more STRESS step before SEAL. It is non-blocking: the case seals
+# whatever the audit finds, and a cheat it replays only keeps the sealed case out of the exam.
+SEAL_AUDIT_REASON = "engine:gates_passed_audit"
+SEAL_AUDIT_RESULTS = {"stress:audit_clean": "clean", "stress:audit_findings": "findings", "stress:audit_cheat": "cheat"}
 MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many in a lineage
 
 
@@ -708,6 +713,7 @@ class _Case:
         self.attack_rounds = 0
         self.attack_cap_from: Optional[int] = None
         self.final_fix = False          # the next writer round is followed by GATES, not stress
+        self.audit: Optional[str] = None   # the seal audit: clean, findings, cheat or not_run
 
     @property
     def replaying(self) -> bool:
@@ -745,6 +751,7 @@ class _Case:
             "stage": self.stage, "reason": self.last_reason, "passed": list(self.passed),
             "failed_gate": self.failed_gate, "writer_rounds": self.writer_rounds_used,
             "attack_rounds": self.attack_rounds,   # stress rounds that returned findings (cap: ATTACK_ROUNDS)
+            "audit": self.audit,
             "extensions": self.extensions_used, "diagnoses": self.diagnoses_used, "verdict": self.verdict,
             "hard": None if self.sealed is None else self.sealed["hard"]})
 
@@ -782,9 +789,10 @@ class _Case:
 
     # -- one seq, through all its attempts --
 
-    def run_seq(self, step: Step, *, feedback=None, ruling=None, evidence=(), versions=None):
+    def run_seq(self, step: Step, *, feedback=None, ruling=None, evidence=(), versions=None, audit=False):
         """Attempts of one seq until it advances, gives up or parks. Returns (action, result);
-        action is None for a DIAGNOSIS verdict."""
+        action is None for a DIAGNOSIS verdict. audit (the seal audit) never parks: a wait for
+        money or a provider returns at once, so the audit cannot hold up a seal."""
         self.seq += 1
         self.stage = step.name
         attempt, infra, limits, free, late, prev = self.renumber.get(self.seq, {}).get(step.name, 0), 0, 0, 0, 0, None
@@ -830,6 +838,8 @@ class _Case:
                 self.history.append({"seq": self.seq, "step": step.name, "attempt": attempt,
                                      "outcome": "not_started", "action": action.value})
                 if action is Action.WAIT_FOR_BOUND:
+                    if audit:
+                        return action, None
                     if not self.replaying and not self.wait_for_bound(
                             self.spec.deadline_epoch if admit and not admission_started else None):
                         self.last_reason = DEADLINE_REASON
@@ -918,6 +928,8 @@ class _Case:
                 continue
             if action is Action.RETRY:
                 continue
+            if audit and action in (Action.SLEEP, Action.WAIT_FOR_BOUND):
+                return action, result
             if action is Action.SLEEP:
                 seconds = wait_seconds(result.retry_at, now_step())
                 # A short wait keeps its worker: releasing it made every retry create a new one,
@@ -1074,6 +1086,8 @@ class _Case:
                     self.ext_after = r.passed               # the extension ends at its GATES result
                 self.in_extension = False
                 if action is Action.ADVANCE:
+                    if r is not None and r.reason == SEAL_AUDIT_REASON and self.audit is None:
+                        self.seal_audit()
                     phase = "seal"
                 elif action is Action.REPAIR and self.recertify and self.seq == self.recertify_repair_seq:
                     self.recertify = False                 # resumed for repair: an ordinary case from here
@@ -1110,6 +1124,22 @@ class _Case:
                     self.finish("sealed")
                 phase, feedback = self.stopped(action)
             self.card()
+
+    def seal_audit(self) -> None:
+        """One more attack round on the gated case. Whatever it returns, the case goes on to SEAL;
+        an audit that does not finish (money, provider limits, infra) is recorded as not_run and
+        SEAL restores the GATES snapshot, never a partial audit's."""
+        before = self.snapshot
+        self.audit = "running"
+        self.card()
+        action, r = self.run_seq(Step(StepKind.STRESS, self.round), audit=True)
+        if action is Action.ADVANCE and r is not None and r.reason in SEAL_AUDIT_RESULTS:
+            self.audit = SEAL_AUDIT_RESULTS[r.reason]
+        else:
+            self.audit = "not_run"
+            self.snapshot = before
+        DBOS.set_event("seal_audit", self.audit)
+        self.card()
 
     def stopped(self, action: Action):
         """A non-advancing action: diagnose, retire, hold. Returns the next (phase, feedback)."""
