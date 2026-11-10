@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run offline regression scripts in isolated processes, including unittest files."""
 import argparse
+import ast
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
 import fcntl
@@ -17,6 +18,10 @@ TESTS = ROOT / "tests"
 SUITES = ("factory", "bench", "tools", "control", "integration", "analysis", "harbor")
 SLOTS = Path(os.environ.get("TEST_SLOT_DIR", "/tmp/unbug-test-slots"))
 SLOT_COUNT = max(1, int(os.environ.get("TEST_SLOTS", os.cpu_count() or 1)))
+# Scripts whose test classes run as separate jobs. The engine file starts a real DBOS engine per
+# test (about 13 s each, 21 minutes for the file on 10 November), so as one job it set the floor
+# for the whole suite. Every top-level class of a listed script becomes a job; none is left out.
+SPLIT_BY_CLASS = ("factory/test_durable_engine.py",)
 STOP = threading.Event()  # set on interrupt so threads still waiting for a slot give up
 
 
@@ -38,12 +43,26 @@ def machine_slot():
     yield False
 
 
-def run(path):
+def jobs(scripts):
+    """(script, test class or None) per job; a split script yields one job per top-level class."""
+    for path in scripts:
+        if path.relative_to(TESTS).as_posix() not in SPLIT_BY_CLASS:
+            yield path, None
+            continue
+        classes = [node.name for node in ast.parse(path.read_text()).body if isinstance(node, ast.ClassDef)]
+        if not classes:
+            raise SystemExit(f"{path}: listed in SPLIT_BY_CLASS but has no classes")
+        for name in classes:
+            yield path, name
+
+
+def run(path, name=None):
+    """Run one script, or only its test class `name`."""
     # Output goes to a file, not a pipe: a pipe would wait for any child the script leaked, not for the script.
     with machine_slot() as held, tempfile.TemporaryFile() as out:
         if not held:
             return path, 130, b"interrupted before start\n"
-        code = subprocess.run([sys.executable, "-B", str(path)], cwd=ROOT, env={**os.environ, "BENCH": str(ROOT)},
+        code = subprocess.run([sys.executable, "-B", str(path), *([name] if name else [])], cwd=ROOT, env={**os.environ, "BENCH": str(ROOT)},
                               stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT).returncode
         out.seek(0)
         return path, code, out.read()
@@ -61,25 +80,27 @@ def main():
     if unknown:
         parser.error("unknown suites: " + ", ".join(sorted(unknown)))
     scripts = sorted({p for suite in selected for p in (TESTS / suite).rglob("test*.py")})
+    work = list(jobs(scripts))
+    label = lambda job: str(job[0].relative_to(ROOT)) + (f" [{job[1]}]" if job[1] else "")
     if args.list:
-        for path in scripts:
-            print(path.relative_to(ROOT))
+        for job in work:
+            print(label(job))
         return 0
     failures = []
     # Output is buffered per script and printed in order, so logs read like a serial run.
     pool = ThreadPoolExecutor(max(1, args.jobs))
     try:
-        for path, code, output in pool.map(run, scripts):
-            print("\n== " + str(path.relative_to(ROOT)) + " ==", flush=True)
+        for job, (_, code, output) in zip(work, pool.map(lambda job: run(*job), work)):
+            print("\n== " + label(job) + " ==", flush=True)
             sys.stdout.buffer.write(output)
             if code:
-                failures.append(path.relative_to(ROOT))
+                failures.append(label(job))
     finally:
         STOP.set()
         pool.shutdown(cancel_futures=True)
-    print(f"\n{len(scripts)} test scripts run; {len(failures)} failed.", flush=True)
-    for path in failures:
-        print("FAILED: " + str(path))
+    print(f"\n{len(scripts)} test scripts run as {len(work)} jobs; {len(failures)} failed.", flush=True)
+    for name in failures:
+        print("FAILED: " + name)
     return bool(failures)
 
 
