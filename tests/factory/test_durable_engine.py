@@ -1249,6 +1249,65 @@ class Resume(unittest.TestCase):
         from durable.engine import FACTORY_BUG_RESUMABLE
         self.assertEqual(set(FACTORY_BUG_RESUMABLE), {"writer", "stress"})   # never gates, admit or seal
 
+    # 86b100 on 10 November: its recertify G16 asked for a repair, which retires a recertified case.
+    def test_a_recertified_case_retired_at_a_repairable_gate_resumes_into_a_writer_repair(self):
+        sealed = {'1/admit/1': {'reason': 'admit:imported_sealed'},
+                  '1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
+                                  'passed': ['G1', 'G2', 'G10']}}
+        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        before = len(r.starts(1))
+        out = self.resume(r)
+        # The GATES seq replays; its feedback goes to one writer round, then GATES run again. The
+        # October case was attacked then, so its gate repair is not attacked again (attack cap).
+        self.assertEqual(r.keys(1)[before:], [('3', 'writer:2', '1'), ('4', 'gates:2', '1'), ('5', 'seal', '1')])
+        self.assertEqual(start(r, f'{C1}/3/writer:2/1')['opened']['feedback'], f'repair {C1}/2/gates:1/1')
+        self.assertEqual(out['result']['cases'], {C1 + '@b-u': 'sealed'})
+
+    def test_a_repaired_recertified_case_that_stops_on_infra_resumes_again(self):
+        sealed = {'1/admit/1': {'reason': 'admit:imported_sealed'},
+                  '1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
+                                  'passed': ['G1', 'G2', 'G10']}}
+        for stopped in ('writer:2', 'gates:2'):
+            with self.subTest(stopped=stopped):
+                r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
+                self.addCleanup(r.close)
+                infra = {f'1/{stopped}/*': {'outcome': 'infra_error', 'reason': 'infra:stalled'},
+                         '1/diagnosis/*': {'outcome': 'infra_error', 'reason': 'infra:stalled'}}
+                r2 = EngineRun({'spec': {'batch_id': 'b-u', 'max_cases_started': 1}, 'resume_of': C1,
+                                'script': infra}, workdir=r.work)
+                self.assertEqual(r2.run()['result']['cases'], {C1 + '@b-u': 'held'})
+                before = len(r.starts(1))
+                r3 = EngineRun({'spec': {'batch_id': 'b-v', 'max_cases_started': 1}, 'resume_of': C1,
+                                'script': {'1/diagnosis/*': {'verdict': 'close_to_passing'}}}, workdir=r.work)
+                # The repair decision at the October GATES seq replays; the diagnosis of the stopped
+                # step extends the case, and the extension goes to all gates without a stress round.
+                self.assertEqual(r3.run()['result']['cases'], {C1 + '@b-v': 'sealed'})
+                kinds = [k[1] for k in r.keys(1)[before:]]
+                self.assertEqual(kinds[-3:], ['writer:3', 'gates:3', 'seal'])
+                self.assertFalse([k for k in kinds if k.startswith('stress')])
+
+    def test_a_repaired_recertified_case_is_never_attacked_after_a_later_gate_repair(self):
+        sealed = {'1/admit/1': {'reason': 'admit:imported_sealed'},
+                  '1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
+                                  'passed': ['G1', 'G2', 'G10']}}
+        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
+        self.addCleanup(r.close)
+        before = len(r.starts(1))
+        r2 = EngineRun({'spec': {'batch_id': 'b-u', 'max_cases_started': 1}, 'resume_of': C1,
+                        'script': {'1/gates:2/1': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
+                                                   'passed': ['G1']}}}, workdir=r.work)
+        self.assertEqual(r2.run()['result']['cases'], {C1 + '@b-u': 'sealed'})
+        self.assertEqual([k[1] for k in r.keys(1)[before:]], ['writer:2', 'gates:2', 'writer:3', 'gates:3', 'seal'])
+
+    def test_a_case_retired_by_a_verdict_is_still_not_resumed(self):
+        r, out = run({'spec': {'max_cases_started': 1},
+                      'script': {'1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G3', 'repairable': False}}})
+        self.addCleanup(r.close)
+        self.assertNotEqual(out['result']['cases'], {C1: 'sealed'})
+        self.assertEqual(self.resume(r), {'refused': 'resume:not_stopped_by_infra'})
+
     # 18681d on 9 November: recertify G16 failed three times in calibrator setup, then factory_bug.
     GATES_INFRA = {"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
                    "script": {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",

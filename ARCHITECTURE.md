@@ -202,7 +202,10 @@ and STRESS: GATES keeps the October verdicts for `run.RECERTIFY_KEPT` and runs o
 freshness), G3 (to prepare the worker's runtime), G16, G10, G17 and G11, then SEAL writes the owner contract and
 delivery receipts as usual. G10 reruns because G17 and the receipts need this run's calibrator
 workspaces. A gate that asks for a repair, or a diagnosis that would extend, retires the case;
-a diagnosis that finds infrastructure holds it as for any case.
+a diagnosis that finds infrastructure holds it as for any case. A case retired by a gate's
+repair request can be resumed: the resume replays that GATES step, gives its feedback to one
+writer round and then runs all gates (no stress round, the October case had its own), and
+later resumes of that lineage carry the repaired GATES seq so the decision replays.
 
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
