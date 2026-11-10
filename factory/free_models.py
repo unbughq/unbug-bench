@@ -16,10 +16,10 @@ def provider_config(case, model):
         row = {'opencode_account': 0}
     elif row.get('opencode_account') not in (1, 2):
         raise ValueError('original OpenCode account not verified')
-    # Both run on the lease's OpenCode account (the router leases them only on an account pool).
+    # Both run on the lease's OpenCode account (the router leases them only on an account pool), on the
+    # free endpoint. Not the Go endpoint: there free MiniMax counts as Go plan usage and is refused (HTTP 400)
+    # once the plan's weekly limit is reached (10 November).
     options = {'baseURL': 'https://opencode.ai/inference/openai/v1', 'apiKey': '{env:OPENCODE_API_KEY}'}
-    if model == 'opencode/minimax-m3.1-flash-free':
-        options['baseURL'] = 'https://opencode.ai/inference/go/openai/v1'
     return {'options': options, 'whitelist': [model.split('/', 1)[1]]}
 
 
