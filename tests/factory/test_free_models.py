@@ -52,7 +52,7 @@ with tempfile.TemporaryDirectory() as tmp:
         c = SimpleNamespace(case_id='case-fixture', args=args, card={})
         assert free_models.apply(c, before) == after
         mini = free_models.provider_config('case-fixture', 'opencode/minimax-m3.1-flash-free')
-        assert mini['options']['baseURL'] == 'https://opencode.ai/inference/go/openai/v1'
+        assert mini['options']['baseURL'] == 'https://opencode.ai/inference/openai/v1'   # not the Go plan endpoint
         assert mini['options']['apiKey'] == '{env:OPENCODE_API_KEY}'
         assert mini['whitelist'] == ['minimax-m3.1-flash-free']
         deep = free_models.provider_config('case-fixture', 'opencode/deepseek-v4.1-flash-free')
