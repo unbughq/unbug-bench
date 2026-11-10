@@ -34,6 +34,14 @@ def _feedback(c, runner):
     report = None
     state = runner.jload(c.work / 'attack-state.json', {})
     name = state.get('report')
+    if name is not None and (state.get('repair_pending') or state.get('awaiting_stress')):
+        # A writer round wrote this receipt, and it names the report of the stress round that
+        # follows it, which does not exist yet. The report that round was repairing is the one its
+        # own feedback named (run._feedback_input keeps it). Before this, every close_to_passing
+        # verdict on a case stopped in a writer step raised "missing stress report" after the paid
+        # diagnosis (f46dac-5 and 18681d-f2 on 10 November, diagnosis:processing_failed).
+        given = runner.jload(c.work / 'engine-feedback.json', None)
+        name = given.get('attack_report') if isinstance(given, dict) else None
     if name is not None:
         import re
         if not isinstance(name, str) or not re.fullmatch(r'round-[0-9]+(?:-writer)?\.json', name):
@@ -151,7 +159,12 @@ def run(worker, step_input, keys):
         # Processing/sealing can fail after paid work. Re-read the ledger on every
         # failure, and leave the supervisor's baseline available for cancellation.
         usage = account()
-        fields = dict(outcome=Outcome.INFRA_ERROR, reason='diagnosis:processing_failed')
+        # An exception that is not a runner stop names its class, content-free, like any unknown
+        # stop (classify.py RAW_STOP_PREFIX): on 10 November f46dac-5 and 18681d-f2 each paid for
+        # diagnoses that ended "diagnosis:processing_failed" with the cause only in a sealed blob.
+        from durable.classify import RAW_STOP_PREFIX, labelled, stop_label
+        fields = dict(outcome=Outcome.INFRA_ERROR,
+                      reason=labelled(RAW_STOP_PREFIX, stop_label(type(error).__name__)) or 'diagnosis:processing_failed')
         if isinstance(error, BudgetError):
             from model_router import ProviderWait
             translated = (runner.engine_provider_wait(c, error, now=worker.clock())
