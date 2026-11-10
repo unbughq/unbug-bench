@@ -70,13 +70,15 @@ def no_fixed_port_services(c, keys):
 
 
 def parallel_gates(c):
-    """Cases admitted with parallel_gates under the engine (durable.steps.admit NEW_CASE_SETTINGS)."""
+    """Cases whose card carries parallel_gates under the engine: set at admission
+    (durable.steps.admit NEW_CASE_SETTINGS) or adopted at a new writer round (adopt_parallel_checks)."""
     return under_engine(c) and getattr(c.args, "parallel_gates", False) is True
 
 
 def parallel_calibrators(c):
     # Engine snapshots are deferred to quiescent points (durable.checkpoints.concurrent_section);
-    # only cases admitted with parallel_gates use it, so running cases keep their serial G10.
+    # only cases with parallel_gates use it; an older case keeps its serial G10 until it adopts the
+    # setting at a new writer round.
     if under_engine(c) and not parallel_gates(c): return False
     if not getattr(c.args, "concurrent_roles", False): return False
     import bench
@@ -2727,6 +2729,26 @@ def _output_capped(c, name):
     return last in ("length", "max_tokens")
 
 
+def adopt_parallel_checks(c, n, receipt_path):
+    """A case admitted before 10 November starts using the new-case settings (two bench workers,
+    parallel gates) at a new writer round: its checks are most of a round's wall time (measured
+    10 November: 5-26 min of model, 60-90 min of checks). Every check and gate runs again after a
+    writer round, so nothing judged under the old settings is carried over. A retry of a round that
+    already began keeps its settings, and an explicit `parallel_gates` on the card (false is the off
+    switch) is never overridden. That flag is the only pin: a `bench_workers` on an older card is
+    replaced, because imported cards carry the old default of 1 as an explicit value. g3's memory
+    allowance still lowers the worker count."""
+    config = c.card.get("recovery_config") or {}
+    prior = jload(receipt_path, None)
+    if (c.args.dry_run or "parallel_gates" in config
+            or (isinstance(prior, dict) and prior.get("engine") is True and prior.get("round") == n)):
+        return False
+    from durable.steps.admit import NEW_CASE_SETTINGS
+    c.card["recovery_config"] = {**config, **NEW_CASE_SETTINGS}
+    for key, value in NEW_CASE_SETTINGS.items(): setattr(c.args, key, value)
+    return True
+
+
 def engine_writer_round(c, n, feedback):
     """WRITER round n: today's writer call, G1 and early checks; a G1 or early-check failure goes back
     to the writer within the round, bounded by the runner's round cap."""
@@ -2743,10 +2765,13 @@ def engine_writer_round(c, n, feedback):
     if c.card.pop("recertify", None) is not None:
         c.card["recertify_rewritten"] = True
         c.card.pop("kept_gate_source", None)
+    receipt_path = c.work / "attack-state.json"
+    if adopt_parallel_checks(c, n, receipt_path):
+        (c.work / "logs").mkdir(exist_ok=True)
+        log(c, "writer", f"round {n}: adopted new-case settings {c.card['recovery_config']}")
     with writer_phase(c, "bench_prepare", round=n):
         engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
-    receipt_path = c.work / "attack-state.json"
     requested = bool(problems or report)
     start = _writer_round_start(c, receipt_path, n)
     capped = False

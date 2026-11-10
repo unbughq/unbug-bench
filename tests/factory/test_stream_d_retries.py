@@ -64,6 +64,11 @@ class RetryTests(unittest.TestCase):
         self.c = run.Ctx()
         vars(self.c).update(copy.deepcopy(self.context_inputs), card=card, role_cancel=threading.Event())
         self.c.args.resume = self.c.case_id
+        # The engine loads a step's runner settings from the saved card, as here (run.py, the
+        # ENGINE_SETTINGS loop): a case that adopted the new-case settings in its writer round keeps
+        # them, and with them its stress binding, on every retry.
+        for key, value in (card.get('recovery_config') or {}).items():
+            if key in run.ENGINE_SETTINGS: setattr(self.c.args, key, value)
         self.c.stress_checkpoint = lambda: True
         return self.c
 

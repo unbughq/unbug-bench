@@ -505,7 +505,8 @@ def _admitted_before(root, case_id):
 
 
 # 2026-11-10: two bench instances per check, parallel calibrators and model gates beside the
-# bench gates (run.parallel_calibrators, GatePipeline side lane). Recertified imports keep theirs.
+# bench gates (run.parallel_calibrators, GatePipeline side lane). Recertified imports keep theirs
+# unless a gate sends them to a writer round, where run.adopt_parallel_checks applies these.
 NEW_CASE_SETTINGS = {"bench_workers": 2, "parallel_gates": True}
 
 
@@ -524,7 +525,8 @@ def _card(value, case_id, dry_run, admitted_before=0):
         if value.get(name) is not None:
             card[name] = value[name]
     if not dry_run and value.get("recertify") is not True:
-        # New cases only: running cards keep their settings, and an explicit INPUTS value wins.
+        # An explicit INPUTS value wins. Cards admitted earlier adopt these at their next new
+        # writer round (run.adopt_parallel_checks).
         card["recovery_config"] = {**NEW_CASE_SETTINGS, **(card.get("recovery_config") or {})}
     return card
 
