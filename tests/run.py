@@ -56,16 +56,16 @@ def jobs(scripts):
             yield path, name
 
 
-def run(job):
-    path, name = job
+def run(path, name=None):
+    """Run one script, or only its test class `name`."""
     # Output goes to a file, not a pipe: a pipe would wait for any child the script leaked, not for the script.
     with machine_slot() as held, tempfile.TemporaryFile() as out:
         if not held:
-            return job, 130, b"interrupted before start\n"
+            return path, 130, b"interrupted before start\n"
         code = subprocess.run([sys.executable, "-B", str(path), *([name] if name else [])], cwd=ROOT, env={**os.environ, "BENCH": str(ROOT)},
                               stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT).returncode
         out.seek(0)
-        return job, code, out.read()
+        return path, code, out.read()
 
 
 def main():
@@ -90,7 +90,7 @@ def main():
     # Output is buffered per script and printed in order, so logs read like a serial run.
     pool = ThreadPoolExecutor(max(1, args.jobs))
     try:
-        for job, code, output in pool.map(run, work):
+        for job, (_, code, output) in zip(work, pool.map(lambda job: run(*job), work)):
             print("\n== " + label(job) + " ==", flush=True)
             sys.stdout.buffer.write(output)
             if code:
