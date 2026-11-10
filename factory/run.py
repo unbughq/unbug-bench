@@ -2767,6 +2767,7 @@ def engine_writer_round(c, n, feedback):
         c.card.pop("kept_gate_source", None)
     receipt_path = c.work / "attack-state.json"
     if adopt_parallel_checks(c, n, receipt_path):
+        (c.work / "logs").mkdir(exist_ok=True)
         log(c, "writer", f"round {n}: adopted new-case settings {c.card['recovery_config']}")
     with writer_phase(c, "bench_prepare", round=n):
         engine_prepare_bench(c)
