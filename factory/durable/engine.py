@@ -358,7 +358,8 @@ def _resume_point(case_id: str) -> tuple:
     attempts, and `seq` restarts after them with a fresh retry allowance. A case is resumable only
     when every workflow of it has finished as held or retired and its last attempt ended in an
     infrastructure or provider failure: never after a verdict, a gate, an exhausted limit or a
-    founder's decision. The one exception is a case held by a factory_bug diagnosis of a factory
+    founder's decision. One exception is a recertified case retired because a gate asked for a
+    repair (see gates_repair below). The other is a case held by a factory_bug diagnosis of a factory
     check or of a writer or stress step that ran out of case money (FACTORY_BUG_RESUMABLE) or of a GATES step that only ever stopped on infrastructure
     (FACTORY_BUG_RESUMABLE_INFRA): it resumes at the diagnosed step, its diagnosis is not replayed,
     and the resume counts against the lineage's factory_bug_resumes."""
@@ -408,13 +409,15 @@ def _resume_point(case_id: str) -> tuple:
     if gates_repair:
         # Founder 2026-11-10: a recertified case retired only because a gate asked for a repair
         # (recertify never rewrites) continues as an ordinary case: the GATES seq replays, its
-        # feedback goes to a writer round, then STRESS and every gate run again (run.engine_writer_round
-        # drops the kept October verdicts). Only that retirement qualifies.
+        # feedback goes to a writer round, then every gate runs again (run.engine_writer_round drops
+        # the kept October verdicts; the October case had its attack round then). Only that
+        # retirement qualifies. Later resumes of the lineage carry the repaired GATES seq.
         skip = {}
         for r in earlier:
             skip.update({int(k): v for k, v in r.get("skip", {}).items()})
         return ({"seq": seq + 1, "skip": {str(k): v for k, v in sorted(skip.items())},
                  "factory_bug_resumes": factory_bug_resumes, "recertify_repair": True,
+                 "recertify_repair_seq": seq,
                  "renumber": {str(k): v for k, v in sorted(renumber.items())}}, waste_keys)
     if not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
         # The diagnosed step is the one that ran last at seq - 1. A factory_bug resume can give that
@@ -455,9 +458,13 @@ def _resume_point(case_id: str) -> tuple:
     caps = [r["attack_cap_from"] for r in earlier if r.get("attack_cap_from") is not None]
     caps += [c for c in (DBOS.get_event(w.workflow_id, "attack_cap_from", timeout_seconds=0) for w in runs)
              if c is not None]
-    return ({"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())},
+    point = {"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())},
              "factory_bug_resumes": factory_bug_resumes, "attack_cap_from": min(caps, default=seq),
-             "renumber": {str(k): v for k, v in sorted(renumber.items())}}, waste_keys)
+             "renumber": {str(k): v for k, v in sorted(renumber.items())}}
+    repaired = [r["recertify_repair_seq"] for r in earlier if r.get("recertify_repair_seq") is not None]
+    if repaired:   # a repaired recertified case that stopped again replays its repair decision
+        point.update(recertify_repair=True, recertify_repair_seq=repaired[0])
+    return (point, waste_keys)
 
 
 # ---- the attempt workflow ------------------------------------------------------------------------
@@ -686,7 +693,9 @@ class _Case:
         # After a factory_bug resume: {seq: {step name: attempts}} recorded there by a step that
         # is no longer replayed (its diagnosis). A step of that name at that seq numbers after them.
         self.renumber: dict = {}
-        self.recertify_repair = False   # resume_point: a recertified case retired at a repairable gate
+        # resume_point: the GATES seq at which a recertified case was retired for a repair, when a
+        # resume sends it to that repair.
+        self.recertify_repair_seq: Optional[int] = None
         # Attack cap (ATTACK_ROUNDS). attack_rounds counts stress rounds that returned findings.
         # attack_cap_from is the first seq the cap governs: a case that began under the older rule
         # (stress had to come back clean) replays its recorded rounds unchanged below it.
@@ -1010,7 +1019,8 @@ class _Case:
             phase = "stress"   # an imported case whose writing passed G1 starts with a stress round
         if r is not None and r.reason == "admit:imported_sealed":
             # A sealed October case keeps its G1-G15 verdicts and reruns only GATES (G3, G16, G10,
-            # G17, G11) and SEAL. It is never rewritten: a gate that asks for a repair retires it.
+            # G17, G11) and SEAL. A gate that asks for a repair retires it; only a resume of that
+            # retirement (recertify_repair) rewrites it, and then every gate runs.
             self.recertify, phase = True, "gates"
         while True:
             if phase == "writer":
@@ -1059,7 +1069,7 @@ class _Case:
                 self.in_extension = False
                 if action is Action.ADVANCE:
                     phase = "seal"
-                elif action is Action.REPAIR and self.recertify and self.recertify_repair and self.seq == self.resume_seq - 1:
+                elif action is Action.REPAIR and self.recertify and self.seq == self.recertify_repair_seq:
                     self.recertify = False                 # resumed for repair: an ordinary case from here
                     self.round += 1
                     phase, feedback = "writer", r.feedback
@@ -1072,7 +1082,8 @@ class _Case:
                 elif action is Action.REPAIR:
                     self.round += 1
                     phase, feedback = "writer", r.feedback
-                    self.final_fix = self.attack_cap_active()   # a gate repair is not attacked again
+                    # A gate repair is not attacked again; a repaired recertified case never is.
+                    self.final_fix = self.attack_cap_active() or self.recertify_repair_seq is not None
                 else:
                     phase, feedback = self.stopped(action)
             elif phase == "seal":
@@ -1135,7 +1146,8 @@ class _Case:
         self.in_extension = True
         self.ext_before, self.ext_after = self.passed, ()
         self.round += 1
-        self.final_fix = self.attack_cap_active()   # an extension of a capped case skips its stress round
+        # An extension of a capped case, or of a repaired recertified case, skips its stress round.
+        self.final_fix = self.attack_cap_active() or self.recertify_repair_seq is not None
         return "writer", r.feedback
 
     def escalate(self) -> Ref:
@@ -1173,7 +1185,8 @@ def case_workflow(job: dict) -> dict:
         # Earlier factory_bug resumes of this lineage: their diagnoses are no longer replayed.
         case.lineage_factory_bug_resumes = resume.get("factory_bug_resumes", 0)
         case.renumber = {int(seq): steps for seq, steps in resume.get("renumber", {}).items()}
-        case.recertify_repair = resume.get("recertify_repair") is True
+        if resume.get("recertify_repair") is True:
+            case.recertify_repair_seq = resume.get("recertify_repair_seq", resume["seq"] - 1)
         if resume.get("attack_cap_from") is not None:
             case.attack_cap_from = resume["attack_cap_from"]
             DBOS.set_event("attack_cap_from", case.attack_cap_from)
@@ -1260,6 +1273,8 @@ class _Batch:
                              "renumber": self.resume.get("renumber", {})}
             if self.resume.get("recertify_repair") is True:   # absent otherwise: older jobs replay unchanged
                 job["resume"]["recertify_repair"] = True
+                job["resume"]["recertify_repair_seq"] = self.resume.get("recertify_repair_seq",
+                                                                        self.resume["seq"] - 1)
             if self.resume.get("attack_cap_from") is not None:
                 job["resume"]["attack_cap_from"] = self.resume["attack_cap_from"]
             self.case_ids[workflow_id] = case_id
