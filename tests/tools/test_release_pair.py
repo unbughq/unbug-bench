@@ -40,6 +40,14 @@ class ReleasePairTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("changes judge/gate cache bindings", result.stdout)
 
+    def test_files_shipped_on_both_channels_require_both(self):
+        for path in ("bin/processes.py", "factory/case_permissions.py"):
+            with self.subTest(path=path):
+                result = self.preflight(STRATEGY, "--changed-file", path,
+                                        "--send", "plumbing")
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("missing release channel: bench", result.stderr)
+
     def test_old_bench_source_rejects_the_new_shared_call(self):
         original = STRATEGY.read_text()
         old = original.replace("restored_results_root=None, shared=None,", "restored_results_root=None,")
@@ -74,6 +82,25 @@ class ReleasePairTests(unittest.TestCase):
                                     "--send", "plumbing")
         self.assertEqual(result.returncode, 1)
         self.assertIn("missing release channel: bench", result.stderr)
+
+    def test_required_keyword_only_strategy_parameter_is_checked(self):
+        original = STRATEGY.read_text()
+        changed = original.replace("shared_binding=None):", "shared_binding=None, *, required_extra):")
+        self.assertNotEqual(changed, original)
+        with tempfile.TemporaryDirectory() as directory:
+            strategy = Path(directory) / "strategy"
+            strategy.write_text(changed)
+            result = self.preflight(strategy, "--changed-file", "bin/strategy", "--send", "bench")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("requires required_extra", result.stderr)
+
+    def test_required_positional_strategy_parameter_is_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            strategy = Path(directory) / "strategy"
+            strategy.write_text("def simulate(case, strategy, runs, seed, extra, **kwargs):\n    pass\n")
+            result = self.preflight(strategy, "--changed-file", "bin/strategy", "--send", "bench")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("requires extra", result.stderr)
 
 
 if __name__ == "__main__":

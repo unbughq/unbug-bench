@@ -20,6 +20,7 @@ import sys
 
 
 BENCH_ROOTS = {"bin", "cases", "guards", "harbor", "projects", "scenarios"}
+DUAL_CHANNEL_FILES = {"bin/processes.py", "factory/case_permissions.py"}
 
 
 def required_channels(paths: list[str]) -> set[str]:
@@ -27,6 +28,9 @@ def required_channels(paths: list[str]) -> set[str]:
     for path in paths:
         parts = Path(path).parts
         if not parts:
+            continue
+        if path in DUAL_CHANNEL_FILES:
+            channels.update(("plumbing", "bench"))
             continue
         if parts[0] == "factory":
             channels.add("plumbing")
@@ -65,6 +69,7 @@ def check_strategy_interface(plumbing_source: Path, bench_source: Path) -> None:
         raise ValueError("strategy simulate call has dynamic positional arguments")
     if len(call.args) > len(positional) and definition.args.vararg is None:
         raise ValueError("strategy simulate accepts fewer positional arguments than run.py passes")
+    provided = {arg.arg for arg in positional[:len(call.args)]}
     for keyword in call.keywords:
         if keyword.arg is None:
             raise ValueError("strategy simulate call has dynamic keyword arguments")
@@ -72,6 +77,13 @@ def check_strategy_interface(plumbing_source: Path, bench_source: Path) -> None:
             raise ValueError(f"strategy simulate receives {keyword.arg} twice")
         if keyword.arg not in accepted and definition.args.kwarg is None:
             raise ValueError(f"strategy simulate does not accept {keyword.arg}=")
+        provided.add(keyword.arg)
+    required_positional = positional[:len(positional) - len(definition.args.defaults)]
+    required_keyword_only = [arg for arg, default in zip(definition.args.kwonlyargs,
+                                                        definition.args.kw_defaults) if default is None]
+    missing = {arg.arg for arg in required_positional + required_keyword_only} - provided
+    if missing:
+        raise ValueError("strategy simulate requires " + ", ".join(sorted(missing)))
 
 
 def main(argv: list[str] | None = None) -> int:
