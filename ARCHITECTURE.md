@@ -126,6 +126,9 @@ joining before G6. Any snapshot requested while two threads work on the case is 
 case edited during that lane fails the step as infrastructure. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
 progress and the card's `phase_times`.
+An older card with no `parallel_gates` key also adopts just that flag at GATES entry
+(`run.adopt_parallel_gates_at_entry`), leaving its `bench_workers` value unchanged so its
+already earned gate cache identities remain valid. An explicit true or false stays pinned.
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
