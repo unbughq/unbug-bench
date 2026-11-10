@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import inspect
 from pathlib import Path
 import subprocess
 import sys
@@ -63,27 +64,33 @@ def check_strategy_interface(plumbing_source: Path, bench_source: Path) -> None:
     if len(calls) != 1 or len(definitions) != 1:
         raise ValueError("expected one module.simulate call and one strategy simulate definition")
     call, definition = calls[0], definitions[0]
-    positional = definition.args.posonlyargs + definition.args.args
-    accepted = {arg.arg for arg in definition.args.args + definition.args.kwonlyargs}
     if any(isinstance(arg, ast.Starred) for arg in call.args):
         raise ValueError("strategy simulate call has dynamic positional arguments")
-    if len(call.args) > len(positional) and definition.args.vararg is None:
-        raise ValueError("strategy simulate accepts fewer positional arguments than run.py passes")
-    provided = {arg.arg for arg in positional[:len(call.args)]}
-    for keyword in call.keywords:
-        if keyword.arg is None:
-            raise ValueError("strategy simulate call has dynamic keyword arguments")
-        if keyword.arg in {arg.arg for arg in positional[:len(call.args)]}:
-            raise ValueError(f"strategy simulate receives {keyword.arg} twice")
-        if keyword.arg not in accepted and definition.args.kwarg is None:
-            raise ValueError(f"strategy simulate does not accept {keyword.arg}=")
-        provided.add(keyword.arg)
-    required_positional = positional[:len(positional) - len(definition.args.defaults)]
-    required_keyword_only = [arg for arg, default in zip(definition.args.kwonlyargs,
-                                                        definition.args.kw_defaults) if default is None]
-    missing = {arg.arg for arg in required_positional + required_keyword_only} - provided
-    if missing:
-        raise ValueError("strategy simulate requires " + ", ".join(sorted(missing)))
+    if any(keyword.arg is None for keyword in call.keywords):
+        raise ValueError("strategy simulate call has dynamic keyword arguments")
+    keywords = [keyword.arg for keyword in call.keywords]
+    if len(keywords) != len(set(keywords)):
+        raise ValueError("strategy simulate call repeats a keyword")
+
+    arguments = definition.args
+    positional = arguments.posonlyargs + arguments.args
+    defaults = ([inspect.Parameter.empty] * (len(positional) - len(arguments.defaults))
+                + [object()] * len(arguments.defaults))
+    params = [inspect.Parameter(arg.arg, inspect.Parameter.POSITIONAL_ONLY
+                                if index < len(arguments.posonlyargs) else inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                default=default)
+              for index, (arg, default) in enumerate(zip(positional, defaults))]
+    if arguments.vararg is not None:
+        params.append(inspect.Parameter(arguments.vararg.arg, inspect.Parameter.VAR_POSITIONAL))
+    params.extend(inspect.Parameter(arg.arg, inspect.Parameter.KEYWORD_ONLY,
+                                    default=inspect.Parameter.empty if default is None else object())
+                  for arg, default in zip(arguments.kwonlyargs, arguments.kw_defaults))
+    if arguments.kwarg is not None:
+        params.append(inspect.Parameter(arguments.kwarg.arg, inspect.Parameter.VAR_KEYWORD))
+    try:
+        inspect.Signature(params).bind(*([None] * len(call.args)), **dict.fromkeys(keywords))
+    except TypeError as error:
+        raise ValueError("strategy simulate call is invalid: " + str(error)) from error
 
 
 def main(argv: list[str] | None = None) -> int:

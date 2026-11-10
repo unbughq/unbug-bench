@@ -15,9 +15,9 @@ STRATEGY = ROOT / "bin/strategy"
 
 
 class ReleasePairTests(unittest.TestCase):
-    def preflight(self, strategy=STRATEGY, *options):
+    def preflight(self, strategy=STRATEGY, *options, run=RUN):
         return subprocess.run([sys.executable, str(CHECK),
-                               "--plumbing-source", str(RUN),
+                               "--plumbing-source", str(run),
                                "--bench-source", str(strategy), *options],
                               capture_output=True, text=True)
 
@@ -58,7 +58,7 @@ class ReleasePairTests(unittest.TestCase):
             result = self.preflight(old_strategy, "--changed-file", "factory/run.py",
                                     "--send", "plumbing")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("does not accept shared=", result.stderr)
+        self.assertIn("unexpected keyword argument 'shared'", result.stderr)
 
     def test_full_git_diff_catches_a_missing_bench_channel(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -92,7 +92,7 @@ class ReleasePairTests(unittest.TestCase):
             strategy.write_text(changed)
             result = self.preflight(strategy, "--changed-file", "bin/strategy", "--send", "bench")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("requires required_extra", result.stderr)
+        self.assertIn("missing a required argument: 'required_extra'", result.stderr)
 
     def test_required_positional_strategy_parameter_is_checked(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -100,7 +100,25 @@ class ReleasePairTests(unittest.TestCase):
             strategy.write_text("def simulate(case, strategy, runs, seed, extra, **kwargs):\n    pass\n")
             result = self.preflight(strategy, "--changed-file", "bin/strategy", "--send", "bench")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("requires extra", result.stderr)
+        self.assertIn("missing a required argument: 'extra'", result.stderr)
+
+    def test_required_positional_only_argument_cannot_be_filled_by_kwargs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            strategy = Path(directory) / "strategy"
+            strategy.write_text("def simulate(case, strategy, runs, seed, extra, /, **kwargs):\n    pass\n")
+            result = self.preflight(strategy, "--changed-file", "bin/strategy", "--send", "bench")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("missing a required argument: 'extra'", result.stderr)
+
+    def test_positional_only_name_can_also_pass_through_kwargs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory) / "run.py"
+            strategy = Path(directory) / "strategy"
+            run.write_text("def f(module):\n    module.simulate(None, case=None)\n")
+            strategy.write_text("def simulate(case, /, **kwargs):\n    pass\n")
+            result = self.preflight(strategy, "--changed-file", "bin/strategy",
+                                    "--send", "bench", run=run)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
