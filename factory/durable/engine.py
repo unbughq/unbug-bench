@@ -333,8 +333,11 @@ FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair", "writer:output_ca
 # said factory_bug. A step with any other outcome among its attempts is never resumed this way.
 # On 10 November 2abb0a and 1110b were held the same way after writer steps whose every attempt
 # ended infra:invalid_execution: a writer or stress step that only stopped on infrastructure
-# returned no writing and no findings, so it qualifies too.
+# returned no writing and no findings, so it qualifies too. 2abb0a's writer step also met provider
+# limits (router:quota, router:credit) among those attempts: a call a provider or our router
+# refused returned nothing either, so a provider limit counts as such a stop.
 FACTORY_BUG_RESUMABLE_INFRA = ("gates", "writer", "stress")
+FACTORY_BUG_INFRA_STOPS = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.value)
 # FACTORY.md 4, founder 2026-11-10: a case is attacked at most this many times. Findings of the
 # last attack get one writer fix and the case then goes to GATES, which alone certify quality.
 ATTACK_ROUNDS = 2
@@ -364,7 +367,7 @@ def _resume_point(case_id: str) -> tuple:
     founder's decision. One exception is a recertified case retired because a gate asked for a
     repair (see gates_repair below). The other is a case held by a factory_bug diagnosis of a factory
     check or of a writer or stress step that ran out of case money (FACTORY_BUG_RESUMABLE) or of a GATES, writer or stress step that only ever stopped on infrastructure
-    (FACTORY_BUG_RESUMABLE_INFRA): it resumes at the diagnosed step, its diagnosis is not replayed,
+    or a provider limit (FACTORY_BUG_RESUMABLE_INFRA): it resumes at the diagnosed step, its diagnosis is not replayed,
     and the resume counts against the lineage's factory_bug_resumes."""
     if type(case_id) is not str or not CASE_ID.fullmatch(case_id):
         raise ContractError("resume:bad_case")
@@ -435,7 +438,7 @@ def _resume_point(case_id: str) -> tuple:
         factory_check = (isinstance(stopped, dict) and stopped.get("outcome") == Outcome.EXHAUSTED.value
                          and stopped.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
         infra_only = (kind in FACTORY_BUG_RESUMABLE_INFRA and bool(stops)
-                      and all(isinstance(s, dict) and s.get("outcome") == Outcome.INFRA_ERROR.value for s in stops))
+                      and all(isinstance(s, dict) and s.get("outcome") in FACTORY_BUG_INFRA_STOPS for s in stops))
         if not (latest.output.get("status") == "held"
                 and attempts[(seq, attempt)].workflow_id.split("/")[2] == StepKind.DIAGNOSIS.value
                 and isinstance(result, dict) and result.get("outcome") == Outcome.OK.value

@@ -1346,6 +1346,24 @@ class Resume(unittest.TestCase):
         self.assertFalse([k for k in r.keys(1)[before:] if k[1] == "diagnosis"])
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
 
+    # 2abb0a on 10 November: writer attempts ended infra_error and provider_limit (quota, credit).
+    def test_a_writer_step_that_stopped_on_infra_and_provider_limits_resumes_after_a_factory_bug(self):
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "script": {"1/writer:1/1": {"outcome": "provider_limit", "reason": "router:quota",
+                                                  "retry_in": 0.01},
+                                 "1/writer:1/2": {"outcome": "infra_error", "reason": "infra:invalid_execution"},
+                                 "1/writer:1/3": {"outcome": "infra_error", "reason": "infra:invalid_execution",
+                                                  "checkpoint": True},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        seq, kind, _ = r.keys(1)[-1]
+        self.assertEqual(kind, "diagnosis")
+        before = len(r.starts(1))
+        out = self.resume(r, {"1/writer:1/*": {}})
+        self.assertEqual(r.keys(1)[before], (str(int(seq) - 1), "writer:1", "4"))
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+
     def test_a_writer_step_with_a_non_infra_stop_among_its_attempts_is_not_resumed_this_way(self):
         r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
                       "script": {"1/writer:1/1": {"outcome": "infra_error", "reason": "infra:invalid_execution"},
