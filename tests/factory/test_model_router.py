@@ -77,6 +77,19 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(self.acquire(first['route'], accounts=('claude-token',))['kind'], 'wait')
         self.assertEqual(self.acquire(first['route'])['account'], 'claude-factory-token-2')
 
+    def test_a_disabled_route_is_skipped_while_its_account_pool_still_serves_free_minimax(self):
+        # 10 Nov: the Go plan's weekly quota was spent; free MiniMax shares the Go accounts' pools.
+        self.store = router.Store(self.root / 'disabled.sqlite', clock=lambda: self.now[0],
+                                  disabled_routes=('opencode-go/',))
+        lease = self.acquire('opencode-go/minimax-m3.1-flash')
+        self.assertEqual((lease['kind'], lease['route'], lease['account']),
+                         ('lease', 'opencode/minimax-m3.1-flash-free', 'opencode-go-key'))
+        self.assertEqual(self.store.rpc('capacity', {'route': 'opencode-go/minimax-m3.1-flash'})['slots'], 0)
+        mimo = self.acquire('opencode-go/mimo-v2.6-pro')
+        self.assertEqual((mimo['route'], mimo['account']), ('openrouter/xiaomi/mimo-v2.6-pro', 'openrouter-key'))
+        with self.assertRaises(ValueError):
+            router.Store(self.root / 'bad.sqlite', disabled_routes=('',))
+
     def test_account2_policy_replays_real_limit_card(self):
         # Historical card supplies real model/reset semantics, not account identity.
         card = next(c for c in LIMITS if c['terminal_stop'].startswith('provider_limit:claude/'))
