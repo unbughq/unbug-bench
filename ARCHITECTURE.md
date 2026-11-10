@@ -113,6 +113,15 @@ fetches the latest committed snapshot; progress not fetched before a worker loss
 can still be lost. Completion receipts reuse work only under matching instructions,
 inputs and release bindings. Same-case mutable model calls serialize for coherent
 snapshots, and isolated calibrator snapshots wait until their workspaces join.
+Cases admitted since 10 November carry `bench_workers: 2` and `parallel_gates: true` in their
+`recovery_config` (`durable/steps/admit.py` `NEW_CASE_SETTINGS`; recertified imports and cards
+admitted earlier keep their own settings). For those cases G10's two calibrators run at once and
+may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second thread after G1,
+joining before G6. Any snapshot requested while two threads work on the case is deferred
+(`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
+case edited during that lane fails the step as infrastructure. The writer step records fixed
+phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
+progress and the card's `phase_times`.
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
@@ -313,6 +322,14 @@ wallet spending limit including all retained charges. Restart applies an explici
 limit transactionally without resetting settled or uncertain spending; live wallet
 credit is checked separately on every paid request. Without this setting, the
 historical first-use qualification ceiling remains fixed across restarts.
+An unconfirmed paid request books its whole hold until the provider says otherwise.
+The gate passes the call's OpenRouter generation id with an unconfirmed settle, and a
+router pass every minute (or `model_router.py --reconcile-once`) settles such a row at
+that generation's reported `total_cost`, never above its hold, and one generation
+settles one row. Older unknown rows are bounded by the account's all-time usage: rows
+older than the credit window together cost at most that usage less the provider-reported
+costs of settled rows equally old, so their charges are scaled down to that bound and
+marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and
