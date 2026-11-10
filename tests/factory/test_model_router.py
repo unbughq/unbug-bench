@@ -163,12 +163,13 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(self.store.rpc('status', {})['health'], {})
 
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
-        go, target, source = router.CHAINS[0]
+        go, source, target = router.CHAINS[0]
         choices = router.routes(source)
-        # Founder 2026-11-09: the Go plan on both accounts first, then paid, the hanging anonymous free lane last.
+        # The Go plan on both accounts first, then free on the same accounts (10 Nov), then paid.
         self.assertEqual([(r['route'], r['account'], r['billing']) for r in choices],
                          [(go, 'opencode-go-key', 'subscription'), (go, 'opencode-go-key-2', 'subscription'),
-                          (target, 'openrouter-key', 'paid'), (source, None, 'free')])
+                          (source, 'opencode-go-key', 'free'), (source, 'opencode-go-key-2', 'free'),
+                          (target, 'openrouter-key', 'paid')])
         for account in ('opencode-go-key', 'opencode-go-key-2'):
             lease = self.acquire(source)
             self.assertEqual((lease['route'], lease['account']), (go, account))
@@ -544,7 +545,7 @@ class RouterTests(unittest.TestCase):
                     {'Authorization':'Bearer synthetic-token','Content-Type':'application/json'})
                 trust=ssl.create_default_context(cafile=str(cert))
                 with urllib.request.urlopen(request,context=trust,timeout=2) as response:
-                    self.assertEqual(json.load(response)['slots'],1)
+                    self.assertEqual(json.load(response)['slots'],2)   # one per OpenCode account
         finally:server.shutdown();server.server_close();thread.join(timeout=2)
 
     def test_old_cancelled_receipts_are_not_checkpointed_or_reused(self):

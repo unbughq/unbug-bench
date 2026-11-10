@@ -16,10 +16,10 @@ def provider_config(case, model):
         row = {'opencode_account': 0}
     elif row.get('opencode_account') not in (1, 2):
         raise ValueError('original OpenCode account not verified')
-    options = {'baseURL': 'https://opencode.ai/inference/openai/v1'}
+    # Both run on the lease's OpenCode account (the router leases them only on an account pool).
+    options = {'baseURL': 'https://opencode.ai/inference/openai/v1', 'apiKey': '{env:OPENCODE_API_KEY}'}
     if model == 'opencode/minimax-m3.1-flash-free':
         options['baseURL'] = 'https://opencode.ai/inference/go/openai/v1'
-        options['apiKey'] = '{env:OPENCODE_API_KEY}'
     return {'options': options, 'whitelist': [model.split('/', 1)[1]]}
 
 

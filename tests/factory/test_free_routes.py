@@ -35,11 +35,12 @@ class FreeRoutes(unittest.TestCase):
         self.assertFalse(model_router.valid_maximum(vars(lease(max_usd=1.0))))   # a free lease holds nothing
         # Paid routes are unchanged.
         self.assertGreater(model_router.route_maximum('openrouter/deepseek/deepseek-v4.1-flash')['max_usd'], 0)
-        # Founder 2026-11-09: the Go plan on both accounts first, then the paid gated route of the same
-        # family; the anonymous free DeepSeek lane hangs, so it comes last.
+        # The Go plan on both accounts first, then free DeepSeek on the same accounts (10 Nov: the anonymous
+        # lane hung, the account-backed call answers), then the paid gated route of the same family.
         go = 'opencode-go/deepseek-v4.1-flash'
-        self.assertEqual([r['route'] for r in model_router.routes(FREE, model_router.ACCOUNTS)],
-                         [go, go, 'openrouter/deepseek/deepseek-v4.1-flash', FREE])
+        self.assertEqual([(r['route'], r['account']) for r in model_router.routes(FREE, model_router.ACCOUNTS)],
+                         [(go, 'opencode-go-key'), (go, 'opencode-go-key-2'), (FREE, 'opencode-go-key'),
+                          (FREE, 'opencode-go-key-2'), ('openrouter/deepseek/deepseek-v4.1-flash', 'openrouter-key')])
         # MiniMax: Go, then free on either OpenCode account, past the unbounded OpenRouter :free variant to paid.
         go = 'opencode-go/minimax-m3.1-flash'
         self.assertEqual([(r['route'], r['account']) for r in model_router._bounded_routes(
@@ -155,7 +156,8 @@ class FreeRoutes(unittest.TestCase):
                     runtime._call(SimpleNamespace(card={}), [FREE], 'x', '/', name, user=user)
                 go = 'opencode-go/deepseek-v4.1-flash'
                 self.assertEqual(seen.pop(), (model_runtime.invocation_role(name),
-                                              ('opencode-go-key/' + go, 'opencode-go-key-2/' + go, 'opencode-free/' + FREE)))
+                                              ('opencode-go-key/' + go, 'opencode-go-key-2/' + go,
+                                               'opencode-go-key/' + FREE, 'opencode-go-key-2/' + FREE)))
                 # So does GLM, whose chain now ends in OpenRouter's gated route.
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), ['opencode/glm-5.3-flash-free'], 'x', '/', name, user=user)

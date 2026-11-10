@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert mini['options']['apiKey'] == '{env:OPENCODE_API_KEY}'
         assert mini['whitelist'] == ['minimax-m3.1-flash-free']
         deep = free_models.provider_config('case-fixture', 'opencode/deepseek-v4.1-flash-free')
-        assert deep['options'] == {'baseURL': 'https://opencode.ai/inference/openai/v1'}
+        assert deep['options'] == {'baseURL': 'https://opencode.ai/inference/openai/v1', 'apiKey': '{env:OPENCODE_API_KEY}'}
         # 2026-10-20 founder: new cases use the free models too, on the run's own OpenCode key
         assert free_models.provider_config('case-unrelated', 'opencode/minimax-m3.1-flash-free')['options']['apiKey'] == '{env:OPENCODE_API_KEY}'
         config_paths = []

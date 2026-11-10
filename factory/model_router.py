@@ -38,7 +38,9 @@ ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
 # the fallback). The Go plan routes lead on both accounts; OpenRouter's paid route follows. The anonymous
 # free lanes hang (8 of 9 free DeepSeek calls, 2026-11-08), so they come after paid, as a last resort.
 CHAINS = (
-    ('opencode-go/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free'),
+    # Free DeepSeek runs on the founder's OpenCode accounts before paid OpenRouter (10 Nov: the anonymous
+    # lane hung on 8 November; the account-backed call answered in 3-4 s on both accounts).
+    ('opencode-go/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free', 'openrouter/deepseek/deepseek-v4.1-flash'),
     # The OpenRouter :free variant has no maximum, so it is never leased.
     ('opencode-go/minimax-m3.1-flash', 'opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free',
      'openrouter/minimax/minimax-m3.1-flash'),
@@ -46,6 +48,7 @@ CHAINS = (
     ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'),
     ('opencode-go/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
 )
+ACCOUNT_FREE_ROUTES = ('opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4.1-flash-free')
 REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route'}
 MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
 
@@ -141,7 +144,7 @@ def routes(model, accounts=ACCOUNTS):
                    'free' if route.endswith(('-free', ':free')) else 'paid')
         labels = (('claude-factory-token-2', 'claude-token') if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
                   ('openrouter-key',) if route.startswith('openrouter/') else
-                  ACCOUNTS[2:4] if route.startswith('opencode-go/') or 'minimax-m3.1-flash-free' in route
+                  ACCOUNTS[2:4] if route.startswith('opencode-go/') or route in ACCOUNT_FREE_ROUTES
                   or (route.startswith('opencode/') and billing == 'paid') else (None,))
         if labels != (None,):
             labels = tuple(a for a in (labels if route.startswith('claude/') else accounts)
