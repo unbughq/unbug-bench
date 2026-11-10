@@ -122,10 +122,25 @@ class StrategyCrashTests(unittest.TestCase):
         return str(error.exception)
 
     def test_silent_invalid_verdict_keeps_counts_and_evidence(self):
-        message = self.silent(AsyncMock(return_value={'runs': 3, 'error_runs': 2, 'invalid_runs': 1,
-                                                     'errors': [{'message': 'synthetic window cause'}]}))
-        for text in ('runs=3', 'error_runs=2', 'invalid_runs=1', 'checkpoint.json', 'synthetic window cause'):
+        window = AsyncMock(return_value={'runs': 1, 'error_runs': 1, 'invalid_runs': 1, 'errors': []})
+        message = self.silent(window)
+        self.assertEqual(window.await_count, 2)
+        for text in ('runs=1', 'error_runs=1', 'invalid_runs=1', 'checkpoint.json'):
             self.assertIn(text, message)
+
+    def test_silent_invalid_window_retries_after_reset_and_returns_valid_result(self):
+        task = self.root / 'harbor/synthetic'; task.mkdir(parents=True)
+        (task / 'task.toml').touch()
+        spec = task / 'steps/quiet/window.json'; spec.parent.mkdir(parents=True); spec.write_text('{"synthetic": true}')
+        bench = types.SimpleNamespace(reset=Mock(), RESULTS=self.root, load_scenario=Mock())
+        valid = {'runs': 1, 'error_runs': 0, 'invalid_runs': 0, 'errors': [], 'pass_runs': 0}
+        window = AsyncMock(side_effect=[{'runs': 1, 'error_runs': 1, 'invalid_runs': 1, 'errors': []}, valid])
+        with patch.dict(sys.modules, {'bench': bench, 'silent_window': types.SimpleNamespace(run_window=window)}):
+            result = strategy.silent_checkpoint(self.root, {'id': 'quiet', 'name': 'quiet'}, [], self.root, {}, False)
+        self.assertEqual(window.await_count, 2)
+        self.assertEqual(bench.reset.call_count, 2)
+        self.assertEqual(result['pass_runs'], 0, 'a valid scored failure remains a scored failure')
+        self.assertTrue(pathlib.Path(result['_evidence_path']).is_file())
 
     def test_silent_command_failure_keeps_both_output_tails(self):
         process = types.SimpleNamespace(returncode=7, communicate=AsyncMock(return_value=(b'stdout cause', b'stderr cause')))

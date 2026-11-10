@@ -163,6 +163,9 @@ async def run_window(environment, spec, monitor=None):
                 cp['facts'] = extra.get('facts', {})
             if snapshot['errors'] or not snapshot['checker'].get('checker_ok'):
                 cp['error_runs'] = cp['invalid_runs'] = 1
+                detail = {'snapshot_errors': snapshot['errors'], 'checker': snapshot['checker']}
+                cp.setdefault('errors', []).append({'stage': 'live-verdict',
+                                                     'message': json.dumps(detail, default=str)[-4000:]})
             ordinary = traffic_data.get('ordinary_customers', {})
             cp['exposure']['ordinary_customers'] = ordinary
             judge['legit']['attempted'] += ordinary.get('attempted', 0)
