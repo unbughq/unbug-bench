@@ -66,6 +66,10 @@ controller and deletes the workers. `preflight.py` adds advance warnings to the 
 status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
 degrade, pause or stop, and an unreadable input is an "unknown" warning. On SIGTERM the engine drains, then
 exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
+Restart the controller or send a plumbing or bench release only when `control/check-drained.py --config
+<config>` exits 0: no attempt holds a leased worker without its recorded `attempt_step`, and the
+model router holds no unexpired lease (read-only; exit 1 names what runs, 2 means unreadable). Restarts
+and release sends mid-step cost 19 hours of `infra:worker_lost` from 6 November.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 `client.py` reads that operator's public status/report over SSH using a saved local
 connection and default batch. `bin/install-unbug` packages a standalone read-only
@@ -137,7 +141,7 @@ side transfers blobs; workers receive no R2 credentials. Invoke executors throug
 Worker steps share structured wait classification: quota/rate/credit wait durably,
 credential delivery, unbounded routes and router outages park without consuming
 infrastructure retries; known CLI and unavailable-model faults retain the finite
-infrastructure allowance. Each wait retains an
+infrastructure allowance. Each wait, and every failed step, killed, crashed or raising included, retains an
 encrypted operational diagnostic with allowlisted causes, retry times and lease
 IDs. Worker diagnostics automatically include safe HTTP statuses and error categories.
 Scope-bound `durable.diagnostics` inspection runs in worker memory and exports
@@ -279,6 +283,10 @@ wait or message. If any attempt it needs is missing, it fails (`resume:diverged`
 starting new work in that history. The stopped seq first restores its recorded attempts
 (their snapshots, diagnostics and keys, so a changed step also diverges), then continues
 with a fresh infra retry allowance.
+Replayed seqs keep the bench their attempts recorded; the first live seq, unless it is GATES or SEAL
+(which take their versions as before), adopts the new batch's current bench release (patch
+`resume_adopts_bench`). Nothing kept depends on the old bench: SEAL runs only under its GATES versions and
+every later path to SEAL passes a GATES step, which adopts the current bench anyway.
 Counters, snapshot and evidence therefore come out of the same code that built them. `start`
 refuses unless the earlier spend (the ledger across the original and every earlier resume
 batch, plus any declared import spend) plus the batch's

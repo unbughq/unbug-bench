@@ -60,6 +60,32 @@ class ReleasePairTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("unexpected keyword argument 'shared'", result.stderr)
 
+    def test_bench_without_shared_execution_accepts_the_guarded_runner_call(self):
+        # run.py passes **sharing only when the strategy has execute_shared (#99); the Nov 5 bench
+        # at 8f63d199 has neither, so the runner calls it without the shared keywords.
+        old = subprocess.run(["git", "-C", str(ROOT), "show", "8f63d199:bin/strategy"],
+                             capture_output=True, text=True, check=True).stdout
+        self.assertNotIn("def execute_shared", old)
+        with tempfile.TemporaryDirectory() as directory:
+            old_strategy = Path(directory) / "strategy"
+            old_strategy.write_text(old)
+            result = self.preflight(old_strategy, "--changed-file", "factory/run.py", "--send", "plumbing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unguarded_or_unknown_keyword_unpacking_stays_dynamic(self):
+        strategy_text = "def execute_shared():\n    pass\ndef simulate(case, **kwargs):\n    pass\n"
+        for run_text in ("def f(module, extra):\n    module.simulate(None, **extra)\n",
+                         "def f(module):\n    extra = {'a': 1} if ready() else {}\n    module.simulate(None, **extra)\n",
+                         "def f(module, b):\n    extra = {'a': 1} if hasattr(module, 'execute_shared') else b\n"
+                         "    extra = {}\n    module.simulate(None, **extra)\n"):
+            with self.subTest(run=run_text), tempfile.TemporaryDirectory() as directory:
+                run, strategy = Path(directory) / "run.py", Path(directory) / "strategy"
+                run.write_text(run_text)
+                strategy.write_text(strategy_text)
+                result = self.preflight(strategy, "--changed-file", "bin/strategy", "--send", "bench", run=run)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("dynamic keyword arguments", result.stderr)
+
     def test_full_git_diff_catches_a_missing_bench_channel(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
