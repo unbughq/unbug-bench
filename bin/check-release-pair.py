@@ -52,6 +52,41 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
     return result.stdout.splitlines()
 
 
+def top_level_names(module: ast.Module) -> set[str]:
+    """Names hasattr(module, name) can see on the loaded strategy (its top-level bindings)."""
+    names = set()
+    for node in module.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names.update(n.id for t in targets for n in ast.walk(t) if isinstance(n, ast.Name))
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update((a.asname or a.name).split(".")[0] for a in node.names)
+    return names
+
+
+def guarded_keywords(run: ast.Module, value: ast.expr, provided: set[str]) -> list[str]:
+    """The keys of `**name` where run.py assigns name exactly once as
+    `{literal keys} if hasattr(module, "feature") else {literal keys}`: the branch the proposed
+    bench takes, by whether its strategy defines that feature. Anything else stays dynamic."""
+    assigned = [node.value for node in ast.walk(run) if isinstance(node, ast.Assign)
+                and isinstance(value, ast.Name)
+                and any(isinstance(t, ast.Name) and t.id == value.id for t in node.targets)]
+    guard = assigned[0] if len(assigned) == 1 else None
+    test = guard.test if isinstance(guard, ast.IfExp) else None
+    if not (isinstance(test, ast.Call) and isinstance(test.func, ast.Name) and test.func.id == "hasattr"
+            and len(test.args) == 2 and not test.keywords
+            and isinstance(test.args[0], ast.Name) and test.args[0].id == "module"
+            and isinstance(test.args[1], ast.Constant) and isinstance(test.args[1].value, str)):
+        raise ValueError("strategy simulate call has dynamic keyword arguments")
+    branch = guard.body if test.args[1].value in provided else guard.orelse
+    if not (isinstance(branch, ast.Dict) and all(isinstance(k, ast.Constant) and isinstance(k.value, str)
+                                                 for k in branch.keys)):
+        raise ValueError("strategy simulate call has dynamic keyword arguments")
+    return [k.value for k in branch.keys]
+
+
 def check_strategy_interface(plumbing_source: Path, bench_source: Path) -> None:
     """Check the actual run.py call against the actual strategy simulate signature."""
     run = ast.parse(plumbing_source.read_text(), filename=str(plumbing_source))
@@ -66,9 +101,10 @@ def check_strategy_interface(plumbing_source: Path, bench_source: Path) -> None:
     call, definition = calls[0], definitions[0]
     if any(isinstance(arg, ast.Starred) for arg in call.args):
         raise ValueError("strategy simulate call has dynamic positional arguments")
-    if any(keyword.arg is None for keyword in call.keywords):
-        raise ValueError("strategy simulate call has dynamic keyword arguments")
-    keywords = [keyword.arg for keyword in call.keywords]
+    provided = top_level_names(strategy)
+    keywords = []
+    for keyword in call.keywords:
+        keywords += [keyword.arg] if keyword.arg is not None else guarded_keywords(run, keyword.value, provided)
     if len(keywords) != len(set(keywords)):
         raise ValueError("strategy simulate call repeats a keyword")
 
