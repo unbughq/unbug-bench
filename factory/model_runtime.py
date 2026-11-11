@@ -39,16 +39,16 @@ INTERRUPTED_LOCK = threading.Lock()
 # to $50), so the first call took it all and a parallel call in the same attempt failed
 # grant_insufficient (6-11 November, ~$313 booked unspent). A quarter of the $50 case ceiling funds
 # four such calls at once (two calibrators, their owner question, a side-lane gate) and is 4x the
-# dearest real one in the retained cards ($2.89, a G2 mimo review). Claude and Codex keep their
-# profile ceilings. Writer sessions are long agentic work measured across the whole session (a Go
-# call at list price), so they keep the funded window: an in-flight role finishes (FACTORY.md
-# section 4). Every other role (reviewers, calibrators, preflights, diagnosis) is capped.
-# Stress calls are capped on every family, Codex and Claude included: a non-final receipt books its
-# whole window (budget._settle_leaf), and 22e434-5 (11 November) booked a Codex attacker's $48.68
-# window for $0.17 of usage when Codex refused mid-turn. The dearest retained attacker call is $3.04.
+# dearest real one in the retained cards ($2.89, a G2 mimo review). Writer sessions are long agentic
+# work measured across the whole session (a Go call at list price), so they keep the funded window:
+# an in-flight role finishes (FACTORY.md section 4). Every other role (stress, reviewers,
+# calibrators, preflights, diagnosis) is capped on every family, Codex and Claude included: a
+# non-final receipt books its whole window (budget._settle_leaf), so 22e434-5 (11 November) booked a
+# Codex attacker's $48.68 window for $0.17 of usage, and 86b100-r9 (11 November) lost its G16
+# strong-calibrator call when a Codex window of $48.71 met a parallel lane's reservation. The
+# dearest retained attacker call is $3.04.
 CHEAP_CALL_WINDOW_USD = 12.5
 UNCAPPED_ROLES = ('writer',)
-CAPPED_ON_EVERY_FAMILY = ('stress_tester',)
 
 
 def accounting_work(c):
@@ -437,8 +437,7 @@ class ModelRuntime:
                         # Keep one qualified reviewer window outside the parent's hold.
                         funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
                         if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
-                    if role in CAPPED_ON_EVERY_FAMILY or (family(requested) not in ('anthropic', 'openai')
-                                                          and role not in UNCAPPED_ROLES):
+                    if role not in UNCAPPED_ROLES:
                         funding = min(funding, Decimal(str(CHEAP_CALL_WINDOW_USD)))
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)

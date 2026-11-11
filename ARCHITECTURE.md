@@ -444,10 +444,9 @@ Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
 geography stays conservatively priced, while explicit global usage releases it.
 Engine invocations request a quote bounded by their currently uncommitted attempt
 funding. OpenRouter qualification-sized default windows are replaced by this
-funded window (at most $50, and at most $12.50 for an OpenRouter or OpenCode model outside the
-writer role, so four such calls fit one grant at once; a stress call is held to $12.50 on every
-family, Codex and Claude included, because a non-final receipt books its whole window);
-explicit Claude profile ceilings remain binding.
+funded window (at most $50, and at most $12.50 for every role but the writer on every family,
+Codex and Claude included, so four such calls fit one grant at once and a non-final receipt, which
+books its whole window, cannot exhaust it); explicit Claude profile ceilings remain binding.
 A reservation is marked launched before its model process can start; a pending one never
 launched spent nothing, so spend accounting and crash reconciliation settle it at $0, while
 admission still counts it.
