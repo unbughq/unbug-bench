@@ -97,7 +97,7 @@ def checkpoint(scenarios, guard, report, runs, seed, label, factory_workers=1):
         return summary
 
 
-def silent_checkpoint(case, step, prior, guard, report, watching):
+def _silent_checkpoint_once(case, step, prior, guard, report, watching):
     """No per-change strategy call: carry the previous report and guard into a
     real live window. Only a watcher installed before injection may repair it."""
     import bench
@@ -147,6 +147,18 @@ def silent_checkpoint(case, step, prior, guard, report, watching):
                 process.wait(timeout=2)
 
 
+def silent_checkpoint(case, step, prior, guard, report, watching):
+    """Repeat only an invalid live window, resetting the bench between attempts.
+
+    A valid scored failure is returned by the first attempt. The window itself has
+    no persistent checkpoint: an invalid run must never be scored as a verdict.
+    """
+    from run_validity import InvalidInfra
+    for attempt in range(2):
+        try:
+            return _silent_checkpoint_once(case, step, prior, guard, report, watching)
+        except InvalidInfra:
+            if attempt: raise
 
 def claim_report(key, paths, frozen=False, decision=None):
     rows = []
