@@ -86,6 +86,25 @@ class ReleasePairTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("dynamic keyword arguments", result.stderr)
 
+    def test_a_feature_the_strategy_may_define_dynamically_is_rejected(self):
+        # Without the shared keywords, each of these would wrongly take the {} branch while the
+        # runtime hasattr(module, "execute_shared") could be true.
+        simulate = "def simulate(case, strategy, runs, seed, **kwargs):\n    pass\n"
+        for source in ("if True:\n    def execute_shared():\n        pass\n",
+                       "try:\n    from shared import execute_shared\nexcept ImportError:\n    pass\n",
+                       "from shared import *\n",
+                       "def __getattr__(name):\n    raise AttributeError(name)\n",
+                       "globals()['execute_' + 'shared'] = print\n",
+                       "def install():\n    global execute_shared\n    execute_shared = print\n",
+                       "def execute_shared():\n    pass\ndel execute_shared\n"):
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
+                strategy = Path(directory) / "strategy"
+                strategy.write_text(source + simulate.replace("**kwargs", "factory_workers=1, checkpoint_cache_dir=None, "
+                                                                           "checkpoint_binding=None, restored_results_root=None"))
+                result = self.preflight(strategy, "--changed-file", "factory/run.py", "--send", "plumbing")
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("cannot be resolved statically", result.stderr)
+
     def test_full_git_diff_catches_a_missing_bench_channel(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
