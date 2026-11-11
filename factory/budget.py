@@ -884,7 +884,7 @@ def _check_containment(ledger):
 def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, state_mount=None):
     # Preserve the original whole-session lock unless concurrency is explicitly enabled.
     settings = locals()
     _check_containment(ledger_path)
@@ -900,7 +900,7 @@ def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, state_mount=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -1384,7 +1384,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     try:
         with open(transcript_path, 'wb') as transcript:
             _check_containment(ledger_path)  # include isolated calls after admission-lock waits
-            if containment: contained = processes.ContainedCall(ledger_path)
+            if containment: contained = processes.ContainedCall(ledger_path, state_mount)
             launch = contained.launch if contained is not None else subprocess.Popen
             process = launch(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,

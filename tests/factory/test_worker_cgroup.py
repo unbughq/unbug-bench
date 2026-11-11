@@ -90,6 +90,55 @@ class LeftoverCallTests(unittest.TestCase):
                 self.check(tmp, ledger, killed)
             self.assertEqual(killed, []); self.assertTrue(poisoned.exists())
 
+    def state(self, tmp, ledger, call, mounted):
+        """Simulated mount table: the recorded tmpfs, and a sibling tmpfs that must survive."""
+        mount = Path(tmp) / f'factory-tester-state-{call}'; mount.mkdir()
+        other = Path(tmp) / 'factory-tester-state-other'; other.mkdir()
+        processes._mount_record(ledger, call).write_text(str(mount))
+        table = {str(other)} | ({str(mount)} if mounted else set())
+        def run(cmd, **kw):
+            self.assertEqual(cmd[:4], ['sudo', '-n', 'umount', '--'])
+            table.remove(cmd[4])
+        return mount, other, table, [patch.object(processes.os.path, 'ismount', lambda p: str(p) in table),
+                                     patch.object(processes.subprocess, 'run', side_effect=run)]
+
+    def test_dead_call_tmpfs_is_unmounted_once_emptied(self):
+        for mounted in (True, False):  # False: already unmounted before the reap
+            with self.subTest(mounted=mounted), tempfile.TemporaryDirectory() as tmp:
+                ledger, scope = self.scope(tmp)
+                dead = self.call(scope, 'dead')
+                mount, other, table, patches = self.state(tmp, ledger, 'dead', mounted)
+                with patches[0], patches[1] as run:
+                    self.check(tmp, ledger, [])
+                self.assertEqual(run.call_count, int(mounted))
+                self.assertEqual(table, {str(other)})  # never by name pattern
+                self.assertFalse(mount.exists()); self.assertTrue(other.exists())
+                self.assertFalse(processes._mount_record(ledger, 'dead').exists())
+                self.assertFalse(dead.exists())
+
+    def test_live_and_poisoned_call_tmpfs_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger, scope = self.scope(tmp)
+            poisoned = self.call(scope, 'poisoned'); (poisoned / '.poisoned').mkdir()
+            mount, _, table, patches = self.state(tmp, ledger, 'poisoned', True)
+            with patches[0], patches[1] as run, \
+                    self.assertRaisesRegex(processes.ContainmentError, '^containment_unavailable$'):
+                self.check(tmp, ledger, [])
+            run.assert_not_called(); self.assertIn(str(mount), table)
+            self.assertTrue(processes._mount_record(ledger, 'poisoned').exists())
+
+    def test_failed_unmount_keeps_cgroup_for_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger, scope = self.scope(tmp)
+            dead = self.call(scope, 'dead')
+            self.state(tmp, ledger, 'dead', True)
+            failure = processes.subprocess.CalledProcessError(32, 'umount')
+            with patch.object(processes.os.path, 'ismount', return_value=True), \
+                    patch.object(processes.subprocess, 'run', side_effect=failure), \
+                    self.assertRaisesRegex(processes.ContainmentError, '^containment_unavailable$'):
+                self.check(tmp, ledger, [])
+            self.assertTrue(dead.exists()); self.assertTrue(processes._mount_record(ledger, 'dead').exists())
+
     def test_dead_call_that_will_not_empty_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger, scope = self.scope(tmp)
