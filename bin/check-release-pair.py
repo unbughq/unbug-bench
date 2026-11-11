@@ -13,6 +13,7 @@ does not require a bench send when the existing bench pin is intentionally kept.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import ast
 import inspect
 from pathlib import Path
@@ -52,21 +53,51 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
     return result.stdout.splitlines()
 
 
-def top_level_names(module: ast.Module) -> set[str]:
-    """Names hasattr(module, name) can see on the loaded strategy (its top-level bindings)."""
-    names = set()
+DYNAMIC_CALLS = {"globals", "vars", "setattr", "delattr", "exec", "eval", "__import__"}   # can bind any name
+DYNAMIC_ATTRIBUTES = {"__dict__", "modules"}                                          # module.__dict__, sys.modules
+
+
+def has_attribute(module: ast.Module, name: str) -> bool:
+    """Whether hasattr(module, name) holds on the loaded strategy, when the source says so plainly:
+    an unconditional top-level def, class, assignment or import. A name bound only conditionally
+    (inside an if/try/with/loop or via `global`), deleted, or reachable through a star import,
+    a module __getattr__, globals()/setattr/exec and the like cannot be decided, and raises."""
+    plain = set()
     for node in module.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names.add(node.name)
-        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            plain.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            names.update(n.id for t in targets for n in ast.walk(t) if isinstance(n, ast.Name))
+            plain.update(n.id for t in targets for n in ast.walk(t) if isinstance(n, ast.Name))
+        elif isinstance(node, ast.Import):
+            plain.update((a.asname or a.name).split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            plain.update(a.asname or a.name for a in node.names)
+    bound, dynamic = Counter(), False
+    for node in ast.walk(module):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+            bound["def"] += 1
+        elif isinstance(node, ast.Name) and node.id == name:
+            bound["store" if isinstance(node.ctx, ast.Store) else "del" if isinstance(node.ctx, ast.Del) else "load"] += 1
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            names.update((a.asname or a.name).split(".")[0] for a in node.names)
-    return names
+            names = [a.asname or a.name.split(".")[0] for a in node.names]
+            dynamic |= "*" in names
+            bound["def"] += names.count(name)
+        elif isinstance(node, ast.Global) and name in node.names:
+            dynamic = True
+        dynamic |= (isinstance(node, ast.Name) and node.id in DYNAMIC_CALLS
+                    or isinstance(node, ast.Attribute) and node.attr in DYNAMIC_ATTRIBUTES
+                    or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "__getattr__")
+    if bound["del"] or dynamic:
+        raise ValueError(f"strategy {name} cannot be resolved statically")
+    if name in plain:
+        return True
+    if bound["def"] or bound["store"]:   # bound, but only conditionally
+        raise ValueError(f"strategy {name} cannot be resolved statically")
+    return False
 
 
-def guarded_keywords(run: ast.Module, value: ast.expr, provided: set[str]) -> list[str]:
+def guarded_keywords(run: ast.Module, value: ast.expr, strategy: ast.Module) -> list[str]:
     """The keys of `**name` where run.py assigns name exactly once as
     `{literal keys} if hasattr(module, "feature") else {literal keys}`: the branch the proposed
     bench takes, by whether its strategy defines that feature. Anything else stays dynamic."""
@@ -80,7 +111,7 @@ def guarded_keywords(run: ast.Module, value: ast.expr, provided: set[str]) -> li
             and isinstance(test.args[0], ast.Name) and test.args[0].id == "module"
             and isinstance(test.args[1], ast.Constant) and isinstance(test.args[1].value, str)):
         raise ValueError("strategy simulate call has dynamic keyword arguments")
-    branch = guard.body if test.args[1].value in provided else guard.orelse
+    branch = guard.body if has_attribute(strategy, test.args[1].value) else guard.orelse
     if not (isinstance(branch, ast.Dict) and all(isinstance(k, ast.Constant) and isinstance(k.value, str)
                                                  for k in branch.keys)):
         raise ValueError("strategy simulate call has dynamic keyword arguments")
@@ -101,10 +132,9 @@ def check_strategy_interface(plumbing_source: Path, bench_source: Path) -> None:
     call, definition = calls[0], definitions[0]
     if any(isinstance(arg, ast.Starred) for arg in call.args):
         raise ValueError("strategy simulate call has dynamic positional arguments")
-    provided = top_level_names(strategy)
     keywords = []
     for keyword in call.keywords:
-        keywords += [keyword.arg] if keyword.arg is not None else guarded_keywords(run, keyword.value, provided)
+        keywords += [keyword.arg] if keyword.arg is not None else guarded_keywords(run, keyword.value, strategy)
     if len(keywords) != len(set(keywords)):
         raise ValueError("strategy simulate call repeats a keyword")
 
