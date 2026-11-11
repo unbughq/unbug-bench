@@ -237,6 +237,62 @@ class Release(unittest.TestCase):
         self.assertEqual(again.calls[:2], [["list", "--json"], ["delete", "bx_00000001", "--yes"]])
         self.assertNotIn(name, again.live.values())
 
+    def late_create(self):
+        """A run whose `boat new` times out before Boat lists the sandbox it goes on to create."""
+        class Late(FakeBoat):
+            def run(self, args, **kw):
+                if args[0] == "new" and not hasattr(self, "late"):
+                    self.calls.append(args)
+                    self.late = ("bx_late", args[args.index("--name") + 1])   # not listed yet
+                    return 124, b""
+                return super().run(args, **kw)
+        boat = Late()
+        code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)
+        self.assertEqual(code, 1)
+        self.assertIn("boat new failed", err)
+        self.assertIn("kept on record", err)
+        state = self.state("bench")
+        self.assertEqual(state["sandbox_name"], boat.late[1])
+        self.assertIn("sandbox_absent_at", state)
+        return boat
+
+    def age_absence(self):
+        path = self.work / f"bench-{self.commit[:12]}" / "state.json"
+        state = json.loads(path.read_text())
+        state["sandbox_absent_at"] -= release.ABSENT_GRACE
+        path.write_text(json.dumps(state))
+
+    def test_a_lost_create_listed_late_is_deleted_on_the_next_run(self):
+        boat = self.late_create()
+        boat.live[boat.late[0]] = boat.late[1]   # Boat created it after all
+        code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)
+        self.assertEqual(code, 0, err)
+        self.assertIn(["delete", "bx_late", "--yes"], boat.calls)
+        self.assertEqual(boat.live, {})
+        self.assertFalse({"sandbox", "sandbox_name", "sandbox_absent_at"} & set(self.state("bench")))
+
+    def test_an_absent_name_is_kept_until_a_second_empty_lookup_after_the_grace(self):
+        self.late_create()
+        again = FakeBoat()
+        code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=again)
+        self.assertEqual(code, 1)                               # too soon: looked, kept, created nothing
+        self.assertIn("kept on record", err)
+        self.assertEqual(again.calls, [["list", "--json"]])
+        self.assertIn("sandbox_name", self.state("bench"))
+        self.age_absence()
+        self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=again)[0], 0)
+        self.assertFalse({"sandbox_name", "sandbox_absent_at"} & set(self.state("bench")))
+
+    def test_a_name_still_listed_after_its_delete_is_kept(self):
+        class Stuck(FakeBoat):
+            def run(self, args, **kw):
+                return (0, b"") if args[0] == "delete" else super().run(args, **kw)
+        boat = Stuck(lose_creates=1)
+        code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)
+        self.assertEqual(code, 1)
+        self.assertIn("still lists", err)
+        self.assertIn("sandbox_name", self.state("bench"))
+
     def test_the_current_image_is_never_the_snapshot_name(self):
         name = f"durable-bench-20261111-120000-{self.commit[:7]}"
         boat = FakeBoat()

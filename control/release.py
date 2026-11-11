@@ -51,6 +51,9 @@ CHECK_DRAINED = REPO / "control/check-drained.py"
 CHECK_PAIR = REPO / "bin/check-release-pair.py"
 SANDBOX_TTL = 14400
 SANDBOX_PREFIX = "bench-"   # never the pool's unbugd1- ownership names, so no pool claims or sweeps it
+# A lost `boat new` may still create its sandbox after Boat first lists nothing under its name: the
+# name is cleared only by a second empty lookup at least this long after the first.
+ABSENT_GRACE = 600
 
 
 class Refused(Exception):
@@ -184,7 +187,10 @@ class Sandbox:
                 self.id = event["id"]
                 break
         else:
-            delete(self.boat, self.state, self.save)   # it may exist anyway
+            try:
+                delete(self.boat, self.state, self.save)   # it may exist anyway
+            except Refused as error:
+                raise Refused(f"boat new failed (exit {code}); {error}") from None
             raise Refused(f"boat new failed (exit {code})")
         self.state["sandbox"] = self.id
         self.save()
@@ -204,17 +210,26 @@ class Sandbox:
 
 def delete(boat, state: dict, save):
     """Delete the stage sandbox a state file still names (also one left by a killed run): by its id,
-    or, when its create response was lost, every sandbox Boat lists under its unique name."""
+    or, when its create response was lost, every sandbox Boat lists under its unique name. A name is
+    cleared only once a lookup shows it gone after its delete, or twice ABSENT_GRACE apart shows nothing."""
     sandbox, name = state.get("sandbox"), state.get("sandbox_name")
     if not sandbox and not name:
         return
     ids = [sandbox] if sandbox else named(boat, name)
+    if not ids:
+        first = state.setdefault("sandbox_absent_at", time.time())
+        save()
+        if time.time() - first < ABSENT_GRACE:
+            raise Refused(f"Boat lists no sandbox {name} yet; it is kept on record: rerun after "
+                          f"{time.strftime('%H:%M:%S', time.localtime(first + ABSENT_GRACE))} to look again")
     for worker in ids:
         code, _ = boat.run(["delete", worker, "--yes"], timeout=300)
         if code:
             raise Refused(f"delete boat sandbox {worker} by hand (exit {code})")
-    state.pop("sandbox", None)
-    state.pop("sandbox_name", None)
+    if ids and not sandbox and named(boat, name):
+        raise Refused(f"Boat still lists sandbox {name} after its delete; rerun to delete it")
+    for key in ("sandbox", "sandbox_name", "sandbox_absent_at"):
+        state.pop(key, None)
     save()
 
 
