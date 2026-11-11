@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import shutil
 import tempfile
+import traceback
 
 import diagnosis as scientific
 import diagnosis_dispatch
@@ -183,6 +184,12 @@ def run(worker, step_input, keys):
             label = stop_label(str(error) if isinstance(error, BudgetError) else type(error).__name__)
             fields = dict(outcome=Outcome.INFRA_ERROR,
                           reason=labelled(CLEANUP_PREFIX, label) or 'infra:diagnosis_cleanup_failed')
-        if c is not None and c.card.get('engine_provider_wait') is not None:
-            fields['diagnostic'] = seal(ArtifactKind.DIAGNOSTIC, worker_step.diagnostic(c, fields))
+        if c is not None:
+            # Every failure once the case is open seals the writer steps' diagnostic, not only a
+            # provider wait: 43 of 49 failed diagnoses up to 11 November left none.
+            try:
+                fields['diagnostic'] = seal(ArtifactKind.DIAGNOSTIC, worker_step.diagnostic(
+                    c, {**fields, 'stop': str(error), 'traceback': traceback.format_exc()}))
+            except Exception:
+                pass   # the failure result itself still stands
         return StepResult(**fields, usage=usage), outputs

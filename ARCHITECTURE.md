@@ -137,7 +137,7 @@ side transfers blobs; workers receive no R2 credentials. Invoke executors throug
 Worker steps share structured wait classification: quota/rate/credit wait durably,
 credential delivery, unbounded routes and router outages park without consuming
 infrastructure retries; known CLI and unavailable-model faults retain the finite
-infrastructure allowance. Each wait retains an
+infrastructure allowance. Each wait, and every failed step, killed, crashed or raising included, retains an
 encrypted operational diagnostic with allowlisted causes, retry times and lease
 IDs. Worker diagnostics automatically include safe HTTP statuses and error categories.
 Scope-bound `durable.diagnostics` inspection runs in worker memory and exports

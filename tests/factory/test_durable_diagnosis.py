@@ -188,8 +188,12 @@ class DiagnosisTests(unittest.TestCase):
                                 ('processing', 'infra:raw_value_error')):
             with self.subTest(corrupt=corrupt):
                 self.corrupt = corrupt
-                result, _ = self.execute()
+                result, outputs = self.execute()
                 self.assertEqual((result.outcome, result.reason), (k.Outcome.INFRA_ERROR, reason))
+                # Every failure seals the same diagnostic as a writer step, not only a provider wait.
+                details = json.loads(self.opened(result.diagnostic, outputs))
+                self.assertLessEqual({'runner_log_tail', 'stop', 'operational', 'traceback'}, set(details))
+                self.assertTrue(details['traceback'])
 
     def test_cleanup_failure_names_the_first_error(self):
         for corrupt, outcome, reason in (

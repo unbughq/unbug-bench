@@ -36,7 +36,9 @@ import tarfile
 import tempfile
 import time
 import traceback
+from dataclasses import replace
 from decimal import Decimal, ROUND_CEILING
+from types import SimpleNamespace
 
 FACTORY = pathlib.Path(__file__).resolve().parents[1]
 if str(FACTORY) not in sys.path:
@@ -437,11 +439,11 @@ class Worker:
                 self.stop(key)
                 with contextlib.suppress(ChildProcessError):
                     os.waitpid(pid, 0)
-                self.write_result(key, self._failure_result(key, "infra:deadline"))
+                self.commit(key, *self._sealed_failure(step_input, keys, "infra:deadline"))
                 return 0
             time.sleep(POLL_INTERVAL_S)
         if not self.paths(key)["result"].exists():
-            self.write_result(key, self._failure_result(key, "infra:step_crashed"))
+            self.commit(key, *self._sealed_failure(step_input, keys, "infra:step_crashed"))
         return 0
 
     def run_attempt(self, step_input, keys):
@@ -449,8 +451,14 @@ class Worker:
             result, outputs = self.execute(step_input, keys)
         except BaseException:
             traceback.print_exc()
-            result, outputs = self._failure_result(step_input.idempotency_key, "infra:worker_error"), {}
-        out = self.paths(step_input.idempotency_key)["out"]
+            result, outputs = self._sealed_failure(step_input, keys, "infra:worker_error",
+                                                   trace=traceback.format_exc())
+        self.commit(step_input.idempotency_key, result, outputs)
+
+    def commit(self, key, result, outputs):
+        """Blobs first, then the first-wins result that names them."""
+        out = self.paths(key)["out"]
+        out.mkdir(parents=True, exist_ok=True)
         for name, ciphertext in outputs.items():
             staged = out / (name + ".tmp")
             with open(staged, "wb") as f:
@@ -459,7 +467,7 @@ class Worker:
                 os.fsync(f.fileno())
             staged.replace(out / name)
         self._sync_directory(out)
-        self.write_result(step_input.idempotency_key, result)
+        self.write_result(key, result)
 
     # one step
     def version_check(self, step_input):
@@ -520,6 +528,25 @@ class Worker:
         except Exception:
             return StepResult(Outcome.INFRA_ERROR, "infra:usage_unknown")
         return StepResult(Outcome.INFRA_ERROR, reason, usage=usage)
+
+    def _sealed_failure(self, step_input, keys, reason, trace=None):
+        """_failure_result with the DIAGNOSTIC every other failure seals (runner log tail, stop,
+        operational summary), read from the attempt's work tree. Killed writer steps and failed
+        diagnoses used to leave none. (StepResult, {blob name: ciphertext})."""
+        result = self._failure_result(step_input.idempotency_key, reason)
+        work = self.home / "work" / step_input.case_id
+        try:
+            card = json.loads((work / "scorecard.json").read_text())
+        except (OSError, ValueError):
+            card = {}
+        try:
+            raw = diagnostic(SimpleNamespace(work=work, card=card if isinstance(card, dict) else {}),
+                             {"stop": reason, "reason": reason, "traceback": trace})
+            ref, ciphertext = self.sealer().seal(keys[step_input.case_id], ArtifactKind.DIAGNOSTIC, raw)
+        except Exception:
+            print("diagnostic not sealed", file=sys.stderr)   # the result itself still stands
+            return result, {}
+        return replace(result, diagnostic=ref), {blob_name(ref): ciphertext}
 
     def open_blob(self, sealer, scope_key, ref):
         if ref is None:
