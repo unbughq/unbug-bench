@@ -130,6 +130,9 @@ def keepers(board, groups):
             live = [c for c in group if (entries.get(c) or {}).get("status") not in (None, "released")]
             best = live[0] if live else sorted(group, key=lambda c: (-board_cleanup.public_gates(c), c))[0]
             kept.update({c: best for c in group})
+        else:   # plan names keepers only for members still on the board; give the rest of the group the same keeper
+            keeper = next(kept[c] for c in group if c in kept)
+            kept.update({c: keeper for c in group if c not in kept})
     return kept
 
 

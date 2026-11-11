@@ -89,6 +89,13 @@ class PrescreenTests(unittest.TestCase):
             ("drop", ["admit:dedup_board_duplicate"], "case-b"),
             ("ok", [], None)])
 
+    def test_a_released_member_of_a_larger_group_still_gets_the_keeper(self):
+        # Two members still on the board: cleanup names a keeper for them, and the released one must not pass as ok.
+        b = board({"case-a": ("released", sha("x")), "case-b": ("screening", sha("y")), "case-c": ("screening", sha("z"))})
+        rows = prescreen.screen([idea("a", inputs(), "case-a")], b, manual=[["case-a", "case-b", "case-c"]])
+        self.assertNotEqual(rows[0]["verdict"], "ok")
+        self.assertIsNotNone(rows[0]["keep"])
+
     def test_mutual_duplicates_keep_one_and_the_keeper_needs_the_other_released(self):
         # 000990 and e9d919 rejected each other: the backfill ties them; the older ID is kept.
         history = [{"case": "case-b-1", "imported_case": "case-e9d919", "reason": "admit:dedup_board_duplicate",
