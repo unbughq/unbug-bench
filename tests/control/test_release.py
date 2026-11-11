@@ -283,15 +283,26 @@ class Release(unittest.TestCase):
         self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=again)[0], 0)
         self.assertFalse({"sandbox_name", "sandbox_absent_at"} & set(self.state("bench")))
 
-    def test_a_name_still_listed_after_its_delete_is_kept(self):
-        class Stuck(FakeBoat):
+    def test_an_accepted_delete_still_listed_while_boat_deletes_clears_the_name(self):
+        class Async(FakeBoat):   # Boat queues the delete: the next list still shows the sandbox
             def run(self, args, **kw):
-                return (0, b"") if args[0] == "delete" else super().run(args, **kw)
-        boat = Stuck(lose_creates=1)
+                if args[0] == "delete":
+                    self.calls.append(args)
+                    self.deleting = args[1]
+                    return 0, b""
+                if args[0] == "list" and getattr(self, "deleting", None):
+                    out = super().run(args, **kw)
+                    self.live.pop(self.deleting)
+                    self.deleting = None
+                    return out
+                return super().run(args, **kw)
+        boat = Async(lose_creates=1)
         code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)
         self.assertEqual(code, 1)
-        self.assertIn("still lists", err)
-        self.assertIn("sandbox_name", self.state("bench"))
+        self.assertIn("boat new failed", err)
+        self.assertNotIn("still lists", err)
+        self.assertEqual([c for c in boat.calls if c[0] == "delete"], [["delete", "bx_00000001", "--yes"]])
+        self.assertFalse({"sandbox", "sandbox_name", "sandbox_absent_at"} & set(self.state("bench")))
 
     def test_the_current_image_is_never_the_snapshot_name(self):
         name = f"durable-bench-20261111-120000-{self.commit[:7]}"

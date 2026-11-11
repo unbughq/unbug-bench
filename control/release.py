@@ -52,7 +52,8 @@ CHECK_PAIR = REPO / "bin/check-release-pair.py"
 SANDBOX_TTL = 14400
 SANDBOX_PREFIX = "bench-"   # never the pool's unbugd1- ownership names, so no pool claims or sweeps it
 # A lost `boat new` may still create its sandbox after Boat first lists nothing under its name: the
-# name is cleared only by a second empty lookup at least this long after the first.
+# name is cleared only by a second empty lookup at least this long after the first (the first comes
+# after the client's 600 s `boat new` timeout, so a create is given 20 min in all).
 ABSENT_GRACE = 600
 
 
@@ -211,7 +212,8 @@ class Sandbox:
 def delete(boat, state: dict, save):
     """Delete the stage sandbox a state file still names (also one left by a killed run): by its id,
     or, when its create response was lost, every sandbox Boat lists under its unique name. A name is
-    cleared only once a lookup shows it gone after its delete, or twice ABSENT_GRACE apart shows nothing."""
+    cleared once Boat accepts the delete of every sandbox listed under it (Boat deletes asynchronously,
+    so an immediate re-list would still show them), or when two lookups ABSENT_GRACE apart list none."""
     sandbox, name = state.get("sandbox"), state.get("sandbox_name")
     if not sandbox and not name:
         return
@@ -226,8 +228,6 @@ def delete(boat, state: dict, save):
         code, _ = boat.run(["delete", worker, "--yes"], timeout=300)
         if code:
             raise Refused(f"delete boat sandbox {worker} by hand (exit {code})")
-    if ids and not sandbox and named(boat, name):
-        raise Refused(f"Boat still lists sandbox {name} after its delete; rerun to delete it")
     for key in ("sandbox", "sandbox_name", "sandbox_absent_at"):
         state.pop(key, None)
     save()
