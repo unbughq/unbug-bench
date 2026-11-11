@@ -37,7 +37,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               wait_seconds)
 from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
-from durable.policy import (DEADLINE_REASON, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+from durable.policy import (DEADLINE_REASON, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
                             progressed, request_usd_micros, starts_replacement)
 from durable.report import verified_seal
@@ -445,7 +445,7 @@ def _resume_point(case_id: str) -> tuple:
         # above. No repair was judged and no verdict given, so this is a retry, never a re-roll.
         def returned_nothing(s):
             return isinstance(s, dict) and (
-                s.get("outcome") in FACTORY_BUG_INFRA_STOPS
+                s.get("outcome") in FACTORY_BUG_INFRA_STOPS or s.get("reason") == WRITER_HANDBACK
                 or s.get("outcome") == Outcome.EXHAUSTED.value and s.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
         infra_only = (kind in FACTORY_BUG_RESUMABLE_INFRA and bool(stops) and all(returned_nothing(s) for s in stops))
         if not (latest.output.get("status") == "held"
@@ -807,6 +807,7 @@ class _Case:
                 and DBOS.patch("resume_adopts_bench")):
             self.bench = self.current("bench")
         attempt, infra, limits, free, late, prev = self.renumber.get(self.seq, {}).get(step.name, 0), 0, 0, 0, 0, None
+        handbacks = 0
         # A seq where a case stopped (this resume's or an earlier one's) first restores the attempts
         # recorded before that stop: their snapshots, diagnostics and history carry over, and their
         # keys prove the continuation is the same step. Only its infra retry allowance starts afresh.
@@ -907,6 +908,15 @@ class _Case:
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
             action = decide(step, result, self.counters(infra, limits, free, late), self.spec, grant=grant, now=now)
+            if (step.kind is StepKind.WRITER and result.outcome is Outcome.OK and result.reason == WRITER_HANDBACK
+                    and DBOS.patch("writer_handback_retry")):
+                # The writer stopped between calls to finish its round with fresh time (policy.WRITER_HANDBACK).
+                # Unpatched replays keep the ADVANCE they recorded. A handback that keeps returning is infra.
+                handbacks += 1
+                if handbacks > MAX_WRITER_HANDBACKS:
+                    infra += 1
+                action = (Action.RETRY if handbacks <= MAX_WRITER_HANDBACKS
+                          or infra <= self.spec.max_infra_retries_per_step else Action.DIAGNOSE)
             if pool_wait and admit and not admission_started and pool_now >= self.spec.deadline_epoch:
                 action = Action.STOP_ADMISSION   # the batch deadline stops new cases
             if (action is Action.RETRY and is_money_stop(result)

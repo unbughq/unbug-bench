@@ -172,7 +172,14 @@ G4, G5, saved cheats is kept. Any snapshot requested while two threads work on t
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
-progress and the card's `phase_times`.
+progress and the card's `phase_times`. Before another writer call and its checks in the same
+attempt, the round compares the time left with 1.25 times the cycle just finished plus 15 minutes;
+when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
+returns `writer:handback` (OK, with its snapshot). Under the `writer_handback_retry` DBOS patch the engine retries that seq outside the infra
+allowance (at most `MAX_WRITER_HANDBACKS` per seq, then as infra; a STRESS step finding a pending
+handback stops as infrastructure), and the new attempt continues the round at that call with those findings. The early
+saved-cheat sample shares one 30-minute allowance; cheats it does not reach are recorded
+`unchecked` (it is advisory; full G6 runs them all), and a spent allowance is never an infra retry.
 An older card with no `parallel_gates` key also adopts just that flag at GATES entry
 (`run.adopt_parallel_gates_at_entry`), leaving its `bench_workers` value unchanged so its
 already earned gate cache identities remain valid. An explicit true or false stays pinned.

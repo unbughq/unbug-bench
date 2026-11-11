@@ -405,6 +405,32 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 8000)   # waste, not case money
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
+    def test_writer_handbacks_rerun_the_round_outside_the_infra_allowance(self):
+        # Three handbacks with an infra allowance of one: the round reruns, no diagnosis, case money.
+        handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
+        r, out = run({"spec": {"max_infra_retries_per_step": 1},
+                      "script": {f"1/writer:1/{n}": handback for n in range(1, 4)}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 4 + ["stress:1", "gates:1", "seal"])
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 0)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_unpatched_workflow_replays_the_advance_it_recorded_for_a_handback(self):
+        # A workflow recorded before writer_handback_retry (old controller, new plumbing) advanced.
+        handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
+        r, out = run({"disabled_patches": ["writer_handback_retry"], "script": {"1/writer:1/1": handback}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
+
+    def test_endless_handbacks_become_infra_after_the_call_cap(self):
+        # MAX_WRITER_HANDBACKS (8) free retries, then each counts as infra: allowance 1, so the 10th diagnoses.
+        handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
+        r, out = run({"spec": {"max_infra_retries_per_step": 1},
+                      "script": {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 10 + ["diagnosis"])
+        self.assertEqual(out["result"]["cases"][C1], "held")   # a held case starts its replacement
+
     def test_batch_deadline_stops_after_the_deadline_never_diagnose(self):
         # The deadline passes while case 1 writes; four batch-deadline stops follow, with an infra
         # allowance of one. The running case still seals: the deadline only stops new work.
