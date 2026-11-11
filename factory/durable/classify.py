@@ -44,7 +44,9 @@ _LIMIT_FAMILY = (("claude/", "router:claude_limit"), ("codex/", "router:codex_li
                  ("openrouter/", "router:openrouter_limit"))
 
 _P, _I, _E = Outcome.PROVIDER_LIMIT, Outcome.INFRA_ERROR, Outcome.EXHAUSTED
-_WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"),
+# capacity: every router seat of the lane stayed leased to our own calls past the worker's wait
+# (model_router.CAPACITY_WAIT_SECONDS). No provider refused anything; it sleeps briefly and keeps its worker.
+_WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"), "capacity": (_P, "router:capacity"),
          "credit": (_P, "router:credit"), "outage": (_I, "router:outage"),
          "credential_expiring": (_I, "router:credential_expiring"),
          "unbounded_route": (_I, "router:unbounded_route"),
@@ -369,7 +371,7 @@ def classify_wait(error, *, step, now, prior=()):
     original = next((row['source_stop'] for row in reversed(waits) if 'source_stop' in row), None)
     reason = fault or waits[-1]['reason']
     reset = max((r['retry_after'] for r in active if 'retry_after' in r), default=None)
-    if original and fault is None and reason not in ('quota', 'rate', 'credit'):
+    if original and fault is None and reason not in ('quota', 'rate', 'credit', 'capacity'):
         result = classify(original, step=step, now=now, reset_at=reset)
     else:
         outcome, code = _WAIT.get(reason, (_I, UNCLASSIFIED))

@@ -312,8 +312,11 @@ def writer_round_estimate(c):
 
 def free_usage_settled(lease):
     """A failed free call's usage needs no settling before the next route: it is bounded at $0 and
-    checked only against OpenCode's report (founder 2026-11-08). Its receipt keeps the evidence."""
-    return lease.route in FREE_ROUTES and lease.max_usd == 0
+    checked only against OpenCode's report (founder 2026-11-08). Its receipt keeps the evidence.
+    A Go plan call's unseen tail books $0 too (budget.py, "book Go at cost"), so a Go quota moves the
+    call to the same model's next route in its chain (its OpenRouter twin, token_prices.GO_TWINS)
+    inside the attempt instead of ending it (13 attempts, 12.9 h lost to Go quota, 6-11 November)."""
+    return (lease.route in FREE_ROUTES and lease.max_usd == 0) or lease.route in GO_ROUTES
 
 
 OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]

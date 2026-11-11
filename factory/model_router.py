@@ -31,6 +31,12 @@ from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX
                           codex_gate_maximum, free_maximum, go_maximum, openrouter_gate_maximum)
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
+# Every seat of a lane leased is our own queue, not a provider limit: the call waits in its worker,
+# polling in FIFO order, for up to this long before the attempt ends as `capacity` (8 November:
+# 74 attempts ended as `rate` while OpenRouter's 1-4 seats served 8 batches, each retry recreating
+# a worker and rerunning preflight). Size seats per pool (router config `capacities`) at least
+# concurrent cases x concurrent model roles per case on that pool.
+CAPACITY_WAIT_SECONDS = 1800
 from worker_secrets import SECRETS
 ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
             'opencode-go-key-2', 'codex-auth.json', 'openrouter-key')
@@ -49,7 +55,7 @@ CHAINS = (
     ('opencode-go/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
 )
 ACCOUNT_FREE_ROUTES = ('opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4.1-flash-free')
-REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route'}
+REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route', 'capacity'}
 MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
 
 
@@ -490,7 +496,7 @@ class Store:
                             limit = blocked(route)
                             ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
                                      min((e for pool,e in active if pool == route['pool']), default=now + 15))
-                            alternatives.append((ready, limit['reason'] if limit else 'rate', route))
+                            alternatives.append((ready, limit['reason'] if limit else 'capacity', route))
                         bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
                         ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
                             now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'outage') if bounded
@@ -545,7 +551,7 @@ class Store:
                         row = db.execute('SELECT route FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
                         if not row: raise ValueError('unknown observation lease')
                         route = json.loads(row[0]); reason = data['reason']
-                        if reason not in REASONS - {'unbounded_route'}: raise ValueError('invalid provider reason')
+                        if reason not in REASONS - {'unbounded_route', 'capacity'}: raise ValueError('invalid provider reason')
                         key = route['pool'] + ('/' + route['route'] if reason == 'outage' else '')
                         old = health.get(key, {}); failures = old.get('failures', 0) + 1
                         reset = retry_at(reason, now=now, failures=failures, reset_at=data.get('reset_at'))
@@ -859,14 +865,15 @@ def await_lease(role, case, deadline=None):
                         route=wait.route if wait else getattr(case, 'router_model', None),
                         account=wait.account if wait else None,
                         lease_id=wait.lease_id if wait else None, call_id=wait.call_id if wait else None)
-        if enabled and (time.monotonic() - started >= WAIT_SECONDS or time.time() >= stop_at):
+        patience = CAPACITY_WAIT_SECONDS if wait.reason == 'capacity' else WAIT_SECONDS
+        if enabled and (time.monotonic() - started >= patience or time.time() >= stop_at):
             try: _rpc('cancel', {'id': identity})
             except RouterUnavailable:
                 case.card.setdefault('router_pending_requests', []).append(identity)
             raise ProviderWait(role, wait)
         seconds = min(15, max(.01, wait.retry_after - time.time()))
         seconds = min(seconds, max(.01, stop_at - time.time()))
-        if enabled: seconds = min(seconds, max(.01, WAIT_SECONDS - (time.monotonic() - started)))
+        if enabled: seconds = min(seconds, max(.01, patience - (time.monotonic() - started)))
         _heartbeat(case, seconds)
 
 
