@@ -40,8 +40,11 @@ INTERRUPTED_LOCK = threading.Lock()
 # grant_insufficient (6-11 November, ~$313 booked unspent). A quarter of the $50 case ceiling funds
 # four such calls at once (two calibrators, their owner question, a side-lane gate) and is 4x the
 # dearest real one in the retained cards ($2.89, a G2 mimo review). Claude and Codex keep their
-# profile ceilings: a writer call may need its whole grant.
+# profile ceilings. Writer and stress sessions are long agentic work measured across the whole
+# session (a Go call at list price), so they keep the funded window: an in-flight role finishes
+# (FACTORY.md section 4). Only the other roles (reviewers, calibrators, preflights, diagnosis) are capped.
 CHEAP_CALL_WINDOW_USD = 12.5
+UNCAPPED_ROLES = ('writer', 'stress_tester')
 
 
 def accounting_work(c):
@@ -421,7 +424,7 @@ class ModelRuntime:
                         # Keep one qualified reviewer window outside the parent's hold.
                         funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
                         if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
-                    if family(requested) not in ('anthropic', 'openai'):
+                    if family(requested) not in ('anthropic', 'openai') and role not in UNCAPPED_ROLES:
                         funding = min(funding, Decimal(str(CHEAP_CALL_WINDOW_USD)))
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)

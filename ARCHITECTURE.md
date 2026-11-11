@@ -317,8 +317,8 @@ Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
 geography stays conservatively priced, while explicit global usage releases it.
 Engine invocations request a quote bounded by their currently uncommitted attempt
 funding. OpenRouter qualification-sized default windows are replaced by this
-funded window (at most $50, and at most $12.50 for an OpenRouter or OpenCode model, so four
-such calls fit one grant at once); explicit Claude profile ceilings remain binding.
+funded window (at most $50, and at most $12.50 for an OpenRouter or OpenCode model outside the
+writer and stress roles, so four such calls fit one grant at once); explicit Claude profile ceilings remain binding.
 A reservation is marked launched before its model process can start; a pending one never
 launched spent nothing, so spend accounting and crash reconciliation settle it at $0, while
 admission still counts it.
@@ -339,7 +339,9 @@ and one generation settles one row. The report names the route's model or its da
 each pass samples unknown rows at random so ones the provider never reports cannot starve the rest. Older unknown rows are bounded by the account's all-time usage: rows
 older than the credit window together cost at most that usage less the provider-reported
 costs of settled rows equally old, so their charges are scaled down to that bound and
-marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged.
+marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged; a later
+generation report replaces the bounded share with the provider's cost, which may be higher but
+never above the row's hold.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and

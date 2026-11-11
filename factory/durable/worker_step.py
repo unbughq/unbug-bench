@@ -670,7 +670,9 @@ def ledger_totals(path):
     calls = ledger.get("calls", 0)
     # A hard death can prevent the call's final receipt from being written. Keep
     # its unspent authorization held; an absent receipt is never evidence of $0.
-    # Only a row recorded as never launched (budget.mark_launched) is.
+    # Only a row recorded as never launched (budget.mark_launched) is. That assumes no model call
+    # thread outlives run_step or the worker: one could still launch after this count. Model roles run
+    # in pools joined before run_step returns, and a killed worker takes its threads with it.
     pending = outstanding_reservations(ledger, launched_only=True)
     total = summary.get("total_spent_usd")
     known = summary.get("known_total_spent_usd", total) or 0

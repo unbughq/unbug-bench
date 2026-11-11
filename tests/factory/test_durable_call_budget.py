@@ -331,6 +331,26 @@ class AttemptBudget(unittest.TestCase):
         self.assertEqual(sorted(r['state'] for r in ledger['invocation_reservations'].values()), ['settled', 'settled'])
         self.assertEqual(budget.outstanding_reservations(ledger), 0)
 
+    def test_writer_and_stress_keep_the_funded_window_and_a_reviewer_is_capped(self):
+        """An in-flight role finishes (FACTORY.md section 4): long writer and stress sessions keep the
+        whole funded window; a review is capped at CHEAP_CALL_WINDOW_USD."""
+        paid = 'openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model'] = paid
+        self.c.router_accounts = NO_GO
+        self.attempt.ceiling_usd = Decimal('40')
+        windows = {}
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started'] = True
+            windows[name] = Decimal(str(c.model_lease.max_usd))
+            state = model_call_gate.Allowance(c.model_lease)
+            state.close(); c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport):
+            for name in ('builder-1', 'attacker-1', 'reviewer-1', 'strong-calibrator-1'):
+                self.assertEqual(self.runtime.call(self.c, [paid], 'x', self.root, name), 0)
+        self.assertEqual(windows, {'builder-1': Decimal('40'), 'attacker-1': Decimal('40'),
+                                   'reviewer-1': Decimal('12.5'), 'strong-calibrator-1': Decimal('12.5')})
+
     def test_cheap_windows_never_exceed_the_case_grant(self):
         paid = 'openrouter/minimax/minimax-m3.1-flash'
         self.c.card['roles']['writer']['model'] = paid
