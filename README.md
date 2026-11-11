@@ -70,7 +70,13 @@ worker assignment does not prove liveness. `--json` retains exact micro-dollar v
 `unbug board` is the Sealing Board. It is generated on every read from the engine's case
 cards, workflow records and the ledger, so it is never edited by hand and cannot go stale:
 per case it shows stage, status, writer round, gates passed (and the failed gate), spend and
-the time of the last recorded event. On the control VM the same board comes from
+the time of the last recorded event. It also shows each case's time to seal against the
+6-hour target. That clock starts at the case's first attempt and keeps running across resume
+batches. The time is split by step kind into attempts that produced a result, attempts lost to
+infra or provider limits, and the running attempt; it also counts worker setup, waits between
+attempts and time held for a person. Live cases get a projection of the time left, using the
+median time of each remaining step. The fleet line gives the median and p90 time to seal and
+the five largest time sinks over the last week. On the control VM the same board comes from
 `python3 control/campaign/campaign_board.py [--live] [--text]` or
 `bin/unbug --config CONFIG board`. Sections it cannot read are named, never guessed.
 
