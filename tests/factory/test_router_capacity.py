@@ -61,8 +61,20 @@ class RouterCapacity(unittest.TestCase):
         self.assertEqual(self.store.rpc('status', {})['health'], {})   # nothing blocks the pool
         with self.assertRaises(ValueError):   # a worker cannot publish our own queue as provider health
             self.store.rpc('observe', dict(lease_id=held['lease_id'], reason='capacity', observation_id='x'))
-        with self.assertRaises(ValueError):   # a pool with no seat would wait forever
-            model_router.Store(self.root / 'zero.sqlite', capacities={'openrouter-key': 0})
+        with self.assertRaises(ValueError):
+            model_router.Store(self.root / 'negative.sqlite', capacities={'openrouter-key': -1})
+
+    def test_a_zero_capacity_lane_is_closed_not_a_forever_wait(self):
+        # The live config closes the anonymous free lane with "opencode-free": 0 (it hung on 8 Nov).
+        closed = model_router.Store(self.root / 'zero.sqlite', capacities={
+            'claude-factory-token-2': 3, 'claude-token': 3, 'openrouter-key': 0, 'opencode-free': 0,
+            'opencode-go-key': 3, 'opencode-go-key-2': 3})
+        answer = closed.rpc('acquire', dict(id=uuid.uuid4().hex, model=TWIN, accounts=['openrouter-key'],
+                                            role='reviewer', deadline=time.time() + 3600, paid_protocol=1,
+                                            capacity_protocol=1))
+        self.assertNotEqual(answer.get('kind'), 'lease')
+        self.assertNotEqual(answer.get('reason'), 'capacity')   # never a seat wait on a closed lane
+        self.assertEqual(closed._routes(TWIN, ['openrouter-key']), [])
 
     def test_seat_exhaustion_waits_in_the_worker_then_succeeds(self):
         held = self.hold_seat()
