@@ -1588,6 +1588,50 @@ class ReleaseHolds(unittest.TestCase):
                          [("5", "diagnosis", str(n)) for n in range(1, 4)])
         self.assertEqual([k[2] for k in r.keys(1) if k[1] == "writer:2"], ["1", "2", "3", "4"])
 
+    def test_a_resume_case_batch_counts_the_resumes_made_in_place(self):
+        # max 2: one release resume in b-t, then held at its deadline; the --resume-case batch is the
+        # second resume, so its next factory_bug retires instead of holding a third time.
+        script = {**Resume.FACTORY_BUG["script"],
+                  "1/writer:2/*": {"outcome": "exhausted", "reason": "writer:unchanged_repair"}}
+        r, out = run({"spec": {"max_cases_started": 1, "max_factory_bug_resumes": 2}, "script": script,
+                      "deadline_in": 25, "timing": {"wake_poll_s": 0.3},
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(len(r.actions()), 1)
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_factory_bug_resumes": 2},
+                        "resume_of": C1, "script": script}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "retired"})
+        self.assertEqual([k for k in r.keys(1) if k[1] == "diagnosis"],
+                         [("5", "diagnosis", str(n)) for n in range(1, 4)])
+
+    def test_a_gates_rerun_of_an_extension_stays_in_the_extension(self):
+        # The rerun's GATES result ends the extension (ext_after): progress allows a second one.
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "script": {"1/stress:1/1": {"feedback": True},
+                                 "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                 "1/5/diagnosis/1": {"verdict": "close_to_passing"},
+                                 "1/gates:3/1": {"outcome": "infra_error", "reason": "infra:stalled"},
+                                 "1/gates:3/2": {"outcome": "infra_error", "reason": "infra:stalled"},
+                                 "1/9/diagnosis/1": {"verdict": "factory_bug"},
+                                 "1/gates:3/3": {"outcome": "gate_failed", "gate": "G5", "repairable": True,
+                                                 "passed": ["G1"]},
+                                 "1/9/diagnosis/2": {"verdict": "close_to_passing"}},
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(r.keys(1)[9:12], [("9", "diagnosis", "1"), ("8", "gates:3", "3"), ("9", "diagnosis", "2")])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(card(out, C1)["extensions"], 2)
+
+    def test_a_factory_bug_after_a_scientific_result_still_holds_at_once(self):
+        r, out = run({"spec": {"max_cases_started": 1, "max_writer_rounds": 1},
+                      "script": {"1/gates:1/*": {"outcome": "gate_failed", "gate": "G5", "repairable": True},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}},
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(r.actions(), [])
+
     def test_a_founder_decision_is_never_resumed_by_a_release(self):
         r, out = run({"spec": {"max_cases_started": 1},
                       "script": {"1/4/gates:1/1": {"outcome": "needs_founder", "gate": "G16", "reason": "g16:split_review"}},

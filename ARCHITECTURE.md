@@ -379,8 +379,13 @@ one the diagnosed step ran on, or `cli.py resume_held <case>` gives the go-ahead
 exactly as the resume would: the diagnosed step runs again at its seq after its recorded attempts, on
 the current releases, its attempts' money is booked as `factory_bug` waste, the diagnosis is
 uncounted and `factory_bug_resumes` grows, so the policy's cap still ends a loop. A release equal to
-the failed one never resumes it. At the batch deadline it is held as before, for `--resume-case`; a
-workflow that held before the patch stays held. Escalations (`NEEDS_FOUNDER`) never take this path.
+the failed one never resumes it; any other plumbing or bench release does, whatever the step (writer
+and stress steps run on the bench image too), so an unrelated release costs one of the lineage's
+resumes. Plumbing and bench releases both wake it (patch `bench_release_wakes`). The operator's go-ahead
+names the hold (diagnosis seq/attempt), so a leftover one never frees a later hold. At the batch
+deadline it is held as before, for `--resume-case`, which counts the resumes made in place that it
+will not replay (event `factory_bug_rerun_seqs`), so the cap holds across batches; a workflow that
+held before the patch stays held. Escalations (`NEEDS_FOUNDER`) never take this path.
 The board shows `held: waiting for a factory release` apart from `held: needs your decision`, and
 the guard neither alerts on it nor counts it as a stall.
 
