@@ -130,6 +130,7 @@ runs, seed) share one execution inside a runner process and are scored separatel
 is scored on honest-reference's runs instead of a second sample of them. G13 never shares with G15.
 An unannounced step's live window is never shared between strategies or cached per step, while the
 case's other steps are; a strategy that completed in full is reused as a whole, as before.
+A borrowed execution is also saved in the borrower's own per-step cache, so a restart does not run it again.
 Pass rules and `--scenario-runs` are unchanged (`bin/strategy` `execute_shared`).
 
 **Not copied from Olympus:** "the strongest models must fail" (that would skew results
