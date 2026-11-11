@@ -17,16 +17,18 @@ without any model call, so this spends nothing:
     in a temporary directory, then ADMIT's writer-family checks. Codes are ADMIT's own
     (import_layout*, import_pin, import_writer, import_idea_family, ...). Without it: unchecked.
   * dedup: an exact statement digest already held by an unreleased board entry, or by an earlier
-    idea in the manifest; and every duplicate group known from the admission-reasons backfill
+    idea in the manifest (drop for an import; review for a fresh idea, whose writer may reselect
+    a candidate); and every duplicate group known from the admission-reasons backfill
     (--history), --group, tied by `board_cleanup.duplicate_groups`. A group keeps the member
-    `board_cleanup.plan` keeps (most advanced, then oldest ID); ADMIT dedups even the keeper
+    `board_cleanup.plan` keeps (most advanced, then oldest ID; the one member still on the board
+    once cleanup has released the rest); ADMIT dedups even the keeper
     against members still unreleased on the board, so those must be released first.
   * history: a final dedup, freshness or realism rejection already recorded for this same idea
     (a second family that overturned it does not count).
 
 Freshness and realism need models and are never run here. Nothing looks at difficulty: a check
-only predicts an admission refusal. Statements stay sealed on the board; an opened archive lives
-in a temporary directory that is removed. Output is a table: drop (ADMIT will refuse), review
+only predicts an admission refusal. Board statements are never opened. An opened archive is
+decrypted to the control machine's disk temp dir (not RAM, as on the worker) and removed after. Output is a table: drop (ADMIT will refuse), review
 (likely refusal, or a step to take first), ok.
 """
 from __future__ import annotations
@@ -87,12 +89,19 @@ def check_import(raw, inputs, identity, entries):
         card = json.loads((work / "scorecard.json").read_text())
         statement = None if from_board else hashlib.sha256((work / "case/statement.md").read_bytes()).hexdigest()
     old = summary["case"]
-    # Today's roles, as ADMIT will have them: pinned models, else the card's rotation slot.
-    pinned = inputs.get("models") or {}
-    roles = model_runtime.rotation(card["rotation_slot"]) if not pinned else {}
-    writer = (pinned.get("builder") or [roles.get("writer", {}).get("model")])[0]
-    judges = ([chain[0] for chain in pinned["reviewers"]] if pinned else [roles["reviewer"]["model"]])
-    judges.append((pinned.get("easy_calibrator") or [argument_parser().parse_args(["--source", "port"]).easy_calibrator])[0])
+    # Today's roles, as ADMIT will have them (run.context_for_step, then admit._pin_models): the
+    # card's models (a recertify keeps its sealed ones), else pinned INPUTS, else the rotation slot.
+    try:
+        models = card.get("models") or inputs.get("models")
+        if models:
+            writer = models["builder"][0]
+            judges = [chain[0] for chain in models["reviewers"]] + [models["easy_calibrator"][0]]
+        else:
+            roles = model_runtime.rotation(card["rotation_slot"])
+            writer = roles["writer"]["model"]
+            judges = [roles["reviewer"]["model"], argument_parser().parse_args(["--source", "port"]).easy_calibrator]
+    except (KeyError, IndexError, TypeError, ValueError):
+        return ["models_invalid"], old, None   # ADMIT's _pin_models refuses these models
     codes = []
     if summary.get("mode") == admit.IDEA_ONLY:
         if family(writer) not in admit.IDEA_WRITERS:
@@ -113,10 +122,13 @@ def check_import(raw, inputs, identity, entries):
 
 def keepers(board, groups):
     """{case: the group member board_cleanup.plan keeps} for every member of every group."""
+    entries = board["registry"]["entries"]
     kept = {r["case"]: r["group_kept"] for r in board_cleanup.plan(board, groups=groups) if "group_kept" in r}
     for group in groups:
-        if not any(c in kept for c in group):   # members off the board or already released
-            best = sorted(group, key=lambda c: (-board_cleanup.public_gates(c), c))[0]
+        if not any(c in kept for c in group):   # fewer than two members still on the board
+            # The one member cleanup left on the board is its keeper; with none, the best by gates.
+            live = [c for c in group if (entries.get(c) or {}).get("status") not in (None, "released")]
+            best = live[0] if live else sorted(group, key=lambda c: (-board_cleanup.public_gates(c), c))[0]
             kept.update({c: best for c in group})
     return kept
 
@@ -153,13 +165,16 @@ def screen(ideas, board, history=(), manual=(), identity=None):
         elif inputs.get("recertify") is True:
             codes.append("admit:import_recertify")
         if digest:
+            # An import has one candidate, its own, so a duplicate is refused. A fresh idea's writer
+            # may reselect after a dedup rejection (MAX_CANDIDATES): replace the candidate, not the idea.
+            imported = idea.get("archive_raw") is not None
             twin = next((c for c, e in sorted(entries.items()) if c != case and e["status"] != "released"
                          and e.get("statement_sha256") == digest), None)
             if twin:
-                codes.append("admit:dedup_board_duplicate")
+                codes.append("admit:dedup_board_duplicate" if imported else "candidate_on_board")
                 keeper = twin
             elif digest in seen:
-                codes.append("duplicate_in_manifest")
+                codes.append("duplicate_in_manifest" if imported else "candidate_in_manifest")
                 keeper = seen[digest]
             seen.setdefault(digest, case or idea["label"])
         if case in keep:
@@ -174,7 +189,7 @@ def screen(ideas, board, history=(), manual=(), identity=None):
             codes.append("board_known_public")
         if case in prior:
             codes.append("prior:" + prior[case].removeprefix("admit:"))
-        hard = [c for c in codes if c.startswith("admit:") or c == "duplicate_in_manifest"]
+        hard = [c for c in codes if c.startswith("admit:") or c in ("duplicate_in_manifest", "models_invalid")]
         verdict = "drop" if hard else "review" if codes else "ok"
         rows.append({"label": idea["label"], "idea": case, "verdict": verdict, "codes": codes, "keep": keeper})
     return rows
@@ -196,6 +211,8 @@ def main(argv=None):
     parser.add_argument("--group", action="append", default=[], help="comma-separated cases that are one idea")
     parser.add_argument("--identity", help="age identity that opens the import archives")
     args = parser.parse_args(argv)
+    if args.identity and not args.board:
+        parser.error("--identity needs --board: an October archive may hold its statement only on the board")
     base = Path(args.manifest).resolve().parent
     ideas = []
     for i, item in enumerate(json.loads(Path(args.manifest).read_text())):

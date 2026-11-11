@@ -292,11 +292,15 @@ its most advanced member; other abandoned entries are released.
 `control/prescreen.py` screens a manifest of ideas (INPUTS, optional import archive and old case
 ID) before a batch starts, so start slots go only to ideas ADMIT can admit. It reruns ADMIT's own
 deterministic checks offline and spends nothing: `admit._inputs`, `admit:board_planned`, and with
-`--identity` the import archive through `admit._import_legacy` plus ADMIT's writer-family checks
-in a temporary directory. Dedup uses only digests and recorded verdicts: an exact statement
-digest held by an unreleased board entry or an earlier manifest idea, and the duplicate groups
+`--identity` (which needs `--board`) the import archive through `admit._import_legacy` plus
+ADMIT's writer-family checks against the models ADMIT will use (a recertify's sealed October
+models). The archive is decrypted to the control machine's disk temp dir, not RAM, and removed
+after. Dedup uses only digests and recorded verdicts: an exact statement digest held by an
+unreleased board entry or an earlier manifest idea (drop for an import, which has one candidate;
+review for a fresh idea, whose writer may reselect), and the duplicate groups
 `board_cleanup.duplicate_groups` builds from the admission-reasons backfill (`--history`) and
-`--group`, each with the keeper `board_cleanup.plan` would keep; a keeper whose group members are
+`--group`, each with the keeper `board_cleanup.plan` would keep (after cleanup, the one member
+left on the board); a keeper whose group members are
 still unreleased must have them released first. A recorded final dedup, freshness or realism
 rejection of the same idea is flagged for review. Freshness and realism themselves need models
 and are not run, and no check reads difficulty. It prints a table: drop, review or ok per idea.
