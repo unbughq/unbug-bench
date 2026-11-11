@@ -2937,12 +2937,12 @@ def engine_stress_round(c, n):
     from registry import atomic_json
     if c.args.dry_run and c.card.get("admission", {}).get("status") == "practice_dry_run":
         return {"outcome": Outcome.OK, "reason": "stress:practice"}
-    if (c.card.get("admission_freshness") or {}).get("outcome") == "public_match":
-        return {"outcome": Outcome.OK, "reason": "stress:public_match"}
     infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
     pending = jload(c.work / "attack-state.json", None)
     if isinstance(pending, dict) and pending.get("handback") is not None:
         return infra("writer_handback_pending")  # an engine without writer_handback_retry advanced a handback
+    if (c.card.get("admission_freshness") or {}).get("outcome") == "public_match":
+        return {"outcome": Outcome.OK, "reason": "stress:public_match"}
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
     report = c.work / "attacks" / f"round-{n}.json"

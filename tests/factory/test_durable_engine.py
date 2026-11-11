@@ -431,6 +431,26 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 10 + ["diagnosis"])
         self.assertEqual(out["result"]["cases"][C1], "held")   # a held case starts its replacement
 
+    def test_handback_cap_follows_the_configured_writer_rounds(self):
+        # Twelve rounds: twelve free handbacks, then infra; allowance 1, so the 14th diagnoses.
+        handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
+        script = {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = run({"spec": {"max_infra_retries_per_step": 1, "max_writer_rounds": 12}, "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 14 + ["diagnosis"])
+        # A workflow recorded before the patch keeps the fixed cap of 8.
+        r, out = run({"spec": {"max_infra_retries_per_step": 1, "max_writer_rounds": 12},
+                      "disabled_patches": ["writer_handback_cap_rounds"], "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 10 + ["diagnosis"])
+
+    def test_handback_cap_is_bounded(self):
+        from durable.policy import WRITER_HANDBACK_CEILING, writer_handback_cap
+        from types import SimpleNamespace
+        spec = lambda n: SimpleNamespace(max_writer_rounds=n)
+        self.assertEqual(writer_handback_cap(spec(3)), 3)
+        self.assertEqual(writer_handback_cap(spec(1000)), WRITER_HANDBACK_CEILING)
+
     def test_batch_deadline_stops_after_the_deadline_never_diagnose(self):
         # The deadline passes while case 1 writes; four batch-deadline stops follow, with an infra
         # allowance of one. The running case still seals: the deadline only stops new work.

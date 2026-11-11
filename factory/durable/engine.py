@@ -37,7 +37,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               wait_seconds)
 from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
-from durable.policy import (DEADLINE_REASON, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+from durable.policy import (DEADLINE_REASON, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, writer_handback_cap, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
                             progressed, request_usd_micros, starts_replacement)
 from durable.report import verified_seal
@@ -913,9 +913,14 @@ class _Case:
                 # The writer stopped between calls to finish its round with fresh time (policy.WRITER_HANDBACK).
                 # Unpatched replays keep the ADVANCE they recorded. A handback that keeps returning is infra.
                 handbacks += 1
-                if handbacks > MAX_WRITER_HANDBACKS:
+                # The cap follows the configured writer rounds. A spec whose cap equals the old fixed
+                # one asks no patch; workflows recorded before the patch keep the fixed cap.
+                cap = writer_handback_cap(self.spec)
+                if cap != MAX_WRITER_HANDBACKS and not DBOS.patch("writer_handback_cap_rounds"):
+                    cap = MAX_WRITER_HANDBACKS
+                if handbacks > cap:
                     infra += 1
-                action = (Action.RETRY if handbacks <= MAX_WRITER_HANDBACKS
+                action = (Action.RETRY if handbacks <= cap
                           or infra <= self.spec.max_infra_retries_per_step else Action.DIAGNOSE)
             if pool_wait and admit and not admission_started and pool_now >= self.spec.deadline_epoch:
                 action = Action.STOP_ADMISSION   # the batch deadline stops new cases

@@ -200,6 +200,11 @@ class StressLoopTests(unittest.TestCase):
         with patch.object(run, 'stress_categories') as attack:
             self.assertEqual(run.engine_stress_round(h.c, 2),
                              {'outcome': Outcome.INFRA_ERROR, 'reason': 'stress:writer_handback_pending'})
+            # A public-match case skips stress, but not past a pending handback.
+            h.c.card['admission_freshness'] = {'outcome': 'public_match'}
+            self.assertEqual(run.engine_stress_round(h.c, 2),
+                             {'outcome': Outcome.INFRA_ERROR, 'reason': 'stress:writer_handback_pending'})
+            del h.c.card['admission_freshness']
         attack.assert_not_called()
         # Attempt 2 continues at call 2 with the early-check findings, not the stress feedback.
         h.c.engine.deadline_monotonic = run.time.monotonic() + 14400
