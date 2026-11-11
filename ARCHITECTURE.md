@@ -279,6 +279,10 @@ wait or message. If any attempt it needs is missing, it fails (`resume:diverged`
 starting new work in that history. The stopped seq first restores its recorded attempts
 (their snapshots, diagnostics and keys, so a changed step also diverges), then continues
 with a fresh infra retry allowance.
+Replayed seqs keep the bench their attempts recorded; the first live seq, unless it is GATES or SEAL
+(which take their versions as before), adopts the new batch's current bench release (patch
+`resume_adopts_bench`). Nothing kept depends on the old bench: SEAL runs only under its GATES versions and
+every later path to SEAL passes a GATES step, which adopts the current bench anyway.
 Counters, snapshot and evidence therefore come out of the same code that built them. `start`
 refuses unless the earlier spend (the ledger across the original and every earlier resume
 batch, plus any declared import spend) plus the batch's

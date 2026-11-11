@@ -796,6 +796,16 @@ class _Case:
         action is None for a DIAGNOSIS verdict."""
         self.seq += 1
         self.stage = step.name
+        # A resumed case replays its old GATES bench, and only a GATES step changed it, so its writer
+        # and stress steps kept running on that old bench in every later batch (86b100, 11 November:
+        # the Nov 5 bench under a spec naming a newer one). Its first live step adopts the batch's
+        # bench instead. Nothing retained depends on the old one: SEAL runs only under the versions
+        # its GATES passed, and every path from a writer, stress or diagnosis step reaches SEAL
+        # through a GATES step, which adopts the current bench anyway.
+        if (self.resume_seq and self.seq == self.resume_seq
+                and step.kind not in (StepKind.GATES, StepKind.SEAL)
+                and DBOS.patch("resume_adopts_bench")):
+            self.bench = self.current("bench")
         attempt, infra, limits, free, late, prev = self.renumber.get(self.seq, {}).get(step.name, 0), 0, 0, 0, 0, None
         # A seq where a case stopped (this resume's or an earlier one's) first restores the attempts
         # recorded before that stop: their snapshots, diagnostics and history carry over, and their
