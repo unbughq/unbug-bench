@@ -449,6 +449,43 @@ class StrategyTests(unittest.TestCase):
             strategy.simulate(case, 'honest-reference', execute=driver, shared=shared)
             self.assertEqual(len(seen), 18, 'only the step whose evidence is gone executes again')
 
+    def test_borrowed_steps_survive_a_restart_in_the_borrowers_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); case = root / 'case'; case.mkdir(); fixture(case)
+            seen = []
+            def driver(scenarios, guard, report, runs, seed, label):
+                seen.append(label)
+                summary = execute(scenarios, guard, report, runs, seed, label)
+                path = root / 'results/runs' / str(len(seen)) / 'checkpoint.json'
+                write(path, summary); summary['_evidence_path'] = str(path)
+                return summary
+            def run(name, shared, binding='same'):
+                return strategy.simulate(case, name, execute=driver, shared=shared, checkpoint_cache_dir=root / name,
+                                         checkpoint_binding=lambda: binding)
+            with patch.object(strategy, 'BENCH', root):
+                alone = strategy.simulate(case, 'ask-everything', execute=execute)
+                shared = {}
+                lender = run('honest-reference', shared)
+                self.assertEqual(len(seen), 4)
+                # ask-everything borrows three steps, then its runner is cut while scoring the third.
+                score, calls = strategy.claims.score, []
+                def cut(*a):
+                    calls.append(1)
+                    if len(calls) > 2: raise RuntimeError('synthetic interruption')
+                    return score(*a)
+                with patch.object(strategy.claims, 'score', cut):
+                    with self.assertRaisesRegex(RuntimeError, 'synthetic interruption'): run('ask-everything', shared)
+                self.assertEqual(len(seen), 4)
+                self.assertEqual(len(list((root / 'ask-everything').glob('*.json'))), 3, 'borrowed and cut steps are recorded')
+                # Restarted runner: nothing shared in memory, the borrowed prefix comes from its own cache.
+                resumed = run('ask-everything', {})
+                self.assertEqual(len(seen), 5, 'only the step never reached runs')
+                self.assertEqual(resumed['_evidence_paths'][:3], lender['_evidence_paths'][:3])
+                self.assertEqual(resumed['steps'], alone['steps']); self.assertEqual(resumed['totals'], alone['totals'])
+                # A borrowed receipt is bound like a fresh one: changed binding runs again.
+                run('ask-everything', {}, binding='changed')
+                self.assertEqual(len(seen), 9)
+
     def test_incomplete_executions_are_never_shared(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp); case = root / 'case'; case.mkdir(); fixture(case)
