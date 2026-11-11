@@ -116,13 +116,29 @@ def campaign_limits(request: dict) -> tuple:
     return running, hourly
 
 
+def worker_rate(request: dict, vm_type: Optional[str] = None) -> float:
+    """The approved $/s of one worker of `vm_type` (default: the request's `vm_type`, else "default").
+    A Boat type other than "default" (e.g. "large": 8 vCPU/16 GB) must have its rate approved in
+    `worker_rates_usd_per_second`; the default type's rate is always max_worker_rate_usd_per_second
+    (a "default" key there is ignored). The infrastructure approval is unchanged: a dearer worker
+    only fits fewer running slots."""
+    vm_type = request.get("vm_type", "default") if vm_type is None else vm_type
+    rates = request.get("worker_rates_usd_per_second") or {}
+    if type(vm_type) is not str or not isinstance(rates, dict):
+        raise CheckFailed("request_malformed", "vm_type or worker_rates_usd_per_second")
+    rate = request.get("max_worker_rate_usd_per_second") if vm_type == "default" else rates.get(vm_type)
+    if type(rate) not in (int, float) or not math.isfinite(rate) or rate <= 0:
+        raise CheckFailed("request_malformed", f"no approved worker rate for vm_type {vm_type}")
+    return rate
+
+
 def compute_bound(request: dict, grace_s: float) -> float:
     """Worst-case worker compute in dollars: every running slot busy for the whole wall, plus the
     checkpoint grace that each worker's TTL may run past the deadline, plus one more worker for a
     full TTL as slack for a sandbox Boat lists late. Starts add nothing: a sandbox holds a slot
     from its create request until Boat stops listing it as live."""
     running, _ = campaign_limits(request)
-    return request["max_worker_rate_usd_per_second"] * (running * (request["wall_seconds"] + grace_s) + WORKER_TTL_S)
+    return worker_rate(request) * (running * (request["wall_seconds"] + grace_s) + WORKER_TTL_S)
 
 
 def compute_fits(request: dict, grace_s: float) -> bool:
@@ -289,8 +305,12 @@ class Guard:
             self.flag("start_rate", "over_limit", f"cap {hourly} an hour")
         spent = 0.0
         for row in owned:
+            # Each worker at its own Boat type's approved rate (the request's type when Boat does not
+            # say), so a type change never judges live workers of the other type at the wrong rate.
+            kind = row.get("type") if type(row.get("type")) is str else None
+            rated, rate = self.check("request_rate", lambda: worker_rate(r, kind))
             ok, usage = self.check("boat_usage", lambda: self._usage(row["id"]))
-            if ok and usage[1] > r["max_worker_rate_usd_per_second"]:
+            if ok and rated and usage[1] > rate:
                 return "worker_rate"
             spent += usage[0] if ok else 0.0
         if worker_bound is not None and spent > worker_bound:

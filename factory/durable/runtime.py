@@ -3,7 +3,8 @@
 Configuration is a private JSON file: state_dir, pool_id, restore_identity,
 restore_recipient, founder_recipient, application_version, and either local_objects
 or r2 (account/access_key/secret_key/bucket). database_url comes from UNBUG_DURABLE_DSN
-or database_url_file. output_retry_s defaults to 60; image defaults to bench-env.
+or database_url_file. output_retry_s defaults to 60; image defaults to bench-env; vm_type (a Boat
+worker type, e.g. large) defaults to Boat's default type.
 Use application_version=durable.engine.APP_VERSION, pinned for this database lifetime.
 For the supplied units state_dir must be /home/user/.unbug-durable. The configuration,
 DSN file, restore identity and operator payload files must be owned regular 0600 files.
@@ -175,7 +176,8 @@ class Runtime:
             self.sealer = AgeSealer()
             self.store = PublishingStore(objects_for(config), self.keys)
             self.releases = ReleaseStore(self.state / "releases")
-            self.pool = BoatPool(self.state / "pool", self.releases, config["pool_id"], image=config.get("image", "bench-env"))
+            self.pool = BoatPool(self.state / "pool", self.releases, config["pool_id"], image=config.get("image", "bench-env"),
+                                 vm_type=config.get("vm_type"))
             if "worker_credentials" in config:
                 from model_router import ACCOUNTS
                 names = config["worker_credentials"]["accounts"]

@@ -3,7 +3,7 @@ from pathlib import Path
 root=Path(os.environ.get('UNBUG_CAMPAIGN_ROOT',Path(__file__).parent))
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'factory'))
 from durable import cli
-from durable.guard import CHECKPOINT_GRACE_S,CheckFailed,campaign_limits,compute_bound,compute_fits,reserve_start
+from durable.guard import CHECKPOINT_GRACE_S,CheckFailed,campaign_limits,compute_bound,compute_fits,reserve_start,worker_rate
 from durable.runtime import Runtime
 from durable.workers import PoolError,_atomic_json
 
@@ -25,7 +25,6 @@ class BoundedRuntime(Runtime):
   checked_request()
   super().__init__(config)
   self.pool.ttl=7200
-  self.pool.vm_type='default'
   create=self.pool._create
   def assess(worker):
    request=json.loads((root/'campaign-request.json').read_text())
@@ -41,7 +40,7 @@ class BoundedRuntime(Runtime):
     usage=json.loads(data);values=[usage.get(k) for k in ('dollars','billingMultiplier','secondsPerDollar')]
     if not all(type(v) in (float,int) and math.isfinite(v) and v>=0 for v in values) or values[2]<=0:raise ValueError()
     rate=values[1]/values[2]
-    if rate>request['max_worker_rate_usd_per_second']:raise ValueError()
+    if rate>worker_rate(request):raise ValueError()
     # Every running slot busy for the whole wall must fit the typed approval; starts add nothing.
     if not compute_fits(request,grace()):raise ValueError()
     worker_bound=compute_bound(request,grace())
@@ -72,11 +71,15 @@ class BoundedRuntime(Runtime):
     fcntl.flock(lock,fcntl.LOCK_EX)
     request=json.loads((root/'campaign-request.json').read_text())
     if request['deadline_epoch']-time.time()<1:raise PoolError('infra:campaign_deadline')
+    # The request's Boat type (default "default"); only a type whose rate it approves is created.
+    try:worker_rate(request)
+    except CheckFailed:raise PoolError('infra:compute_approval_unverified') from None
     # Timed after the inventory lookup inside reserve_start, right before the create request.
     now=reserve_start(self.state/'campaign-starts.json',request,running)
     remaining=request['deadline_epoch']-now
     if remaining<1:raise PoolError('infra:campaign_deadline')
     self.pool.ttl=min(7200,int(remaining+grace()))
+    self.pool.vm_type=request.get('vm_type','default')
     worker=create(case,bench)
    assess(worker)
    return worker
