@@ -209,14 +209,15 @@ def simulate(case, strategy, runs=3, seed=1, execute=None, factory_workers=1,
         from functools import partial
         execute = partial(checkpoint, factory_workers=factory_workers)
     ordered = steps(case)
-    if checkpoint_cache_dir is not None and checkpoint_binding is not None and not any(
-            step['delivery'] == 'unannounced' for step in ordered):
+    # Cache and share per execution: a silent (unannounced) step never goes through `execute`;
+    # silent_checkpoint runs its live window fresh in every simulate call and resets the bench itself.
+    if checkpoint_cache_dir is not None and checkpoint_binding is not None:
         from functools import partial
         from strategy_resume import execute_cached
         execute = partial(execute_cached, execute, workers=factory_workers, cache_dir=checkpoint_cache_dir,
                           binding=checkpoint_binding, results_root=BENCH / 'results',
                           restored_results_root=restored_results_root)
-    if shared is not None and not any(step['delivery'] == 'unannounced' for step in ordered):
+    if shared is not None:
         from functools import partial
         execute = partial(execute_shared, execute, shared, set(), workers=factory_workers, binding=shared_binding)
     ingredients = load(case / 'case.json', {}).get('ingredients', {})
