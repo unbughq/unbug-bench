@@ -41,6 +41,9 @@ class GatePipeline:
     # gate that follows them (G6, where G10 may start overlapping).
     side_gates: tuple = ()
     side_lane: Callable = lambda c: False
+    # A context whose bench commands run on their own reserved instance, for the early gates beside G15
+    # (early_parallel); None keeps today's serial early order.
+    early_lane: Callable = lambda c: None
 
     def section(self, c):
         """Defer engine snapshots while two threads work on this case."""
@@ -88,47 +91,101 @@ class GatePipeline:
         self.log(c, gate, "crashed", type(error).__name__)
 
 
-    def early_checks(self, c, *, on_rejection=None):
-        """G3-G5 right after the writer (~20 min on a cpx42): a case whose bug is not real or whose keys are wrong goes
-        back to the writer in the same round, before the stress tester spends time on it. Returns writer problems or None;
-        passing results are reused by the gate loop while the case is unchanged."""
-        c.early = {}
-        # G15 needs the complete answer key/ingredients; G1 has validated them before this call.
-        gates = (["G15"] if (c.case / "answer-key.json").is_file() else []) + list(self.early_gates)
+    def early_gate(self, c, gate, on=None):
+        """One early gate, executed on `on` (c, or a lane context with its own bench instance). Card,
+        log, publication and engine checkpoint are on c; inside a concurrent section the snapshot waits."""
+        on = c if on is None else on
+        with self.window(c, gate):
+            outcome = gate_attempt.execute(
+                lambda: self.check(on, gate),
+                publish=lambda *args: self.publish(c, 'early:' + gate, *args),
+                record_crash=lambda error: self.record_crash(c, gate, error),
+                interruption=BudgetError, attempts=1 if getattr(c, "engine", None) is not None else 2, raise_crash=True,
+                journal=None if getattr(c, "engine", None) is not None else c.work / "infra-attempts.json",
+                identity={"operation": "early-gate", "gate": gate, "case": self.case_hash(c)})
+        ok, info = outcome.ok, outcome.info
+        self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
+        c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round((outcome.elapsed_seconds) / 60, 1)}
+        if getattr(c, 'engine', None) is not None:
+            from durable.checkpoints import checkpoint
+            checkpoint(c)
+        return ok, info
+
+
+    def early_sequence(self, c, gates, on=None, *, on_rejection=None, cheats=False):
+        """Early gates in order, then (cheats) the saved-cheat sample; writer problems of the first failure, or None."""
         for gate in gates:
-            with self.window(c, gate):
-                outcome = gate_attempt.execute(
-                    lambda: self.check(c, gate),
-                    publish=lambda *args: self.publish(c, 'early:' + gate, *args),
-                    record_crash=lambda error: self.record_crash(c, gate, error),
-                    interruption=BudgetError, attempts=1 if getattr(c, "engine", None) is not None else 2, raise_crash=True,
-                    journal=None if getattr(c, "engine", None) is not None else c.work / "infra-attempts.json",
-                    identity={"operation": "early-gate", "gate": gate, "case": self.case_hash(c)})
-            ok, info = outcome.ok, outcome.info
-            self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
-            c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round((outcome.elapsed_seconds) / 60, 1)}
-            if getattr(c, 'engine', None) is not None:
-                from durable.checkpoints import checkpoint
-                checkpoint(c)
+            ok, info = self.early_gate(c, gate, on)
             if not ok:
-                c.early = {}
                 problems = [f"early check {gate} failed: {json.dumps(info)}"]
                 details = c.work / "gate-details" / f"{gate}.json"
                 if details.is_file(): problems.append(f"details: {details.read_text()[:8000]}")
                 if on_rejection is not None: on_rejection(c, gate, info, problems)
                 return problems
             c.early[gate] = (ok, info)
+        if not cheats: return None
         c.card.get("early_gates", {}).pop("saved_cheats", None)
-        problems = self.saved_cheat_check(c)
+        problems = self.saved_cheat_check(c if on is None else on)
+        if problems and on_rejection is not None:
+            detail = dict(sample="retained_case_cheats",
+                summary=copy.deepcopy(c.card.get("early_gates", {}).get("saved_cheats")))
+            on_rejection(c, "saved-cheats", detail, problems)
+        return problems
+
+
+    def early_checks(self, c, *, on_rejection=None):
+        """G3-G5 right after the writer (~20 min on a cpx42): a case whose bug is not real or whose keys are wrong goes
+        back to the writer in the same round, before the stress tester spends time on it. Returns writer problems or None;
+        passing results are reused by the gate loop while the case is unchanged.
+
+        When early_lane(c) gives a context, G3 runs first (it rebuilds every bench instance), then G15 runs
+        here on the foreground pool while G4, G5 and the saved-cheat sample run on the lane's own instance.
+        Both finish; every failure is reported, in serial order. Otherwise the serial order below is kept."""
+        c.early = {}
+        # G15 needs the complete answer key/ingredients; G1 has validated them before this call.
+        g15 = ["G15"] if (c.case / "answer-key.json").is_file() else []
+        rest = [g for g in self.early_gates if g != "G3"]
+        planned = bool(g15) and "G3" in self.early_gates and self.early_lane(c) is not None
+        if not planned:
+            problems = self.early_sequence(c, g15 + list(self.early_gates), on_rejection=on_rejection, cheats=True)
+        else:
+            problems = self.early_sequence(c, ["G3"], on_rejection=on_rejection)
+            # G3's memory allowance may lower the worker count; the lane needs the slots it prepared.
+            lane = self.early_lane(c) if problems is None else None
+            if lane is not None and getattr(c, "prepared_factory_slots", 1) < c.args.bench_workers + 2:
+                lane = None
+            if problems is None and lane is None:
+                self.log(c, "G15", "early serial: reserved bench instance unavailable after G3")
+                problems = self.early_sequence(c, g15 + rest, on_rejection=on_rejection, cheats=True)
+            elif problems is None:
+                problems = self.early_parallel(c, lane, rest, on_rejection)
         if problems:
             c.early = {}
-            if on_rejection is not None:
-                detail = dict(sample="retained_case_cheats",
-                    summary=copy.deepcopy(c.card.get("early_gates", {}).get("saved_cheats")))
-                on_rejection(c, "saved-cheats", detail, problems)
             return problems
         c.early_hash = self.case_hash(c)
         return None
+
+
+    def early_parallel(self, c, lane, rest, on_rejection):
+        """G15 on this thread; the other early gates and the saved-cheat sample on lane's bench instance."""
+        self.log(c, "+".join(rest + ["saved-cheats"]), f"early start (beside G15, bench instance {lane.factory_slot})")
+        pool = ThreadPoolExecutor(max_workers=1)
+        with self.section(c):
+            future = pool.submit(contextvars.copy_context().run, self.early_sequence, c, rest, lane,
+                                 on_rejection=on_rejection, cheats=True)
+            try:
+                mine = self.early_sequence(c, ["G15"], on_rejection=on_rejection)
+            except BaseException:
+                # Lane commands are cancellable (bench processes are killed); the strategy runs are not.
+                lane.role_cancel.set()
+                with contextlib.suppress(BaseException): future.result()
+                pool.shutdown(wait=True)
+                raise
+            try:
+                theirs = future.result()
+            finally:
+                pool.shutdown(wait=True)
+        return (mine or []) + (theirs or []) or None
 
 
     def early_review(self, c):
