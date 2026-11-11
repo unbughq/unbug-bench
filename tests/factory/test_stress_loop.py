@@ -200,6 +200,11 @@ class StressLoopTests(unittest.TestCase):
         with patch.object(run, 'stress_categories') as attack:
             self.assertEqual(run.engine_stress_round(h.c, 2),
                              {'outcome': Outcome.INFRA_ERROR, 'reason': 'stress:writer_handback_pending'})
+            # A public-match case skips stress, but not past a pending handback.
+            h.c.card['admission_freshness'] = {'outcome': 'public_match'}
+            self.assertEqual(run.engine_stress_round(h.c, 2),
+                             {'outcome': Outcome.INFRA_ERROR, 'reason': 'stress:writer_handback_pending'})
+            del h.c.card['admission_freshness']
         attack.assert_not_called()
         # Attempt 2 continues at call 2 with the early-check findings, not the stress feedback.
         h.c.engine.deadline_monotonic = run.time.monotonic() + 14400
@@ -209,6 +214,41 @@ class StressLoopTests(unittest.TestCase):
         self.assertEqual(calls, ['builder-2', 'builder-2-fix-1'])
         self.assertIn('early check G4 failed: synthetic', prompts['builder-2-fix-1'])
         self.assertNotIn('handback', json.loads((h.c.work / 'attack-state.json').read_text()))
+
+    def test_writer_handbacks_follow_the_cards_rounds(self):
+        # The writer's call cap is the card's recovery_config rounds (context_for_step sets args.rounds
+        # from it). Rounds 3: at most two handbacks per round, even when a handback cannot be resumed.
+        from durable.contract import Outcome
+        from durable.policy import WRITER_HANDBACK
+        self.assertIn('rounds', run.ENGINE_SETTINGS)
+        h = self.harness(); h.c.args.rounds = 3
+        h.early_checks.return_value = ['early check G4 failed: synthetic']
+        calls = []
+        def model(c, models, text, cwd, name):
+            calls.append(name); (c.case / 'repair.txt').write_text(str(len(calls)))
+        state = h.c.work / 'attack-state.json'
+        results = []
+        for attempt in range(3):
+            h.c.engine = types.SimpleNamespace(deadline_monotonic=run.time.monotonic() + 600,
+                                               source_binding={'feedback': 'f'})
+            with patch.object(run, 'opencode', model):
+                results.append(run.engine_writer_round(h.c, 2, run._feedback('stress', ['A synthetic defect.']))['reason'])
+            receipt = json.loads(state.read_text())
+            receipt.pop('handback', None)   # the next attempt cannot resume it and starts the round over
+            state.write_text(json.dumps(receipt))
+        self.assertEqual(results, [WRITER_HANDBACK, WRITER_HANDBACK, 'writer:rounds_exhausted'])
+        self.assertEqual(calls, ['builder-2'] * 3 + ['builder-2-fix-1', 'builder-2-fix-2'])
+        # Rounds 12: a resumed chain hands back at every call but the last, past the old fixed 8.
+        h = self.harness(); h.c.args.rounds = 12
+        h.early_checks.return_value = ['early check G4 failed: synthetic']
+        calls.clear(); results = []
+        for attempt in range(12):
+            h.c.engine = types.SimpleNamespace(deadline_monotonic=run.time.monotonic() + 600,
+                                               source_binding={'feedback': 'f'})
+            with patch.object(run, 'opencode', model):
+                results.append(run.engine_writer_round(h.c, 2, run._feedback('stress', ['A synthetic defect.']))['reason'])
+        self.assertEqual(results, [WRITER_HANDBACK] * 11 + ['writer:rounds_exhausted'])
+        self.assertEqual(len(calls), 12)
 
     def test_writer_keeps_cycling_when_time_remains(self):
         from durable.contract import Outcome

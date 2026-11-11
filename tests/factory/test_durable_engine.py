@@ -431,13 +431,24 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
 
     def test_endless_handbacks_become_infra_after_the_call_cap(self):
-        # MAX_WRITER_HANDBACKS (8) free retries, then each counts as infra: allowance 1, so the 10th diagnoses.
+        # Without the writer_handback_ceiling patch: 8 free retries, then infra; allowance 1, so the 10th diagnoses.
         handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
         r, out = run(manual_holds({"spec": {"max_infra_retries_per_step": 1},
-                      "script": {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}}))
+                                   "disabled_patches": ["writer_handback_ceiling"],
+                                   "script": {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}}))
         self.addCleanup(r.close)
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 10 + ["diagnosis"])
         self.assertEqual(out["result"]["cases"][C1], "held")   # a held case starts its replacement
+
+    def test_handback_backstop_ignores_the_spec_writer_rounds(self):
+        # The writer bounds its handbacks by the card's own rounds; the spec's writer rounds (here 1)
+        # do not cap them. The engine backstop is the ceiling: allowance 1, so the ceiling + 2nd diagnoses.
+        from durable.policy import WRITER_HANDBACK_CEILING
+        handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
+        script = {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = run(manual_holds({"spec": {"max_infra_retries_per_step": 1, "max_writer_rounds": 1}, "script": script}))
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * (WRITER_HANDBACK_CEILING + 2) + ["diagnosis"])
 
     def test_batch_deadline_stops_after_the_deadline_never_diagnose(self):
         # The deadline passes while case 1 writes; four batch-deadline stops follow, with an infra
@@ -1550,8 +1561,10 @@ class ReleaseHolds(unittest.TestCase):
 
     def test_a_hold_after_writer_handbacks_reruns_the_round(self):
         # Handbacks returned no repair to judge: a factory_bug hold after them is a rerun, not a re-roll.
+        # The pre-ceiling cap of 8 makes the 10th handback diagnose.
         handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
         r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "disabled_patches": ["writer_handback_ceiling"],
                       "script": {**{f"1/writer:1/{n}": handback for n in range(1, 11)},
                                  "1/diagnosis/*": {"verdict": "factory_bug"}},
                       "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})

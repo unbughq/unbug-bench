@@ -37,10 +37,16 @@ DEADLINE_REASON = "infra:deadline"
 # likely outlive the attempt (run.engine_writer_round). Its snapshot holds the findings for the next
 # call: the round continues in a new attempt with fresh time. Not a fault, so no infra allowance.
 # The engine (run_seq, under the writer_handback_retry patch) retries it, not decide: a workflow that
-# recorded ADVANCE for one must replay ADVANCE. Past MAX_WRITER_HANDBACKS per seq (the writer's call
-# cap, run.py --rounds) a handback counts as an infra error.
+# recorded ADVANCE for one must replay ADVANCE. The writer's real call cap is the case's own --rounds
+# (the card's recovery_config, run.context_for_step), which the engine does not see: the writer itself
+# hands back at most min(rounds - 1, WRITER_HANDBACK_CEILING) times per round, counted in its receipt
+# across attempts. The engine backstops at WRITER_HANDBACK_CEILING per seq; past it a handback counts
+# as an infra error.
 WRITER_HANDBACK = "writer:handback"
-MAX_WRITER_HANDBACKS = 8
+MAX_WRITER_HANDBACKS = 8   # the engine cap of workflows recorded before the writer_handback_ceiling patch
+WRITER_HANDBACK_CEILING = 32
+
+
 # A failed worker create or Boat outage waits like a pause, for at most this long in total per seq; after
 # that it counts against max_infra_retries_per_step like any infra error. Six hours rides out a provider
 # quota or a Boat incident; a bad image or a lasting outage still ends instead of holding the batch.

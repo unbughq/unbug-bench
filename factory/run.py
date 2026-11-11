@@ -2882,13 +2882,19 @@ def engine_writer_round(c, n, feedback):
     first, resumed = 1, _writer_handback(receipt_path, n, start)
     if resumed is not None:  # an earlier attempt of this round handed back before its next call
         first, problems, report, requested = resumed["call"], resumed["problems"], None, True
-    deadline = getattr(getattr(c, "engine", None), "deadline_monotonic", None)
+    # This round's handbacks so far, kept across attempts even when one could not be resumed: the
+    # round's own call cap bounds them (policy.WRITER_HANDBACK).
+    prior = jload(receipt_path, None)
+    handbacks = (prior["handbacks"] if isinstance(prior, dict) and prior.get("engine") is True
+                 and prior.get("round") == n and type(prior.get("handbacks")) is int else 0)
+    deadline =getattr(getattr(c, "engine", None), "deadline_monotonic", None)
     for call in range(first, c.args.rounds + 1):
         before = start["case"] if call == 1 else resumed["case"] if call == first else case_hash(c)
         cycle_started = time.monotonic()
         atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
-                                   "report": f"round-{n}.json", "round_start": start, "repair_pending": True})
-        name = f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}"
+                                   "report": f"round-{n}.json", "round_start": start, "repair_pending": True,
+                                   "handbacks": handbacks})
+        name =f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}"
         more = {"output_capped": True} if capped else {}
         with writer_phase(c, "writer_model", round=n, call=call):
             opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n,
@@ -2921,11 +2927,13 @@ def engine_writer_round(c, n, feedback):
         # The next call and its checks would likely outlive this attempt (writer steps were killed at
         # the 4 h deadline mid-cycle, losing the cycle and an infra retry). Hand the findings to a
         # fresh attempt of this round instead: same call count, same problems, full time.
+        from durable.policy import WRITER_HANDBACK, WRITER_HANDBACK_CEILING
         if (deadline is not None and call < c.args.rounds
+                and handbacks < min(c.args.rounds - 1, WRITER_HANDBACK_CEILING)
                 and deadline - time.monotonic() < WRITER_CYCLE_MARGIN * (time.monotonic() - cycle_started) + WRITER_CYCLE_RESERVE_S):
-            from durable.policy import WRITER_HANDBACK
             atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                        "report": f"round-{n}.json", "round_start": start, "repair_pending": True,
+                                       "handbacks": handbacks + 1,
                                        "handback": {"call": call + 1, "problems": problems, "case": case_hash(c)}})
             return {"outcome": Outcome.OK, "reason": WRITER_HANDBACK}
     return {"outcome": Outcome.EXHAUSTED, "reason": "writer:rounds_exhausted"}
@@ -2937,12 +2945,12 @@ def engine_stress_round(c, n):
     from registry import atomic_json
     if c.args.dry_run and c.card.get("admission", {}).get("status") == "practice_dry_run":
         return {"outcome": Outcome.OK, "reason": "stress:practice"}
-    if (c.card.get("admission_freshness") or {}).get("outcome") == "public_match":
-        return {"outcome": Outcome.OK, "reason": "stress:public_match"}
     infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
     pending = jload(c.work / "attack-state.json", None)
     if isinstance(pending, dict) and pending.get("handback") is not None:
         return infra("writer_handback_pending")  # an engine without writer_handback_retry advanced a handback
+    if (c.card.get("admission_freshness") or {}).get("outcome") == "public_match":
+        return {"outcome": Outcome.OK, "reason": "stress:public_match"}
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
     report = c.work / "attacks" / f"round-{n}.json"
