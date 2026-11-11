@@ -1353,6 +1353,33 @@ class Resume(unittest.TestCase):
         self.assertEqual(r2.run()['result']['cases'], {C1 + '@b-u': 'sealed'})
         self.assertEqual([k[1] for k in r.keys(1)[before:]], ['writer:2', 'gates:2', 'writer:3', 'gates:3', 'seal'])
 
+    def test_the_newest_attempt_decides_after_a_rewind_to_a_lower_seq(self):
+        # 18681d on 11 November: its recertify GATES (seq 2) stopped on infra, a factory_bug diagnosis
+        # at seq 3 held it, and the resume reran GATES at seq 2, which asked for a G16 repair. The old
+        # diagnosis still has the highest key; the newest attempt is the repair request.
+        r, out = self.manual_run({'import_snapshot': True,
+                                  'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 1},
+                                  'script': {'1/admit/1': {'reason': 'admit:imported_sealed'},
+                                             '1/gates:1/*': {'outcome': 'infra_error', 'reason': 'infra:stalled',
+                                                             'checkpoint': True},
+                                             '1/diagnosis/*': {'verdict': 'factory_bug'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'held'})
+        self.assertEqual(r.keys(1)[-1], ('3', 'diagnosis', '1'))
+        spec = {'max_infra_retries_per_step': 1}
+        r2 = self.engine_run({'spec': {'batch_id': 'b-u', 'max_cases_started': 1, **spec}, 'resume_of': C1,
+                              'script': {'1/gates:1/*': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
+                                                         'passed': ['G1', 'G2', 'G10']}}}, workdir=r.work)
+        self.assertEqual(r2.run()['result']['cases'], {C1 + '@b-u': 'retired'})
+        self.assertEqual(r.keys(1)[-1], ('2', 'gates:1', '3'))
+        before = len(r.starts(1))
+        r3 = self.engine_run({'spec': {'batch_id': 'b-v', 'max_cases_started': 1, **spec}, 'resume_of': C1},
+                             workdir=r.work)
+        # The gates_repair resume: the repair request replays and its feedback goes to a writer round.
+        self.assertEqual(r3.run()['result']['cases'], {C1 + '@b-v': 'sealed'})
+        self.assertEqual(r.keys(1)[before:], [('3', 'writer:2', '1'), ('4', 'gates:2', '1'), ('5', 'seal', '1')])
+        self.assertEqual(start(r, f'{C1}/3/writer:2/1')['opened']['feedback'], f'repair {C1}/2/gates:1/3')
+
     def test_a_case_retired_by_a_verdict_is_still_not_resumed(self):
         r, out = self.manual_run({'spec': {'max_cases_started': 1},
                       'script': {'1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G3', 'repairable': False}}})

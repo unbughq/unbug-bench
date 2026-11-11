@@ -355,7 +355,8 @@ A durable case stopped by an infrastructure failure resumes instead: `start --re
 <case>` makes it the only case of a new batch. It keeps its case ID, so its key, artifacts,
 snapshot card and admission binding stay valid. Only its workflow is new (`<case>@<batch>`),
 and the batch maps it back for cards and seals. `engine.resume_point` allows this only when every
-workflow of the case finished held or retired and its last attempt ended `infra_error` or
+workflow of the case finished held or retired and its last attempt (the newest by creation, not the
+highest seq: a `factory_bug` resume rewinds below an older diagnosis) ended `infra_error` or
 `provider_limit`, never after a verdict, gate, limit or founder decision (one exception for a
 `factory_bug` hold follows below). The new workflow
 replays every earlier seq from the attempts recorded under the case's keys, with no worker,

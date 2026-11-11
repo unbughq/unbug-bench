@@ -448,7 +448,10 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         out = w.output
         return out.get("result") if w.status == "SUCCESS" and isinstance(out, dict) else None
 
-    seq, attempt = max(attempts)
+    # The case's last attempt is the newest one, not the highest key: a factory_bug resume rewinds to
+    # seq - 1, so an older diagnosis can keep a higher seq (18681d, 11 November: its new 2/gates:1/7
+    # repair request was read as the old 3/diagnosis/5 and the gates_repair resume refused).
+    seq, attempt = max(attempts, key=lambda k: (attempts[k].created_at or 0, k))
     result = result_of(attempts[(seq, attempt)])
     earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
     if override is not None and any(r.get("override") is not None for r in earlier):
@@ -480,6 +483,8 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         skip = {}
         for r in earlier:
             skip.update({int(k): v for k, v in r.get("skip", {}).items()})
+        # Seqs above the repaired GATES belong to steps that no longer follow it (an older diagnosis).
+        skip = {k: v for k, v in skip.items() if k <= seq}
         return ({"seq": seq + 1, "skip": {str(k): v for k, v in sorted(skip.items())},
                  "factory_bug_resumes": factory_bug_resumes + unreplayed(seq + 1), "recertify_repair": True,
                  "recertify_repair_seq": seq,
