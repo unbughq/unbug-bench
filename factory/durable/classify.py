@@ -28,6 +28,8 @@ from durable.contract import REASON, Classified, ContractError, Outcome, StepKin
 # first-failure delay (900 s) for every reason except router_unavailable, so the engine
 # and the router back off alike (tests/factory/test_durable_classify.py pins the two).
 BACKOFF_S = 900.0
+# A capacity wait whose lease expiry has passed retries within one lease (model_router.LEASE_SECONDS).
+CAPACITY_BACKOFF_S = 180.0
 # A reset time further ahead than this is not trusted (weekly windows are 7 days).
 MAX_RESET_AHEAD_S = 8 * 24 * 3600.0
 
@@ -371,11 +373,14 @@ def classify_wait(error, *, step, now, prior=()):
     original = next((row['source_stop'] for row in reversed(waits) if 'source_stop' in row), None)
     reason = fault or waits[-1]['reason']
     reset = max((r['retry_after'] for r in active if 'retry_after' in r), default=None)
-    if original and fault is None and reason not in ('quota', 'rate', 'credit', 'capacity'):
+    if original and fault is None and reason not in ('quota', 'rate', 'credit'):
         result = classify(original, step=step, now=now, reset_at=reset)
     else:
         outcome, code = _WAIT.get(reason, (_I, UNCLASSIFIED))
-        result = Classified(outcome, code, _retry_at(now, reset) if outcome is _P else None)
+        retry = _retry_at(now, reset) if outcome is _P else None
+        if reason == 'capacity':
+            retry = min(retry, now + CAPACITY_BACKOFF_S)   # a stale lease expiry is no reason for 15 min
+        result = Classified(outcome, code, retry)
     return result, {'schema': 1, 'waits': waits}
 
 

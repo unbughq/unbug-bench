@@ -359,7 +359,7 @@ class Store:
         self.path, self.clock = str(path), clock
         self.capacities, self.accounts = capacities or {}, tuple(accounts)
         if any(a not in ACCOUNTS for a in self.accounts): raise ValueError('unapproved account')
-        if any(type(n) is not int or not 0 <= n <= 100 for n in self.capacities.values()):
+        if any(type(n) is not int or not 1 <= n <= 100 for n in self.capacities.values()):
             raise ValueError('invalid lane capacity')
         # Route prefixes the operator has switched off (e.g. "opencode-go/" while the Go plan's weekly
         # quota is spent): never leased or counted, while other routes of the same account pool, such
@@ -454,7 +454,7 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd', 'capacity_protocol'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
                 if 'funding_usd' in data and _nano(data['funding_usd'], ROUND_FLOOR) <= 0: raise ValueError('empty invocation funding')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
@@ -496,7 +496,10 @@ class Store:
                             limit = blocked(route)
                             ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
                                      min((e for pool,e in active if pool == route['pool']), default=now + 15))
-                            alternatives.append((ready, limit['reason'] if limit else 'capacity', route))
+                            # Only a client that waits for seats is told `capacity`; an older one rejects the reason
+                            # as an invalid response, which would recreate its worker on every full seat.
+                            alternatives.append((ready, limit['reason'] if limit else
+                                                 'capacity' if data.get('capacity_protocol') == 1 else 'rate', route))
                         bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
                         ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
                             now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'outage') if bounded
@@ -731,7 +734,8 @@ def _account_order(case):
 
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
-    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1)
+    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1,
+                capacity_protocol=1)
     funding = getattr(case, 'router_funding_usd', None)
     if funding is not None: data['funding_usd'] = funding
     result = _rpc('acquire', data)
@@ -865,7 +869,9 @@ def await_lease(role, case, deadline=None):
                         route=wait.route if wait else getattr(case, 'router_model', None),
                         account=wait.account if wait else None,
                         lease_id=wait.lease_id if wait else None, call_id=wait.call_id if wait else None)
-        patience = CAPACITY_WAIT_SECONDS if wait.reason == 'capacity' else WAIT_SECONDS
+        # A call with its own short timeout (an exam owner question: 120 s) never waits past it.
+        patience = (min(CAPACITY_WAIT_SECONDS, getattr(case, 'router_capacity_seconds', CAPACITY_WAIT_SECONDS))
+                    if wait.reason == 'capacity' else WAIT_SECONDS)
         if enabled and (time.monotonic() - started >= patience or time.time() >= stop_at):
             try: _rpc('cancel', {'id': identity})
             except RouterUnavailable:
