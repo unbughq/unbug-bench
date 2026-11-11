@@ -66,6 +66,10 @@ controller and deletes the workers. `preflight.py` adds advance warnings to the 
 status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
 degrade, pause or stop, and an unreadable input is an "unknown" warning. On SIGTERM the engine drains, then
 exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
+Restart the controller or send a plumbing or bench release only when `control/check-drained.py --config
+<config>` exits 0: no attempt holds a leased worker without its recorded `attempt_step`, and the
+model router holds no unexpired lease (read-only; exit 1 names what runs, 2 means unreadable). Restarts
+and release sends mid-step cost 19 hours of `infra:worker_lost` from 6 November.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 `client.py` reads that operator's public status/report over SSH using a saved local
 connection and default batch. `bin/install-unbug` packages a standalone read-only
@@ -128,10 +132,14 @@ phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness
 progress and the card's `phase_times`. Before another writer call and its checks in the same
 attempt, the round compares the time left with 1.25 times the cycle just finished plus 15 minutes;
 when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
-returns `writer:handback` (OK, with its snapshot). The policy retries that seq outside the infra
-allowance, and the new attempt continues the round at that call with those findings. The early
+returns `writer:handback` (OK, with its snapshot). Under the `writer_handback_retry` DBOS patch the engine retries that seq outside the infra
+allowance (at most `MAX_WRITER_HANDBACKS` per seq, then as infra; a STRESS step finding a pending
+handback stops as infrastructure), and the new attempt continues the round at that call with those findings. The early
 saved-cheat sample shares one 30-minute allowance; cheats it does not reach are recorded
 `unchecked` (it is advisory; full G6 runs them all), and a spent allowance is never an infra retry.
+An older card with no `parallel_gates` key also adopts just that flag at GATES entry
+(`run.adopt_parallel_gates_at_entry`), leaving its `bench_workers` value unchanged so its
+already earned gate cache identities remain valid. An explicit true or false stays pinned.
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
@@ -140,7 +148,7 @@ side transfers blobs; workers receive no R2 credentials. Invoke executors throug
 Worker steps share structured wait classification: quota/rate/credit wait durably,
 credential delivery, unbounded routes and router outages park without consuming
 infrastructure retries; known CLI and unavailable-model faults retain the finite
-infrastructure allowance. Each wait retains an
+infrastructure allowance. Each wait, and every failed step, killed, crashed or raising included, retains an
 encrypted operational diagnostic with allowlisted causes, retry times and lease
 IDs. Worker diagnostics automatically include safe HTTP statuses and error categories.
 Scope-bound `durable.diagnostics` inspection runs in worker memory and exports
@@ -282,6 +290,10 @@ wait or message. If any attempt it needs is missing, it fails (`resume:diverged`
 starting new work in that history. The stopped seq first restores its recorded attempts
 (their snapshots, diagnostics and keys, so a changed step also diverges), then continues
 with a fresh infra retry allowance.
+Replayed seqs keep the bench their attempts recorded; the first live seq, unless it is GATES or SEAL
+(which take their versions as before), adopts the new batch's current bench release (patch
+`resume_adopts_bench`). Nothing kept depends on the old bench: SEAL runs only under its GATES versions and
+every later path to SEAL passes a GATES step, which adopts the current bench anyway.
 Counters, snapshot and evidence therefore come out of the same code that built them. `start`
 refuses unless the earlier spend (the ledger across the original and every earlier resume
 batch, plus any declared import spend) plus the batch's
@@ -323,7 +335,11 @@ Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
 geography stays conservatively priced, while explicit global usage releases it.
 Engine invocations request a quote bounded by their currently uncommitted attempt
 funding. OpenRouter qualification-sized default windows are replaced by this
-funded window (at most $50); explicit Claude profile ceilings remain binding.
+funded window (at most $50, and at most $12.50 for an OpenRouter or OpenCode model outside the
+writer and stress roles, so four such calls fit one grant at once); explicit Claude profile ceilings remain binding.
+A reservation is marked launched before its model process can start; a pending one never
+launched spent nothing, so spend accounting and crash reconciliation settle it at $0, while
+admission still counts it.
 The router persists and validates that quote, and the worker atomically reserves
 it before execution. Exam calibrators leave a qualified reviewer window outside
 their hold so nested owner questions remain funded. This changes no case/batch bound and retains unknown charges.
@@ -335,11 +351,15 @@ historical first-use qualification ceiling remains fixed across restarts.
 An unconfirmed paid request books its whole hold until the provider says otherwise.
 The gate passes the call's OpenRouter generation id with an unconfirmed settle, and a
 router pass every minute (or `model_router.py --reconcile-once`) settles such a row at
-that generation's reported `total_cost`, never above its hold, and one generation
-settles one row. Older unknown rows are bounded by the account's all-time usage: rows
+that generation's reported `total_cost` ($0 when nothing was charged), never above its hold,
+and one generation settles one row. The report names the route's model or its dated permaslug
+(`xiaomi/mimo-v2.6-pro-20260921`); a row already bounded below still settles at its report, and
+each pass samples unknown rows at random so ones the provider never reports cannot starve the rest. Older unknown rows are bounded by the account's all-time usage: rows
 older than the credit window together cost at most that usage less the provider-reported
 costs of settled rows equally old, so their charges are scaled down to that bound and
-marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged.
+marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged; a later
+generation report replaces the bounded share with the provider's cost, which may be higher but
+never above the row's hold.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and

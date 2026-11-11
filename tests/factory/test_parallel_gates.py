@@ -16,6 +16,7 @@ from contextlib import ExitStack
 from unittest import mock
 
 import run
+import gate_state
 import public_progress
 from durable import checkpoints as cp
 from durable.steps import admit
@@ -162,6 +163,41 @@ class RunningCases(unittest.TestCase):
             c, path = self.case(config, dry_run=dry)
             self.assertFalse(run.adopt_parallel_checks(c, 1, path))
             self.assertEqual((c.card["recovery_config"], c.args.bench_workers), (config, 1))
+
+    def test_gates_entry_adopts_only_the_missing_flag(self):
+        c, _ = self.case({"bench_workers": 1, "rounds": 8})
+        c.engine, c.stopped = object(), False
+        with mock.patch.object(run, "validate_and_repair", side_effect=lambda c: self.assertTrue(run.parallel_gates(c))):
+            result = run.engine_gates(c)
+        self.assertEqual(result["reason"], "engine:gates_passed")
+        self.assertEqual(c.card["recovery_config"], {"bench_workers": 1, "rounds": 8, "parallel_gates": True})
+        self.assertEqual(c.args.bench_workers, 1)
+
+    def test_gates_entry_respects_explicit_flags_and_dry_runs(self):
+        for config, dry in (({"parallel_gates": False, "bench_workers": 1}, False),
+                            ({"parallel_gates": True, "bench_workers": 1}, False),
+                            ({"bench_workers": 1}, True)):
+            c, _ = self.case(config, dry_run=dry)
+            self.assertFalse(run.adopt_parallel_gates_at_entry(c))
+            self.assertEqual(c.card["recovery_config"], config)
+            self.assertEqual(c.args.bench_workers, 1)
+
+    def test_gates_entry_keeps_passed_gate_cache_identities(self):
+        c, _ = self.case({"bench_workers": 1})
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        c.case = pathlib.Path(tmp.name) / "case"
+        c.case.mkdir()
+        c.seed, c.models = 7, {}
+        bench = pathlib.Path(tmp.name) / "bench"
+        bench.mkdir()
+        before = {gate: gate_state.fingerprint(c, gate, bench) for gate in gate_state.REUSABLE}
+        self.assertTrue(run.adopt_parallel_gates_at_entry(c))
+        after = {gate: gate_state.fingerprint(c, gate, bench) for gate in gate_state.REUSABLE}
+        self.assertEqual(before, after)
+        for gate in gate_state.REUSABLE:
+            sources = gate_state.runner_inputs(gate)
+            self.assertNotIn("engine_gates", sources)
+            self.assertNotIn("adopt_parallel_gates_at_entry", sources)
 
 
 class Admission(unittest.TestCase):

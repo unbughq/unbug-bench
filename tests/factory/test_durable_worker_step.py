@@ -426,6 +426,9 @@ class WireProtocolTests(unittest.TestCase):
         result = h.wait(si, 60)
         self.assertIn(result.reason, ("infra:deadline", "infra:timeout"))
         self.assertFalse(h.processes(si))
+        # A killed step seals the same diagnostic as any other failure.
+        details = json.loads(h.output(si, result.diagnostic))
+        self.assertLessEqual({"runner_log_tail", "stop", "operational"}, set(details))
 
     def test_killed_attempt_reports_its_usage_so_far(self):
         h = WorkerHome(self)
@@ -667,6 +670,37 @@ class HookTests(unittest.TestCase):
         self.assertEqual(order[1].outcome, Outcome.INFRA_ERROR)
         self.assertEqual(order[1].usage.calls, 1)
         self.assertEqual(order[1].usage.paid_usd_micros, 750000)
+
+    def test_killed_crashed_and_raising_steps_seal_the_failure_diagnostic(self):
+        work = practice_tree(self.root / "work", CASE)
+        (work / "logs" / "runner.log").write_text("runner reached g1\n")
+        si = StepInput(BATCH, CASE, 1, Step(StepKind.WRITER, 1), 1, PLUMBING, BENCH_V,
+                       Ref("1" * 64, ArtifactKind.INPUTS), Ref("2" * 64, ArtifactKind.CASE_SNAPSHOT), 600.0, 5_000_000)
+        worker = worker_step.Worker(self.root)
+        worker.paths(si.idempotency_key)["attempt"].mkdir(parents=True)
+        sealer = types.SimpleNamespace(seal=lambda key, kind, raw: (Ref(hashlib.sha256(raw).hexdigest(), kind), raw))
+        keys = {CASE: b"k" * 32}
+
+        def opened(result):
+            path = worker.paths(si.idempotency_key)["out"] / worker_step.blob_name(result.diagnostic)
+            return json.loads(path.read_bytes())
+
+        with patch.object(worker, "sealer", return_value=sealer):
+            for reason in ("infra:deadline", "infra:step_crashed"):   # the supervisor's two paths
+                with self.subTest(reason=reason):
+                    result, outputs = worker._sealed_failure(si, keys, reason)
+                    worker.commit(si.idempotency_key, result, outputs)
+                    self.assertEqual(result.reason, reason)
+                    details = opened(result)
+                    self.assertEqual(details["stop"], reason)
+                    self.assertIn("runner reached g1", details["runner_log_tail"])
+                    self.assertIn("operational", details)
+                    worker.paths(si.idempotency_key)["result"].unlink()
+            with patch.object(worker, "execute", side_effect=RuntimeError("injected")):
+                worker.run_attempt(si, keys)
+            result = worker.read_result(si.idempotency_key)
+            self.assertEqual(result.reason, "infra:worker_error")
+            self.assertIn("injected", opened(result)["traceback"])
 
     def test_context_keeps_supervisor_deadline_and_discards_legacy_timeout(self):
         with patch.dict(os.environ, {"UNBUG_DURABLE_DEADLINE_EPOCH": str(time.time() + 30)}):

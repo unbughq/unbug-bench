@@ -176,8 +176,8 @@ class StressLoopTests(unittest.TestCase):
             run.cheat_runs(h.c, 5, 'g6')
 
     def test_writer_hands_back_findings_instead_of_starting_a_doomed_cycle(self):
-        from durable.contract import ArtifactKind, BatchSpec, Outcome, Ref, Step, StepKind, StepResult
-        from durable.policy import Action, Counters, WRITER_HANDBACK, decide
+        from durable.contract import Outcome
+        from durable.policy import WRITER_HANDBACK
         h = self.harness()
         calls, prompts = [], {}
         def model(c, models, text, cwd, name):
@@ -195,13 +195,12 @@ class StressLoopTests(unittest.TestCase):
         state = json.loads((h.c.work / 'attack-state.json').read_text())
         self.assertEqual(state['handback']['call'], 2)
         self.assertEqual(state['handback']['problems'], ['early check G4 failed: synthetic'])
-        # The engine reruns the round with fresh time, outside the infra allowance.
-        spec = BatchSpec(batch_id='b-pilot', plumbing_version='a' * 64, bench_version='a' * 64,
-                         app_repo='medusajs/medusa', app_commit='c' * 40, inputs=Ref('a' * 64, ArtifactKind.INPUTS),
-                         target_sealed=5, money_bound_usd_micros=1, deadline_epoch=2e9, max_cases_started=4)
-        self.assertIs(decide(Step(StepKind.WRITER, 2), StepResult(Outcome.OK, WRITER_HANDBACK, snapshot=Ref("b" * 64, ArtifactKind.CASE_SNAPSHOT)),
-                             Counters(), spec),
-                      Action.RETRY)
+        # A STRESS step that finds this pending handback (an engine without the retry patch advanced
+        # it) stops as infrastructure instead of attacking an unvalidated case.
+        with patch.object(run, 'stress_categories') as attack:
+            self.assertEqual(run.engine_stress_round(h.c, 2),
+                             {'outcome': Outcome.INFRA_ERROR, 'reason': 'stress:writer_handback_pending'})
+        attack.assert_not_called()
         # Attempt 2 continues at call 2 with the early-check findings, not the stress feedback.
         h.c.engine.deadline_monotonic = run.time.monotonic() + 14400
         with patch.object(run, 'opencode', model):

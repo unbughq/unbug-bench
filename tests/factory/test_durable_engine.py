@@ -415,6 +415,22 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 0)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
+    def test_unpatched_workflow_replays_the_advance_it_recorded_for_a_handback(self):
+        # A workflow recorded before writer_handback_retry (old controller, new plumbing) advanced.
+        handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
+        r, out = run({"disabled_patches": ["writer_handback_retry"], "script": {"1/writer:1/1": handback}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
+
+    def test_endless_handbacks_become_infra_after_the_call_cap(self):
+        # MAX_WRITER_HANDBACKS (8) free retries, then each counts as infra: allowance 1, so the 10th diagnoses.
+        handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
+        r, out = run({"spec": {"max_infra_retries_per_step": 1},
+                      "script": {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 10 + ["diagnosis"])
+        self.assertEqual(out["result"]["cases"][C1], "held")   # a held case starts its replacement
+
     def test_batch_deadline_stops_after_the_deadline_never_diagnose(self):
         # The deadline passes while case 1 writes; four batch-deadline stops follow, with an infra
         # allowance of one. The running case still seals: the deadline only stops new work.
@@ -1355,6 +1371,29 @@ class Resume(unittest.TestCase):
         self.assertEqual(r.keys(1)[before], (wseq, "writer:1", "4"))
         self.assertFalse([k for k in r.keys(1)[before:] if k[1] == "diagnosis"])
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+
+    # 86b100 on 11 November: resumed in a batch naming a newer bench, its writer kept the bench of
+    # its last recorded GATES and crashed there.
+    def test_a_resumed_writer_step_adopts_the_new_batch_bench(self):
+        repair = {"outcome": "gate_failed", "gate": "G5", "repairable": True, "passed": ["G1"]}
+        infra = {"outcome": "infra_error", "reason": "infra:invalid_execution", "checkpoint": True}
+        for disabled, expected in (([], "4444"), (["resume_adopts_bench"], "2222")):
+            with self.subTest(disabled=disabled):
+                r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                              "script": {"1/gates:1/1": repair, "1/writer:2/*": infra,
+                                         "1/diagnosis/*": {"verdict": "factory_bug"}}})
+                self.addCleanup(r.close)
+                self.assertEqual(out["result"]["cases"], {C1: "held"})
+                before = len(r.starts(1))
+                r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1,
+                                         "bench_version": "4" * 64},
+                                "resume_of": C1, "script": {"1/writer:2/*": {}}, "disabled_patches": disabled},
+                               workdir=r.work)
+                out = r2.run()
+                self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+                seen = [(x["key"].split("/", 2)[2], x["bv"]) for x in r.starts(1)[before:]]
+                self.assertEqual(seen[0], ("writer:2/3", expected))
+                self.assertEqual(seen[-2:], [("gates:2/1", "4444"), ("seal/1", "4444")])
 
     # 2abb0a on 10 November: writer attempts ended infra_error and provider_limit (quota, credit).
     def test_a_writer_step_that_stopped_on_infra_and_provider_limits_resumes_after_a_factory_bug(self):
