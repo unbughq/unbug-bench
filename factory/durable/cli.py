@@ -44,7 +44,8 @@ def dispatch(runtime, request):
             raise RuntimeErrorCode("unsupported_preparation")
         return to_record(runtime.prepare(request["scope"], kind, base64.b64decode(request["content"], validate=True)))
     if op == "start":
-        return runtime.start(request["spec"], request["registry"], request.get("import"), request.get("resume"))
+        return runtime.start(request["spec"], request["registry"], request.get("import"), request.get("resume"),
+                             request.get("override_reason"))
     if op == "install":
         digest = runtime.releases.put_bundle(base64.b64decode(request["content"], validate=True))
         runtime.releases.register_bench(request["bench_version"], request["image"])
@@ -173,6 +174,10 @@ def main(argv=None):
     start.add_argument("--resume-case", help="a case stopped by an infrastructure failure (held or retired), or held "
                        "by a factory_bug diagnosis of an unchanged repair: continue it as this "
                        "one-case batch's case, where it stopped")
+    start.add_argument("--override-reason", help="operator override (founder 2026-11-11): resume --resume-case once "
+                       "more where the normal rules refuse it (a factory_bug hold whose stops are not all rerunnable "
+                       "or that used its resumes, or a case whose last attempt was not an infra stop); never a "
+                       "scientific stop or a sealed case. Recorded on the case card and the board")
     install = commands.add_parser("install")
     install.add_argument("content_file", help="existing worker release bundle")
     install.add_argument("bench_version")
@@ -208,10 +213,14 @@ def main(argv=None):
         elif args["op"] == "resume":
             result = resume(config)
         else:
+            if args.get("override_reason") is not None and args.get("resume_case") is None:
+                raise RuntimeErrorCode("override_needs_resume_case")
             for field in ("spec", "registry", "payload", "import"):
                 if args.get(field + "_file") is not None:
                     args[field] = json.loads(private_bytes(args.pop(field + "_file")))
             args.pop("import_file", None)
+            if args.get("override_reason") is None:
+                args.pop("override_reason", None)
             if args.get("resume_case") is not None:
                 args["resume"] = args.pop("resume_case")
             args.pop("resume_case", None)

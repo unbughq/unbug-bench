@@ -1353,6 +1353,33 @@ class Resume(unittest.TestCase):
         self.assertEqual(r2.run()['result']['cases'], {C1 + '@b-u': 'sealed'})
         self.assertEqual([k[1] for k in r.keys(1)[before:]], ['writer:2', 'gates:2', 'writer:3', 'gates:3', 'seal'])
 
+    def test_the_newest_attempt_decides_after_a_rewind_to_a_lower_seq(self):
+        # 18681d on 11 November: its recertify GATES (seq 2) stopped on infra, a factory_bug diagnosis
+        # at seq 3 held it, and the resume reran GATES at seq 2, which asked for a G16 repair. The old
+        # diagnosis still has the highest key; the newest attempt is the repair request.
+        r, out = self.manual_run({'import_snapshot': True,
+                                  'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 1},
+                                  'script': {'1/admit/1': {'reason': 'admit:imported_sealed'},
+                                             '1/gates:1/*': {'outcome': 'infra_error', 'reason': 'infra:stalled',
+                                                             'checkpoint': True},
+                                             '1/diagnosis/*': {'verdict': 'factory_bug'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'held'})
+        self.assertEqual(r.keys(1)[-1], ('3', 'diagnosis', '1'))
+        spec = {'max_infra_retries_per_step': 1}
+        r2 = self.engine_run({'spec': {'batch_id': 'b-u', 'max_cases_started': 1, **spec}, 'resume_of': C1,
+                              'script': {'1/gates:1/*': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
+                                                         'passed': ['G1', 'G2', 'G10']}}}, workdir=r.work)
+        self.assertEqual(r2.run()['result']['cases'], {C1 + '@b-u': 'retired'})
+        self.assertEqual(r.keys(1)[-1], ('2', 'gates:1', '3'))
+        before = len(r.starts(1))
+        r3 = self.engine_run({'spec': {'batch_id': 'b-v', 'max_cases_started': 1, **spec}, 'resume_of': C1},
+                             workdir=r.work)
+        # The gates_repair resume: the repair request replays and its feedback goes to a writer round.
+        self.assertEqual(r3.run()['result']['cases'], {C1 + '@b-v': 'sealed'})
+        self.assertEqual(r.keys(1)[before:], [('3', 'writer:2', '1'), ('4', 'gates:2', '1'), ('5', 'seal', '1')])
+        self.assertEqual(start(r, f'{C1}/3/writer:2/1')['opened']['feedback'], f'repair {C1}/2/gates:1/3')
+
     def test_a_case_retired_by_a_verdict_is_still_not_resumed(self):
         r, out = self.manual_run({'spec': {'max_cases_started': 1},
                       'script': {'1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G3', 'repairable': False}}})
@@ -1516,6 +1543,164 @@ class Resume(unittest.TestCase):
                 self.addCleanup(r.close)
                 self.assertEqual(out["result"]["cases"], {C1: "held"})
                 self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
+
+
+class ResumeOverride(unittest.TestCase):
+    """Founder 2026-11-11: a case killed by a since-fixed factory bug resumes once more by an operator
+    override (`start --resume-case <case> --override-reason <text>`) where Resume's rules refuse it.
+    Never an unfinished, sealed or scientifically stopped case, and once per lineage."""
+
+    WHY = "factory bug fixed in #122"
+
+    def manual_run(self, scenario, timeout=120):
+        return run(manual_holds(scenario), timeout)
+
+    def resume(self, r, batch, script=None, override=None, spec=None):
+        scenario = {"spec": {"batch_id": batch, "max_cases_started": 1, **(spec or {})}, "resume_of": C1,
+                    "script": script or {}}
+        if override is not None:
+            scenario["override"] = override
+        return EngineRun(manual_holds(scenario), workdir=r.work).run()
+
+    def test_a_gates_hold_past_the_resume_cap_resumes_once_per_lineage(self):
+        # cae763-2-1: three factory_bug resumes, then a fourth factory_bug after gates
+        # infra:raw_infrastructure_exhausted, which the policy retires.
+        spec = {"max_infra_retries_per_step": 2}
+        again = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",
+                                 "checkpoint": True},
+                 "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = self.manual_run(Resume.GATES_INFRA)
+        self.addCleanup(r.close)
+        for n, batch in enumerate(("b-u", "b-v", "b-w"), start=1):
+            self.assertEqual(self.resume(r, batch, again, spec=spec)["result"]["cases"],
+                             {f"{C1}@{batch}": "held" if n < 3 else "retired"})
+        self.assertEqual(self.resume(r, "b-x", spec=spec), {"refused": "resume:not_stopped_by_infra"})
+        before = len(r.starts(1))
+        # The override reruns the diagnosed GATES step; it stops again, and past the cap its next
+        # factory_bug retires at once instead of holding.
+        out = self.resume(r, "b-y", again, override=self.WHY, spec=spec)
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-y": "retired"})
+        new = r.keys(1)[before:]
+        gseq = new[0][0]
+        self.assertEqual([k[1] for k in new], ["gates:1"] * 3 + ["diagnosis"])
+        self.assertEqual(new[0][2], str(int(r.keys(1)[before - 2][2]) + 1))   # after its recorded attempts
+        self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()),
+                         [f"{C1}/{gseq}/gates:1/{n}" for n in range(1, int(new[0][2]))])
+        self.assertEqual(card(out, C1)["override"], self.WHY)
+        # Once per lineage, recorded in the resume record across batches.
+        self.assertEqual(self.resume(r, "b-z", override="again", spec=spec), {"refused": "resume:override_used"})
+        self.assertEqual(self.resume(r, "b-z", spec=spec), {"refused": "resume:not_stopped_by_infra"})
+
+    def test_a_factory_bug_hold_whose_step_never_started_resumes_at_that_step(self):
+        # The diagnosed stress step never started (the case grant was below the minimum), so it
+        # reached no result, but the rerunnable rule requires stops it can read: refused by the rules.
+        script = {"1/writer:1/1": {"paid": 1_000_000}, "1/diagnosis/*": {"verdict": "factory_bug"}}
+        spec = {"case_money_usd_micros": 1_500_000}
+        r, out = self.manual_run({"spec": {"max_cases_started": 1, **spec}, "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        dseq, kind, _ = r.keys(1)[-1]
+        self.assertEqual(kind, "diagnosis")
+        self.assertEqual(r.keys(1)[-2], (str(int(dseq) - 2), "writer:1", "1"))   # stress:1 never started
+        self.assertEqual(self.resume(r, "b-u", spec=spec), {"refused": "resume:not_stopped_by_infra"})
+        before = len(r.starts(1))
+        out = self.resume(r, "b-v", override=self.WHY, spec={"case_money_usd_micros": 50 * M})
+        self.assertEqual(r.keys(1)[before], (str(int(dseq) - 1), "stress:1", "2"))
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "sealed"})
+        self.assertEqual(card(out, C1)["override"], self.WHY)
+
+    def test_an_exhausted_round_or_call_ceiling_is_refused_even_with_the_override(self):
+        # FACTORY.md: exhausted ceilings need higher explicit flags, not a reset. A factory_bug hold
+        # whose diagnosed writer stopped on one is not rerun by the override.
+        for reason in ("writer:rounds_exhausted", "writer:call_limit", "writer:total_call_limit"):
+            with self.subTest(reason):
+                r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
+                                          "script": {"1/writer:1/1": {"outcome": "infra_error",
+                                                                      "reason": "infra:execution_retries_exhausted"},
+                                                     "1/writer:1/2": {"outcome": "exhausted", "reason": reason},
+                                                     "1/diagnosis/*": {"verdict": "factory_bug"}}})
+                self.addCleanup(r.close)
+                self.assertEqual(out["result"]["cases"], {C1: "held"})
+                self.assertEqual(self.resume(r, "b-u", override=self.WHY, spec={"max_infra_retries_per_step": 2}),
+                                 {"refused": "resume:ceiling_stop"})
+
+    def test_a_case_retired_by_the_deadline_after_close_to_passing_reruns_its_diagnosis(self):
+        # f46dac-4-1: out of case money, then the diagnosis said close_to_passing after the batch
+        # deadline, so no extension started and the case retired. The override asks it afresh.
+        r, out = self.manual_run({"spec": {"max_cases_started": 1}, "deadline_in": 12,
+                                  "script": {"1/stress:1/1": {"feedback": True},
+                                             "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:money",
+                                                              "checkpoint": True},
+                                             "1/diagnosis/*": {"verdict": "close_to_passing", "dur": 13}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        dseq, kind, attempt = r.keys(1)[-1]
+        self.assertEqual((kind, attempt), ("diagnosis", "1"))
+        self.assertEqual(self.resume(r, "b-u"), {"refused": "resume:not_stopped_by_infra"})
+        before = len(r.starts(1))
+        out = self.resume(r, "b-v", {"1/diagnosis/*": {"verdict": "close_to_passing"}}, override=self.WHY)
+        self.assertEqual([k[1:] for k in r.keys(1)[before:]][:2], [("diagnosis", "2"), ("writer:3", "1")])
+        self.assertEqual(r.keys(1)[before][0], dseq)
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "sealed"})
+        c = card(out, C1)
+        self.assertEqual((c["override"], c["extensions"], c["diagnoses"]), (self.WHY, 1, 1))
+        self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()), [])
+
+    def test_a_deadline_retire_after_an_extension_without_progress_is_refused(self):
+        # decide_diagnosis retires a close_to_passing case whose extension made no progress, deadline
+        # or not: that is a judgment, so the override does not ask again.
+        r, out = self.manual_run({"spec": {"max_cases_started": 1}, "deadline_in": 14,
+                                  "script": {"1/stress:1/1": {"feedback": True},
+                                             "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                             "1/5/diagnosis/1": {"verdict": "close_to_passing"},
+                                             "1/gates:3/1": {"outcome": "gate_failed", "gate": "G5",
+                                                             "repairable": True, "passed": []},
+                                             "1/9/diagnosis/1": {"verdict": "close_to_passing", "dur": 16}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        self.assertEqual(r.keys(1)[-1], ("9", "diagnosis", "1"))
+        self.assertEqual(card(out, C1)["extensions"], 1)
+        self.assertEqual(self.resume(r, "b-u", override=self.WHY), {"refused": "resume:scientific_stop"})
+
+    def test_scientific_stops_are_refused_even_with_the_override(self):
+        retire = {"when": {"case": 1, "status": "escalated"}, "reply": {"action": "retire"}}
+        for name, scenario in (
+                ("factory_bug after a gate verdict",
+                 {"spec": {"max_cases_started": 1, "max_writer_rounds": 1},
+                  "script": {"1/gates:1/*": {"outcome": "gate_failed", "gate": "G5", "repairable": True},
+                             "1/diagnosis/*": {"verdict": "factory_bug"}}}),
+                ("a gate verdict", {"spec": {"max_cases_started": 1},
+                                    "script": {"1/gates:1/1": {"outcome": "gate_failed", "gate": "G3", "repairable": False}}}),
+                ("a founder decision", {"spec": {"max_cases_started": 1}, "actions": [retire],
+                                        "script": {"1/4/gates:1/1": {"outcome": "needs_founder", "gate": "G16",
+                                                                     "reason": "g16:split_review"}}}),
+                ("a diagnosis verdict", {"spec": {"max_cases_started": 1},
+                                         "script": {"1/stress:1/1": {"feedback": True},
+                                                    "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                                    "1/diagnosis/*": {"verdict": "not_converging"}}})):
+            with self.subTest(name):
+                r, out = self.manual_run(scenario)
+                self.addCleanup(r.close)
+                self.assertIn(out["result"]["cases"][C1], ("held", "retired"))
+                self.assertEqual(self.resume(r, "b-u", override=self.WHY), {"refused": "resume:scientific_stop"})
+
+    def test_an_override_a_resume_does_not_need_is_not_spent(self):
+        r, out = self.manual_run(Resume.FACTORY_BUG)
+        self.addCleanup(r.close)
+        out = self.resume(r, "b-u", override=self.WHY)
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+        self.assertNotIn("override", card(out, C1))
+
+    def test_an_unknown_case_or_a_bad_reason_is_refused(self):
+        from durable.contract import ContractError
+        from durable.engine import resume_point
+        for reason in ("", "   ", "two\nlines", "x" * 201, 7):
+            with self.assertRaisesRegex(ContractError, "resume:bad_override"):
+                resume_point(C1, reason)
+        r = EngineRun(manual_holds({"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1,
+                                    "override": self.WHY}))
+        self.addCleanup(r.close)
+        self.assertEqual(r.run(), {"refused": "resume:unknown_case"})
 
 
 class ReleaseHolds(unittest.TestCase):

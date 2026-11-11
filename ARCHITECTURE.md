@@ -355,7 +355,8 @@ A durable case stopped by an infrastructure failure resumes instead: `start --re
 <case>` makes it the only case of a new batch. It keeps its case ID, so its key, artifacts,
 snapshot card and admission binding stay valid. Only its workflow is new (`<case>@<batch>`),
 and the batch maps it back for cards and seals. `engine.resume_point` allows this only when every
-workflow of the case finished held or retired and its last attempt ended `infra_error` or
+workflow of the case finished held or retired and its last attempt (the newest by creation, not the
+highest seq: a `factory_bug` resume rewinds below an older diagnosis) ended `infra_error` or
 `provider_limit`, never after a verdict, gate, limit or founder decision (one exception for a
 `factory_bug` hold follows below). The new workflow
 replays every earlier seq from the attempts recorded under the case's keys, with no worker,
@@ -406,6 +407,25 @@ will not replay (event `factory_bug_rerun_seqs`), so the cap holds across batche
 held before the patch stays held. Escalations (`NEEDS_FOUNDER`) never take this path.
 The board shows `held: waiting for a factory release` apart from `held: needs your decision`, and
 the guard neither alerts on it nor counts it as a stall.
+
+Founder 2026-11-11: an operator override resumes, once per lineage, a case these rules refuse:
+`start --resume-case <case> --override-reason <text>`. It drops only the rerunnable-stops and
+held-only requirements of a `factory_bug` diagnosis, `MAX_FACTORY_BUG_RESUMES`, and the
+infra-last-attempt requirement for a held or retired case whose last attempt reached no result
+(it never started, stopped on infrastructure, or on a `FACTORY_BUG_RESUMABLE` check), or whose
+diagnosis said `close_to_passing` and the batch deadline alone retired it (it had extensions left,
+its last extension progressed, and it is not a recertified case). It resumes where the rules would: the
+diagnosed step after a `factory_bug` diagnosis (booked as `factory_bug` waste, the resume counted),
+otherwise the stopped step itself, so such a diagnosis is asked afresh. It never resumes an
+unfinished, unknown or sealed case, nor a scientific stop (`resume:scientific_stop`): a gate verdict
+other than a recertified case's repair, a `NEEDS_FOUNDER` escalation or a stress round's findings,
+whether last or among the diagnosed step's attempts, and no diagnosis verdict but those two; nor an
+exhausted round, call or cost ceiling (`resume:ceiling_stop`, such as `writer:rounds_exhausted`):
+FACTORY.md raises those by explicit flags, never by a reset. The
+reason rides in the resume record, so a second override of the lineage is refused
+(`resume:override_used`); an override the rules did not need is not recorded. A lineage past the cap
+retires at its next `factory_bug` diagnosis. The override's case card and the board show the reason;
+the published scorecard does not.
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch

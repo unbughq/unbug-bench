@@ -260,7 +260,12 @@ def read_board(config, *, client=None, live_only: bool = False, now: Optional[fl
                                 observability_query_timeout_sec=3)
         for batch in batches:
             try:
-                card = scorecard(batch, load_cards(batch, client=client), allowlist=PUBLISHED_REASONS)
+                cards = load_cards(batch, client=client)
+                card = scorecard(batch, cards, allowlist=PUBLISHED_REASONS)
+                # An operator override's reason (engine resume_point) stays on this operator-only board;
+                # the published scorecard carries codes only.
+                overrides = {c['case_id']: c['override'] for c in cards
+                             if isinstance(c, dict) and isinstance(c.get('override'), str)}
                 seen = observe(config, card, client=client, controller=board['controller'], guard=board['guard'] or {})
             except Exception:
                 board['unavailable'].append(batch)
@@ -272,6 +277,8 @@ def read_board(config, *, client=None, live_only: bool = False, now: Optional[fl
             workflow = None if 'workflows' in missing else seen['observation'].get('workflow', {}).get('status')
             for case in seen['cases']:
                 board['cases'].append(_row(batch, workflow, case, money, at))
+                if case['case'] in overrides:
+                    board['cases'][-1]['override'] = overrides[case['case']]
         spans = {}
         for case_id in dict.fromkeys(r['case'] for r in board['cases']):
             try:
@@ -369,6 +376,8 @@ def render_board(board: dict) -> str:
         else:
             note = ''
         status = HELD_LABELS.get(r['status'], r['status']) + (f" ({r['reason']})" if r['reason'] else '') + note
+        if r.get('override'):
+            status += f" [operator override: {r['override']}]"
         table.append((r['case'], status, r['stage'], str(r['writer_round']), gates,
                       money(r['spend_usd_micros']['spent']), stamp(r['last_event_at']), ago(r['quiet_for_s']),
                       *clock(r.get('time_to_seal'))))

@@ -126,6 +126,17 @@ class BoardTests(unittest.TestCase):
         self.assertEqual((row['status'], row['live'], row['hard'], len(row['gates_passed'])), ('sealed', False, False, 17))
         self.assertEqual(second['sealed'], 1)
 
+    def test_an_operator_override_and_its_reason_show_on_the_board(self):
+        # Founder 2026-11-11: an override resume (engine resume_point) is visible later. Its reason
+        # stays on the operator board; the published scorecard row carries none of it.
+        self.cards['case-alpha']['override'] = 'factory bug fixed in #122'
+        board = self.read()
+        alpha, beta = board['cases']
+        self.assertEqual((alpha['override'], 'override' in beta), ('factory bug fixed in #122', False))
+        self.assertIn('[operator override: factory bug fixed in #122]', render_board(board))
+        from durable.report import case_entry
+        self.assertNotIn('override', case_entry(self.cards['case-alpha']))
+
     def test_live_filter_and_text_board(self):
         board = self.read(live_only=True)
         self.assertEqual([r['case'] for r in board['cases']], ['case-alpha'])
