@@ -124,6 +124,29 @@ class GuardTests(unittest.TestCase):
         import shutil; shutil.rmtree(self.f.state_dir / "guard", ignore_errors=True)
         self.assertEqual(self.tick()["hard_stop"], None)
 
+    def test_a_large_worker_is_judged_at_its_approved_type_rate(self):
+        # A large (8 vCPU/16 GB) worker at $6e-05/s passes the default type's $2e-05/s cap: a false
+        # worker_rate stop unless the request approves the large rate. The approval itself is unchanged.
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 1 / 6e-05}).encode()
+        large = {**REQUEST, "vm_type": "large", "worker_rates_usd_per_second": {"large": 8e-05},
+                 "approved_infrastructure_usd": 14}
+        self.f.request = large
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("healthy", None))
+        self.f.request = {**large, "approved_infrastructure_usd": 10}   # $7.54 of large compute, $4 headroom
+        self.f.calls.clear()
+        self.hard("compute_bound")
+
+    def test_a_worker_type_without_an_approved_rate_only_degrades(self):
+        self.f.request = {**REQUEST, "vm_type": "large"}
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
+        self.assertLessEqual({"request", "request_rate"}, set(out["failed_checks"]))
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 1 / 6e-05}).encode()
+        self.f.request = REQUEST                                          # the default type keeps its cap
+        self.f.calls.clear()
+        self.hard("worker_rate")
+
     def test_starts_never_add_to_the_compute_bound(self):
         # The old lifetime cap stopped every case once 30 workers had been created.
         self.f.allowance = [NOW - 86400 + 3600 * h for h in range(24) for _ in range(5)]   # 120 starts a day

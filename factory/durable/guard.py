@@ -116,13 +116,26 @@ def campaign_limits(request: dict) -> tuple:
     return running, hourly
 
 
+def worker_rate(request: dict) -> float:
+    """The approved $/s of one campaign worker. A request naming a Boat type other than "default"
+    (`vm_type`, e.g. "large": 8 vCPU/16 GB) must approve that type's rate in
+    `worker_rates_usd_per_second`; max_worker_rate_usd_per_second stays the default type's rate.
+    The infrastructure approval is unchanged: a dearer worker only fits fewer running slots."""
+    vm_type = request.get("vm_type", "default")
+    rates = request.get("worker_rates_usd_per_second") or {}
+    rate = rates.get(vm_type, request["max_worker_rate_usd_per_second"] if vm_type == "default" else None)
+    if type(rate) not in (int, float) or not math.isfinite(rate) or rate <= 0:
+        raise CheckFailed("request_malformed", f"no approved worker rate for vm_type {vm_type}")
+    return rate
+
+
 def compute_bound(request: dict, grace_s: float) -> float:
     """Worst-case worker compute in dollars: every running slot busy for the whole wall, plus the
     checkpoint grace that each worker's TTL may run past the deadline, plus one more worker for a
     full TTL as slack for a sandbox Boat lists late. Starts add nothing: a sandbox holds a slot
     from its create request until Boat stops listing it as live."""
     running, _ = campaign_limits(request)
-    return request["max_worker_rate_usd_per_second"] * (running * (request["wall_seconds"] + grace_s) + WORKER_TTL_S)
+    return worker_rate(request) * (running * (request["wall_seconds"] + grace_s) + WORKER_TTL_S)
 
 
 def compute_fits(request: dict, grace_s: float) -> bool:
@@ -288,9 +301,10 @@ class Guard:
         if ok and hourly is not None and starts_over(starts, hourly, self.clock()):
             self.flag("start_rate", "over_limit", f"cap {hourly} an hour")
         spent = 0.0
+        rated, rate = self.check("request_rate", lambda: worker_rate(r))
         for row in owned:
             ok, usage = self.check("boat_usage", lambda: self._usage(row["id"]))
-            if ok and usage[1] > r["max_worker_rate_usd_per_second"]:
+            if ok and rated and usage[1] > rate:
                 return "worker_rate"
             spent += usage[0] if ok else 0.0
         if worker_bound is not None and spent > worker_bound:

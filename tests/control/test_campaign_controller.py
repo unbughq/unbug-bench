@@ -182,6 +182,25 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(caught.exception.reason, "infra:compute_approval_unverified")
         self.assertEqual(self.pool.created, [])
 
+    def test_a_large_worker_type_creates_at_its_approved_rate(self):
+        self.assertEqual(self.pool.vm_type, None)
+        self.create()
+        self.assertEqual(self.pool.vm_type, "default")   # unchanged without a vm_type
+        # $6e-05/s passes the default type's cap; the request approves it for large workers only.
+        self.pool.run = lambda args, timeout: (0, json.dumps({"dollars": 0.02, "billingMultiplier": 1.0,
+                                                              "secondsPerDollar": 1 / 6e-05}).encode())
+        self.request.update(vm_type="large", worker_rates_usd_per_second={"large": 8e-05},
+                            approved_infrastructure_usd=30)
+        self.write()
+        self.create()
+        self.assertEqual((self.pool.vm_type, self.pool.deleted), ("large", []))
+        del self.request["worker_rates_usd_per_second"]   # no approved large rate: nothing is created
+        self.write()
+        with self.assertRaises(PoolError) as caught:
+            self.create()
+        self.assertEqual(caught.exception.reason, "infra:compute_approval_unverified")
+        self.assertEqual(len(self.pool.created), 2)
+
     def test_the_ttl_ends_at_the_deadline_plus_grace(self):
         self.request["deadline_epoch"] = time.time() + 1000
         self.write()
