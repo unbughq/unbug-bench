@@ -29,6 +29,7 @@ class StrategyReuseTests(unittest.TestCase):
         self.calls = 0
         self.implementation = 'v1'
         self.module = types.SimpleNamespace(STRATEGIES=('honest-reference', 'frozen-first-fix'), simulate=self.simulate,
+            execute_shared=object(),
             steps=lambda case: [{'id': 'establish'}])
         for p in (patch.object(run, 'BENCH', self.root),
                   patch.object(run, 'bench_manifest', lambda: self.implementation),
@@ -244,6 +245,24 @@ class StrategyPrefixRecoveryTests(unittest.TestCase):
         self.assertEqual(self.invoke(), result)
         self.assertEqual(len(self.calls), 4)
         self.assertTrue(self.c.card['strategy_reuse']['honest-reference'])
+
+    def test_pinned_worker_strategy_before_sharing_still_runs(self):
+        # Byte-identical to bin/strategy at 72def83e and the live pinned worker image.
+        import hashlib
+        import importlib.machinery
+        import importlib.util
+        path = _TestPath(__file__).resolve().parents[1] / 'fixtures/strategy-pre-sharing.py'
+        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
+                         '6e8aa9037f347c4519fae691eacfdff8ea657e68dd0694f59d39b4c70c6d629f')
+        loader = importlib.machinery.SourceFileLoader('strategy_before_sharing', str(path))
+        self.module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(self.module)
+        self.interrupt_at = None
+        result = self.invoke()
+        self.assertEqual(result['totals'], {'steps': 4, 'unsafe': 0, 'wrong': 0, 'human_minutes': 5})
+        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(self.invoke(), result)
+        self.assertEqual(len(self.calls), 4)
 
     def test_one_runner_executes_identical_strategy_steps_once(self):
         self.interrupt_at = None
