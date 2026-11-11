@@ -169,22 +169,27 @@ class GatePipeline:
     def early_parallel(self, c, lane, rest, on_rejection):
         """G15 on this thread; the other early gates and the saved-cheat sample on lane's bench instance."""
         self.log(c, "+".join(rest + ["saved-cheats"]), f"early start (beside G15, bench instance {lane.factory_slot})")
+        # Each gate cites only its own lane's files: the lane's bench instance and its gates' details.
+        own = f"factory-slots/{lane.factory_slot}/"
+        details = tuple(f"gate-details/{gate}" for gate in rest)
+        lane.evidence_scope = lambda kind, rel: rel.startswith(own) if kind == "bench" else not rel.startswith("gate-details/G15")
+        c.evidence_scope = lambda kind, rel: not rel.startswith(own) if kind == "bench" else not rel.startswith(details)
         pool = ThreadPoolExecutor(max_workers=1)
-        with self.section(c):
-            future = pool.submit(contextvars.copy_context().run, self.early_sequence, c, rest, lane,
-                                 on_rejection=on_rejection, cheats=True)
-            try:
-                mine = self.early_sequence(c, ["G15"], on_rejection=on_rejection)
-            except BaseException:
-                # Lane commands are cancellable (bench processes are killed); the strategy runs are not.
-                lane.role_cancel.set()
-                with contextlib.suppress(BaseException): future.result()
-                pool.shutdown(wait=True)
-                raise
-            try:
+        try:
+            with self.section(c):
+                future = pool.submit(contextvars.copy_context().run, self.early_sequence, c, rest, lane,
+                                     on_rejection=on_rejection, cheats=True)
+                try:
+                    mine = self.early_sequence(c, ["G15"], on_rejection=on_rejection)
+                except BaseException:
+                    # Lane commands are cancellable (bench processes are killed); the strategy runs are not.
+                    lane.role_cancel.set()
+                    with contextlib.suppress(BaseException): future.result()
+                    raise
                 theirs = future.result()
-            finally:
-                pool.shutdown(wait=True)
+        finally:
+            pool.shutdown(wait=True)
+            del c.evidence_scope
         return (mine or []) + (theirs or []) or None
 
 

@@ -143,6 +143,11 @@ def judge_dependencies(c, bench, *, calibration=False):
 
 
 def inputs(c, gate, bench):
+    # A lane context (gate_pipeline.early_parallel) runs on its own reserved bench instance with one
+    # worker and is fingerprinted as its owner, so GATES reuses what it earned. Instance and worker
+    # count never decide a verdict: scientific_version drops both, run numbers keep their seeds, and
+    # G5's key checks already run on whichever pool instance is free under one identity.
+    c = getattr(c, "reuse_as", c)
     files = []
     for p in sorted(c.case.rglob("*")):
         if not p.is_file(): continue
@@ -223,15 +228,18 @@ def fingerprint(c, gate, bench):
 
 
 def inventory(c, bench):
+    """Files a gate may cite as evidence. Bench progress files are live status, never evidence.
+    While two lanes run, `evidence_scope(kind, relative)` keeps each gate to its own files."""
     paths = {}
+    scope = getattr(c, "evidence_scope", None)
     roots = [("bench", bench / "results"), ("work", c.work / "gate-details"),
              ("work", c.work / "judge_breadth")]
     roots += [("work", p) for p in c.work.glob("review-*") if p.is_dir()]
     for kind, root in roots:
         for p in root.rglob("*") if root.exists() else []:
-            if p.is_file() and not p.name.startswith("."):
+            if p.is_file() and not p.name.startswith(".") and not p.name.startswith("bench-progress-"):
                 relative = p.relative_to(bench / "results" if kind == "bench" else c.work).as_posix()
-                paths[(kind, relative)] = p
+                if scope is None or scope(kind, relative): paths[(kind, relative)] = p
     return paths
 
 

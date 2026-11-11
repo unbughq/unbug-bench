@@ -414,6 +414,20 @@ class EarlyLane(unittest.TestCase):
                 verdicts = lambda c: {g: v["ok"] for g, v in c.card.get("early_gates", {}).items()}
                 self.assertLessEqual(verdicts(serial[1]).items(), verdicts(parallel[1]).items())
 
+    def test_each_lane_cites_only_its_own_evidence(self):
+        scopes = {}
+        def g15(c):
+            scopes["G15"] = c.evidence_scope; return True, {}
+        def g5(c):
+            scopes["G5"] = c.evidence_scope; return True, {}
+        _, c, _ = early(self, {"G15": g15, "G5": g5})
+        mine, theirs = scopes["G15"], scopes["G5"]
+        self.assertTrue(mine("bench", "runs/x/checkpoint.json")); self.assertTrue(mine("bench", "factory-slots/1/runs/x"))
+        self.assertFalse(mine("bench", "factory-slots/2/runs/x")); self.assertFalse(mine("work", "gate-details/G5.json"))
+        self.assertTrue(theirs("bench", "factory-slots/2/runs/x")); self.assertFalse(theirs("bench", "runs/x"))
+        self.assertFalse(theirs("work", "gate-details/G15.json")); self.assertTrue(theirs("work", "gate-details/G5.json"))
+        self.assertFalse(hasattr(c, "evidence_scope"), "the foreground scope ends with the lanes")
+
     def test_a_failing_g15_and_a_failing_g5_are_both_reported_in_serial_order(self):
         problems, c, _ = early(self, {"G15": lambda c: (time.sleep(0.2), (False, {"lazy": "keeps up"}))[1],
                                       "G5": lambda c: (False, {"keys": "1/3"})})

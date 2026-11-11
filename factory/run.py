@@ -111,6 +111,7 @@ def early_lane(c):
     lane = copy.copy(c)
     lane.args = copy.copy(c.args); lane.args.bench_workers = 1  # never fan out over the foreground pool
     lane.factory_slot, lane.role_cancel = c.args.bench_workers, threading.Event()
+    lane.reuse_as = c  # GATES reuses the lane's G4/G5 (gate_state.inputs)
     return lane
 
 

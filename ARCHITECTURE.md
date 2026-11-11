@@ -124,7 +124,9 @@ may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second 
 joining before G6. In a writer step's early checks under the same G10 overlap conditions
 (`run.early_lane`, at least two bench workers), G3 runs first, then G15 keeps the foreground pool
 while G4, G5 and the saved-cheat sample run in order on the first reserved tester instance; both
-finish and every failure goes to the writer in serial order. Otherwise the serial order G15, G3,
+finish and every failure goes to the writer in serial order. The lane is fingerprinted as the
+foreground case (`gate_state.inputs`; instance and worker count are not scientific), so GATES
+reuses its G4/G5, and each gate's evidence is scoped to its own lane's files. Otherwise the serial order G15, G3,
 G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. The writer step records fixed
