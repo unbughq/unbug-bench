@@ -175,6 +175,30 @@ class StressLoopTests(unittest.TestCase):
              self.assertRaises(subprocess.TimeoutExpired):
             run.cheat_runs(h.c, 5, 'g6')
 
+    def test_an_invalid_early_cheat_run_is_left_unchecked_not_a_lost_round(self):
+        from run_validity import InfrastructureExhausted
+        h = self.harness(); h.c.seed = 5
+        for name in ('alpha', 'beta', 'gamma'):
+            (h.c.case / 'guards/cheats' / name).mkdir(parents=True)
+        record = {'errors': [], 'checker': {'valid': True}, 'judge': {'checks': {'synthetic': False}, 'paths': {}}}
+        calls = []
+        def checkpoint(c, scenarios, guard, *a, **kw):   # beta's bench run stays invalid through its retries
+            calls.append(Path(guard).name)
+            if Path(guard).name == 'beta': raise InfrastructureExhausted('InvalidInfra')
+            return {}, [record]
+        with patch.object(run, 'checkpoint', side_effect=checkpoint), patch.object(run, 'case_budget_boundary'), \
+             patch.object(run.GatePipeline, 'record_crash') as crash:
+            problems = run.early_cheat_check(h.c)
+        self.assertIsNone(problems)
+        self.assertEqual(calls, ['alpha', 'beta', 'gamma'])   # gamma still checked after beta
+        crash.assert_not_called()
+        self.assertEqual(h.c.card['early_gates']['saved_cheats'],
+                         {'ok': True, 'checked': 2, 'unchecked': 1, 'runs_each': 1})
+        # Full G6 is unchanged: an exhausted cheat run there is still an infrastructure failure.
+        with patch.object(run, 'checkpoint', side_effect=InfrastructureExhausted('InvalidInfra')), \
+             self.assertRaises(InfrastructureExhausted):
+            run.cheat_runs(h.c, 5, 'g6')
+
     def test_writer_hands_back_findings_instead_of_starting_a_doomed_cycle(self):
         from durable.contract import Outcome
         from durable.policy import WRITER_HANDBACK
