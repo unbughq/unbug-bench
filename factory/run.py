@@ -1140,6 +1140,9 @@ def build_fixture(c):
 
 # ---------------------------------------------------------------- bench helpers
 
+from run_validity import InfrastructureExhausted  # noqa: E402  (advisory early cheat check)
+
+
 class AllowanceSpent(TimeoutError):
     """A checkpoint's caller-given time allowance ran out."""
 
@@ -1239,6 +1242,12 @@ def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=
             if unchecked is None: raise
             unchecked.extend(str(x) for x in guards[i:])
             break
+        except InfrastructureExhausted:
+            # Advisory early check only: a cheat whose bench run stays invalid is left unchecked here
+            # (full G6 at GATES still runs it) instead of discarding the whole writer round.
+            if unchecked is None: raise
+            unchecked.append(str(g))
+            continue
         values = verdicts(c, recs)
         solved = any(v["solved"] for v in values)
         passed += solved
