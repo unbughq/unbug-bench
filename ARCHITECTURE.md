@@ -66,9 +66,10 @@ controller and deletes the workers. Worker size is a Boat type: the controller c
 default when absent), or for a bounded campaign the request's `vm_type` (default `"default"`), read at each
 create. A type other than `default` needs its approved rate in the request's `worker_rates_usd_per_second`
 (e.g. `{"large": ...}` for 8 vCPU/16 GB); otherwise nothing is created and the guard degrades. The guard's
-per-worker check and compute bound use that rate, so a large worker does not trip the default type's
-`max_worker_rate_usd_per_second`; the infrastructure approval is unchanged, so a dearer type fits fewer
-running slots. Change the type between campaigns, not under live workers of the other type. `preflight.py` adds advance warnings to the guard's alerts and
+compute bound uses that rate and each live worker is judged at its own Boat type's approved rate, so a
+large worker does not trip the default type's `max_worker_rate_usd_per_second` (always the default rate; a
+`"default"` key in the map is ignored); the infrastructure approval is unchanged, so a dearer type fits
+fewer running slots. `preflight.py` adds advance warnings to the guard's alerts and
 status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
 degrade, pause or stop, and an unreadable input is an "unknown" warning. On SIGTERM the engine drains, then
 exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
@@ -98,11 +99,13 @@ builds `~/bench-source` (tracked bench files hashed as git blobs, the reviewed `
 pinned by sha, a `prepare.py` binding manifest, bundle and count), installs it on a sandbox of the current
 image keeping Medusa's generated files, runs `bin/bake-image.sh` and `prepare.py`, writes
 `~/bench-source/result.json` ({source, bench_version, source_files_verified, no_model_secrets, model_calls}),
-snapshots it under a new name `durable-bench-<date>-<sha>` (never `bench-env` or the source image) and tests
-a fresh sandbox (`prepare.py`, bench fingerprint, that result.json, and unless `--no-image-build` the
-Medusa image build). Its sandboxes are named `bench-bake-<sha7>`/`bench-test-<sha7>`, which the pool never
-claims as case workers. `build-plumbing <commit>` builds the commit's bundle with
-its own `workers.py release`; `register` runs `bin/unbug install`; `send` runs `bin/check-release-pair.py`,
+snapshots it under a name unique to that bake, `durable-bench-<UTC date-time>-<sha7>` (never `bench-env`, the
+source image or an earlier bake), and tests a fresh sandbox (`prepare.py`, bench fingerprint, that
+result.json, and unless `--no-image-build` the Medusa image build). Its sandboxes are named
+`bench-bake-…`/`bench-test-…`, which the pool never claims as case workers; the name is recorded before
+the create, so a lost create response is found in `boat list` and deleted. `build-plumbing <commit>` builds
+the commit's bundle with its own `workers.py release`; `register` runs `bin/unbug install` (both it and
+`send` refuse a bench tested without its Medusa build unless `--allow-unbuilt`); `send` runs `bin/check-release-pair.py`,
 then requires `control/check-drained.py` to exit 0, then sends `plumbing_release`/`bench_release` per
 batch; `switch` checks drained and prints the root commands (source-current symlink, unit restart) without
 running them. Every Boat call goes through `bin/boat-call` with `BOAT_NO_UPDATE=1`.

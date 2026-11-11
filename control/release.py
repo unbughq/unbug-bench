@@ -169,6 +169,9 @@ class Sandbox:
         self.boat, self.state, self.save, self.image, self.name = boat, state, save, image, name
 
     def __enter__(self):
+        # The name is on record before Boat sees the request: a lost response is found by it.
+        self.state["sandbox_name"] = self.name
+        self.save()
         args = ["new", "--from", self.image, "--no-env", "--no-monitoring", "--ttl", str(SANDBOX_TTL),
                 "--name", self.name, "--json"]
         code, out = self.boat.run(args, timeout=600)
@@ -181,7 +184,8 @@ class Sandbox:
                 self.id = event["id"]
                 break
         else:
-            raise Refused(f"boat new failed (exit {code}); check `boat list` for a sandbox named {self.name}")
+            delete(self.boat, self.state, self.save)   # it may exist anyway
+            raise Refused(f"boat new failed (exit {code})")
         self.state["sandbox"] = self.id
         self.save()
         return self
@@ -199,14 +203,30 @@ class Sandbox:
 
 
 def delete(boat, state: dict, save):
-    """Delete the stage sandbox a state file still names (also one left by a killed run)."""
-    sandbox = state.get("sandbox")
-    if sandbox:
-        code, _ = boat.run(["delete", sandbox, "--yes"], timeout=300)
+    """Delete the stage sandbox a state file still names (also one left by a killed run): by its id,
+    or, when its create response was lost, every sandbox Boat lists under its unique name."""
+    sandbox, name = state.get("sandbox"), state.get("sandbox_name")
+    if not sandbox and not name:
+        return
+    ids = [sandbox] if sandbox else named(boat, name)
+    for worker in ids:
+        code, _ = boat.run(["delete", worker, "--yes"], timeout=300)
         if code:
-            raise Refused(f"delete boat sandbox {sandbox} by hand (exit {code})")
-        state.pop("sandbox")
-        save()
+            raise Refused(f"delete boat sandbox {worker} by hand (exit {code})")
+    state.pop("sandbox", None)
+    state.pop("sandbox_name", None)
+    save()
+
+
+def named(boat, name: str) -> list:
+    code, out = boat.run(["list", "--json"], timeout=120)
+    try:
+        listing = json.loads(out)
+        if code or listing["pageInfo"]["hasMore"] is not False:
+            raise ValueError()
+        return [row["id"] for row in listing["sandboxes"] if row.get("name") == name]
+    except (ValueError, KeyError, TypeError):
+        raise Refused(f"cannot list Boat: find sandbox {name} with `boat list`, delete it, rerun") from None
 
 
 def boat_cli() -> BoatCli:
@@ -227,7 +247,9 @@ def bake_bench(args, boat) -> dict:
         save()
     delete(boat, state, save)   # a sandbox a killed run left
     if "bench_version" not in state:
-        state.setdefault("image", f"durable-bench-{time.strftime('%Y%m%d', time.gmtime())}-{commit[:7]}")
+        # Unique per bake, kept on resume: a re-bake of the same commit (even with a fresh --work)
+        # never lands on an image already registered or serving.
+        state.setdefault("image", f"durable-bench-{stamp()}-{commit[:7]}")
         if state["image"] == "bench-env" or state["image"] == args.from_image:
             raise Refused("never overwrite the current image")
         save()
@@ -238,7 +260,7 @@ def bake_bench(args, boat) -> dict:
         data = bundle.getvalue()
         upload = ("set -eu; umask 077; t=/tmp/bench-source-new.tgz; cat > \"$t\"; "
                   f"printf '%s  %s\\n' {sha(data)} \"$t\" | sha256sum -c - >/dev/null")
-        with Sandbox(boat, state, save, args.from_image, f"{SANDBOX_PREFIX}bake-{commit[:7]}") as box:
+        with Sandbox(boat, state, save, args.from_image, f"{SANDBOX_PREFIX}bake-{commit[:7]}-{stamp()}") as box:
             box.ssh(upload, "upload bench source", 600, stdin=data)
             out = box.ssh(bake_script(state["bound"]), "bake", 7200)
             prepared = json.loads(marker(out, "PREPARE"))
@@ -256,7 +278,7 @@ def bake_bench(args, boat) -> dict:
             save()   # before the delete, which may fail
     if not state.get("tested") or args.image_build and not state.get("image_built"):
         expected = bench_result(commit, state["bench_version"], state["source_files_verified"])
-        with Sandbox(boat, state, save, state["image"], f"{SANDBOX_PREFIX}test-{commit[:7]}") as box:
+        with Sandbox(boat, state, save, state["image"], f"{SANDBOX_PREFIX}test-{commit[:7]}-{stamp()}") as box:
             box.ssh(PREPARE_IMAGE_SCRIPT, "prepare.py", 600)
             if box.ssh(FINGERPRINT, "bench fingerprint", 600).decode().strip() != state["bench_version"]:
                 raise Refused(f"{state['image']} does not serve bench {state['bench_version']}")
@@ -271,6 +293,10 @@ def bake_bench(args, boat) -> dict:
         state.update(tested=True, image_built=state.get("image_built") or args.image_build)
         save()
     return state
+
+
+def stamp() -> str:
+    return time.strftime("%Y%m%d-%H%M%S", time.gmtime())
 
 
 def bench_result(commit, bench_version, verified) -> dict:
@@ -308,6 +334,9 @@ def recorded(args, kind, ref) -> dict:
     state = load(args.work / f"{kind}-{resolve(args.repo, ref)[:12]}" / "state.json")
     if kind == "bench" and not state.get("tested"):
         raise Refused(f"bench {ref} is not baked and tested: run bake-bench first")
+    if kind == "bench" and not state.get("image_built") and not args.allow_unbuilt:
+        raise Refused(f"bench {ref} was tested without its Medusa image build: rerun bake-bench "
+                      "without --no-image-build, or pass --allow-unbuilt")
     if kind == "plumbing" and "plumbing_version" not in state:
         raise Refused(f"plumbing {ref} is not built: run build-plumbing first")
     return state
@@ -399,6 +428,8 @@ def main(argv=None, boat=None) -> int:
         p.add_argument("--router-db", type=Path, help="passed to check-drained.py")
         if name != "switch":
             p.add_argument("--bench", required=True, help="commit baked by bake-bench")
+            p.add_argument("--allow-unbuilt", action="store_true",
+                           help="accept a bench tested with --no-image-build")
     p = sub.choices["send"]
     p.add_argument("--batch", action="append", required=True)
     p.add_argument("--base", required=True, help="the commit the batch runs now, for check-release-pair")

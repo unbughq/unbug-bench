@@ -21,8 +21,9 @@ NOW = 1793990000.0
 USAGE = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 100000}).encode()
 
 
-def inventory(*ids):
-    return json.dumps({"sandboxes": [{"id": i} for i in ids], "pageInfo": {"hasMore": False}}).encode()
+def inventory(*ids, types=None):
+    rows = [{"id": i, **({"type": types[i]} if i in (types or {}) else {})} for i in ids]
+    return json.dumps({"sandboxes": rows, "pageInfo": {"hasMore": False}}).encode()
 
 
 class Fake:
@@ -32,6 +33,7 @@ class Fake:
         self.calls, self.stopped, self.sent = [], 0, []
         self.boat_failures = {}
         self.rows = ["bx_aaaaaaaa"]
+        self.types = {}   # Boat's type per sandbox, when the inventory says
         self.usage = USAGE
         self.active = "active"
         self.cases = [{"case": REQUEST["case_id"], "status": "running"}]
@@ -50,7 +52,7 @@ class Fake:
             self.boat_failures[args[0]] = left - 1
             self.clock += timeout
             return {"code": 124, "out": b"", "stderr": b"boat-call: timed out reaching 10.0.0.1", "seconds": timeout}
-        out = {"list": inventory(*self.rows), "usage": self.usage}.get(args[0], b"{}")
+        out = {"list": inventory(*self.rows, types=self.types), "usage": self.usage}.get(args[0], b"{}")
         return {"code": 0, "out": out, "stderr": b"", "seconds": 0.1}
 
     def rpc(self, op, batch=None):
@@ -146,6 +148,35 @@ class GuardTests(unittest.TestCase):
         self.f.request = REQUEST                                          # the default type keeps its cap
         self.f.calls.clear()
         self.hard("worker_rate")
+
+    def test_each_live_worker_is_judged_at_its_own_type_rate(self):
+        # The request moved to large while a default worker still runs at $6e-05/s: that worker is
+        # over the default cap. A large worker at the same rate is within its approved rate.
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 1 / 6e-05}).encode()
+        large = {**REQUEST, "vm_type": "large", "worker_rates_usd_per_second": {"large": 8e-05},
+                 "approved_infrastructure_usd": 14}
+        self.f.request, self.f.types = large, {"bx_aaaaaaaa": "large"}
+        self.assertEqual(self.tick()["hard_stop"], None)
+        self.f.request = REQUEST   # back to default: the live large worker's rate is not approved
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
+        self.assertIn("request_rate", out["failed_checks"])
+        self.f.request, self.f.types = large, {"bx_aaaaaaaa": "default"}
+        self.f.calls.clear()
+        self.hard("worker_rate")
+
+    def test_a_default_key_never_overrides_the_default_rate(self):
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 1 / 6e-05}).encode()
+        self.f.request = {**REQUEST, "worker_rates_usd_per_second": {"default": 1.0}}
+        self.hard("worker_rate")
+
+    def test_a_malformed_worker_type_only_degrades(self):
+        for bad in ({"vm_type": 7}, {"worker_rates_usd_per_second": [1]},
+                    {"max_worker_rate_usd_per_second": None}):
+            with self.subTest(bad=bad):
+                self.f.request = {**REQUEST, **bad}
+                out = self.tick()
+                self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
 
     def test_starts_never_add_to_the_compute_bound(self):
         # The old lifetime cap stopped every case once 30 workers had been created.

@@ -31,8 +31,9 @@ def git(repo, *args):
 class FakeBoat:
     """Records every Boat call; the bake prints its markers, the image serves BENCH."""
 
-    def __init__(self, fail=None, result=None):
+    def __init__(self, fail=None, result=None, lose_creates=0):
         self.calls, self.fail, self.n, self.result = [], fail, 0, result
+        self.lose_creates, self.live = lose_creates, {}   # live: id -> name
 
     def run(self, args, *, stdin=None, timeout=120.0):
         self.calls.append(args)
@@ -40,7 +41,17 @@ class FakeBoat:
             return 1, b""
         if args[0] == "new":
             self.n += 1
-            return 0, json.dumps({"event": "created", "id": f"bx_0000000{self.n}"}).encode() + b"\n"
+            worker = f"bx_0000000{self.n}"
+            self.live[worker] = args[args.index("--name") + 1]
+            if self.lose_creates:   # created, but the response never arrived
+                self.lose_creates -= 1
+                return 124, b""
+            return 0, json.dumps({"event": "created", "id": worker}).encode() + b"\n"
+        if args[0] == "list":
+            rows = [{"id": i, "name": n, "state": "running"} for i, n in self.live.items()]
+            return 0, json.dumps({"sandboxes": rows, "pageInfo": {"hasMore": False}}).encode()
+        if args[0] == "delete":
+            self.live.pop(args[1], None)
         return 0, b""
 
     def ssh(self, worker, command, *, stdin=None, timeout=120.0):
@@ -126,14 +137,16 @@ class Release(unittest.TestCase):
         self.assertEqual(code, 0, err)
         state = self.state("bench")
         image = state["image"]
-        self.assertRegex(image, r"^durable-bench-\d{8}-" + self.commit[:7] + "$")
+        self.assertRegex(image, r"^durable-bench-\d{8}-\d{6}-" + self.commit[:7] + "$")
         self.assertEqual((state["bench_version"], state["tested"], state["image_built"], "sandbox" in state),
                          (BENCH, True, True, False))
         news = [c for c in boat.calls if c[0] == "new"]
         self.assertEqual([c[2] for c in news], ["bench-env", image])    # bake from current, test the new one
         self.assertTrue(all("--no-env" in c and "--no-monitoring" in c for c in news))
-        self.assertEqual([c[c.index("--name") + 1] for c in news],
-                         [f"bench-bake-{self.commit[:7]}", f"bench-test-{self.commit[:7]}"])
+        names = [c[c.index("--name") + 1] for c in news]
+        self.assertRegex(names[0], rf"^bench-bake-{self.commit[:7]}-\d{{8}}-\d{{6}}$")
+        self.assertRegex(names[1], rf"^bench-test-{self.commit[:7]}-\d{{8}}-\d{{6}}$")
+        self.assertEqual(boat.live, {})
         # result.json is written into the image before its snapshot, then read back on the test sandbox.
         steps = [c[2] if c[0] == "ssh" else c[0] for c in boat.calls]
         self.assertLess(steps.index("set -eu; cat > ~/bench-source/result.json; sync"[:40]), steps.index("snapshot"))
@@ -185,7 +198,7 @@ class Release(unittest.TestCase):
         from durable.workers import BoatPool, ReleaseStore, ownership_hash
         pool = BoatPool(self.dir / "pool", ReleaseStore(self.dir / "releases"), "durable-first-case")
         for stage in ("bake", "test"):
-            name = f"{release.SANDBOX_PREFIX}{stage}-{self.commit[:7]}"
+            name = f"{release.SANDBOX_PREFIX}{stage}-{self.commit[:7]}-{release.stamp()}"
             self.assertIsNone(pool._ours({"id": "bx_00000001", "name": name, "state": "running"}))
         self.assertIsNotNone(pool._ours({"id": "bx_00000001", "state": "running",
                                          "name": "unbugd1-" + "-".join([ownership_hash("durable-first-case"),
@@ -199,10 +212,36 @@ class Release(unittest.TestCase):
         self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)[0], 0)
         self.assertEqual(boat.calls[0], ["delete", "bx_deadbeef", "--yes"])
 
+    def test_a_lost_create_response_is_found_by_name_and_deleted(self):
+        boat = FakeBoat(lose_creates=1)
+        code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)
+        self.assertEqual(code, 1)
+        self.assertIn("boat new failed", err)
+        self.assertEqual(boat.live, {})                                  # the orphan was deleted
+        self.assertIn(["delete", "bx_00000001", "--yes"], boat.calls)
+        self.assertFalse({"sandbox", "sandbox_name"} & set(self.state("bench")))
+        self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)[0], 0)
+
+    def test_an_unlisted_lost_create_keeps_its_name_for_the_next_run(self):
+        class Unlisted(FakeBoat):
+            def run(self, args, **kw):
+                return (1, b"") if args[0] == "list" else super().run(args, **kw)
+        boat = Unlisted(lose_creates=1)
+        code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)
+        self.assertEqual(code, 1)
+        self.assertIn("boat list", err)
+        name = self.state("bench")["sandbox_name"]
+        again = FakeBoat()
+        again.live = dict(boat.live)
+        self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=again)[0], 0)
+        self.assertEqual(again.calls[:2], [["list", "--json"], ["delete", "bx_00000001", "--yes"]])
+        self.assertNotIn(name, again.live.values())
+
     def test_the_current_image_is_never_the_snapshot_name(self):
-        name = f"durable-bench-{release.time.strftime('%Y%m%d', release.time.gmtime())}-{self.commit[:7]}"
+        name = f"durable-bench-20261111-120000-{self.commit[:7]}"
         boat = FakeBoat()
-        code, _, err = self.main("bake-bench", self.commit, "--from-image", name, boat=boat)
+        with mock.patch.object(release, "stamp", return_value="20261111-120000"):
+            code, _, err = self.main("bake-bench", self.commit, "--from-image", name, boat=boat)
         self.assertEqual(code, 1)
         self.assertIn("never overwrite", err)
         self.assertEqual(boat.calls, [])
@@ -235,7 +274,8 @@ class Release(unittest.TestCase):
 
     def operator(self, drained_code=0, pair_code=0):
         """Records ready for register/send, and a subprocess.run that fakes the three helpers."""
-        for kind, extra in (("bench", {"bench_version": BENCH, "image": "durable-bench-x", "tested": True}),
+        for kind, extra in (("bench", {"bench_version": BENCH, "image": "durable-bench-x", "tested": True,
+                                       "image_built": True}),
                             ("plumbing", {"plumbing_version": "e" * 64, "bundle": "/b.tgz", "source": "/t"})):
             path = self.work / f"{kind}-{self.commit[:12]}" / "state.json"
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,6 +350,19 @@ class Release(unittest.TestCase):
         self.assertEqual([c[0] for c in calls], ["check-drained.py"])
         self.assertIn("sudo ln -sfn /t /home/user/x/source-current\n", out)
         self.assertIn("sudo systemctl restart unbug-durable-case-campaign.service\n", out)
+
+    def test_a_bench_without_its_medusa_build_needs_allow_unbuilt(self):
+        calls, run = self.operator()
+        path = self.work / f"bench-{self.commit[:12]}" / "state.json"
+        path.write_text(json.dumps({**json.loads(path.read_text()), "image_built": False}))
+        argv = ("register", "--config", "/c.json", "--plumbing", self.commit, "--bench", self.commit)
+        with mock.patch.object(release.subprocess, "run", run):
+            code, _, err = self.main(*argv)
+            self.assertEqual(code, 1)
+            self.assertIn("--allow-unbuilt", err)
+            self.assertEqual(calls, [])
+            self.assertEqual(self.main(*argv, "--allow-unbuilt")[0], 0)
+        self.assertEqual([c[0] for c in calls], ["unbug"])
 
     def test_unbuilt_releases_are_refused(self):
         code, _, err = self.main("register", "--config", "/c.json", "--plumbing", self.commit, "--bench", self.commit)

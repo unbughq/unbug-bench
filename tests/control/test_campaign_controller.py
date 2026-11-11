@@ -200,6 +200,13 @@ class ControllerTests(unittest.TestCase):
             self.create()
         self.assertEqual(caught.exception.reason, "infra:compute_approval_unverified")
         self.assertEqual(len(self.pool.created), 2)
+        for bad in ({"vm_type": ["large"]}, {"vm_type": "default", "max_worker_rate_usd_per_second": None}):
+            with self.subTest(bad=bad):   # a pool wait, never a raw KeyError/TypeError
+                self.request.update(bad)
+                self.write()
+                with self.assertRaises(PoolError):
+                    self.create()
+                self.assertEqual(len(self.pool.created), 2)
 
     def test_the_ttl_ends_at_the_deadline_plus_grace(self):
         self.request["deadline_epoch"] = time.time() + 1000
