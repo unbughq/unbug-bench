@@ -116,5 +116,25 @@ class ExposureTests(unittest.TestCase):
         async def read(): return [await report() for _ in range(4)]
         self.assertEqual(asyncio.run(read()), [protected, protected, protected, withdrawn])
 
+    def test_invalid_snapshot_records_why_window_has_no_verdict(self):
+        from unittest.mock import AsyncMock, Mock, patch
+        import silent_window
+        shop = Mock(inject=AsyncMock(), snapshot=AsyncMock(return_value={
+            'errors': [], 'checker': {'checker_ok': False, 'reason': 'synthetic facts missing'}}))
+        shop.judge.return_value = {'legit': {'attempted': 0, 'placed': 0},
+                                   'checks': {}, 'paths': {}, 'pass': False}
+        measured = {'valid': True, 'paths': {}}
+        checkpoint = {'runs': 1, 'error_runs': 0, 'invalid_runs': 0, 'pass_runs': 1,
+                      'exposure': {'paths': {}}, 'paths': {}, 'checks': {}}
+        spec = {'duration_sec': 1, 'interval_sec': 1, 'paths': [], 'traffic': 'true', 'key': {}}
+        with patch.object(silent_window, 'readers', return_value=(shop, AsyncMock(return_value='{}'),
+                   AsyncMock(return_value={}), AsyncMock())), \
+             patch.object(exposure, 'observe', AsyncMock(return_value=measured)), \
+             patch.object(exposure, 'checkpoint', return_value=checkpoint), \
+             patch.object(silent_window.claims, 'score', return_value={}):
+            result = asyncio.run(silent_window.run_window(object(), spec))
+        self.assertEqual((result['error_runs'], result['invalid_runs'], result['pass_runs']), (1, 1, 0))
+        self.assertIn('synthetic facts missing', result['errors'][0]['message'])
+
 
 if __name__ == '__main__': unittest.main()

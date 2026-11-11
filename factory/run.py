@@ -1387,10 +1387,14 @@ def strategy_run(c, name):
     except (OSError, ValueError, KeyError, TypeError):
         pass
     receipt_path.unlink(missing_ok=True)
+    # The scientific bench is pinned separately from plumbing. Older worker images keep
+    # their original strategy API and executions until their bench release is upgraded.
+    sharing = ({"shared": shared_strategy_checkpoints(c), "shared_binding": shared_signature}
+               if hasattr(module, "execute_shared") else {})
     result = module.simulate(c.case, name, c.args.scenario_runs, c.seed, factory_workers=workers,
                              checkpoint_cache_dir=c.work / ('strategy-' + name + '-checkpoints'),
                              checkpoint_binding=signature, restored_results_root=c.work / "bench-results",
-                             shared=shared_strategy_checkpoints(c), shared_binding=shared_signature)
+                             **sharing)
     if not completed(result):
         raise ValueError("incomplete strategy result")
     try:

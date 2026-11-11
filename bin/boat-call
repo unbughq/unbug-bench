@@ -9,7 +9,7 @@ import sys
 import tempfile
 import processes
 
-VERSION = 'boat 1.0.96'
+VERSION = 'boat 1.0.97'
 CAPTURE_LIMIT = 8 * 1024 * 1024
 
 
