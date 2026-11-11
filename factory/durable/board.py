@@ -31,6 +31,9 @@ from typing import Optional
 # Statuses that end a case: nothing more will happen to it in its batch.
 FINAL = ("sealed", "retired", "not_admitted", "stopped_admission", "engine_error")
 LIVE_WORKFLOW = ("PENDING", "ENQUEUED")
+# A held case either waits for a factory release and resumes by itself (engine wait_for_fix) or
+# needs the founder's decision; the board says which.
+HELD_LABELS = {"held": "held: needs your decision", "held_for_release": "held: waiting for a factory release"}
 # A batch workflow in one of these states has ended. Any other value, including an unread
 # one, is not evidence that it ended, so its unfinished cases stay on the live board.
 ENDED_WORKFLOW = ("SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED")
@@ -365,7 +368,7 @@ def render_board(board: dict) -> str:
             note = ' [batch state unknown]'
         else:
             note = ''
-        status = r['status'] + (f" ({r['reason']})" if r['reason'] else '') + note
+        status = HELD_LABELS.get(r['status'], r['status']) + (f" ({r['reason']})" if r['reason'] else '') + note
         table.append((r['case'], status, r['stage'], str(r['writer_round']), gates,
                       money(r['spend_usd_micros']['spent']), stamp(r['last_event_at']), ago(r['quiet_for_s']),
                       *clock(r.get('time_to_seal'))))

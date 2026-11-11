@@ -20,6 +20,14 @@ from test_durable_engine_fakes import ALL_GATES, EngineRun  # noqa: E402
 
 C1, C2, C3 = "case-t-1", "case-t-2", "case-t-3"
 M = 1_000_000
+# The patch under which a factory_bug hold waits for a release (engine._Case.rerun_after_release).
+# Disabling it is the path of workflows recorded before it: the hold ends them for --resume-case.
+RELEASE_WAIT = "factory_bug_release_wait"
+
+
+def manual_holds(scenario):
+    """A scenario whose factory_bug holds end the workflow, for the --resume-case path."""
+    return {**scenario, "disabled_patches": [*scenario.get("disabled_patches", []), RELEASE_WAIT]}
 
 
 def run(scenario, timeout=120):
@@ -92,8 +100,8 @@ class StepSequence(unittest.TestCase):
                 self.assertEqual(steps(r, 1), expected)
                 self.assertEqual(out['result']['cases'], {C1: 'retired'})
         # A diagnosis that finds infrastructure still holds it, as for any case.
-        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2},
-                      'script': {**sealed, '1/gates:1/*': infra, '1/diagnosis/*': {'verdict': 'factory_bug'}}})
+        r, out = run(manual_holds({'import_snapshot': True, 'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2},
+                      'script': {**sealed, '1/gates:1/*': infra, '1/diagnosis/*': {'verdict': 'factory_bug'}}}))
         self.addCleanup(r.close)
         self.assertEqual(steps(r, 1), ['admit', 'gates:1', 'gates:1', 'gates:1', 'diagnosis'])
         self.assertEqual(out['result']['cases'], {C1: 'held'})
@@ -425,8 +433,8 @@ class Outcomes(unittest.TestCase):
     def test_endless_handbacks_become_infra_after_the_call_cap(self):
         # MAX_WRITER_HANDBACKS (8) free retries, then each counts as infra: allowance 1, so the 10th diagnoses.
         handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
-        r, out = run({"spec": {"max_infra_retries_per_step": 1},
-                      "script": {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        r, out = run(manual_holds({"spec": {"max_infra_retries_per_step": 1},
+                      "script": {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}}))
         self.addCleanup(r.close)
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 10 + ["diagnosis"])
         self.assertEqual(out["result"]["cases"][C1], "held")   # a held case starts its replacement
@@ -1079,7 +1087,14 @@ class AttackCap(unittest.TestCase):
 
 
 class Resume(unittest.TestCase):
-    """A case stopped by an infrastructure failure continues where it stopped, under its own ID."""
+    """A case stopped by an infrastructure failure continues where it stopped, under its own ID.
+    Its factory_bug holds end the workflow (manual_holds), as before ReleaseHolds' path."""
+
+    def manual_run(self, scenario, timeout=120):
+        return run(manual_holds(scenario), timeout)
+
+    def engine_run(self, scenario, **kw):
+        return EngineRun(manual_holds(scenario), **kw)
 
     STOPPED = {"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 1},
                "script": {"1/stress:1/1": {"feedback": True},
@@ -1088,12 +1103,12 @@ class Resume(unittest.TestCase):
                                             "diagnostic": True, "checkpoint": True}}}
 
     def resume(self, r, script=None):
-        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1,
+        r2 = self.engine_run({"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1,
                         "script": script or {}}, workdir=r.work)
         return r2.run()
 
     def test_a_held_case_resumes_at_its_failed_step_and_keeps_its_history(self):
-        r, out = run(self.STOPPED)
+        r, out = self.manual_run(self.STOPPED)
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "held"})
         before = len(r.starts(1))
@@ -1115,7 +1130,7 @@ class Resume(unittest.TestCase):
 
     def test_a_case_retired_before_the_hold_fix_resumes_too(self):
         # f46dac on 8 November: retired only because its diagnosis could not get a worker.
-        r, out = run({**self.STOPPED, "disabled_patches": ["diagnosis_infra_holds"]})
+        r, out = self.manual_run({**self.STOPPED, "disabled_patches": ["diagnosis_infra_holds"]})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
         out = self.resume(r, {"1/diagnosis/*": {"verdict": "close_to_passing"}})
@@ -1123,7 +1138,7 @@ class Resume(unittest.TestCase):
 
     def test_a_resume_under_other_limits_diverges_instead_of_granting_more(self):
         # Stopped at its diagnosis after one writer round; a default writer limit would run writer:2.
-        r, out = run({**self.STOPPED, "spec": {**self.STOPPED["spec"], "max_writer_rounds": 1},
+        r, out = self.manual_run({**self.STOPPED, "spec": {**self.STOPPED["spec"], "max_writer_rounds": 1},
                       "script": {"1/stress:1/1": {"feedback": True},
                                  "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled"}}})
         self.addCleanup(r.close)
@@ -1136,18 +1151,18 @@ class Resume(unittest.TestCase):
     def test_a_case_stopped_by_a_verdict_is_not_resumable(self):
         stopped = {**self.STOPPED, "script": {**self.STOPPED["script"],
                                               "1/diagnosis/*": {"verdict": "not_converging"}}}
-        r, out = run(stopped)
+        r, out = self.manual_run(stopped)
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
         self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
 
     def test_a_resumed_case_that_stops_again_resumes_again(self):
-        r, out = run(self.STOPPED)
+        r, out = self.manual_run(self.STOPPED)
         self.addCleanup(r.close)
         again = {"1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:creation_limit"}}
         self.assertEqual(self.resume(r, again)["result"]["cases"], {C1 + "@b-u": "held"})
         tried = len([k for k in r.keys(1) if k[1] == "diagnosis"])
-        r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1,
+        r3 = self.engine_run({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1,
                         "script": {"1/diagnosis/*": {"verdict": "close_to_passing"}}}, workdir=r.work)
         out = r3.run()
         self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "sealed"})
@@ -1165,7 +1180,7 @@ class Resume(unittest.TestCase):
                               "1/diagnosis/*": {"verdict": "factory_bug"}}}
 
     def test_a_case_held_by_a_factory_bug_resumes_at_the_diagnosed_writer_step(self):
-        r, out = run(self.FACTORY_BUG)
+        r, out = self.manual_run(self.FACTORY_BUG)
         self.addCleanup(r.close)
         self.assertEqual((out["result"]["cases"], r.keys(1)[-1]), ({C1: "held"}, ("5", "diagnosis", "1")))
         before = len(r.starts(1))
@@ -1180,27 +1195,27 @@ class Resume(unittest.TestCase):
     def test_a_factory_bug_resume_names_the_diagnosed_attempts_as_waste(self):
         # Their money was lost to our own bug: runtime.start books it as waste (ledger.book_waste)
         # before it counts what the case used. A resume after an infra stop names nothing.
-        r, out = run(self.FACTORY_BUG)
+        r, out = self.manual_run(self.FACTORY_BUG)
         self.addCleanup(r.close)
         self.resume(r)
         self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()),
                          [f"{C1}/4/writer:2/1", f"{C1}/4/writer:2/2"])
-        r2, _ = run(self.STOPPED)
+        r2, _ = self.manual_run(self.STOPPED)
         self.addCleanup(r2.close)
         self.resume(r2, {"1/diagnosis/4": {"verdict": "close_to_passing"}})
         self.assertEqual(json.loads((r2.work / "waste-keys.json").read_text()), [])
-        r3, _ = run({**self.STOPPED, "script": {**self.STOPPED["script"], "1/diagnosis/*": {"verdict": "not_converging"}}})
+        r3, _ = self.manual_run({**self.STOPPED, "script": {**self.STOPPED["script"], "1/diagnosis/*": {"verdict": "not_converging"}}})
         self.addCleanup(r3.close)
         self.resume(r3)
         self.assertEqual(json.loads((r3.work / "waste-keys.json").read_text()), {"refused": "resume:not_stopped_by_infra"})
 
     def test_factory_bug_resumes_count_across_the_lineage(self):
-        r, out = run(self.FACTORY_BUG)
+        r, out = self.manual_run(self.FACTORY_BUG)
         self.addCleanup(r.close)
         again = {"1/writer:2/*": {"outcome": "exhausted", "reason": "writer:unchanged_repair"},
                  "1/diagnosis/*": {"verdict": "factory_bug"}}
         for n, batch in enumerate(("b-u", "b-v", "b-w"), start=1):
-            r2 = EngineRun({"spec": {"batch_id": batch, "max_cases_started": 1}, "resume_of": C1,
+            r2 = self.engine_run({"spec": {"batch_id": batch, "max_cases_started": 1}, "resume_of": C1,
                             "script": again}, workdir=r.work)
             out = r2.run()
             # A hold while resumes remain; the policy retires the lineage's fourth factory_bug.
@@ -1208,13 +1223,13 @@ class Resume(unittest.TestCase):
         # Each diagnosis ran afresh under a new key, at the seq the first one used.
         self.assertEqual([k for k in r.keys(1) if k[1] == "diagnosis"],
                          [("5", "diagnosis", str(n)) for n in range(1, 5)])
-        r3 = EngineRun({"spec": {"batch_id": "b-x", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
+        r3 = self.engine_run({"spec": {"batch_id": "b-x", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
         self.assertEqual(r3.run(), {"refused": "resume:not_stopped_by_infra"})
 
     def test_a_factory_bug_found_by_a_resumed_diagnosis_resumes_too(self):
         # The diagnosis first stopped on infra and was resumed; that resume's skip of the diagnosis
         # seq must not make the step that now takes the seq look like replayed history.
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+        r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                       "script": {"1/stress:1/1": {"feedback": True},
                                  "1/writer:2/*": {"outcome": "exhausted", "reason": "writer:unchanged_repair"},
                                  "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled"}}})
@@ -1222,7 +1237,7 @@ class Resume(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1: "held"})
         out = self.resume(r, {"1/diagnosis/*": {"verdict": "factory_bug"}})
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "held"})
-        r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
+        r3 = self.engine_run({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
         self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
 
     def test_a_resume_batch_with_case_money_net_of_earlier_spend_replays(self):
@@ -1230,10 +1245,10 @@ class Resume(unittest.TestCase):
         # the earlier batches used (runtime's resume_money check), so case money differs from the
         # stopped batch's. The recorded attempts still replay: their keys return their results.
         stopped = {**self.FACTORY_BUG, "spec": {**self.FACTORY_BUG["spec"], "case_money_usd_micros": 45_700_000}}
-        r, out = run(stopped)
+        r, out = self.manual_run(stopped)
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "held"})
-        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "case_money_usd_micros": 43_700_000},
+        r2 = self.engine_run({"spec": {"batch_id": "b-u", "max_cases_started": 1, "case_money_usd_micros": 43_700_000},
                         "resume_of": C1}, workdir=r.work)
         self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
 
@@ -1244,7 +1259,7 @@ class Resume(unittest.TestCase):
                   f"1/{step}/1": {"outcome": "exhausted", "reason": step.split(":")[0] + ":money", "checkpoint": True}}
         if step == "writer:2":
             script["1/stress:1/1"] = {"feedback": True}
-        r, out = run({"spec": {"max_cases_started": 1}, "script": script})
+        r, out = self.manual_run({"spec": {"max_cases_started": 1}, "script": script})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "held"})
         return r
@@ -1265,7 +1280,7 @@ class Resume(unittest.TestCase):
                 self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()), [f"{C1}/{seq}/{step}/1"])
 
     def test_a_money_stop_of_another_step_or_without_factory_bug_is_not_resumable(self):
-        r, out = run({"spec": {"max_cases_started": 1},
+        r, out = self.manual_run({"spec": {"max_cases_started": 1},
                       "script": {"1/stress:1/1": {"feedback": True},
                                  "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:money"},
                                  "1/diagnosis/*": {"verdict": "not_converging"}}})
@@ -1280,7 +1295,7 @@ class Resume(unittest.TestCase):
         sealed = {'1/admit/1': {'reason': 'admit:imported_sealed'},
                   '1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
                                   'passed': ['G1', 'G2', 'G10']}}
-        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
+        r, out = self.manual_run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
         self.addCleanup(r.close)
         self.assertEqual(out['result']['cases'], {C1: 'retired'})
         before = len(r.starts(1))
@@ -1297,15 +1312,15 @@ class Resume(unittest.TestCase):
                                   'passed': ['G1', 'G2', 'G10']}}
         for stopped in ('writer:2', 'gates:2'):
             with self.subTest(stopped=stopped):
-                r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
+                r, out = self.manual_run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
                 self.addCleanup(r.close)
                 infra = {f'1/{stopped}/*': {'outcome': 'infra_error', 'reason': 'infra:stalled'},
                          '1/diagnosis/*': {'outcome': 'infra_error', 'reason': 'infra:stalled'}}
-                r2 = EngineRun({'spec': {'batch_id': 'b-u', 'max_cases_started': 1}, 'resume_of': C1,
+                r2 = self.engine_run({'spec': {'batch_id': 'b-u', 'max_cases_started': 1}, 'resume_of': C1,
                                 'script': infra}, workdir=r.work)
                 self.assertEqual(r2.run()['result']['cases'], {C1 + '@b-u': 'held'})
                 before = len(r.starts(1))
-                r3 = EngineRun({'spec': {'batch_id': 'b-v', 'max_cases_started': 1}, 'resume_of': C1,
+                r3 = self.engine_run({'spec': {'batch_id': 'b-v', 'max_cases_started': 1}, 'resume_of': C1,
                                 'script': {'1/diagnosis/*': {'verdict': 'close_to_passing'}}}, workdir=r.work)
                 # The repair decision at the October GATES seq replays; the diagnosis of the stopped
                 # step extends the case, and the extension goes to all gates without a stress round.
@@ -1318,17 +1333,17 @@ class Resume(unittest.TestCase):
         sealed = {'1/admit/1': {'reason': 'admit:imported_sealed'},
                   '1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
                                   'passed': ['G1', 'G2', 'G10']}}
-        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
+        r, out = self.manual_run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
         self.addCleanup(r.close)
         before = len(r.starts(1))
-        r2 = EngineRun({'spec': {'batch_id': 'b-u', 'max_cases_started': 1}, 'resume_of': C1,
+        r2 = self.engine_run({'spec': {'batch_id': 'b-u', 'max_cases_started': 1}, 'resume_of': C1,
                         'script': {'1/gates:2/1': {'outcome': 'gate_failed', 'gate': 'G16', 'repairable': True,
                                                    'passed': ['G1']}}}, workdir=r.work)
         self.assertEqual(r2.run()['result']['cases'], {C1 + '@b-u': 'sealed'})
         self.assertEqual([k[1] for k in r.keys(1)[before:]], ['writer:2', 'gates:2', 'writer:3', 'gates:3', 'seal'])
 
     def test_a_case_retired_by_a_verdict_is_still_not_resumed(self):
-        r, out = run({'spec': {'max_cases_started': 1},
+        r, out = self.manual_run({'spec': {'max_cases_started': 1},
                       'script': {'1/gates:1/1': {'outcome': 'gate_failed', 'gate': 'G3', 'repairable': False}}})
         self.addCleanup(r.close)
         self.assertNotEqual(out['result']['cases'], {C1: 'sealed'})
@@ -1341,7 +1356,7 @@ class Resume(unittest.TestCase):
                               "1/diagnosis/*": {"verdict": "factory_bug"}}}
 
     def test_a_gates_step_that_only_stopped_on_infra_resumes_after_a_factory_bug(self):
-        r, out = run(self.GATES_INFRA)
+        r, out = self.manual_run(self.GATES_INFRA)
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "held"})
         seq, kind, _ = r.keys(1)[-1]
@@ -1357,7 +1372,7 @@ class Resume(unittest.TestCase):
 
     # 2abb0a and 1110b on 10 November: a writer step ended infra:invalid_execution on every attempt.
     def test_a_writer_step_that_only_stopped_on_infra_resumes_after_a_factory_bug(self):
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
+        r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
                       "script": {"1/writer:1/*": {"outcome": "infra_error", "reason": "infra:invalid_execution",
                                                   "checkpoint": True},
                                  "1/diagnosis/*": {"verdict": "factory_bug"}}})
@@ -1379,13 +1394,13 @@ class Resume(unittest.TestCase):
         infra = {"outcome": "infra_error", "reason": "infra:invalid_execution", "checkpoint": True}
         for disabled, expected in (([], "4444"), (["resume_adopts_bench"], "2222")):
             with self.subTest(disabled=disabled):
-                r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                               "script": {"1/gates:1/1": repair, "1/writer:2/*": infra,
                                          "1/diagnosis/*": {"verdict": "factory_bug"}}})
                 self.addCleanup(r.close)
                 self.assertEqual(out["result"]["cases"], {C1: "held"})
                 before = len(r.starts(1))
-                r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1,
+                r2 = self.engine_run({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1,
                                          "bench_version": "4" * 64},
                                 "resume_of": C1, "script": {"1/writer:2/*": {}}, "disabled_patches": disabled},
                                workdir=r.work)
@@ -1397,7 +1412,7 @@ class Resume(unittest.TestCase):
 
     # 2abb0a on 10 November: writer attempts ended infra_error and provider_limit (quota, credit).
     def test_a_writer_step_that_stopped_on_infra_and_provider_limits_resumes_after_a_factory_bug(self):
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+        r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                       "script": {"1/writer:1/1": {"outcome": "provider_limit", "reason": "router:quota",
                                                   "retry_in": 0.01},
                                  "1/writer:1/2": {"outcome": "infra_error", "reason": "infra:invalid_execution"},
@@ -1415,38 +1430,38 @@ class Resume(unittest.TestCase):
 
     # cae763 on 10 November: writer:6 ran out of case money, was resumed, then stopped on infrastructure.
     def test_a_writer_step_that_stopped_on_case_money_then_infra_resumes_after_a_factory_bug(self):
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+        r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                       "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:money", "checkpoint": True},
                                  "1/diagnosis/*": {"verdict": "factory_bug"}}})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "held"})
         lost = {"outcome": "infra_error", "reason": "infra:invalid_execution", "checkpoint": True}
-        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1},
+        r2 = self.engine_run({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1},
                         "resume_of": C1, "script": {"1/writer:1/2": lost, "1/writer:1/3": lost,
                                                     "1/diagnosis/*": {"verdict": "factory_bug"}}}, workdir=r.work)
         self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
         before = len(r.starts(1))
-        r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1,
+        r3 = self.engine_run({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1,
                         "script": {"1/writer:1/*": {}}}, workdir=r.work)
         out = r3.run()
         self.assertEqual(r.keys(1)[before][1:], ("writer:1", "4"))
         self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "sealed"})
 
     def test_a_mixed_step_with_any_other_outcome_is_still_refused(self):
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+        r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                       "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:money", "checkpoint": True},
                                  "1/diagnosis/*": {"verdict": "factory_bug"}}})
         self.addCleanup(r.close)
-        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1},
+        r2 = self.engine_run({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_infra_retries_per_step": 1},
                         "resume_of": C1, "script": {"1/writer:1/2": {"outcome": "exhausted", "reason": "writer:rounds"},
                                                     "1/diagnosis/*": {"verdict": "factory_bug"}}}, workdir=r.work)
         self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
-        r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1, "script": {}},
+        r3 = self.engine_run({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1, "script": {}},
                        workdir=r.work)
         self.assertEqual(r3.run(), {"refused": "resume:not_stopped_by_infra"})
 
     def test_a_writer_step_with_a_non_infra_stop_among_its_attempts_is_not_resumed_this_way(self):
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
+        r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
                       "script": {"1/writer:1/1": {"outcome": "infra_error", "reason": "infra:invalid_execution"},
                                  "1/writer:1/2": {"outcome": "exhausted", "reason": "writer:rounds"},
                                  "1/diagnosis/*": {"verdict": "factory_bug"}}})
@@ -1459,14 +1474,14 @@ class Resume(unittest.TestCase):
         # rerun GATES, which takes seq 5 with one attempt: the old diagnosis/2 there is not its history.
         p3, b4 = "3" * 64, "4" * 64
         spec = {"max_cases_started": 1, "max_infra_retries_per_step": 0}
-        r, out = run({"spec": spec,
+        r, out = self.manual_run({"spec": spec,
                       "script": {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted"},
                                  "1/5/diagnosis/1": {"outcome": "provider_limit"},
                                  "1/5/diagnosis/2": {"verdict": "factory_bug"}}})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "held"})
         self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "2"))
-        r2 = EngineRun({"spec": {**spec, "batch_id": "b-u"}, "resume_of": C1,
+        r2 = self.engine_run({"spec": {**spec, "batch_id": "b-u"}, "resume_of": C1,
                         "script": {"1/4/gates:1/2": {"dur": 1.5},
                                    "1/5/gates:1/1": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted"},
                                    "1/diagnosis/*": {"verdict": "factory_bug"}},
@@ -1475,7 +1490,7 @@ class Resume(unittest.TestCase):
         self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
         self.assertEqual(r.keys(1)[-2:], [("5", "gates:1", "1"), ("6", "diagnosis", "1")])
         # Eligibility now looks only at the seq-5 GATES attempt, so the resume is not refused.
-        r3 = EngineRun({"spec": {**spec, "batch_id": "b-v"}, "resume_of": C1}, workdir=r.work)
+        r3 = self.engine_run({"spec": {**spec, "batch_id": "b-v"}, "resume_of": C1}, workdir=r.work)
         self.assertNotIn("refused", r3.run())
 
     def test_a_factory_bug_after_a_scientific_result_is_not_resumable(self):
@@ -1486,10 +1501,154 @@ class Resume(unittest.TestCase):
                 if step == "writer:2":
                     script["1/stress:1/1"] = {"feedback": True}
                 rounds = {"max_writer_rounds": 1} if step == "gates:1" else {}   # its repair goes to diagnosis
-                r, out = run({"spec": {"max_cases_started": 1, **rounds}, "script": script})
+                r, out = self.manual_run({"spec": {"max_cases_started": 1, **rounds}, "script": script})
                 self.addCleanup(r.close)
                 self.assertEqual(out["result"]["cases"], {C1: "held"})
                 self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
+
+
+class ReleaseHolds(unittest.TestCase):
+    """A factory_bug hold of a step that may run again waits in its own workflow for a factory
+    release, then reruns that step on it, as a `--resume-case` batch would (86b100, 11 November)."""
+
+    HELD = {"case": 1, "status": "held_for_release"}
+
+    def test_a_release_reruns_the_diagnosed_step_on_the_new_release(self):
+        for release in ({"plumbing": "3" * 64}, {"bench": "4" * 64}):
+            with self.subTest(release=release):
+                r, out = run({**Resume.FACTORY_BUG, "actions": [{"when": self.HELD, **release}]})
+                self.addCleanup(r.close)
+                self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+                self.assertEqual([x["status"] for x in r.actions()], ["held_for_release"])
+                # The writer step runs again after its recorded attempts, from their last save, and
+                # the next step takes the diagnosis's seq: the keys a --resume-case batch would use.
+                self.assertEqual(r.keys(1)[-5:], [("5", "diagnosis", "1"), ("4", "writer:2", "3"),
+                                                  ("5", "stress:2", "1"), ("6", "gates:2", "1"), ("7", "seal", "1")])
+                rerun = start(r, f"{C1}/4/writer:2/3")
+                self.assertEqual(rerun["opened"]["snapshot"], f"snapshot {C1}/4/writer:2/2")
+                self.assertEqual(rerun["opened"]["feedback"], start(r, f"{C1}/4/writer:2/1")["opened"]["feedback"])
+                key = "pv" if "plumbing" in release else "bv"
+                self.assertEqual(rerun[key], next(iter(release.values()))[:4])   # on the delivered release
+                # The diagnosed attempts' money is waste, as runtime.start books it for a resume
+                # (writer:2/1, a free provider limit, spent none).
+                self.assertEqual([x["key"] for x in r.ledger_log() if x["op"] == "book_waste"],
+                                 [f"{C1}/4/writer:2/2"])
+                self.assertEqual(out["ledger"]["cases"][C1]["held"], 0)
+                self.assertEqual(card(out, C1)["diagnoses"], 0)
+
+    def test_without_a_new_release_it_never_reruns_and_holds_at_the_deadline(self):
+        # The writer:2/1 provider limit waits; the deadline leaves room to reach the hold first.
+        r, out = run({**Resume.FACTORY_BUG, "deadline_in": 25, "timing": {"wake_poll_s": 0.3},
+                      "actions": [{"when": self.HELD, "plumbing": "1" * 64}]})   # the release it failed on
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "1"))
+        self.assertEqual([x["status"] for x in r.actions()], ["held_for_release"])
+        # Held as before, so a --resume-case batch can still take it on.
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
+
+    def test_a_hold_after_writer_handbacks_reruns_the_round(self):
+        # Handbacks returned no repair to judge: a factory_bug hold after them is a rerun, not a re-roll.
+        handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "script": {**{f"1/writer:1/{n}": handback for n in range(1, 11)},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}},
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual([x["status"] for x in r.actions()], ["held_for_release"])
+        self.assertEqual(r.keys(1)[11:13], [("3", "diagnosis", "1"), ("2", "writer:1", "11")])
+        # Every handback stop counts as returned-nothing for resume_point too.
+        from durable.engine import factory_bug_rerunnable
+        self.assertTrue(factory_bug_rerunnable("writer:1", [{"outcome": "ok", "reason": "writer:handback"},
+                                                            {"outcome": "infra_error", "reason": "infra:stalled"}]))
+        self.assertFalse(factory_bug_rerunnable("writer:1", [{"outcome": "ok", "reason": "writer:handback"},
+                                                             {"outcome": "exhausted", "reason": "writer:rounds"}]))
+
+    def test_an_operator_resume_reruns_it_without_a_release(self):
+        r, out = run({**Resume.FACTORY_BUG, "actions": [{"when": self.HELD, "resume_held": 1}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(r.actions()[0]["resume_sent"], True)
+        self.assertEqual(r.keys(1)[-4][1:], ("writer:2", "3"))
+
+    def test_the_lineage_cap_ends_the_loop(self):
+        script = {**Resume.FACTORY_BUG["script"],
+                  "1/writer:2/*": {"outcome": "exhausted", "reason": "writer:unchanged_repair"}}
+        r, out = run({"spec": {"max_cases_started": 1, "max_factory_bug_resumes": 2}, "script": script,
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64},
+                                  {"when": {"ran": f"{C1}/4/writer:2/3", **self.HELD}, "plumbing": "5" * 64},
+                                  {"when": {"ran": f"{C1}/4/writer:2/4", **self.HELD}, "plumbing": "6" * 64}]})
+        self.addCleanup(r.close)
+        # Two resumes, then the policy retires the third factory_bug; the third release finds no hold.
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        self.assertEqual(len(r.actions()), 2)
+        self.assertEqual([k for k in r.keys(1) if k[1] == "diagnosis"],
+                         [("5", "diagnosis", str(n)) for n in range(1, 4)])
+        self.assertEqual([k[2] for k in r.keys(1) if k[1] == "writer:2"], ["1", "2", "3", "4"])
+
+    def test_a_resume_case_batch_counts_the_resumes_made_in_place(self):
+        # max 2: one release resume in b-t, then held at its deadline; the --resume-case batch is the
+        # second resume, so its next factory_bug retires instead of holding a third time.
+        script = {**Resume.FACTORY_BUG["script"],
+                  "1/writer:2/*": {"outcome": "exhausted", "reason": "writer:unchanged_repair"}}
+        r, out = run({"spec": {"max_cases_started": 1, "max_factory_bug_resumes": 2}, "script": script,
+                      "deadline_in": 25, "timing": {"wake_poll_s": 0.3},
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(len(r.actions()), 1)
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "max_factory_bug_resumes": 2},
+                        "resume_of": C1, "script": script}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "retired"})
+        self.assertEqual([k for k in r.keys(1) if k[1] == "diagnosis"],
+                         [("5", "diagnosis", str(n)) for n in range(1, 4)])
+
+    def test_a_gates_rerun_of_an_extension_stays_in_the_extension(self):
+        # The rerun's GATES result ends the extension (ext_after): progress allows a second one.
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "script": {"1/stress:1/1": {"feedback": True},
+                                 "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                 "1/5/diagnosis/1": {"verdict": "close_to_passing"},
+                                 "1/gates:3/1": {"outcome": "infra_error", "reason": "infra:stalled"},
+                                 "1/gates:3/2": {"outcome": "infra_error", "reason": "infra:stalled"},
+                                 "1/9/diagnosis/1": {"verdict": "factory_bug"},
+                                 "1/gates:3/3": {"outcome": "gate_failed", "gate": "G5", "repairable": True,
+                                                 "passed": ["G1"]},
+                                 "1/9/diagnosis/2": {"verdict": "close_to_passing"}},
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(r.keys(1)[9:12], [("9", "diagnosis", "1"), ("8", "gates:3", "3"), ("9", "diagnosis", "2")])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(card(out, C1)["extensions"], 2)
+
+    def test_a_factory_bug_after_a_scientific_result_still_holds_at_once(self):
+        r, out = run({"spec": {"max_cases_started": 1, "max_writer_rounds": 1},
+                      "script": {"1/gates:1/*": {"outcome": "gate_failed", "gate": "G5", "repairable": True},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}},
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(r.actions(), [])
+
+    def test_a_founder_decision_is_never_resumed_by_a_release(self):
+        r, out = run({"spec": {"max_cases_started": 1},
+                      "script": {"1/4/gates:1/1": {"outcome": "needs_founder", "gate": "G16", "reason": "g16:split_review"}},
+                      "actions": [{"when": {"case": 1, "status": "escalated"}, "plumbing": "3" * 64},
+                                  {"when": {"case": 1, "status": "escalated"}, "delay_s": 2,
+                                   "reply": {"action": "retire"}}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        self.assertEqual([k[1] for k in r.keys(1)], ["admit", "writer:1", "stress:1", "gates:1"])
+
+    def test_a_workflow_from_before_this_path_holds_as_it_recorded(self):
+        r, out = run({**Resume.FACTORY_BUG, "disabled_patches": [RELEASE_WAIT],
+                      "actions": [{"when": self.HELD, "plumbing": "3" * 64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(r.actions(), [])
+        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "1"))
 
 
 class Conductor(unittest.TestCase):

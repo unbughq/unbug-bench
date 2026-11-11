@@ -276,6 +276,9 @@ class Executor:
         _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, result.usage, waste=waste)
         return "waste" if waste else "case"
 
+    def book_waste(self, idempotency_key: str, reason: str) -> None:
+        _call("engine:ledger_failed", self.ledger.book_waste, idempotency_key, reason)
+
     def open_batch(self, batch_id: str, bound: int) -> None:
         _call("engine:ledger_failed", self.ledger.open, batch_id, bound)
 
