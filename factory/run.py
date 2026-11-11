@@ -2785,6 +2785,20 @@ def adopt_parallel_checks(c, n, receipt_path):
     return True
 
 
+def adopt_parallel_gates_at_entry(c):
+    """Enable parallel gate scheduling for an older case without changing its bench pool.
+
+    An explicit card setting, including false, remains authoritative. Keeping bench_workers
+    unchanged preserves the identities of checks already earned in the writer step.
+    """
+    config = c.card.get("recovery_config") or {}
+    if c.args.dry_run or "parallel_gates" in config:
+        return False
+    c.card["recovery_config"] = {**config, "parallel_gates": True}
+    c.args.parallel_gates = True
+    return True
+
+
 def engine_writer_round(c, n, feedback):
     """WRITER round n: today's writer call, G1 and early checks; a G1 or early-check failure goes back
     to the writer within the round, bounded by the runner's round cap."""
@@ -2906,6 +2920,7 @@ def _split_panel(c, gate):
 def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
+    adopt_parallel_gates_at_entry(c)
     if not c.args.dry_run and not parallel_gates(c) and not g1(c)[1]["problems"]:
         ensure_freshness(c)  # parallel_gates: G2 is ensure_freshness, in the lane beside the bench gates
     for key in ("gates", "gate_results", "gate_minutes"): c.card[key] = {}
