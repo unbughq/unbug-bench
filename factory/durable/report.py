@@ -20,7 +20,7 @@ from durable.contract import CASE_ID, GATE, REASON, ArtifactKind, ContractError,
 
 STATUSES = ("sealed", "running", "waiting_for_bound", "escalated", "held", "retired", "stopped_admission",
             "engine_error", "pending_admission", "waiting_for_worker", "not_admitted", "waiting_for_credentials", "waiting_for_router",
-            "waiting_for_release", "retrying_admission")
+            "waiting_for_release", "retrying_admission", "held_for_release")
 STAGE_KINDS = ("admit", "writer", "stress", "gates", "seal", "diagnosis", "sealed")
 
 

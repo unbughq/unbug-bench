@@ -65,6 +65,11 @@ def dispatch(runtime, request):
             payload["ruling"] = Ref(**payload["ruling"])
         runtime.engine.reply(request["destination"], FounderReply(**payload))
         return {"sent": True}
+    if op == "resume_held":
+        case, _, batch = request["destination"].partition("@")
+        if not CASE_ID.fullmatch(case) or (batch and not BATCH_ID.fullmatch(batch)):
+            raise RuntimeErrorCode("invalid_case")
+        return {"sent": runtime.engine.resume_held(request["destination"])}
     if op == "publish":
         from durable.classify import PUBLISHED_REASONS
         from durable.report import load_cards, publish
@@ -180,6 +185,8 @@ def main(argv=None):
         p = commands.add_parser(name)
         p.add_argument("destination")
         p.add_argument("payload_file")
+    commands.add_parser("resume_held", help="rerun a case held for a factory release (held_for_release) "
+                        "without waiting for one; counts as a factory_bug resume").add_argument("destination")
     args = vars(parser.parse_args(argv))
     try:
         config = load_config(args.pop("config"))

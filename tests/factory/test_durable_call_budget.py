@@ -110,6 +110,7 @@ class AttemptBudget(unittest.TestCase):
                 path=Path(env['XDG_CACHE_HOME']);path.mkdir(parents=True)
                 (path/'private-state').write_text('synthetic case data')
                 scratch.append(path.parent)
+                self.assertEqual(kwargs['state_mount'],path.parent)  # recorded for the leftover reaper
                 self.addCleanup(shutil.rmtree,path.parent,True)
                 kwargs['on_started']()
                 return subprocess.CompletedProcess(cmd,0)

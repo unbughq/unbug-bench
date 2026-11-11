@@ -288,6 +288,36 @@ class StrategyPrefixRecoveryTests(unittest.TestCase):
         before = len(self.calls); invoke('ask-everything')
         self.assertEqual(len(self.calls), before)
 
+    def test_restart_mid_strategy_after_borrowing_does_not_execute_again(self):
+        self.interrupt_at = None
+        def invoke(name):
+            with patch.object(run, 'BENCH', self.root), patch.object(self.module, 'BENCH', self.root), \
+                 patch.object(run, 'bench_manifest', lambda: self.implementation), \
+                 patch.object(run, 'strategy_module', lambda: self.module), patch.object(self.module, 'checkpoint', self.driver):
+                return run.strategy_run(self.c, name)
+        invoke('frozen-first-fix'); invoke('honest-reference')
+        self.assertEqual(len(self.calls), 8)
+        # ask-everything borrows every step from honest-reference; its runner is cut at the last step.
+        score, scored = self.module.claims.score, []
+        def cut(*a):
+            scored.append(1)
+            if len(scored) == 4: raise RuntimeError('synthetic interruption')
+            return score(*a)
+        with patch.object(self.module.claims, 'score', cut):
+            with self.assertRaisesRegex(RuntimeError, 'synthetic interruption'): invoke('ask-everything')
+        self.assertEqual(len(self.calls), 8)
+        self.assertFalse((self.c.work / 'strategy-ask-everything.receipt.json').exists())
+        # Restarted runner shares nothing in memory: the borrowed steps come from its own per-step cache.
+        del self.c.strategy_shared
+        result = invoke('ask-everything')
+        self.assertEqual(len(self.calls), 8, 'borrowed steps never run again')
+        self.assertEqual(result['totals'], {'steps': 4, 'unsafe': 0, 'wrong': 0, 'human_minutes': 535})
+        self.assertEqual(result['_evidence_paths'],
+                         json.loads((self.c.work / 'strategy-honest-reference.json').read_text())['_evidence_paths'])
+        # G13 never lends to G15: frozen-first-fix's cache holds only its own executions.
+        frozen = json.loads((self.c.work / 'strategy-frozen-first-fix.json').read_text())['_evidence_paths']
+        self.assertFalse(set(frozen) & set(result['_evidence_paths']))
+
     def test_moved_prefix_tampered_missing_inputs_seed_and_code_invalidate(self):
         self.restore_prefix()
         evidence = self.c.work / 'bench-results/factory-slots/2/runs'
