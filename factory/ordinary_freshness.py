@@ -145,6 +145,10 @@ def ensure(run, c):
             if asked >= REVIEW_REASKS or getattr(c, 'freshness_review_reason', None) == 'same_family_reviewer':
                 raise BudgetError('freshness_review_unavailable')
             c.freshness_reask = asked + 1
+            # Re-fetch the flagged pages that were not read live, so the reviewer is not handed the
+            # same held receipts again (obtain() keeps a live page and refreshes only these).
+            c.freshness_refetch_urls = {r['url'] for r in run.freshness_lines(c)
+                                        if (r.get('hit') is True or r.get('ambiguous') is True) and 'url' in r}
             c.card['freshness_reasks'] = c.freshness_reask
             continue
         errors, enough = metadata()

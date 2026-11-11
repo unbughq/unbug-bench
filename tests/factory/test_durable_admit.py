@@ -363,6 +363,11 @@ class AdmitTests(unittest.TestCase):
             'easy-calibrator-provider-preflight'])
         _, c = self.restore(retry, done, outputs)
         self.assertEqual([r.get('reused', False) for r in c.card['provider_preflight']], [True, True, False, False])
+        # A pass older than PREFLIGHT_REUSE_S (a retry after a long wait) is checked again.
+        self.calls.clear()
+        for row in c.card['provider_preflight']: row['checked_at'] -= run.PREFLIGHT_REUSE_S
+        run.provider_preflight(c, step=f'{BATCH}:1')
+        self.assertEqual(len(self.calls), 4)
         # Another step checks every route again.
         self.calls.clear()
         run.provider_preflight(c, step=f'{BATCH}:2')

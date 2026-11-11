@@ -121,8 +121,9 @@ batch; `switch` checks drained and prints the root commands (source-current syml
 running them. Every Boat call goes through `bin/boat-call` with `BOAT_NO_UPDATE=1`.
 The control units and setup script live under `control/`. ADMIT reuses the existing
 selector, registry, freshness and idea-realism screens. A retried ADMIT keeps the provider
-preflight checks that passed earlier in the same step and re-asks only the rest; an unresolved G2
-freshness review is asked again up to twice within the attempt (the hit still blocks until cleared)
+preflight checks that passed in the same step within 30 minutes and re-asks the rest; an unresolved G2
+freshness review is asked again up to twice within the attempt, re-fetching flagged pages not read
+live (the hit still blocks until cleared)
 before the admit fails `infra:freshness_review_unavailable`. Unless INPUTS pins `rotation_slot`
 or models, a new case's rotation slot cycles by the count of other cases on the registry
 board, which batches carry forward, so one-case batches still rotate. DIAGNOSIS uses the existing
@@ -394,8 +395,10 @@ The router's operator configuration may set `paid_ceiling_usd`, an absolute shar
 wallet spending limit including all retained charges. Restart applies an explicit
 limit transactionally without resetting settled or uncertain spending; live wallet
 credit is checked separately on every paid request (a refused request still records the balance it saw).
-A paid route whose ceiling cannot cover one more request's hold is refused at lease time as a `credit`
-wait, before the call starts, instead of at its first request. Without this setting, the
+A paid route whose ceiling cannot cover one more request's hold is also refused at lease time as a
+`credit` wait; current holds are under the guard's $1 margin, so with the guard running its stop
+usually comes first. An older request waiting only on such routes does not hold back newer requests
+for that pool. Without this setting, the
 historical first-use qualification ceiling remains fixed across restarts.
 An unconfirmed paid request books its whole hold until the provider says otherwise.
 The gate passes the call's OpenRouter generation id with an unconfirmed settle, and a

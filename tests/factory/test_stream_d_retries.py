@@ -461,8 +461,15 @@ class RetryTests(unittest.TestCase):
 
     def test_freshness_reasks_are_bounded_and_the_hit_still_blocks(self):
         self.unresolved_reviews(99)
+        refetch, real = [], ordinary_freshness.obtain
+        def obtain(c, rows, directory, **kw):
+            refetch.append(set(getattr(c, 'freshness_refetch_urls', set())))
+            return real(c, rows, directory, **kw)
+        self.patch(ordinary_freshness, 'obtain', obtain)
         with self.assertRaisesRegex(budget.BudgetError, 'freshness_review_unavailable'): run.g2(self.c)
         self.assertEqual(len(self.calls), 1 + ordinary_freshness.REVIEW_REASKS)
+        flagged = json.loads((self.case / 'freshness.jsonl').read_text().splitlines()[0])['url']
+        self.assertIn(flagged, set().union(*refetch))   # a re-ask re-fetches held pages, not old receipts
 
     def test_dedup_and_panel_callers_use_retained_schema_repair(self):
         self.c.models['easy_calibrator'] = self.c.models['reviewers'][0]

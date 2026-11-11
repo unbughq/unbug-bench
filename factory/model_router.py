@@ -489,9 +489,14 @@ class Store:
                     order = db.execute('SELECT rowid FROM requests WHERE id=?', (identity,)).fetchone()[0]
                     older = [json.loads(p) for (p,) in db.execute('SELECT payload FROM requests WHERE rowid<? AND seen>? ORDER BY rowid', (order, now - LEASE_SECONDS))
                              if json.loads(p)['deadline'] > now and not db.execute('SELECT 1 FROM leases WHERE id=?', (json.loads(p)['id'],)).fetchone()]
+                    funded = {}   # one ledger read per route name in this acquire
+                    def unfunded(r):
+                        if r['route'] not in funded: funded[r['route']] = self._unfunded(db, r, now)
+                        return funded[r['route']]
                     for route in choices:
-                        if not free(route) or self._unfunded(db, route, now): continue
-                        if any(any(eligible(r) and r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
+                        if not free(route) or unfunded(route): continue
+                        # An older request queued only for routes the ceiling cannot fund is not ahead of this one.
+                        if any(any(eligible(r) and not unfunded(r) and r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
                                    for r in self._routes(p['model'], p['accounts'])) for p in older): continue
                         expires = min(now + LEASE_SECONDS, data['deadline'])
                         db.execute('INSERT INTO leases VALUES (?,?,?,NULL,NULL)', (identity, json.dumps(route), expires))
@@ -502,7 +507,7 @@ class Store:
                         active = [(json.loads(r)['pool'], e) for r,e in db.execute('SELECT route,expires FROM leases WHERE outcome IS NULL')]
                         for route in choices:
                             limit = blocked(route) or (dict(reason='credit', blocked_until=retry_at('credit', now=now))
-                                                       if self._unfunded(db, route, now) else None)
+                                                       if unfunded(route) else None)
                             ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
                                      min((e for pool,e in active if pool == route['pool']), default=now + 15))
                             # Only a client that waits for seats is told `capacity`; an older one rejects the reason

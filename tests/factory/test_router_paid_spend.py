@@ -205,6 +205,20 @@ class PaidTests(unittest.TestCase):
                                   credit_reader=lambda: self.credit, paid_ceiling_usd='1')   # an operator raise
         self.assertIsInstance(admit(self.store, identity=identity), router.Lease)   # the waiting caller's retry
 
+    def test_an_older_unfundable_request_does_not_block_a_fundable_one(self):
+        """Near the ceiling a request for a dear route waits; a cheaper route in the same pool still leases."""
+        self.store = router.Store(self.path, clock=lambda: self.now[0], capacities={'openrouter-key': 100},
+                                  credit_reader=lambda: self.credit, paid_ceiling_usd='1')
+        running = admit(self.store)
+        for _ in range(2): self.assertTrue(self.reserve(running)[1]['granted'])   # $0.46: GLM's $0.63 hold no longer fits
+        def acquire(model, identity):
+            return self.store.rpc('acquire', dict(id=identity, model=model, accounts=['openrouter-key'], role='writer',
+                deadline=self.now[0] + 3600, paid_protocol=1, excluded_lanes=['opencode-free/opencode/glm-5.3-flash-free']))
+        older = acquire('openrouter/z-ai/glm-5.3-flash', 'a' * 32)
+        self.assertEqual((older['kind'], older['reason']), ('wait', 'credit'))
+        newer = acquire('openrouter/meta/muse-spark-1.3-contributor', 'b' * 32)   # $0.29 hold fits
+        self.assertEqual((newer['kind'], newer['route']), ('lease', 'openrouter/meta/muse-spark-1.3-contributor'))
+
     def test_a_refused_request_still_records_the_balance_it_saw(self):
         lease = admit(self.store)
         self.assertTrue(self.reserve(lease)[1]['granted'])

@@ -574,7 +574,7 @@ class Guard:
                 f"for {FOUNDER_WAITS[wait['status']]}.")
         credit, rate = health.get("provider_credit_usd"), health.get("router_burn_usd_per_hour")
         if credit is not None and credit < self.low_credit_usd:
-            out["provider_credit"] = (f"Provider account credit is ${credit:.2f}, below ${self.low_credit_usd:.0f}; "
+            out["provider_credit"] = (f"Provider account credit is ${credit:.2f}, below ${self.low_credit_usd:.2f}; "
                                       f"{runway(credit, rate)}. Top it up before calls start being refused.")
         spent, ceiling = health.get("router_spent_usd"), health.get("router_ceiling_usd")
         if spent is not None and ceiling and spent >= CEILING_ALERT_SHARE * ceiling:

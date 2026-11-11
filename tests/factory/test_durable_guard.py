@@ -666,7 +666,7 @@ class GuardTests(unittest.TestCase):
         self.assertIn("$40.00 of its $50.00 ceiling (80%)", ceiling)
         self.assertRegex(ceiling, r"after \$9\.00 more, about 0\.2 hours at the last hour's \$(59|60)\.\d\d/hour")
         credit = next(m for m in self.f.sent if "credit" in m)
-        self.assertIn("$24.00, below $25; about 0.4 hours", credit)
+        self.assertIn("$24.00, below $25.00; about 0.4 hours", credit)
         self.f.clock += 60
         self.f.guard(router=lambda: (40.5, 50.0, 23.0)).run()
         self.assertEqual(len(self.f.sent), 2)                 # each alert once while it lasts

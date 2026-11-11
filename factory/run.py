@@ -425,15 +425,20 @@ def run_context(c, **more):
 
 
 PROVIDER_PREFLIGHT_S = 180   # a slow route is not an unavailable one; an hour-long retry costs more
+PREFLIGHT_REUSE_S = 1800     # a passed check is reused by a retry of the same step only this long
 
 
 def provider_preflight(c, step=None):
     """Check non-writer routes before spending on construction; availability is not a gate pass.
-    With `step` (the engine step's identity), a role already checked in this step is not asked
-    again: a retried ADMIT re-ran every "Reply OK" call and queued for the same routes it needed."""
+    With `step` (the engine step's identity), a role that passed in this step within
+    PREFLIGHT_REUSE_S is not asked again: a retried ADMIT re-ran every "Reply OK" call and queued
+    for the same routes it needed. An older pass (a retry after a long wait) is checked again."""
     same_step = step is not None and c.card.get("provider_preflight_step") == step
     previous = (c.card.get("provider_preflight") or []) if same_step else []
-    passed = {(r.get("role"), r.get("model")) for r in previous if isinstance(r, dict) and r.get("status") == "completed"}
+    now = time.time()
+    passed = {(r.get("role"), r.get("model")): r["checked_at"] for r in previous
+              if isinstance(r, dict) and r.get("status") == "completed"
+              and type(r.get("checked_at")) in (int, float) and 0 <= now - r["checked_at"] < PREFLIGHT_REUSE_S}
     rows = c.card["provider_preflight"] = []
     if step is not None:
         c.card["provider_preflight_step"] = step
@@ -456,7 +461,7 @@ def provider_preflight(c, step=None):
         row = {"role": role, "model": chain[0], "scope": "availability_only", "status": "running"}
         rows.append(row)
         if (role, chain[0]) in passed:
-            row.update(status="completed", reused=True)
+            row.update(status="completed", reused=True, checked_at=passed[(role, chain[0])])
             continue
         started = time.monotonic()
         try:
@@ -464,7 +469,7 @@ def provider_preflight(c, step=None):
                             "This is a provider availability check, not a case task.", c.case, name,
                             timeout=PROVIDER_PREFLIGHT_S)
             if code: raise BudgetError("process_error")
-            row["status"] = "completed"
+            row.update(status="completed", checked_at=time.time())
         except BudgetError as error:
             if str(error).partition(":")[0] in ("budget_exhausted", "codex_login_expired", "provider_wait", "model_call_cap"): raise
             row.update(status="failed", reason=str(error))
