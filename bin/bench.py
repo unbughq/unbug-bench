@@ -447,11 +447,75 @@ def start_app(guard_image):
 # the live app from then on, so a plain reset (no scenarios) re-applies it. Absent on the judge.
 LANDED = ROOT / "changes"
 
+# Postgres (mem_limit 768m) crashed under parallel case checks from 10 November: a reset then saw
+# these, and every later trial on that stack failed too. Restart it once before the trial goes on.
+POSTGRES_CRASH = ("the database system is in recovery mode", "crash of another server process",
+                  "the database system is starting up", "the database system is shutting down",
+                  "server closed the connection unexpectedly")
+
+class PostgresUnrecoverable(RuntimeError):
+    """The bench's own Postgres stays down after a restart: an infrastructure failure, never a verdict."""
+    def __init__(self, message, evidence):
+        super().__init__(f"{message}: {json.dumps(evidence, sort_keys=True)}")
+        self.evidence = evidence
+
+def postgres_ready():
+    try:
+        dc("exec", "-T", "postgres", "pg_isready", "-q", "-U", "medusa", "-d", "postgres", timeout=10)
+        return True
+    except (RuntimeError, OSError, subprocess.SubprocessError):
+        return False
+
+def postgres_evidence():
+    """Container state and the host's last OOM-kill line, for diagnosis. Best effort, no root."""
+    evidence = {}
+    try:
+        ids = dc("ps", "-a", "-q", "postgres", timeout=30).split()
+        state = json.loads(command(["docker", "inspect", "--format", "{{json .State}}", ids[0]], timeout=30))
+        evidence.update({k: state.get(k) for k in ("Status", "ExitCode", "OOMKilled", "Restarting", "Error", "StartedAt", "FinishedAt")})
+    except Exception as error:
+        evidence["inspect_error"] = str(error)[:200]
+    try:
+        log = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=10).stdout
+        oom = [line for line in log.splitlines() if re.search(r"out of memory|oom-kill|oom_reaper|killed process", line, re.I)]
+        if oom: evidence["dmesg_oom"] = oom[-1][-300:]
+    except (OSError, subprocess.SubprocessError):
+        pass  # dmesg_restrict: unreadable without root
+    return evidence
+
+def restart_postgres(evidence):
+    """Restart the slot's Postgres and wait until it accepts connections; app/Redis are reset by the caller."""
+    with phase("reset_postgres_restart"):
+        try:
+            dc("restart", "postgres", timeout=120)
+        except RuntimeError as error:
+            raise PostgresUnrecoverable("Postgres restart failed", {**evidence, "restart_error": str(error)[-300:]}) from None
+        deadline = time.monotonic() + 120
+        while not postgres_ready():
+            if time.monotonic() > deadline:
+                raise PostgresUnrecoverable("Postgres not ready 120 s after restart", {**evidence, **postgres_evidence()})
+            time.sleep(1)
+
 def reset(guard="none", *, app_prepared=False, scenarios=(), progress=None, refusal=None):
     # ponytail: landed admin.sql replays in directory-name order; record landing order if two ever interact.
     scenarios = scenarios or [{"dir": f.parent, "admin_only": True} for f in sorted(LANDED.glob("*/admin.sql"))]
     guard_path = resolve_guard(guard)
     if not app_prepared: prepare_app_guard(guard_path, scenarios)
+    try:
+        return _reset(guard_path, scenarios, progress, refusal)
+    except RuntimeError as error:
+        if not any(s in str(error) for s in POSTGRES_CRASH) and postgres_ready(): raise
+        evidence = {"first_error": str(error)[-300:], **postgres_evidence()}
+    restart_postgres(evidence)
+    if progress is not None: progress["postgres_restart"] = evidence
+    try:
+        return _reset(guard_path, scenarios, progress, refusal)
+    except RuntimeError as error:
+        if not any(s in str(error) for s in POSTGRES_CRASH) and postgres_ready(): raise
+        raise PostgresUnrecoverable("Postgres failed again after a restart",
+                                    {**evidence, "second_error": str(error)[-300:], "after_restart": postgres_evidence()}) from None
+
+def _reset(guard_path, scenarios, progress, refusal):
     start = time.monotonic()
     with phase("reset_stop"):
         stop_inventory_services()
@@ -641,9 +705,13 @@ def run_once(guard_path, i, options, preparation_error=None, scenarios=(), expec
             if installation != installation_identity(guard_path, scenarios):
                 raise RuntimeError("Installation inputs changed during reset")
             result["installation"] = installation
+            # Recovered: diagnosis evidence only, the trial goes on with a fully redone reset.
+            if "postgres_restart" in progress: result["postgres_restart"] = progress["postgres_restart"]
             if refusal is not None: refusal.start()
     except Exception as error:
-        result["errors"].append({"stage": "reset", "message": str(error)})
+        if "postgres_restart" in progress: result["postgres_restart"] = progress["postgres_restart"]
+        result["errors"].append({"stage": "reset", "message": str(error),
+                                 **({"postgres_unrecoverable": error.evidence} if isinstance(error, PostgresUnrecoverable) else {})})
         result["reset_seconds"] = time.monotonic() - start
         reset_failed = True
     else:
@@ -803,6 +871,10 @@ def _run_case(guard, runs, *, options=None, run_numbers=None, label=None, per_ru
         if _PROGRESS is not None:
             _PROGRESS.data["completed_trials"] += 1
             _PROGRESS.write()
+        stopped = [e for e in result["errors"] if "postgres_unrecoverable" in e]
+        if stopped:
+            # Every later trial would fail on the same dead stack; one infrastructure error, no verdict.
+            raise PostgresUnrecoverable(f"run {i}: bench Postgres unrecoverable", stopped[0]["postgres_unrecoverable"])
         brief = {k: v for k, v in result["checker"].items() if k not in ("orders", "kits", "confirmed_problems", "stress")}
         print(f"{name} {i}/{run_numbers[-1]}: {json.dumps(brief)} errors={len(result['errors'])} reset={result['reset_seconds']:.3f}s", flush=True)
     count = lambda field: sum(bool(r["checker"].get(field)) for r in outcomes)

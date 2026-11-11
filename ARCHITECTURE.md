@@ -27,13 +27,18 @@ and publishes the allowed summary. The existing production release remains pinne
 removed its legacy launchers and controllers; shared runner and budget callers
 now use the durable path. Live cutover is not yet qualified.
 
-The benchmark resets its own Postgres/Redis stack for each trial. The checker uses
+The benchmark resets its own Postgres/Redis stack for each trial. A reset that finds that
+Postgres crashed (recovery mode, or not ready) restarts it once, records the container state and
+any readable OOM line in the trial, and redoes the reset; if it fails again the case stops at that
+trial with one infrastructure error. The checker uses
 read-only database access. Parallel factory slots have separate Compose projects,
 volumes, ports and seed manifests. Model roles run with information walls between
 case internals, testers and contestant-visible material.
 Durable OpenCode calls put each role's private CLI state on an executable tmpfs.
 After process containment closes, cleanup unmounts that state instead of overwriting
-a potentially large disk cache. Failed cleanup remains an infrastructure failure.
+a potentially large disk cache.
+A call cgroup left unlocked by a dead owner (a step killed at its deadline) is killed, emptied
+and removed by the next call's check; a poisoned or undrainable one still refuses containment. Failed cleanup remains an infrastructure failure.
 
 ## Invariants
 
