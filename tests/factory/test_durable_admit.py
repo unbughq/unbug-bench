@@ -338,6 +338,36 @@ class AdmitTests(unittest.TestCase):
         self.assertTrue(list((work / 'engine-checkpoints').rglob('*.json')))
         self.assertEqual(json.loads((work / 'continuation-budget.json').read_text())['cost'], .25)
 
+    def test_a_retried_admit_reruns_only_the_preflight_checks_that_did_not_pass(self):
+        """Nov 6-11: every admit retry re-ran all four "Reply OK" calls and queued for their routes."""
+        from dataclasses import replace
+        value = self.real_inputs('unused'); value.pop('candidate')
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b'')
+        first = self.step(inputs, registry)
+        def model(c, models, text, cwd, name, **kwargs):
+            if name == 'strong-calibrator-provider-preflight' and self.calls.count(name) == 0:
+                self.calls.append(name)
+                raise budget.BudgetError('timeout')
+            return self.model(c, models, text, cwd, name, **kwargs)
+        with patch.object(run, 'opencode', side_effect=model), patch.object(run, 'model_call', side_effect=model):
+            failed, blobs = self.run_admit(first)
+            self.assertEqual(failed.outcome, Outcome.INFRA_ERROR)
+            for name, ciphertext in blobs.items(): (self.home / 'durable/blobs' / name).write_bytes(ciphertext)
+            retry = replace(first, attempt=2, snapshot=failed.snapshot)
+            done, outputs = self.run_admit(retry)
+        self.assertEqual((done.outcome, done.reason), (Outcome.OK, 'admit:selected'))
+        preflights = [n for n in self.calls if n.endswith('provider-preflight')]
+        self.assertEqual(preflights, ['attacker-provider-preflight', 'reviewer-provider-preflight',
+            'strong-calibrator-provider-preflight', 'strong-calibrator-provider-preflight',
+            'easy-calibrator-provider-preflight'])
+        _, c = self.restore(retry, done, outputs)
+        self.assertEqual([r.get('reused', False) for r in c.card['provider_preflight']], [True, True, False, False])
+        # Another step checks every route again.
+        self.calls.clear()
+        run.provider_preflight(c, step=f'{BATCH}:2')
+        self.assertEqual(len(self.calls), 4)
+
     def test_malformed_dedup_retries_on_fresh_worker_without_reselecting_or_erasing_spend(self):
         from dataclasses import replace
         import shutil

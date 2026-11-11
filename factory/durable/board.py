@@ -159,6 +159,25 @@ def _summarise(board: dict) -> dict:
     return board
 
 
+def _router_line(guard: dict) -> list:
+    """The router's paid wallet as the guard last read it: spend against the ceiling, provider
+    credit, and how long each lasts at the last hour's rate."""
+    spent, ceiling = guard.get('router_spent_usd'), guard.get('router_ceiling_usd')
+    if type(spent) not in (int, float):
+        return []
+    credit, rate = guard.get('provider_credit_usd'), guard.get('router_burn_usd_per_hour')
+    line = f"Router paid ${spent:,.2f}" + (f" of ${ceiling:,.2f} ceiling ({spent / ceiling:.0%})" if ceiling else ' (no ceiling)')
+    if type(credit) in (int, float):
+        line += f"; provider credit ${credit:,.2f}"
+    if rate:
+        line += f"; burning ${rate:,.2f}/h"
+        if ceiling:   # the guard stops $1 short of the ceiling (guard.ROUTER_MARGIN_USD; not imported: laptop client)
+            line += f", guard stop in ~{max(ceiling - 1 - spent, 0) / rate:.1f}h"
+        if type(credit) in (int, float):
+            line += f", credit out in ~{credit / rate:.1f}h"
+    return [line]
+
+
 def render_board(board: dict) -> str:
     def stamp(value):
         if type(value) not in (int, float):
@@ -178,7 +197,7 @@ def render_board(board: dict) -> str:
              f"   guard {str(guard.get('phase', 'unavailable')).upper()}",
              f"{board['sealed']} sealed, {board['live']} live, {len(board['cases'])} cases; "
              f"spent {money(spend['spent'])} (waste {money(spend['waste'])}), reserved {money(spend['held'])}",
-             '']
+             *_router_line(guard), '']
     header = ('case', 'status', 'stage', 'round', 'gates passed', 'spent', 'last event', 'quiet')
     table = [header]
     for r in board['cases']:

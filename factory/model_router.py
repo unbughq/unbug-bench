@@ -476,7 +476,7 @@ class Store:
                     older = [json.loads(p) for (p,) in db.execute('SELECT payload FROM requests WHERE rowid<? AND seen>? ORDER BY rowid', (order, now - LEASE_SECONDS))
                              if json.loads(p)['deadline'] > now and not db.execute('SELECT 1 FROM leases WHERE id=?', (json.loads(p)['id'],)).fetchone()]
                     for route in choices:
-                        if not free(route): continue
+                        if not free(route) or self._unfunded(db, route, now): continue
                         if any(any(eligible(r) and r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
                                    for r in self._routes(p['model'], p['accounts'])) for p in older): continue
                         expires = min(now + LEASE_SECONDS, data['deadline'])
@@ -487,7 +487,8 @@ class Store:
                         alternatives = []
                         active = [(json.loads(r)['pool'], e) for r,e in db.execute('SELECT route,expires FROM leases WHERE outcome IS NULL')]
                         for route in choices:
-                            limit = blocked(route)
+                            limit = blocked(route) or (dict(reason='credit', blocked_until=retry_at('credit', now=now))
+                                                       if self._unfunded(db, route, now) else None)
                             ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
                                      min((e for pool,e in active if pool == route['pool']), default=now + 15))
                             alternatives.append((ready, limit['reason'] if limit else 'rate', route))
@@ -560,6 +561,23 @@ class Store:
 
 
 
+    def _unfunded(self, db, route, now):
+        """Whether a paid route's ceiling cannot cover one more request's hold, so the call's first
+        paid_reserve would be refused once it is running. Refusing at lease time instead (a 'credit'
+        wait) keeps the call from starting at all. The ceiling frees only on reconciliation or a
+        router restart, both of which the next acquire sees. Provider credit is not checked here:
+        the stored balance is refreshed only by paid_reserve, so a stale low one would refuse calls
+        after a top-up; credit stays with paid_reserve and the guard's alert. With no account row
+        yet (first use) or an unreadable ledger nothing is refused here."""
+        if route['route'] not in GATED_OPENROUTER: return False
+        account = db.execute('SELECT ceiling FROM paid_account WHERE id=1').fetchone()
+        if not account or type(account[0]) is not int: return False
+        profile = GATED_OPENROUTER[route['route']]
+        hold = _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
+        try: total, _ = _paid_counts(db, now - CREDIT_OVERLAP)
+        except ValueError: return False   # paid_reserve refuses a broken ledger itself
+        return total + hold > account[0]
+
     def _paid_reserve(self, db, data, credit, fetched_at, started):
         denied = lambda reason: dict(granted=False, reason=reason)
         prior = db.execute('SELECT lease_id FROM paid_requests WHERE id=?', (data['request_id'],)).fetchone()
@@ -581,6 +599,9 @@ class Store:
         if ceiling is not None and (type(ceiling) is not int or not 0 <= ceiling <= 2**63 - 1):
             raise ValueError('invalid paid ceiling')
         if credit is None: return denied('credit')
+        # Keep the observed balance current even when this request is refused, so the guard's
+        # low-credit alert sees the balance that refused it (it read the last granted one).
+        if account: db.execute('UPDATE paid_account SET credit=? WHERE id=1', (credit,))
         profile = GATED_OPENROUTER[lease['route']]
         hold = _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
         total, outstanding = _paid_counts(db, fetched_at - CREDIT_OVERLAP)

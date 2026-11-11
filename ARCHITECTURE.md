@@ -64,7 +64,10 @@ founder decision for 30 minutes) reads `degraded` with its reason in `stalled` a
 deadline or confirmed Boat limit is a hard stop: after a bounded checkpoint grace the guard stops the
 controller and deletes the workers. `preflight.py` adds advance warnings to the guard's alerts and
 status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
-degrade, pause or stop, and an unreadable input is an "unknown" warning. On SIGTERM the engine drains, then
+degrade, pause or stop, and an unreadable input is an "unknown" warning. The guard itself alerts once router
+paid spend reaches 80% of its ceiling and when the provider credit falls below a floor (`UNBUG_LOW_CREDIT_USD`,
+default $25), each with the time left at the last hour's spend rate; `unbug board` shows the same wallet line.
+On SIGTERM the engine drains, then
 exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 `client.py` reads that operator's public status/report over SSH using a saved local
@@ -83,7 +86,10 @@ Images may supply `~/bench-source/prepare.py` to verify their bound public sourc
 and prune obsolete files restored by a snapshot overlay. This runs before release
 qualification and key delivery; changed source fails preparation.
 The control units and setup script live under `control/`. ADMIT reuses the existing
-selector, registry, freshness and idea-realism screens. Unless INPUTS pins `rotation_slot`
+selector, registry, freshness and idea-realism screens. A retried ADMIT keeps the provider
+preflight checks that passed earlier in the same step and re-asks only the rest; an unresolved G2
+freshness review is asked again up to twice within the attempt (the hit still blocks until cleared)
+before the admit fails `infra:freshness_review_unavailable`. Unless INPUTS pins `rotation_slot`
 or models, a new case's rotation slot cycles by the count of other cases on the registry
 board, which batches carry forward, so one-case batches still rotate. DIAGNOSIS uses the existing
 review contract through an isolated pilot user. These paths passed combined offline
@@ -327,7 +333,9 @@ their hold so nested owner questions remain funded. This changes no case/batch b
 The router's operator configuration may set `paid_ceiling_usd`, an absolute shared
 wallet spending limit including all retained charges. Restart applies an explicit
 limit transactionally without resetting settled or uncertain spending; live wallet
-credit is checked separately on every paid request. Without this setting, the
+credit is checked separately on every paid request (a refused request still records the balance it saw).
+A paid route whose ceiling cannot cover one more request's hold is refused at lease time as a `credit`
+wait, before the call starts, instead of at its first request. Without this setting, the
 historical first-use qualification ceiling remains fixed across restarts.
 An unconfirmed paid request books its whole hold until the provider says otherwise.
 The gate passes the call's OpenRouter generation id with an unconfirmed settle, and a

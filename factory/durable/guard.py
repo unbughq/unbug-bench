@@ -31,8 +31,10 @@ from durable.workers import PoolError, _atomic_json
 RETRY_WAITS_S = (2.0, 6.0)   # a check gets three tries; the unit timeout fits a pass where all fail
 GRACE_S = 120.0              # a controller that just came up is not judged yet
 CHECKPOINT_GRACE_S = 600.0   # after a hard stop, for steps in flight; a pass runs once a minute
-LOW_CREDIT_USD = 20.0        # alert below this provider credit; a call's hold can be most of a grant
+LOW_CREDIT_USD = 25.0        # alert below this provider credit (UNBUG_LOW_CREDIT_USD); a hold can be most of a grant
 ROUTER_MARGIN_USD = 1.0      # the router refuses a call that would pass its ceiling, so spend stalls below it
+CEILING_ALERT_SHARE = 0.8    # alert once router spend reaches this share of its ceiling, before the hard stop
+BURN_WINDOW_S = 3600.0       # the spend rate behind a time-to-exhaustion estimate is this window's
 ESCALATE_S = 900.0           # sustained failure raises an alert; it still stops nothing
 DOWN_ALERT_S = 600.0
 STALL_S = 900.0              # no case or router progress this long while cases are live is a stall
@@ -314,6 +316,9 @@ class Guard:
                   "stopping_since": status.get("stopping_since"), "controller_stopped": status.get("controller_stopped", False),
                   "money_held": None, "money_spent": None, "router_spent_usd": status.get("router_spent_usd"),
                   "provider_credit_usd": status.get("provider_credit_usd"),
+                  "router_ceiling_usd": status.get("router_ceiling_usd"),
+                  "router_burn_usd_per_hour": status.get("router_burn_usd_per_hour"),
+                  "router_spend_samples": status.get("router_spend_samples") if isinstance(status.get("router_spend_samples"), list) else [],
                   "progress_at": status.get("progress_at"), "progress_digest": status.get("progress_digest"),
                   "waits": status.get("waits") if isinstance(status.get("waits"), dict) else {}}
         # A pass that cannot read the cases (an rpc failure, a restarting controller) keeps the
@@ -371,6 +376,12 @@ class Guard:
             spent, ceiling, *credit = self.router()
             health["router_spent_usd"] = round(spent, 6)
             health["provider_credit_usd"] = round(credit[0], 2) if credit and credit[0] is not None else None
+            health["router_ceiling_usd"] = round(ceiling, 6) if math.isfinite(ceiling) else None
+            now = self.clock()
+            samples = [s for s in health["router_spend_samples"] if isinstance(s, list) and len(s) == 2
+                       and all(type(v) in (int, float) for v in s) and now - s[0] < BURN_WINDOW_S] + [[now, spent]]
+            health["router_spend_samples"] = samples
+            health["router_burn_usd_per_hour"] = burn_rate(samples)
             return spent >= ceiling - ROUTER_MARGIN_USD
         def terminal():
             # The campaign is finished only when every watched batch is.
@@ -541,10 +552,16 @@ class Guard:
             out[f"founder_wait:{case}:{wait['status']}"] = (
                 f"{case} has waited {int((now - wait['since']) / 60)} minutes ({wait['status']}) "
                 f"for {FOUNDER_WAITS[wait['status']]}.")
-        credit = health.get("provider_credit_usd")
+        credit, rate = health.get("provider_credit_usd"), health.get("router_burn_usd_per_hour")
         if credit is not None and credit < self.low_credit_usd:
-            out["provider_credit"] = (f"Provider account credit is ${credit:.2f}, below ${self.low_credit_usd:.0f}. "
-                                      "Top it up before calls start being refused.")
+            out["provider_credit"] = (f"Provider account credit is ${credit:.2f}, below ${self.low_credit_usd:.0f}; "
+                                      f"{runway(credit, rate)}. Top it up before calls start being refused.")
+        spent, ceiling = health.get("router_spent_usd"), health.get("router_ceiling_usd")
+        if spent is not None and ceiling and spent >= CEILING_ALERT_SHARE * ceiling:
+            left = max(ceiling - ROUTER_MARGIN_USD - spent, 0)
+            out["router_ceiling"] = (f"Router paid spend is ${spent:.2f} of its ${ceiling:.2f} ceiling "
+                                     f"({spent / ceiling:.0%}); the guard stops the factory after ${left:.2f} more, "
+                                     f"{runway(left, rate)}. Raise the ceiling (router restart) or expect a stop.")
         out.update(health.get("warnings") or {})
         for case in self.load("scorecard.json", {}).get("cases", []):
             if not isinstance(case, dict):
@@ -572,6 +589,21 @@ class Guard:
                     except Exception:   # kept unsent; the next pass tries again
                         pass
         self.save("alerts.json", alerts)
+
+
+def burn_rate(samples: list) -> Optional[float]:
+    """Paid spend per hour over the samples [at, spent], or None with under five minutes of them.
+    A reconciliation can lower spend; that reads as no burn, never a negative one."""
+    if len(samples) < 2 or samples[-1][0] - samples[0][0] < 300:
+        return None
+    return round(max(samples[-1][1] - samples[0][1], 0) / (samples[-1][0] - samples[0][0]) * 3600, 4)
+
+
+def runway(left: float, rate: Optional[float]) -> str:
+    """The time `left` dollars last at the recent spend rate, as alert text."""
+    if not rate:
+        return "no recent paid spend to project from"
+    return f"about {left / rate:.1f} hours at the last hour's ${rate:.2f}/hour"
 
 
 def router_spend(path) -> tuple:

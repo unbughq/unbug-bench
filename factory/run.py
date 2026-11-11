@@ -413,9 +413,16 @@ def run_context(c, **more):
 PROVIDER_PREFLIGHT_S = 180   # a slow route is not an unavailable one; an hour-long retry costs more
 
 
-def provider_preflight(c):
-    """Check non-writer routes before spending on construction; availability is not a gate pass."""
+def provider_preflight(c, step=None):
+    """Check non-writer routes before spending on construction; availability is not a gate pass.
+    With `step` (the engine step's identity), a role already checked in this step is not asked
+    again: a retried ADMIT re-ran every "Reply OK" call and queued for the same routes it needed."""
+    same_step = step is not None and c.card.get("provider_preflight_step") == step
+    previous = (c.card.get("provider_preflight") or []) if same_step else []
+    passed = {(r.get("role"), r.get("model")) for r in previous if isinstance(r, dict) and r.get("status") == "completed"}
     rows = c.card["provider_preflight"] = []
+    if step is not None:
+        c.card["provider_preflight_step"] = step
     seen = set()
     checks = [
             ("stress_tester", c.models["attacker"], "attacker-provider-preflight"),
@@ -434,6 +441,9 @@ def provider_preflight(c):
         seen.add(key)
         row = {"role": role, "model": chain[0], "scope": "availability_only", "status": "running"}
         rows.append(row)
+        if (role, chain[0]) in passed:
+            row.update(status="completed", reused=True)
+            continue
         started = time.monotonic()
         try:
             code = opencode(c, chain, "Reply exactly OK. Do not use tools or read files. "
@@ -1774,7 +1784,9 @@ def confirm_hits(c, flagged, *, retained_path=None):
                      'an access failure with no snapshot stays unresolved.')
             retained_answer(c, c.models['reviewers'][0], text, d, 'reviewer-g2-confirm', out,
                 {'binding': semantic_binding(binding, flagged),
-                 'judgment': judgment_digest(c.freshness_retrieval)}, 'freshness',
+                 'judgment': judgment_digest(c.freshness_retrieval),
+                 # A re-ask after an unresolved review (ordinary_freshness.ensure) is a new question.
+                 **({'reask': c.freshness_reask} if getattr(c, 'freshness_reask', 0) else {})}, 'freshness',
                 'Object with hits array in supplied URL order; every row has url, resolved boolean, '
                 'same_bug boolean or null, retrieved boolean, app_version, version_scope, why and retrieval/archive fields.',
                 lambda v: isinstance(v, dict) and isinstance(v.get('hits'), list) and len(v['hits']) == len(flagged)
