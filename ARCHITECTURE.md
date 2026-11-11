@@ -92,9 +92,12 @@ qualification and key delivery; changed source fails preparation.
 under `~/.unbug-release` so a rerun resumes where it stopped. `bake-bench <commit> --from-image <current>`
 builds `~/bench-source` (tracked bench files hashed as git blobs, the reviewed `tools/install_source.py`
 pinned by sha, a `prepare.py` binding manifest, bundle and count), installs it on a sandbox of the current
-image keeping Medusa's generated files, runs `bin/bake-image.sh` and `prepare.py`, snapshots it under a new
-name `durable-bench-<date>-<sha>` (never `bench-env` or the source image) and tests a fresh sandbox
-(`prepare.py`, bench fingerprint, Medusa image). `build-plumbing <commit>` builds the commit's bundle with
+image keeping Medusa's generated files, runs `bin/bake-image.sh` and `prepare.py`, writes
+`~/bench-source/result.json` ({source, bench_version, source_files_verified, no_model_secrets, model_calls}),
+snapshots it under a new name `durable-bench-<date>-<sha>` (never `bench-env` or the source image) and tests
+a fresh sandbox (`prepare.py`, bench fingerprint, that result.json, and unless `--no-image-build` the
+Medusa image build). Its sandboxes are named `bench-bake-<sha7>`/`bench-test-<sha7>`, which the pool never
+claims as case workers. `build-plumbing <commit>` builds the commit's bundle with
 its own `workers.py release`; `register` runs `bin/unbug install`; `send` runs `bin/check-release-pair.py`,
 then requires `control/check-drained.py` to exit 0, then sends `plumbing_release`/`bench_release` per
 batch; `switch` checks drained and prints the root commands (source-current symlink, unit restart) without

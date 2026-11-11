@@ -5,7 +5,7 @@ Run on the control VM with the controller's venv python. Every step records its 
 --work (default ~/.unbug-release) and a rerun skips what is recorded, so a failed step is resumed
 by running the same command again.
 
-  release.py bake-bench     <commit> --from-image <current image>   # sandbox, bake, snapshot, test
+  release.py bake-bench     <commit> --from-image <current image> [--no-image-build]   # bake, snapshot, test
   release.py build-plumbing <commit>                                # bundle into the work store
   release.py register --config C --plumbing <commit> --bench <commit>
   release.py send --config C --batch B --base <ref> --plumbing <commit> --bench <commit> [--channel plumbing] [--channel bench]
@@ -50,6 +50,7 @@ FINGERPRINT = ("cd ~/unbug-bench/factory && env -u BENCH OPENCODE_DISABLE_AUTOUP
 CHECK_DRAINED = REPO / "control/check-drained.py"
 CHECK_PAIR = REPO / "bin/check-release-pair.py"
 SANDBOX_TTL = 14400
+SANDBOX_PREFIX = "bench-"   # never the pool's unbugd1- ownership names, so no pool claims or sweeps it
 
 
 class Refused(Exception):
@@ -237,31 +238,45 @@ def bake_bench(args, boat) -> dict:
         data = bundle.getvalue()
         upload = ("set -eu; umask 077; t=/tmp/bench-source-new.tgz; cat > \"$t\"; "
                   f"printf '%s  %s\\n' {sha(data)} \"$t\" | sha256sum -c - >/dev/null")
-        with Sandbox(boat, state, save, args.from_image, f"unbug-release-bake-{commit[:12]}") as box:
+        with Sandbox(boat, state, save, args.from_image, f"{SANDBOX_PREFIX}bake-{commit[:7]}") as box:
             box.ssh(upload, "upload bench source", 600, stdin=data)
             out = box.ssh(bake_script(state["bound"]), "bake", 7200)
             prepared = json.loads(marker(out, "PREPARE"))
             bench_version = marker(out, "BENCH_VERSION")
             if prepared.get("source_files_verified") != state["bound"]["count"] or len(bench_version) != 64:
                 raise Refused("bake did not verify its source")
+            result = json.dumps(bench_result(commit, bench_version, prepared["source_files_verified"]),
+                                sort_keys=True).encode() + b"\n"
+            box.ssh("set -eu; cat > ~/bench-source/result.json; sync", "write result.json", 120, stdin=result)
             print(f"release: snapshot {box.id} as {state['image']}", file=sys.stderr)
             code, _ = boat.run(["snapshot", box.id, state["image"]], timeout=3600)
             if code:
                 raise Refused(f"boat snapshot failed (exit {code})")
             state.update(bench_version=bench_version, source_files_verified=prepared["source_files_verified"])
             save()   # before the delete, which may fail
-        _atomic_json(work / "result.json", {"source": commit, "bench_version": bench_version, "image": state["image"],
-                                            "source_files_verified": state["source_files_verified"],
-                                            "no_model_secrets": True, "model_calls": 0})
-    if not state.get("tested"):
-        with Sandbox(boat, state, save, state["image"], f"unbug-release-test-{commit[:12]}") as box:
+    if not state.get("tested") or args.image_build and not state.get("image_built"):
+        expected = bench_result(commit, state["bench_version"], state["source_files_verified"])
+        with Sandbox(boat, state, save, state["image"], f"{SANDBOX_PREFIX}test-{commit[:7]}") as box:
             box.ssh(PREPARE_IMAGE_SCRIPT, "prepare.py", 600)
             if box.ssh(FINGERPRINT, "bench fingerprint", 600).decode().strip() != state["bench_version"]:
                 raise Refused(f"{state['image']} does not serve bench {state['bench_version']}")
-            box.ssh(IMAGE_SCRIPT, "Medusa image", 1800)
-        state["tested"] = True
+            try:
+                found = json.loads(box.ssh("cat ~/bench-source/result.json", "read result.json", 120))
+            except ValueError:
+                found = None
+            if found != expected:
+                raise Refused(f"{state['image']} has no matching ~/bench-source/result.json")
+            if args.image_build:
+                box.ssh(IMAGE_SCRIPT, "Medusa image build (~15 min)", 1800)
+        state.update(tested=True, image_built=state.get("image_built") or args.image_build)
         save()
     return state
+
+
+def bench_result(commit, bench_version, verified) -> dict:
+    """~/bench-source/result.json, as on the 2026-11-05 image."""
+    return {"source": commit, "bench_version": bench_version, "source_files_verified": verified,
+            "no_model_secrets": True, "model_calls": 0}
 
 
 def build_plumbing(args, boat=None) -> dict:
@@ -373,6 +388,8 @@ def main(argv=None, boat=None) -> int:
     p = sub.add_parser("bake-bench", help="bake, snapshot and test a bench image")
     p.add_argument("commit")
     p.add_argument("--from-image", required=True, help="the image to start from (never overwritten)")
+    p.add_argument("--no-image-build", dest="image_build", action="store_false",
+                   help="test without building unbug-bench-medusa (IMAGE_SCRIPT, ~15 min)")
     sub.add_parser("build-plumbing", help="build the plumbing bundle").add_argument("commit")
     for name in ("register", "send", "switch"):
         p = sub.add_parser(name)

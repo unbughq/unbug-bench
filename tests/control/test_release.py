@@ -31,8 +31,8 @@ def git(repo, *args):
 class FakeBoat:
     """Records every Boat call; the bake prints its markers, the image serves BENCH."""
 
-    def __init__(self, fail=None):
-        self.calls, self.fail, self.n = [], fail, 0
+    def __init__(self, fail=None, result=None):
+        self.calls, self.fail, self.n, self.result = [], fail, 0, result
 
     def run(self, args, *, stdin=None, timeout=120.0):
         self.calls.append(args)
@@ -52,6 +52,10 @@ class FakeBoat:
             return 0, f"PREPARE={json.dumps({'source_files_verified': count})}\nBENCH_VERSION={BENCH}\n".encode()
         if command == release.FINGERPRINT:
             return 0, BENCH.encode() + b"\n"
+        if "> ~/bench-source/result.json" in command:   # the image keeps what the bake wrote
+            self.result = stdin
+        if command == "cat ~/bench-source/result.json":
+            return 0, self.result or b""
         return 0, b""
 
 
@@ -123,16 +127,23 @@ class Release(unittest.TestCase):
         state = self.state("bench")
         image = state["image"]
         self.assertRegex(image, r"^durable-bench-\d{8}-" + self.commit[:7] + "$")
-        self.assertEqual((state["bench_version"], state["tested"], "sandbox" in state), (BENCH, True, False))
+        self.assertEqual((state["bench_version"], state["tested"], state["image_built"], "sandbox" in state),
+                         (BENCH, True, True, False))
         news = [c for c in boat.calls if c[0] == "new"]
         self.assertEqual([c[2] for c in news], ["bench-env", image])    # bake from current, test the new one
         self.assertTrue(all("--no-env" in c and "--no-monitoring" in c for c in news))
+        self.assertEqual([c[c.index("--name") + 1] for c in news],
+                         [f"bench-bake-{self.commit[:7]}", f"bench-test-{self.commit[:7]}"])
+        # result.json is written into the image before its snapshot, then read back on the test sandbox.
+        steps = [c[2] if c[0] == "ssh" else c[0] for c in boat.calls]
+        self.assertLess(steps.index("set -eu; cat > ~/bench-source/result.json; sync"[:40]), steps.index("snapshot"))
+        self.assertIn("cat ~/bench-source/result.json", steps[steps.index("snapshot"):])
+        self.assertIn(release.IMAGE_SCRIPT[:40], steps)
+        self.assertEqual(json.loads(boat.result), {"source": self.commit, "bench_version": BENCH,
+                                                   "source_files_verified": state["bound"]["count"],
+                                                   "no_model_secrets": True, "model_calls": 0})
         self.assertIn(["snapshot", "bx_00000001", image], boat.calls)
         self.assertEqual([c[1] for c in boat.calls if c[0] == "delete"], ["bx_00000001", "bx_00000002"])
-        result = json.loads((self.work / f"bench-{self.commit[:12]}" / "result.json").read_text())
-        self.assertEqual(result, {"source": self.commit, "bench_version": BENCH, "image": image,
-                                  "source_files_verified": state["bound"]["count"],
-                                  "no_model_secrets": True, "model_calls": 0})
         again = FakeBoat()
         self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=again)[0], 0)
         self.assertEqual(again.calls, [])
@@ -141,13 +152,44 @@ class Release(unittest.TestCase):
         boat = FakeBoat(fail="docker image inspect")
         code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=boat)
         self.assertEqual(code, 1)
-        self.assertIn("Medusa image failed", err)
+        self.assertIn("Medusa image build (~15 min) failed", err)
         self.assertEqual(self.state("bench").get("tested"), None)
         self.assertNotIn("sandbox", self.state("bench"))
-        again = FakeBoat()
+        again = FakeBoat(result=boat.result)   # the snapshot kept the bake's result.json
         self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=again)[0], 0)
         self.assertEqual([c[0] for c in again.calls if c[0] != "ssh"], ["new", "delete"])   # no rebake
         self.assertNotIn("snapshot", [c[0] for c in again.calls])
+
+    def test_an_image_without_its_result_json_fails_the_test(self):
+        class Lost(FakeBoat):   # the snapshot did not keep result.json
+            def ssh(self, worker, command, **kw):
+                return (0, b"") if command.startswith("cat ~/bench-source") else super().ssh(worker, command, **kw)
+        code, _, err = self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=Lost())
+        self.assertEqual(code, 1)
+        self.assertIn("result.json", err)
+        self.assertFalse(self.state("bench").get("tested"))
+
+    def test_the_medusa_build_is_optional_and_runs_on_a_later_request(self):
+        boat = FakeBoat()
+        self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", "--no-image-build",
+                                   boat=boat)[0], 0)
+        self.assertNotIn(release.IMAGE_SCRIPT[:40], [c[2] for c in boat.calls if c[0] == "ssh"])
+        self.assertEqual((self.state("bench")["tested"], self.state("bench")["image_built"]), (True, False))
+        again = FakeBoat(result=boat.result)
+        self.assertEqual(self.main("bake-bench", self.commit, "--from-image", "bench-env", boat=again)[0], 0)
+        self.assertIn(release.IMAGE_SCRIPT[:40], [c[2] for c in again.calls if c[0] == "ssh"])
+        self.assertNotIn("snapshot", [c[0] for c in again.calls])
+        self.assertTrue(self.state("bench")["image_built"])
+
+    def test_the_pool_never_claims_a_bake_or_test_sandbox(self):
+        from durable.workers import BoatPool, ReleaseStore, ownership_hash
+        pool = BoatPool(self.dir / "pool", ReleaseStore(self.dir / "releases"), "durable-first-case")
+        for stage in ("bake", "test"):
+            name = f"{release.SANDBOX_PREFIX}{stage}-{self.commit[:7]}"
+            self.assertIsNone(pool._ours({"id": "bx_00000001", "name": name, "state": "running"}))
+        self.assertIsNotNone(pool._ours({"id": "bx_00000001", "state": "running",
+                                         "name": "unbugd1-" + "-".join([ownership_hash("durable-first-case"),
+                                                                        "a" * 32, "b" * 32])}))
 
     def test_a_sandbox_left_by_a_killed_run_is_deleted_first(self):
         path = self.work / f"bench-{self.commit[:12]}" / "state.json"
