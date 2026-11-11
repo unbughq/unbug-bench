@@ -649,6 +649,34 @@ class GuardTests(unittest.TestCase):
         self.f.guard(router=lambda: (5.0, 49.95, 120.0)).run()
         self.assertEqual(self.f.sent, [])
 
+    def test_router_ceiling_and_low_credit_alert_early_with_time_left(self):
+        """Nov 6-11: 39 attempts were cut off at the ceiling or an empty balance, found only mid-call."""
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        spend = [30.0]
+        for _ in range(10):                                   # $1 a minute for ten minutes, under 80%
+            self.f.clock += 60
+            out = self.f.guard(router=lambda: (spend[0], 50.0, 200.0)).run()
+            spend[0] += 1.0
+        self.assertEqual(self.f.sent, [])
+        self.assertAlmostEqual(out["router_burn_usd_per_hour"], 60.0, delta=1)
+        self.f.clock += 60
+        out = self.f.guard(router=lambda: (40.0, 50.0, 24.0)).run()   # 80% of the ceiling; credit under $25
+        self.assertEqual(out["phase"], "healthy")             # an alert, not a stop
+        ceiling = next(m for m in self.f.sent if "ceiling" in m)
+        self.assertIn("$40.00 of its $50.00 ceiling (80%)", ceiling)
+        self.assertRegex(ceiling, r"after \$9\.00 more, about 0\.2 hours at the last hour's \$(59|60)\.\d\d/hour")
+        credit = next(m for m in self.f.sent if "credit" in m)
+        self.assertIn("$24.00, below $25.00; about 0.4 hours", credit)
+        self.f.clock += 60
+        self.f.guard(router=lambda: (40.5, 50.0, 23.0)).run()
+        self.assertEqual(len(self.f.sent), 2)                 # each alert once while it lasts
+        from durable.board import render_board
+        board = {"at": NOW, "controller": {}, "guard": health(self.f.state_dir), "cases": [], "sealed": 0, "live": 0,
+                 "unavailable": [], "spend_usd_micros": {"spent": 0, "held": 0, "waste": 0}}
+        line = next(l for l in render_board(board).splitlines() if l.startswith("Router paid"))
+        self.assertIn("$40.50 of $50.00 ceiling (81%); provider credit $23.00; burning $", line)
+        self.assertIn("guard stop in ~", line)
+
     def test_router_below_its_ceiling_changes_nothing_and_unreadable_only_degrades(self):
         self.f.money = {"spent": 1, "bound": 2, "held": 0}
         self.f.clock += 60

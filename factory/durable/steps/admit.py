@@ -832,7 +832,7 @@ def run(worker, step_input, keys):
             from model_runtime import require_bounded_models
             require_bounded_models(c)
             if not c.case.exists(): _write_case(c, inputs)
-            runner.provider_preflight(c)
+            runner.provider_preflight(c, step=f"{step_input.batch_id}:{step_input.seq}")
             accepted = _screen(c, runner, registry, refs, sealer, batch_key, step_input)
             # A rejection names its screen and evidence kind (admission_reasons.REJECTION_CODES).
             reason = "admit:selected" if accepted else "admit:" + admission_reasons.reason_code(c.card.get("rejected_candidates", []))

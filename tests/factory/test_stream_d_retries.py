@@ -436,6 +436,41 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(len(self.calls),1)
         self.assertEqual(self.c.card['builder_rounds'],0)
 
+    def unresolved_reviews(self, unresolved):
+        """A live hit the reviewer leaves unresolved `unresolved` times, then clears."""
+        rows = self.searches()
+        rows[0]['hit'] = True
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        def emit(c, text, name):
+            self.assertEqual(name, 'reviewer-g2-confirm')
+            resolved = len(self.calls) > unresolved
+            self.answer_path(text).write_text(json.dumps({'hits':[{
+                'url':rows[0]['url'],'resolved':resolved,'same_bug':False if resolved else None,'retrieved':True,
+                'app_version':'2.19.0','version_scope':'authored applicability','retrieved_from':'live',
+                'archive_checked':False,'archive_available':None,'archive_snapshot_url':None,
+                'live_failure':None,'why':'authored review'}]}))
+        self.cli(emit)
+
+    def test_an_unresolved_freshness_review_is_asked_again_in_the_same_attempt(self):
+        """Nov 6-11: 8 admits failed infra:freshness_review_unavailable (4.2 h) on one unresolved review."""
+        self.unresolved_reviews(1)
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertEqual(len(self.calls), 2)          # a new question, not the retained unresolved answer
+        self.assertEqual(self.c.card['freshness_reasks'], 1)
+
+    def test_freshness_reasks_are_bounded_and_the_hit_still_blocks(self):
+        self.unresolved_reviews(99)
+        refetch, real = [], ordinary_freshness.obtain
+        def obtain(c, rows, directory, **kw):
+            refetch.append(set(getattr(c, 'freshness_refetch_urls', set())))
+            return real(c, rows, directory, **kw)
+        self.patch(ordinary_freshness, 'obtain', obtain)
+        with self.assertRaisesRegex(budget.BudgetError, 'freshness_review_unavailable'): run.g2(self.c)
+        self.assertEqual(len(self.calls), 1 + ordinary_freshness.REVIEW_REASKS)
+        flagged = json.loads((self.case / 'freshness.jsonl').read_text().splitlines()[0])['url']
+        self.assertIn(flagged, set().union(*refetch))   # a re-ask re-fetches held pages, not old receipts
+
     def test_dedup_and_panel_callers_use_retained_schema_repair(self):
         self.c.models['easy_calibrator'] = self.c.models['reviewers'][0]
         self.c.card['roles']['easy_calibrator'] = {'model':self.c.models['easy_calibrator'][0]}

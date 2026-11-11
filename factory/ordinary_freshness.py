@@ -13,6 +13,9 @@ from registry import atomic_json
 from run_validity import InvalidInfra
 
 
+REVIEW_REASKS = 2   # extra reviewer asks per attempt after an unresolved G2 review
+
+
 def semantic_binding(binding, rows):
     fields = ('who', 'kind', 'query', 'url', 'hit', 'ambiguous', 'note', 'app_version', 'version_scope')
     return {**binding, 'evidence_sha256': digest([{k: row.get(k) for k in fields} for row in rows])}
@@ -134,7 +137,20 @@ def ensure(run, c):
             # Don't reuse a held access-failure snapshot for the next HTTP cycle.
             c.freshness_refetch_urls = {r['url'] for r in run.freshness_lines(c) if 'url' in r}
             continue
-        if info.get('outcome') == 'review_unresolved': raise BudgetError('freshness_review_unavailable')
+        if info.get('outcome') == 'review_unresolved':
+            # The reviewer left a flagged hit unresolved. Ask it again in this attempt (a bounded
+            # number of times) rather than failing the admit and paying a new worker to re-ask.
+            # The hit still blocks until a review clears it: G2's rule is unchanged.
+            asked = getattr(c, 'freshness_reask', 0)
+            if asked >= REVIEW_REASKS or getattr(c, 'freshness_review_reason', None) == 'same_family_reviewer':
+                raise BudgetError('freshness_review_unavailable')
+            c.freshness_reask = asked + 1
+            # Re-fetch the flagged pages that were not read live, so the reviewer is not handed the
+            # same held receipts again (obtain() keeps a live page and refreshes only these).
+            c.freshness_refetch_urls = {r['url'] for r in run.freshness_lines(c)
+                                        if (r.get('hit') is True or r.get('ambiguous') is True) and 'url' in r}
+            c.card['freshness_reasks'] = c.freshness_reask
+            continue
         errors, enough = metadata()
         expiry_only = any(errors) and all(e in (None, 'evidence_expired') for e in errors)
         if state['completed_defects'] >= 2 and not expiry_only and (any(errors) or not enough):
