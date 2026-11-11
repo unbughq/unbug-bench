@@ -305,20 +305,33 @@ class StrategyPrefixRecoveryTests(unittest.TestCase):
             change(); self.invoke()
             self.assertEqual(len(self.calls), before + 4)
 
-    def test_factory_wiring_never_caches_prefix_for_a_silent_window(self):
+    def test_factory_wiring_reuses_other_steps_and_reruns_the_silent_window(self):
         self.interrupt_at = None
         meta = json.loads((self.c.case / 'case.json').read_text())
-        meta['steps'].append('quiet')
+        meta['steps'].insert(1, 'quiet')
         self.fixture.write(self.c.case / 'case.json', meta)
         self.fixture.write(self.c.case / 'scenarios/quiet/scenario.json', {'id': 'quiet', 'delivery': 'unannounced'})
         self.fixture.write(self.c.case / 'scenarios/quiet/key.json', {'correct_responses': ['keep']})
         window = {'latest_claims': {}, 'claims_score': {'unsafe_checkpoint': False, 'response_correct': True,
                   'human_minutes': {'total': 0}, 'exposure': {}}}
+        def invoke(name):
+            with patch.object(run, 'BENCH', self.root), patch.object(self.module, 'BENCH', self.root), \
+                 patch.object(run, 'bench_manifest', lambda: self.implementation), \
+                 patch.object(run, 'strategy_module', lambda: self.module), patch.object(self.module, 'checkpoint', self.driver):
+                return run.strategy_run(self.c, name)
         with patch.object(self.module, 'silent_checkpoint', return_value=window) as silent:
-            self.invoke(); self.invoke()
-            self.assertEqual(silent.call_count, 2)
-        self.assertEqual(len(self.calls), 8)
-        self.assertFalse((self.c.work / 'strategy-honest-reference-checkpoints').exists())
-
+            invoke('frozen-first-fix')
+            self.assertEqual((len(self.calls), silent.call_count), (4, 1))
+            # G13 executions are never shared with G15 strategies.
+            first = invoke('honest-reference')
+            self.assertEqual((len(self.calls), silent.call_count), (8, 2))
+            invoke('ask-everything')
+            self.assertEqual((len(self.calls), silent.call_count), (8, 3), 'shared steps, fresh window')
+            # A restarted runner (no in-memory sharing, no whole-strategy receipt with a silent
+            # step) reuses each completed checkpoint and runs only the live window again.
+            del self.c.strategy_shared
+            self.assertEqual(invoke('honest-reference'), first)
+            self.assertEqual((len(self.calls), silent.call_count), (8, 4))
+        self.assertTrue((self.c.work / 'strategy-honest-reference-checkpoints').is_dir())
 
 if __name__ == '__main__': unittest.main()

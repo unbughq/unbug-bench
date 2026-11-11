@@ -128,6 +128,8 @@ failed_detail are recorded on the scorecard using structural counts, not case co
 The G15 strategies that ask for the very same bench execution (same scenario and guard bytes, report,
 runs, seed) share one execution inside a runner process and are scored separately, so ask-everything
 is scored on honest-reference's runs instead of a second sample of them. G13 never shares with G15.
+An unannounced step's live window always runs fresh for every strategy and is never shared or cached;
+the other steps of the same case still are.
 Pass rules and `--scenario-runs` are unchanged (`bin/strategy` `execute_shared`).
 
 **Not copied from Olympus:** "the strongest models must fail" (that would skew results
