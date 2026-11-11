@@ -210,7 +210,7 @@ def simulate(case, strategy, runs=3, seed=1, execute=None, factory_workers=1,
         execute = partial(checkpoint, factory_workers=factory_workers)
     ordered = steps(case)
     # Cache and share per execution: a silent (unannounced) step never goes through `execute`;
-    # silent_checkpoint runs its live window fresh every time and resets the bench itself.
+    # silent_checkpoint runs its live window fresh in every simulate call and resets the bench itself.
     if checkpoint_cache_dir is not None and checkpoint_binding is not None:
         from functools import partial
         from strategy_resume import execute_cached
