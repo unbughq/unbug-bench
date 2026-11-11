@@ -278,6 +278,14 @@ def generation_cost(generation, token=None):
     return None if cost is None else (cost, data['model'])
 
 
+def served_by(model, route):
+    """Whether a generation's reported model is this route's. OpenRouter reports the dated permaslug
+    (xiaomi/mimo-v2.6-pro-20260921), which the exact slug check refused: 11 November, every
+    zero-usage mimo review stayed at its hold (~$149 of charges the provider never made)."""
+    slug = route.partition('/')[2]
+    return isinstance(model, str) and re.fullmatch(re.escape(slug) + r'(-\d{8})?', model) is not None
+
+
 def production_database(config):
     if 'database' in config or 'UNBUG_CONTROL_HOME' in os.environ:
         raise ValueError('router database is not configurable')
@@ -609,7 +617,8 @@ class Store:
 
         An unknown row books its whole hold (10 November: 51 such rows made about $29 of spend that
         never happened, and the ceiling refused calls). Two provider observations correct that:
-        1. A row whose generation id was recorded settles at that generation's own reported cost.
+        1. A row whose generation id was recorded settles at that generation's own reported cost,
+           $0 when nothing was charged, also after a bound (2.) has scaled it.
         2. The account's all-time usage bounds the rest. Everything charged before the credit
            window is in it, so unknown rows that old cost at most that usage less the
            provider-reported costs of settled rows equally old. When the booked unknown charges
@@ -617,8 +626,10 @@ class Store:
         Provider I/O runs outside the ledger transaction; nothing is ever raised or refunded on
         the worker's word alone."""
         with closing(sqlite3.connect(self.path, timeout=10)) as db:
-            pending = db.execute("SELECT id,generation FROM paid_requests WHERE state='unknown' "
-                                 "AND generation IS NOT NULL ORDER BY settled_at LIMIT ?", (limit,)).fetchall()
+            # Random, not oldest first: rows whose report never fits kept the oldest 25 places forever.
+            # A bounded ('reconciled') row is still settled at its generation's own report.
+            pending = db.execute("SELECT id,generation FROM paid_requests WHERE state IN ('unknown','reconciled') "
+                                 "AND generation IS NOT NULL ORDER BY RANDOM() LIMIT ?", (limit,)).fetchall()
         costs = {}
         for identity, generation in pending if cost_reader else ():
             try: costs[identity] = (generation, cost_reader(generation))
@@ -637,9 +648,9 @@ class Store:
             before, _ = _paid_counts(db, now)
             for identity, (generation, observed) in costs.items():
                 row = db.execute('SELECT route,hold,state,generation FROM paid_requests WHERE id=?', (identity,)).fetchone()
-                if (observed is None or not row or row[2] != 'unknown' or row[3] != generation
-                        or observed[1] != row[0].partition('/')[2]
-                        or db.execute("SELECT 1 FROM paid_requests WHERE generation=? AND id!=? AND state!='unknown'",
+                if (observed is None or not row or row[2] not in ('unknown', 'reconciled') or row[3] != generation
+                        or not served_by(observed[1], row[0])
+                        or db.execute("SELECT 1 FROM paid_requests WHERE generation=? AND id!=? AND state='settled'",
                                       (generation, identity)).fetchone()):
                     continue
                 charge = _nano(observed[0], ROUND_CEILING)

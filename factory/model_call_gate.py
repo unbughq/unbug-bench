@@ -463,6 +463,8 @@ class OpenRouterUsage:
         self.finish_reason = self.native_finish_reason = None
 
     def event(self, event):
+        if self.identity is None and isinstance(event, dict) and isinstance(event.get('id'), str) and event['id']:
+            self.identity = event['id']   # an error frame still names the generation the router looks up
         if self.done or not isinstance(event, dict) or 'error' in event: self.invalid = True; return
         identity = event.get('id')
         if not isinstance(identity, str) or not identity or self.identity is not None and identity != self.identity:

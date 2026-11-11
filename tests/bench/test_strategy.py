@@ -341,22 +341,52 @@ class StrategyTests(unittest.TestCase):
             self.assertEqual(len(seen), 8)
             self.assertFalse((root / 'cache').exists())
 
-    def test_live_windows_disable_partial_strategy_cache(self):
+    def quiet_case(self, root):
+        """Fixture case with one live silent window between announced and pending steps."""
+        case = root / 'case'; case.mkdir(); fixture(case)
+        meta = json.loads((case / 'case.json').read_text()); meta['steps'].insert(1, 'quiet')
+        write(case / 'case.json', meta)
+        write(case / 'scenarios/quiet/scenario.json', {'id': 'quiet', 'delivery': 'unannounced'})
+        write(case / 'scenarios/quiet/key.json', {'correct_responses': ['keep']})
+        window = {'runs': 1, 'latest_claims': {'response': 'keep', 'claims': []}, 'claims_score': {'unsafe_checkpoint': False,
+                  'response_correct': True, 'human_minutes': {'total': 0}, 'exposure': {}}}
+        seen = []
+        def driver(scenarios, guard, report, runs, seed, label):
+            seen.append(label)
+            summary = execute(scenarios, guard, report, runs, seed, label)
+            path = root / 'results/runs' / str(len(seen)) / 'checkpoint.json'
+            write(path, summary); summary['_evidence_path'] = str(path)
+            return summary
+        return case, window, seen, driver
+
+    def test_live_window_runs_fresh_while_other_steps_resume_from_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
-            case = pathlib.Path(tmp); fixture(case)
-            meta = json.loads((case / 'case.json').read_text()); meta['steps'].append('quiet')
-            write(case / 'case.json', meta)
-            write(case / 'scenarios/quiet/scenario.json', {'id': 'quiet', 'delivery': 'unannounced'})
-            write(case / 'scenarios/quiet/key.json', {'correct_responses': ['keep']})
-            window = {'runs': 1, 'latest_claims': {}, 'claims_score': {'unsafe_checkpoint': False,
-                      'response_correct': True, 'human_minutes': {'total': 0}, 'exposure': {}}}
-            driver = Mock(side_effect=execute)
-            with patch.object(strategy, 'silent_checkpoint', return_value=window):
-                for _ in range(2):
-                    strategy.simulate(case, 'honest-reference', execute=driver,
-                                      checkpoint_cache_dir=case / 'cache', checkpoint_binding=lambda: 'same')
-            self.assertEqual(driver.call_count, 8)
-            self.assertFalse((case / 'cache').exists())
+            root = pathlib.Path(tmp); case, window, seen, driver = self.quiet_case(root)
+            kwargs = dict(execute=driver, checkpoint_cache_dir=root / 'cache', checkpoint_binding=lambda: 'same')
+            with patch.object(strategy, 'BENCH', root):
+                inputs = []  # snapshot: simulate keeps appending to the history list it passes
+                def snapshot(case, step, prior, guard, report, watching):
+                    inputs.append((step['id'], list(prior), guard, json.dumps(report, sort_keys=True), watching))
+                    return window
+                with patch.object(strategy, 'silent_checkpoint', snapshot):
+                    expected = strategy.simulate(case, 'honest-reference', execute=execute)
+                # Restart mid-G15: the live window is interrupted after establish and blind completed.
+                with patch.object(strategy, 'silent_checkpoint', side_effect=RuntimeError('synthetic interruption')):
+                    with self.assertRaisesRegex(RuntimeError, 'synthetic interruption'):
+                        strategy.simulate(case, 'honest-reference', **kwargs)
+                self.assertEqual(len(seen), 2)
+                silent = Mock(side_effect=snapshot)
+                with patch.object(strategy, 'silent_checkpoint', silent):
+                    resumed = strategy.simulate(case, 'honest-reference', **kwargs)
+                    self.assertEqual(len(seen), 4, 'completed steps are reused after the restart')
+                    again = strategy.simulate(case, 'honest-reference', **kwargs)
+                self.assertEqual(len(seen), 4, 'every non-silent execution comes from the cache')
+                self.assertEqual(silent.call_count, 2, 'the live window executes on every run')
+            # Identical verdicts, and the window sees identical guard, report and history.
+            for result in (resumed, again):
+                self.assertEqual(result['steps'], expected['steps'])
+                self.assertEqual(result['totals'], expected['totals'])
+            self.assertEqual(inputs, inputs[:1] * 3)
 
     def test_all_strategies_and_pending_history(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -419,7 +449,7 @@ class StrategyTests(unittest.TestCase):
             strategy.simulate(case, 'honest-reference', execute=driver, shared=shared)
             self.assertEqual(len(seen), 18, 'only the step whose evidence is gone executes again')
 
-    def test_incomplete_or_live_window_executions_are_never_shared(self):
+    def test_incomplete_executions_are_never_shared(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp); case = root / 'case'; case.mkdir(); fixture(case)
             seen = []
@@ -433,16 +463,22 @@ class StrategyTests(unittest.TestCase):
             shared = {}
             for _ in range(2): strategy.simulate(case, 'honest-reference', runs=3, execute=driver, shared=shared)
             self.assertEqual(len(seen), 8); self.assertEqual(shared, {})
-            meta = json.loads((case / 'case.json').read_text()); meta['steps'].append('quiet')
-            write(case / 'case.json', meta)
-            write(case / 'scenarios/quiet/scenario.json', {'id': 'quiet', 'delivery': 'unannounced'})
-            write(case / 'scenarios/quiet/key.json', {'correct_responses': ['keep']})
-            window = {'runs': 1, 'latest_claims': {}, 'claims_score': {'unsafe_checkpoint': False,
-                      'response_correct': True, 'human_minutes': {'total': 0}, 'exposure': {}}}
-            live = Mock(side_effect=execute)
-            with patch.object(strategy, 'silent_checkpoint', return_value=window):
-                for _ in range(2): strategy.simulate(case, 'honest-reference', execute=live, shared=shared)
-            self.assertEqual(live.call_count, 8); self.assertEqual(shared, {})
+
+    def test_live_window_is_never_shared_but_other_steps_are(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case, window, seen, driver = self.quiet_case(pathlib.Path(tmp))
+            shared, results = {}, {}
+            silent = Mock(return_value=window)
+            with patch.object(strategy, 'silent_checkpoint', silent):
+                alone = {s: strategy.simulate(case, s, execute=execute) for s in ('honest-reference', 'ask-everything')}
+                silent.reset_mock()
+                for name in ('honest-reference', 'ask-everything'):
+                    results[name] = strategy.simulate(case, name, execute=driver, shared=shared)
+            self.assertEqual(len(seen), 4, 'ask-everything scores honest-reference executions')
+            self.assertEqual(silent.call_count, 2, 'each strategy runs its own live window')
+            for name, result in results.items():
+                self.assertEqual(result['steps'], alone[name]['steps'], name)
+                self.assertEqual(result['totals'], alone[name]['totals'], name)
 
     def test_public_practice_shape_and_skips(self):
         case = _BENCH_ROOT
