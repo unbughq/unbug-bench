@@ -21,7 +21,7 @@ M = 1_000_000
 
 def attempt(case, batch, seq, step, n, status, created, updated, output=None):
     kind, _, rnd = step.partition(':')
-    return SimpleNamespace(workflow_id=f'{case}/{seq}/{step}/{n}', status=status, created_at=created * 1000,
+    return SimpleNamespace(workflow_id=f'{case}/{seq}/{step}/{n}', name='attempt_workflow', status=status, created_at=created * 1000,
         updated_at=updated * 1000, output=output,
         input={'args': [{'input': {'batch_id': batch, 'case_id': case, 'seq': seq, 'attempt': n,
                                    'step': {'kind': kind, 'round': int(rnd or 0)}}}]})
@@ -62,6 +62,7 @@ class BoardTests(unittest.TestCase):
             'case-beta': dict(case_id='case-beta', status='not_admitted', stage='admit', passed=[],
                               failed_gate='G2', writer_rounds=0, extensions=0, replacement_of=None, reason=None)}
         self.members = {'b-live': ['case-alpha'], 'b-old': ['case-beta']}
+        self.steps = {}
 
     def client(self):
         def rows(workflow_ids=None, workflow_id_prefix=None, **kwargs):
@@ -72,7 +73,9 @@ class BoardTests(unittest.TestCase):
             if key == 'cases': return self.members.get(workflow_id)
             if key == 'card': return self.cards.get(workflow_id)
             return None
-        return SimpleNamespace(list_workflows=rows, get_event=event, destroy=lambda: None)
+        def steps(workflow_id, **kwargs):
+            return self.steps.get(workflow_id, [])
+        return SimpleNamespace(list_workflows=rows, get_event=event, list_workflow_steps=steps, destroy=lambda: None)
 
     def read(self, **kwargs):
         with patch('durable.observation._controller', return_value={'state': 'active'}) as run, \
@@ -169,6 +172,84 @@ class BoardTests(unittest.TestCase):
             ended = read_board(self.config, client=self.client(), now=10_000)
         self.assertIn('[batch ended]', render_board(ended))
         self.assertEqual(ended['live'], 0)
+
+    def resumed_case(self):
+        """case-gamma ran in b-r1, stopped on infra, and resumed in b-r2 under the same case id;
+        case-delta sealed in b-r2 and gives the fleet its medians for GATES and SEAL."""
+        for batch in ('b-r1', 'b-r2'):
+            self.ledger.open(batch, 50 * M)
+            self.workflows[batch] = SimpleNamespace(status='PENDING', created_at=0, updated_at=0, input={'args': [{'spec': {}}]})
+        self.workflows['b-r1'].status = 'SUCCESS'
+        self.before = self.ledger.rows()
+        self.members.update({'b-r1': ['case-gamma'], 'b-r2': ['case-gamma@b-r2', 'case-delta']})
+        card = dict(passed=[], failed_gate=None, extensions=0, replacement_of=None, reason=None)
+        self.cards.update({
+            'case-gamma': dict(card, case_id='case-gamma', status='held', stage='writer:1', writer_rounds=1),
+            'case-gamma@b-r2': dict(card, case_id='case-gamma', status='running', stage='gates:1', writer_rounds=1),
+            'case-delta': dict(card, case_id='case-delta', status='sealed', stage='sealed', writer_rounds=1, hard=False)})
+        def run(case, batch, seq, step, n, status, created, started_at, updated, outcome=None, started=True):
+            output = {'started': started, 'started_at': started_at}
+            if outcome:
+                output['result'] = {'outcome': outcome, 'reason': None}
+            return attempt(case, batch, seq, step, n, status, created, updated, output if status == 'SUCCESS' else None)
+        self.attempts['case-gamma'] = [
+            run('case-gamma', 'b-r1', 1, 'admit', 1, 'SUCCESS', 0, 100, 1000, 'ok'),               # setup 100, admit 900
+            run('case-gamma', 'b-r1', 2, 'writer:1', 1, 'SUCCESS', 1500, 1500, 4000, 'infra_error'),  # wait 500, lost 2500
+            run('case-gamma', 'b-r2', 2, 'writer:1', 2, 'SUCCESS', 10000, 10200, 20000, 'ok'),     # human 6000 (resume)
+            run('case-gamma', 'b-r2', 3, 'stress:1', 1, 'SUCCESS', 20000, 20000, 21000, 'provider_limit'),
+            run('case-gamma', 'b-r2', 3, 'stress:1', 2, 'SUCCESS', 22000, None, 22500, started=False),  # bound wait
+            run('case-gamma', 'b-r2', 3, 'stress:1', 3, 'SUCCESS', 23000, 23000, 26000, 'ok'),
+            attempt('case-gamma', 'b-r2', 4, 'gates:1', 1, 'PENDING', 26000, 26000)][::-1]       # running at 30000
+        lease = lambda name, at: SimpleNamespace(function_name=name, completed_at_epoch_ms=at)
+        self.steps['case-gamma/4/gates:1/1'] = [lease('reserve_step', 26_000_000), lease('lease_step', 26_100_000),
+                                                lease('attempt_step', None)]   # leased at 26100, still running
+        self.attempts['case-alpha'] = []   # keep the fleet to the two cases below
+        self.attempts['case-delta'] = [
+            run('case-delta', 'b-r2', 1, 'gates:1', 1, 'SUCCESS', 0, 0, 7000, 'ok'),
+            run('case-delta', 'b-r2', 2, 'seal', 1, 'SUCCESS', 7000, 7000, 7200, 'ok')]
+        with patch('durable.observation._controller', return_value={'state': 'active'}):
+            return read_board(self.config, client=self.client(), now=30_000)
+
+    def test_time_to_seal_spans_resume_batches_and_splits_where_time_went(self):
+        board = self.resumed_case()
+        rows = [r for r in board['cases'] if r['case'] == 'case-gamma']
+        self.assertEqual(sorted(r['batch'] for r in rows), ['b-r1', 'b-r2'])
+        t = rows[0]['time_to_seal']
+        self.assertTrue(all(r['time_to_seal'] == t for r in rows))   # one clock per case id, not per batch
+        self.assertEqual((t['first_attempt_at'], t['elapsed_s']), (0, 30000))
+        self.assertEqual(t['steps'], {'admit': {'result': 900}, 'writer': {'lost': 2500, 'result': 9800},
+                                      'stress': {'lost': 1000, 'result': 3000}, 'gates': {'running': 3900}})
+        self.assertEqual((t['setup_s'], t['wait_s'], t['human_s']), (400, 2500, 6000))
+        parts = t['setup_s'] + t['wait_s'] + t['human_s'] + sum(v for p in t['steps'].values() for v in p.values())
+        self.assertEqual(parts, t['elapsed_s'])                       # every second is accounted for once
+        # GATES median 7000 less the 3900 already running, then SEAL's median 200.
+        self.assertEqual((t['projected_remaining_s'], t['budget']), (3300, 'over'))
+        delta = next(r for r in board['cases'] if r['case'] == 'case-delta')['time_to_seal']
+        self.assertEqual((delta['elapsed_s'], delta['budget']), (7200, 'met'))
+        fleet = board['fleet']
+        self.assertEqual((fleet['sealed'], fleet['median_s'], fleet['p90_s'], fleet['within_budget']), (1, 7200, 7200, 1))
+        self.assertEqual([x['sink'] for x in fleet['top_sinks']],
+                         ['writer (result)', 'gates (result)', 'human', 'gates (running)', 'stress (result)'])
+        text = render_board(board)
+        for expected in ('to seal', '8h20m', 'OVER (+55m)', 'MET', 'TIME TO SEAL (target 6h00m',
+                         'median 2h00m', 'Top time sinks: writer (result) 2h43m',
+                         'case-gamma: 8h20m = admit 15m, writer 2h43m (lost 41m)'):
+            self.assertIn(expected, text)
+        self.assertEqual(self.before, self.ledger.rows())   # nothing written
+
+    def test_held_cases_accrue_human_time_and_older_boards_still_render(self):
+        from durable.board import _time_to_seal
+        span = dict(batch='b', kind='gates', status='SUCCESS', started=True, created_at=0, started_at=0,
+                    updated_at=100, outcome='needs_founder', seq=1, attempt=1)
+        t = _time_to_seal([span], 'escalated', 'gates:1', 500, {'gates': 50, 'seal': 10})
+        self.assertEqual((t['human_s'], t['wait_s'], t['steps'], t['budget']), (400, 0, {'gates': {'result': 100}}, 'on_track'))
+        self.assertEqual(t['projected_remaining_s'], 60)
+        self.assertIsNone(_time_to_seal([], 'running', 'admit', 500, {}))
+        board = self.read()
+        for row in board['cases']:
+            row.pop('time_to_seal')
+        board.pop('fleet')
+        self.assertIn('case-alpha', render_board(board))   # a controller without these fields
 
     def test_campaign_script_reads_the_campaign_config(self):
         import campaign_board
