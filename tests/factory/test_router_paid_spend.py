@@ -345,6 +345,50 @@ class PaidTests(unittest.TestCase):
         self.assertEqual(sorted(r[3] for r in self.rows()), ['settled', 'unknown'])
         self.assertEqual(self.status()['total_usd'], '0.240000000')
 
+    def test_zero_usage_generations_settle_at_the_dated_model_report(self):
+        """11 November: mimo reviews answered with no usage. OpenRouter reports a generation's model
+        by its dated permaslug, the exact slug check refused every one, and each stayed at its hold."""
+        self.credit = Decimal('100')
+        self.unknown_with_generation('gen-zero')
+        self.unknown_with_generation('gen-charged')
+        replies = {'gen-zero': (Decimal('0'), 'minimax/minimax-m3.1-flash-20261106'),
+                   'gen-charged': (Decimal('0.0123'), 'minimax/minimax-m3.1-flash-20261106')}
+        result = self.store.reconcile(cost_reader=replies.get)
+        self.assertEqual(result['generations'], 2)
+        self.assertEqual(sorted((r[4], r[1], r[3]) for r in self.rows()),
+                         [('gen-charged', 12300000, 'settled'), ('gen-zero', 0, 'settled')])
+        self.assertEqual(self.status()['total_usd'], '0.012300000')
+
+    def test_a_lookalike_model_never_settles_a_row(self):
+        self.credit = Decimal('100')
+        for model in ('minimax/minimax-m3.1-flash-extended', 'minimax/minimax-m3.1-flash-2026110',
+                      'minimax/minimax-m3.1-flash:free', 'xminimax/minimax-m3.1-flash', 'z-ai/glm-5.3-flash-20261106'):
+            self.assertFalse(router.served_by(model, MINIMAX), model)
+        self.unknown_with_generation('gen-lookalike')
+        self.store.reconcile(cost_reader=lambda g: (Decimal('0'), 'minimax/minimax-m3.1-flash-extended'))
+        self.assertEqual([r[3] for r in self.rows()], ['unknown'])
+
+    def test_a_bounded_row_still_settles_at_its_generation_cost(self):
+        """The ~$149 already bounded on 11 November: its generation report still decides the charge."""
+        self.credit = Decimal('100')
+        self.unknown_with_generation('gen-bounded')
+        self.now[0] += 901
+        self.store.reconcile(usage_reader=lambda: Decimal('0.2'))
+        self.assertEqual([r[3] for r in self.rows()], ['reconciled'])
+        self.store.reconcile(cost_reader=lambda g: (Decimal('0'), 'minimax/minimax-m3.1-flash-20261106'))
+        self.assertEqual(self.rows()[0][1:4], (0, 230000000, 'settled'))
+        self.assertEqual(self.status()['total_usd'], '0.000000000')
+
+    def test_unreadable_generations_do_not_starve_later_rows(self):
+        """Oldest-first, rows whose report never fits held all 25 places of every pass."""
+        self.credit = Decimal('100')
+        for i in range(30): self.unknown_with_generation('gen-dead-%d' % i)
+        self.unknown_with_generation('gen-live')
+        reader = lambda g: (Decimal('0'), 'minimax/minimax-m3.1-flash') if g == 'gen-live' else None
+        for _ in range(20):
+            if self.store.reconcile(cost_reader=reader)['generations']: break
+        self.assertEqual([r[3] for r in self.rows() if r[4] == 'gen-live'], ['settled'])
+
     def test_invalid_generation_ids_are_refused(self):
         data, _ = self.reserve(admit(self.store))
         for bad in ('', 'gen-', 'not-a-generation', 'gen-' + 'a' * 121, 'gen-a/b', 7, True, ['gen-a']):
@@ -520,6 +564,22 @@ class PaidWireTests(unittest.TestCase):
                                  [('unknown', 'gen-1762780000-Synthetic')])
             store.reconcile(cost_reader=lambda g: (Decimal('0.0004'), 'minimax/minimax-m3.1-flash'))
             self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.000400000')
+
+    def test_an_error_frame_still_records_its_generation(self):
+        import test_model_call_maxima as core
+        event = dict(id='gen-1762780000-Errored', model='minimax/minimax-m3.1-flash',
+                     error=dict(code=502, message='synthetic'), choices=[dict(index=0, finish_reason='error')])
+        payload = b'data: ' + json.dumps(event).encode() + b'\n\n'
+        self.responses = [payload]
+        actual = core.lease(MINIMAX)
+        with authority(actual) as store, patch.object(gate.sys, 'platform', 'linux'):
+            with gate.enforce(actual, self.env(), {}, 3) as active:
+                self.assertEqual(self.post(active), (200, payload))
+            with closing(sqlite3.connect(store.path)) as db:
+                self.assertEqual(db.execute('SELECT state,generation FROM paid_requests').fetchall(),
+                                 [('unknown', 'gen-1762780000-Errored')])
+            store.reconcile(cost_reader=lambda g: (Decimal('0'), 'minimax/minimax-m3.1-flash-20261106'))
+            self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.000000000')
 
     def test_refusal_latch_and_lost_reserve_ack_never_connect(self):
         import test_model_call_maxima as core

@@ -180,9 +180,20 @@ def reserve_invocation(path, lease, maximum_usd, *, attempt, operation_id, call_
                'lease_id': lease.lease_id, 'route': lease.route, 'account': lease.account,
                'billing': lease.billing, 'pool': lease.pool, 'family': lease.family,
                'call_name': call_name, 'parent_call_name': parent_call_name,
-               'maximum_usd': format(maximum, '.9f'), 'state': 'pending', 'event_ids': []}
+               'maximum_usd': format(maximum, '.9f'), 'state': 'pending', 'event_ids': [], 'launched': False}
         reservations[lease.lease_id] = row
         return dict(row)
+
+
+def mark_launched(path, lease_id):
+    """Recorded before the model process can start: a pending row still unlaunched spent nothing."""
+    with ledger_transaction(path) as ledger:
+        ledger['invocation_reservations'][lease_id]['launched'] = True
+
+
+def unlaunched(row):
+    # Rows from before this marker have no 'launched' key and keep their whole hold.
+    return row['state'] == 'pending' and row.get('launched') is False and not row['event_ids']
 
 
 def _bounded_cost(ledger):
@@ -229,11 +240,14 @@ def check_reservation(ledger, lease_id):
     if booked > usd(row['maximum_usd']): raise BudgetError('usage_reservation_exceeded')
 
 
-def outstanding_reservations(ledger, exclude_lease=None):
+def outstanding_reservations(ledger, exclude_lease=None, *, launched_only=False):
+    """Unspent pending maxima. Admission counts every one; spend accounting (launched_only) skips a
+    call whose process never launched (11 November: such holds were booked as spent, up to $46)."""
     events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
     total = Decimal(0)
     for lease_id, row in ledger.get('invocation_reservations', {}).items():
         if row['state'] != 'pending' or lease_id == exclude_lease: continue
+        if launched_only and unlaunched(row): continue
         # Missing the bound events counted a running call's spend twice (7 November).
         booked = reservation_booked(ledger, lease_id, row, events)
         if booked is None: raise BudgetError('usage_event_missing')
@@ -495,6 +509,9 @@ def reconcile_reservations(work, ledger_path, *, exclude_leases=(), exclude_call
             if lease_id in exclude_leases or row['call_name'] in exclude_calls: continue
             if row['state'] == 'settled': continue
             relative = 'usage-receipts/' + lease_id + '.json'
+            if not (work / relative).is_file() and unlaunched(row):
+                row.update(state='settled', estimated_gap_usd='0.000000000')   # never launched: $0
+                continue
             if (work / relative).is_file(): leaves = _usage_leaves(work, relative)
             else:
                 leaves = [{'lease_id': lease_id, 'events': [], 'booked_event_ids': row['event_ids'],
@@ -744,7 +761,8 @@ def usage_coverage(ledger):
         keys = {'schema_version', 'invocation_id', 'operation_id', 'lease_id', 'route', 'account',
                 'billing', 'pool', 'family', 'call_name', 'parent_call_name', 'maximum_usd', 'state', 'event_ids'}
         for lease, row in rows.items():
-            if (not keys <= row.keys() or row.keys() - keys - {'estimated_gap_usd'} or
+            if (not keys <= row.keys() or row.keys() - keys - {'estimated_gap_usd', 'launched'} or
+                    type(row.get('launched', True)) is not bool or
                     type(row['schema_version']) is not int or row['schema_version'] != 1 or
                     not isinstance(lease, str) or not lease or not _uuid4(row['invocation_id']) or
                     not _uuid4(row['operation_id']) or row['state'] not in ('pending', 'estimated', 'settled') or

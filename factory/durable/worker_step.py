@@ -670,7 +670,8 @@ def ledger_totals(path):
     calls = ledger.get("calls", 0)
     # A hard death can prevent the call's final receipt from being written. Keep
     # its unspent authorization held; an absent receipt is never evidence of $0.
-    pending = outstanding_reservations(ledger)
+    # Only a row recorded as never launched (budget.mark_launched) is.
+    pending = outstanding_reservations(ledger, launched_only=True)
     total = summary.get("total_spent_usd")
     known = summary.get("known_total_spent_usd", total) or 0
     return {"calls": calls if type(calls) is int else 0,
