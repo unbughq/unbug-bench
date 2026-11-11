@@ -66,6 +66,10 @@ controller and deletes the workers. `preflight.py` adds advance warnings to the 
 status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
 degrade, pause or stop, and an unreadable input is an "unknown" warning. On SIGTERM the engine drains, then
 exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
+Restart the controller or send a plumbing or bench release only when `control/check-drained.py --config
+<config>` exits 0: no attempt holds a leased worker without its recorded `attempt_step`, and the
+model router holds no unexpired lease (read-only; exit 1 names what runs, 2 means unreadable). Restarts
+and release sends mid-step cost 19 hours of `infra:worker_lost` from 6 November.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 `client.py` reads that operator's public status/report over SSH using a saved local
 connection and default batch. `bin/install-unbug` packages a standalone read-only
