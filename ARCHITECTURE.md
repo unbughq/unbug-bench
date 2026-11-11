@@ -176,8 +176,11 @@ progress and the card's `phase_times`. Before another writer call and its checks
 attempt, the round compares the time left with 1.25 times the cycle just finished plus 15 minutes;
 when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
 returns `writer:handback` (OK, with its snapshot). Under the `writer_handback_retry` DBOS patch the engine retries that seq outside the infra
-allowance (at most `MAX_WRITER_HANDBACKS` per seq, then as infra; a STRESS step finding a pending
-handback stops as infrastructure), and the new attempt continues the round at that call with those findings. The early
+allowance (a STRESS step finding a pending handback stops as infrastructure). The writer hands
+back at most `min(rounds - 1, WRITER_HANDBACK_CEILING)` times per round, counted in its receipt
+across attempts, where `rounds` is the case's own call cap from the card's `recovery_config`; the
+engine, which does not see that card, counts handbacks past `WRITER_HANDBACK_CEILING` per seq as
+infra (past `MAX_WRITER_HANDBACKS` for workflows recorded before the `writer_handback_ceiling` patch), and the new attempt continues the round at that call with those findings. The early
 saved-cheat sample shares one 30-minute allowance; cheats it does not reach are recorded
 `unchecked` (it is advisory; full G6 runs them all), and a spent allowance is never an infra retry.
 An older card with no `parallel_gates` key also adopts just that flag at GATES entry

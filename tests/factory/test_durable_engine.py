@@ -423,33 +423,23 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
 
     def test_endless_handbacks_become_infra_after_the_call_cap(self):
-        # MAX_WRITER_HANDBACKS (8) free retries, then each counts as infra: allowance 1, so the 10th diagnoses.
+        # Without the writer_handback_ceiling patch: 8 free retries, then infra; allowance 1, so the 10th diagnoses.
         handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
-        r, out = run({"spec": {"max_infra_retries_per_step": 1},
+        r, out = run({"spec": {"max_infra_retries_per_step": 1}, "disabled_patches": ["writer_handback_ceiling"],
                       "script": {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}})
         self.addCleanup(r.close)
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 10 + ["diagnosis"])
         self.assertEqual(out["result"]["cases"][C1], "held")   # a held case starts its replacement
 
-    def test_handback_cap_follows_the_configured_writer_rounds(self):
-        # Twelve rounds: twelve free handbacks, then infra; allowance 1, so the 14th diagnoses.
+    def test_handback_backstop_ignores_the_spec_writer_rounds(self):
+        # The writer bounds its handbacks by the card's own rounds; the spec's writer rounds (here 1)
+        # do not cap them. The engine backstop is the ceiling: allowance 1, so the ceiling + 2nd diagnoses.
+        from durable.policy import WRITER_HANDBACK_CEILING
         handback = {"outcome": "ok", "reason": "writer:handback", "paid": 2000}
         script = {"1/writer:1/*": handback, "1/diagnosis/*": {"verdict": "factory_bug"}}
-        r, out = run({"spec": {"max_infra_retries_per_step": 1, "max_writer_rounds": 12}, "script": script})
+        r, out = run({"spec": {"max_infra_retries_per_step": 1, "max_writer_rounds": 1}, "script": script})
         self.addCleanup(r.close)
-        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 14 + ["diagnosis"])
-        # A workflow recorded before the patch keeps the fixed cap of 8.
-        r, out = run({"spec": {"max_infra_retries_per_step": 1, "max_writer_rounds": 12},
-                      "disabled_patches": ["writer_handback_cap_rounds"], "script": script})
-        self.addCleanup(r.close)
-        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 10 + ["diagnosis"])
-
-    def test_handback_cap_is_bounded(self):
-        from durable.policy import WRITER_HANDBACK_CEILING, writer_handback_cap
-        from types import SimpleNamespace
-        spec = lambda n: SimpleNamespace(max_writer_rounds=n)
-        self.assertEqual(writer_handback_cap(spec(3)), 3)
-        self.assertEqual(writer_handback_cap(spec(1000)), WRITER_HANDBACK_CEILING)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * (WRITER_HANDBACK_CEILING + 2) + ["diagnosis"])
 
     def test_batch_deadline_stops_after_the_deadline_never_diagnose(self):
         # The deadline passes while case 1 writes; four batch-deadline stops follow, with an infra
