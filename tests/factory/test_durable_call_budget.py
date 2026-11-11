@@ -332,9 +332,45 @@ class AttemptBudget(unittest.TestCase):
         self.assertEqual(sorted(r['state'] for r in ledger['invocation_reservations'].values()), ['settled', 'settled'])
         self.assertEqual(budget.outstanding_reservations(ledger), 0)
 
-    def test_writer_and_stress_keep_the_funded_window_and_a_reviewer_is_capped(self):
-        """An in-flight role finishes (FACTORY.md section 4): long writer and stress sessions keep the
-        whole funded window; a review is capped at CHEAP_CALL_WINDOW_USD."""
+    def test_a_non_final_codex_stress_call_books_at_most_the_cheap_window(self):
+        """22e434-5 (11 November): a Codex attacker refused mid-turn after $0.17 of reported usage. Its
+        receipt was non-final, so settlement booked its whole funded window ($48.68 of a $49.40 grant)
+        and the next attacker call failed grant_insufficient. Stress is now capped on every family."""
+        codex = 'codex/gpt-6.1-sol'
+        self.store.capacities['codex-auth.json'] = 1
+        self.attempt.ceiling_usd = Decimal('49.403501')
+        windows = []
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started'] = True
+            windows.append(Decimal(str(c.model_lease.max_usd)))
+            row = c.invocation_reservation
+            with budget.ledger_transaction(self.ledger) as ledger:   # six reported Codex requests
+                event = {'id': row['invocation_id'] + ':request-0', 'cost': 0, 'priced': 'subscription',
+                         'estimated_subscription_cost_usd': 0.1664484, 'calls': 17,
+                         'invocation': name, 'invocation_id': row['invocation_id'], 'lease_id': row['lease_id']}
+                ledger['events'].append(event)
+                ledger['invocation_reservations'][row['lease_id']]['event_ids'].append(event['id'])
+            raise budget.BudgetError('refusal:' + codex)   # Codex flagged the attack mid-turn
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
+                patch.object(model_router, '_credential_ready', return_value=True), \
+                self.assertRaises(model_router.ProviderWait):   # Codex's one lane is excluded after it
+            self.runtime.call(self.c, [codex], 'x', self.root, 'attacker-1', deadline=time.monotonic() + 2)
+        window = Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD))
+        self.assertEqual(windows, [window])
+        ledger = json.loads(self.ledger.read_text())
+        row = next(iter(ledger['invocation_reservations'].values()))
+        self.assertEqual(row['state'], 'estimated')
+        spent = budget.case_spending(ledger)['total_spent_usd']
+        self.assertLessEqual(Decimal(str(spent)), window)          # was $48.68 on 22e434-5
+        usage = worker_step.usage_since({'calls': 0, 'total': Decimal(0), 'known': Decimal(0), 'list': Decimal(0)},
+                                        self.ledger, 49_403_501)
+        self.assertLessEqual(usage.paid_usd_micros, 12_500_000)
+        # The case is not money-exhausted: the next attacker call is still funded.
+        self.assertGreater(Decimal(budget.available_invocation_funding(self.ledger, self.attempt)), 30)
+
+    def test_writer_keeps_the_funded_window_and_stress_and_a_reviewer_are_capped(self):
+        """An in-flight role finishes (FACTORY.md section 4): a long writer session keeps the whole
+        funded window; stress and review calls are capped at CHEAP_CALL_WINDOW_USD."""
         paid = 'openrouter/minimax/minimax-m3.1-flash'
         self.c.card['roles']['writer']['model'] = paid
         self.c.router_accounts = NO_GO
@@ -349,7 +385,7 @@ class AttemptBudget(unittest.TestCase):
         with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport):
             for name in ('builder-1', 'attacker-1', 'reviewer-1', 'strong-calibrator-1'):
                 self.assertEqual(self.runtime.call(self.c, [paid], 'x', self.root, name), 0)
-        self.assertEqual(windows, {'builder-1': Decimal('40'), 'attacker-1': Decimal('40'),
+        self.assertEqual(windows, {'builder-1': Decimal('40'), 'attacker-1': Decimal('12.5'),
                                    'reviewer-1': Decimal('12.5'), 'strong-calibrator-1': Decimal('12.5')})
 
     def test_cheap_windows_never_exceed_the_case_grant(self):
