@@ -28,6 +28,8 @@ from durable.contract import REASON, Classified, ContractError, Outcome, StepKin
 # first-failure delay (900 s) for every reason except router_unavailable, so the engine
 # and the router back off alike (tests/factory/test_durable_classify.py pins the two).
 BACKOFF_S = 900.0
+# A capacity wait whose lease expiry has passed retries within one lease (model_router.LEASE_SECONDS).
+CAPACITY_BACKOFF_S = 180.0
 # A reset time further ahead than this is not trusted (weekly windows are 7 days).
 MAX_RESET_AHEAD_S = 8 * 24 * 3600.0
 
@@ -44,7 +46,9 @@ _LIMIT_FAMILY = (("claude/", "router:claude_limit"), ("codex/", "router:codex_li
                  ("openrouter/", "router:openrouter_limit"))
 
 _P, _I, _E = Outcome.PROVIDER_LIMIT, Outcome.INFRA_ERROR, Outcome.EXHAUSTED
-_WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"),
+# capacity: every router seat of the lane stayed leased to our own calls past the worker's wait
+# (model_router.CAPACITY_WAIT_SECONDS). No provider refused anything; it sleeps briefly and keeps its worker.
+_WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"), "capacity": (_P, "router:capacity"),
          "credit": (_P, "router:credit"), "outage": (_I, "router:outage"),
          "credential_expiring": (_I, "router:credential_expiring"),
          "unbounded_route": (_I, "router:unbounded_route"),
@@ -373,7 +377,10 @@ def classify_wait(error, *, step, now, prior=()):
         result = classify(original, step=step, now=now, reset_at=reset)
     else:
         outcome, code = _WAIT.get(reason, (_I, UNCLASSIFIED))
-        result = Classified(outcome, code, _retry_at(now, reset) if outcome is _P else None)
+        retry = _retry_at(now, reset) if outcome is _P else None
+        if reason == 'capacity':
+            retry = min(retry, now + CAPACITY_BACKOFF_S)   # a stale lease expiry is no reason for 15 min
+        result = Classified(outcome, code, retry)
     return result, {'schema': 1, 'waits': waits}
 
 

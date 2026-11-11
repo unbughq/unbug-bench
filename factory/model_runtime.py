@@ -326,6 +326,14 @@ def free_usage_settled(lease):
     return lease.route in FREE_ROUTES and lease.max_usd == 0
 
 
+def go_quota_moves_on(lease, reason):
+    """A Go plan call's unseen tail books $0 (budget.py, "book Go at cost"), so a Go quota moves the call
+    to the same model's next route (its OpenRouter twin, token_prices.GO_TWINS) inside the attempt instead
+    of ending it (13 attempts, 12.9 h lost to Go quota, 6-11 November). Any other Go fault (a refusal, a
+    crash) would likely repeat on the paid twin, so it defers and ends the attempt as before."""
+    return lease.route in GO_ROUTES and reason == 'quota'
+
+
 OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]
 
 
@@ -398,6 +406,7 @@ class ModelRuntime:
         call_group = uuid.uuid4().hex
         operation_id = getattr(c, 'model_operation_id', None) or str(uuid.uuid4())
         duration = timeout or getattr(getattr(c, 'args', None), 'agent_timeout', 2400)
+        context.router_capacity_seconds = duration
         if user is not None or role in model_router.WALLED_ROLES:
             # A walled role reaches only a gate's port, and a free or Go plan route has no gate: it takes
             # the family's gated or subscription route instead (model_call_gate.enforce refuses it too).
@@ -609,6 +618,7 @@ class ModelRuntime:
                                            and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1')
                                        or (getattr(c, 'engine', None) is not None and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
                                            and not free_usage_settled(lease)
+                                           and not go_quota_moves_on(lease, last_wait.reason)
                                            and not _read_json(accounting_work(c) / receipt, {}).get('final_usage_known', False)))
             context.force_budget_resume = c.force_budget_resume = True
             lease = None

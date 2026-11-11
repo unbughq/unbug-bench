@@ -151,7 +151,7 @@ DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
 side transfers blobs; workers receive no R2 credentials. Invoke executors through
 `guarded_run`; sanitize exception paths and disable Conductor/DBOS Cloud.
-Worker steps share structured wait classification: quota/rate/credit wait durably,
+Worker steps share structured wait classification: quota/rate/credit/capacity wait durably,
 credential delivery, unbounded routes and router outages park without consuming
 infrastructure retries; known CLI and unavailable-model faults retain the finite
 infrastructure allowance. Each wait, and every failed step, killed, crashed or raising included, retains an
@@ -273,7 +273,19 @@ chain with none is refused up front as `unbounded_route`. A full or failing lane
 the next route in its chain.
 A usage-limit (quota) failure on an OpenCode Go account is published as that account's router health
 block until its reset, even when it came from an unstructured CLI line, so later calls skip the exhausted
-account instead of retrying it per call.
+account instead of retrying it per call. The failed call itself moves on inside its attempt, to the same
+model's next route (the other Go account, then its OpenRouter twin): a Go call's unseen usage books $0, so
+nothing needs settling first (`model_runtime.go_quota_moves_on`). Any other Go fault ends the attempt as
+before, since a refusal or crash would repeat on the paid twin. Chains never cross model family
+(`model_router.routes` refuses one that would).
+When every seat of a lane is leased to our own calls the router answers `capacity`, not `rate`, to clients
+that send `capacity_protocol: 1` (older ones still get `rate`): no provider refused anything, so no health is
+published. The call waits in its worker, in FIFO order, for up to `model_router.CAPACITY_WAIT_SECONDS`
+(30 min, within the step deadline and the call's own timeout); only past that does the attempt end, as
+`router:capacity`, a provider-limit sleep of at most one lease that keeps its worker. Seats are the router
+config's per-pool `capacities` (default 1, at least 1); size each pool at least concurrent cases x
+concurrent model calls per case on it, counting an exam owner question (asked while its calibrator still
+holds a seat) as one more call.
 
 Codex (`codex/gpt-6.1-sol`, the strong calibrator's other family) has no gate either. Its lease
 maximum is $50 at the Codex list price (`CODEX_PROFILES`), lowered by funding. The runtime reads Codex's
