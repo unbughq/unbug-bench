@@ -101,6 +101,20 @@ def g10_overlap_reason(c):
     return None
 
 
+def early_lane(c):
+    """A context for G4, G5 and the saved-cheat sample on the first reserved tester instance (its own
+    ports, database and lock), beside G15 on the foreground pool during a writer step. G3 prepares
+    that instance under G10's overlap conditions, and no tester uses it until GATES. None keeps the
+    serial early order (no flag, one worker, dry run, isolation or memory)."""
+    if not parallel_gates(c) or getattr(c.args, "bench_workers", 1) < 2 or g10_overlap_reason(c) is not None:
+        return None
+    lane = copy.copy(c)
+    lane.args = copy.copy(c.args); lane.args.bench_workers = 1  # never fan out over the foreground pool
+    lane.factory_slot, lane.role_cancel = c.args.bench_workers, threading.Event()
+    lane.reuse_as = c  # GATES reuses the lane's G4/G5 (gate_state.inputs)
+    return lane
+
+
 def factory_slots(c):
     if g10_overlap_reason(c) is None: return c.args.bench_workers + 2
     return max(getattr(c.args, "bench_workers", 1), 2 if parallel_calibrators(c) else 1)
@@ -919,7 +933,7 @@ def _gate_pipeline():
         budget_boundary=case_budget_boundary, after_gate=_gate_completed,
         overlap_reason=g10_overlap_reason, gates=tuple(GATES),
         early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP,
-        side_gates=SIDE_GATES, side_lane=parallel_gates)
+        side_gates=SIDE_GATES, side_lane=parallel_gates, early_lane=early_lane)
 
 
 def checked_gate(c, gate):
