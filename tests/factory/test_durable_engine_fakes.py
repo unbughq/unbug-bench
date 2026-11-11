@@ -221,6 +221,20 @@ class FakeLedger:
             amount = self._state()["res"][idempotency_key]["amount"]
         self._close(idempotency_key, amount, True, "settle_lost")
 
+    def book_waste(self, idempotency_key, reason):
+        """SqlLedger.book_waste: a settled attempt's case spend becomes batch waste, once."""
+        with self.f.locked():
+            s = self._state()
+            r = s["res"].get(idempotency_key)
+            if r is None or r["settled"] is None or r["settled"]["waste"] or not r["draws"] or r.get("rebooked"):
+                return False
+            r["rebooked"] = reason
+            s["cases"][r["case"]]["spent"] -= r["settled"]["paid"]
+            s["batches"][r["batch"]]["waste"] += r["settled"]["paid"]
+            self.f.write("ledger.json", s)
+            self.f.append("ledger.log", {"op": "book_waste", "key": idempotency_key, "reason": reason})
+            return True
+
     def snapshot(self):
         with self.f.locked():
             return self._state()
@@ -702,6 +716,8 @@ def engine_main(workdir):
                 if "bench" in act:
                     engine.send(spec.batch_id, Topic.BENCH_RELEASE, BenchRelease(act["bench"]))
                 observed = {"i": i, "held": held}
+                if "resume_held" in act:
+                    observed["resume_sent"] = engine.resume_held(f"case-{spec.batch_id[2:]}-{act['resume_held']}")
                 if "case" in when:
                     observed.update(status=card.get("status"), reason=card.get("reason"))
                 fakes["worker"].f.append("actions.log", observed)
@@ -766,6 +782,10 @@ class EngineRun:
 
     def ledger_log(self):
         return _Files(self.work / "state" / "ledger").lines("ledger.log")
+
+    def actions(self):
+        """The scenario actions taken, in order, with the card status each found."""
+        return _Files(self.work / "state" / "worker").lines("actions.log")
 
     def pool_log(self):
         return _Files(self.work / "state" / "pool").lines("pool.log")

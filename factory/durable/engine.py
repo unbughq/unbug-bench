@@ -277,6 +277,13 @@ def settle_step(si: dict, result: dict) -> str:
     return _ex().settle(step_input_from_record(si), step_result_from_record(result))
 
 
+@DBOS.step(**SEAM)
+def book_waste_step(keys: list) -> None:
+    """A factory_bug diagnosis found these attempts lost to our own bug: their money is waste."""
+    for key in keys:
+        _ex().book_waste(key, "factory_bug")
+
+
 @DBOS.step()
 def latest_registry_step(batch_id: str, initial: dict) -> dict:
     """The newest successful ADMIT output of this batch. ADMIT attempts run one at a time on
@@ -345,6 +352,27 @@ FACTORY_BUG_INFRA_STOPS = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.val
 # last attack get one writer fix and the case then goes to GATES, which alone certify quality.
 ATTACK_ROUNDS = 2
 MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many in a lineage
+
+
+def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
+    """Whether the step `name` a factory_bug diagnosis looked at may run again, from its attempts'
+    results ({"outcome", "reason"}, oldest first): its last stop is a factory check
+    (FACTORY_BUG_RESUMABLE), or every attempt returned nothing. It stopped on infrastructure or a
+    provider limit, or (an attempt before an earlier factory_bug resume of this step) on one of
+    those factory checks: no repair was judged and no verdict given, so running it again is a
+    retry, never a re-roll. resume_point and a hold that waits for a release (_Case.diagnose) both
+    ask this."""
+    kind = name.split(":")[0] if name else None
+    stopped = stops[-1] if stops else None
+    factory_check = (isinstance(stopped, dict) and stopped.get("outcome") == Outcome.EXHAUSTED.value
+                     and stopped.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
+
+    def returned_nothing(s):
+        return isinstance(s, dict) and (
+            s.get("outcome") in FACTORY_BUG_INFRA_STOPS
+            or s.get("outcome") == Outcome.EXHAUSTED.value and s.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
+    return factory_check or (kind in FACTORY_BUG_RESUMABLE_INFRA and bool(stops)
+                             and all(returned_nothing(s) for s in stops))
 
 
 def resume_point(case_id: str) -> dict:
@@ -436,23 +464,11 @@ def _resume_point(case_id: str) -> tuple:
         name = max(before, key=lambda w: (w.created_at or 0, w.workflow_id)).workflow_id.split("/")[2] if before else None
         diagnosed = sorted(a for (s, a), w in attempts.items() if s == seq - 1 and w.workflow_id.split("/")[2] == name)
         stops = [result_of(attempts[(seq - 1, a)]) for a in diagnosed]
-        stopped = stops[-1] if stops else None
-        kind = name.split(":")[0] if name else None
-        factory_check = (isinstance(stopped, dict) and stopped.get("outcome") == Outcome.EXHAUSTED.value
-                         and stopped.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
-        # Every attempt returned nothing: it stopped on infrastructure or a provider limit, or (an
-        # attempt before an earlier factory_bug resume of this step) on one of the factory checks
-        # above. No repair was judged and no verdict given, so this is a retry, never a re-roll.
-        def returned_nothing(s):
-            return isinstance(s, dict) and (
-                s.get("outcome") in FACTORY_BUG_INFRA_STOPS
-                or s.get("outcome") == Outcome.EXHAUSTED.value and s.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
-        infra_only = (kind in FACTORY_BUG_RESUMABLE_INFRA and bool(stops) and all(returned_nothing(s) for s in stops))
         if not (latest.output.get("status") == "held"
                 and attempts[(seq, attempt)].workflow_id.split("/")[2] == StepKind.DIAGNOSIS.value
                 and isinstance(result, dict) and result.get("outcome") == Outcome.OK.value
                 and result.get("verdict") == Verdict.FACTORY_BUG.value
-                and (factory_check or infra_only)):
+                and factory_bug_rerunnable(name, stops)):
             raise ContractError("resume:not_stopped_by_infra")
         if factory_bug_resumes >= MAX_FACTORY_BUG_RESUMES:   # defensive: the policy retires first
             raise ContractError("resume:factory_bug_resumes_exhausted")
@@ -717,6 +733,10 @@ class _Case:
         self.attack_rounds = 0
         self.attack_cap_from: Optional[int] = None
         self.final_fix = False          # the next writer round is followed by GATES, not stress
+        # The last step run_seq ran (step, feedback) and the (plumbing, bench) its last started
+        # attempt ran on: what a factory_bug hold reruns, and the release it waits to change.
+        self.ran: Optional[tuple] = None
+        self.ran_on: Optional[tuple] = None
 
     @property
     def replaying(self) -> bool:
@@ -796,6 +816,7 @@ class _Case:
         action is None for a DIAGNOSIS verdict."""
         self.seq += 1
         self.stage = step.name
+        self.ran = (step, feedback)
         attempt, infra, limits, free, late, prev = self.renumber.get(self.seq, {}).get(step.name, 0), 0, 0, 0, 0, None
         # A seq where a case stopped (this resume's or an earlier one's) first restores the attempts
         # recorded before that stop: their snapshots, diagnostics and history carry over, and their
@@ -848,6 +869,7 @@ class _Case:
                 return action, None
             result = step_result_from_record(out["result"])
             grant = Grant(**out["grant"])
+            self.ran_on = (out["input"]["plumbing_version"], out["input"]["bench_version"])
             if out["worker_id"] is not None:
                 admission_started = True
                 prev = {"input": out["input"], "started_at": out["started_at"], "worker_id": out["worker_id"]}
@@ -1130,6 +1152,7 @@ class _Case:
         return self.diagnose()
 
     def diagnose(self):
+        before = (self.snapshot, list(self.evidence), self.in_extension, self.verdict, self.ran, self.ran_on)
         self.diagnoses_used += 1
         self.in_extension = False
         history = seal_history_step(self.case_id, self.history)
@@ -1153,6 +1176,9 @@ class _Case:
             decision = Action.RETIRE                        # a recertified case is never rewritten
         self.stop_line(decision)
         if decision is Action.HOLD:
+            rerun = self.rerun_after_release(before)
+            if rerun is not None:
+                return rerun
             self.finish("held")
         if decision is Action.RETIRE:
             self.finish("retired")
@@ -1164,6 +1190,54 @@ class _Case:
         # An extension of a capped case, or of a repaired recertified case, skips its stress round.
         self.final_fix = self.attack_cap_active() or self.recertify_repair_seq is not None
         return "writer", r.feedback
+
+    def rerun_after_release(self, before: tuple) -> Optional[tuple]:
+        """A factory_bug hold of a step that may run again (factory_bug_rerunnable) waits in this
+        workflow for the factory to change, instead of ending for a manual `--resume-case` batch
+        (86b100 needed three of those on 11 November). It continues as that resume would: the
+        diagnosed step runs again at its seq after its recorded attempts, on the releases now
+        current, with its money booked as waste and the diagnosis uncounted; only the lineage's
+        factory_bug_resumes grows, so the policy's cap still ends the loop. Returns the (phase,
+        feedback) that reruns the step, or None to hold as before: another step, a workflow that
+        held here before this path existed, or the batch deadline passed while it waited."""
+        snapshot, evidence, in_extension, verdict, ran, ran_on = before
+        step, feedback = ran
+        diagnosed = [h for h in self.history if h["seq"] == self.seq - 1 and h["step"] == step.name]
+        if not (ran_on is not None and factory_bug_rerunnable(step.name, diagnosed)
+                and DBOS.patch("factory_bug_release_wait") and self.wait_for_fix(ran_on)):
+            return None
+        diagnosis = Step(StepKind.DIAGNOSIS).name
+        self.renumber.setdefault(self.seq, {})[diagnosis] = max(
+            h["attempt"] for h in self.history if h["seq"] == self.seq and h["step"] == diagnosis)
+        self.renumber.setdefault(self.seq - 1, {})[step.name] = max(h["attempt"] for h in diagnosed)
+        book_waste_step([f"{self.case_id}/{self.seq - 1}/{step.name}/{h['attempt']}" for h in diagnosed])
+        self.snapshot, self.evidence, self.in_extension, self.verdict = snapshot, evidence, in_extension, verdict
+        self.diagnoses_used -= 1
+        self.factory_bug_resumes += 1
+        self.bench = self.current("bench")   # GATES adopts it anyway; writer and stress steps too
+        self.seq -= 2                        # run_seq numbers the rerun at the diagnosed seq
+        return step.kind.value, feedback
+
+    def wait_for_fix(self, failed: tuple) -> bool:
+        """Park without a worker until the batch's (plumbing, bench) differs from `failed`, the
+        releases the diagnosed step ran on, or an operator sends Engine.resume_held. Never on the
+        same releases by itself, so it cannot loop on the same bug. False: the batch deadline
+        passed first."""
+        if self.replaying:
+            return True   # the recorded workflow went on past this hold: it resumed here
+        self.release_worker()
+        self.status = "held_for_release"
+        self.card()
+        while (self.current("plumbing"), self.current("bench")) == failed:
+            if now_step() >= self.spec.deadline_epoch:
+                return False
+            self.tell("waiting")
+            msg = DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s)
+            if isinstance(msg, dict) and msg.get("kind") == "resume":
+                break
+        self.status = "running"
+        self.card()
+        return True
 
     def escalate(self) -> Ref:
         """Park until a FOUNDER_REPLY. CONTINUE returns the ruling for the rerun; RETIRE retires."""
@@ -1775,6 +1849,17 @@ class Engine:
         if not isinstance(reply, FounderReply):
             raise ContractError("reply carries a FounderReply")
         DBOS.send(case_id, to_record(reply), topic=Topic.FOUNDER_REPLY.value)
+
+    def resume_held(self, case_workflow_id: str) -> bool:
+        """An operator's go-ahead for a case held for a factory release (status held_for_release):
+        it reruns its diagnosed step on the current releases, counted like any factory_bug resume.
+        False, and nothing sent, when the case is not waiting so: a stale resume must not later
+        free a hold that no release fixed."""
+        card = DBOS.get_event(case_workflow_id, "card", timeout_seconds=0)
+        if not isinstance(card, dict) or card.get("status") != "held_for_release":
+            return False
+        DBOS.send(case_workflow_id, {"kind": "resume"}, topic=WAKE)
+        return True
 
     def in_flight(self) -> int:
         """Attempts that have started and not yet recorded their result."""
