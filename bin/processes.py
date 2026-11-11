@@ -92,6 +92,21 @@ def _containment_scope(ledger):
         yield scope
 
 
+def _kill_cgroup(path, end):
+    (path / 'cgroup.kill').write_text('1')
+    while True:
+        events = dict(line.split() for line in (path / 'cgroup.events').read_text().splitlines())
+        if events.get('populated') == '0': return
+        if time.monotonic() >= end: raise TimeoutError()
+        time.sleep(.01)
+
+
+def _remove_cgroup(path, end):
+    for directory, _, _ in os.walk(path, topdown=False):
+        if time.monotonic() >= end: raise TimeoutError()
+        Path(directory).rmdir()
+
+
 def _check_calls(scope):
     for call in scope.iterdir():
         if not call.is_dir(): continue  # cgroup control files
@@ -101,7 +116,16 @@ def _check_calls(scope):
         try:
             try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError: continue  # another live call, possibly in another process
-            raise ContainmentError('containment_unavailable')
+            # Unlocked: its owner died without stop() (e.g. killed at a step deadline).
+            # Poisoned means stop() itself failed: never reap that, refuse instead.
+            if (call / '.poisoned').exists():
+                raise ContainmentError('containment_unavailable')
+            try:
+                end = time.monotonic() + 5
+                _kill_cgroup(call, end)
+                _remove_cgroup(call, end)
+            except (OSError, ValueError):
+                raise ContainmentError('containment_unavailable') from None
         finally:
             os.close(fd)
 
@@ -168,16 +192,9 @@ class ContainedCall:
         if self.fd is None: return
         end = time.monotonic() + 5
         try:
-            (self.path / 'cgroup.kill').write_text('1')
-            while True:
-                events = dict(line.split() for line in (self.path / 'cgroup.events').read_text().splitlines())
-                if events.get('populated') == '0': break
-                if time.monotonic() >= end: raise TimeoutError()
-                time.sleep(.01)
+            _kill_cgroup(self.path, end)
             with _containment_scope(self.ledger):
-                for directory, children, _ in os.walk(self.path, topdown=False):
-                    if time.monotonic() >= end: raise TimeoutError()
-                    Path(directory).rmdir()
+                _remove_cgroup(self.path, end)
                 os.close(self.fd); self.fd = None
         except BaseException:
             self.failed = True
@@ -187,9 +204,9 @@ class ContainedCall:
                     finally:
                         if self.fd is not None: os.close(self.fd); self.fd = None
             except OSError:
-                pass  # The unlocked directory itself is the durable refusal.
+                pass  # Unpoisoned: a later _check_calls refuses unless its kill now empties it.
             finally:
-                # An unlocked leftover is also durable if marker creation fails.
+                # Without the marker, the leftover is reaped only once a kill empties it.
                 if self.fd is not None: os.close(self.fd); self.fd = None
             raise ContainmentError('cancellation_failed') from None
 
