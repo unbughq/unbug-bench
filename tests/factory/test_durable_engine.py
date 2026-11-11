@@ -1591,33 +1591,38 @@ class ResumeOverride(unittest.TestCase):
         self.assertEqual(self.resume(r, "b-z", override="again", spec=spec), {"refused": "resume:override_used"})
         self.assertEqual(self.resume(r, "b-z", spec=spec), {"refused": "resume:not_stopped_by_infra"})
 
-    # 2abb0a-2-1: the diagnosed writer step stopped on infrastructure and on a stop the rerunnable
-    # rule does not know (here a call cap), so the factory_bug hold is not resumable by the rules.
-    WRITER_STOPS = {"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
-                    "script": {"1/writer:1/1": {"outcome": "infra_error", "reason": "infra:execution_retries_exhausted"},
-                               "1/writer:1/2": {"outcome": "infra_error", "reason": "infra:deadline"},
-                               "1/writer:1/3": {"outcome": "exhausted", "reason": "writer:call_limit",
-                                                "checkpoint": True},
-                               "1/diagnosis/*": {"verdict": "factory_bug"}}}
-
-    def test_a_factory_bug_hold_with_unrerunnable_stops_resumes_at_the_diagnosed_step(self):
-        r, out = self.manual_run(self.WRITER_STOPS)
+    def test_a_factory_bug_hold_whose_step_never_started_resumes_at_that_step(self):
+        # The diagnosed stress step never started (the case grant was below the minimum), so it
+        # reached no result, but the rerunnable rule requires stops it can read: refused by the rules.
+        script = {"1/writer:1/1": {"paid": 1_000_000}, "1/diagnosis/*": {"verdict": "factory_bug"}}
+        spec = {"case_money_usd_micros": 1_500_000}
+        r, out = self.manual_run({"spec": {"max_cases_started": 1, **spec}, "script": script})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "held"})
         dseq, kind, _ = r.keys(1)[-1]
         self.assertEqual(kind, "diagnosis")
-        spec = {"max_infra_retries_per_step": 2}
+        self.assertEqual(r.keys(1)[-2], (str(int(dseq) - 2), "writer:1", "1"))   # stress:1 never started
         self.assertEqual(self.resume(r, "b-u", spec=spec), {"refused": "resume:not_stopped_by_infra"})
         before = len(r.starts(1))
-        out = self.resume(r, "b-v", {"1/writer:1/*": {}}, override=self.WHY, spec=spec)
-        wseq = str(int(dseq) - 1)
-        self.assertEqual(r.keys(1)[before:], [(wseq, "writer:1", "4"), (dseq, "stress:1", "1"),
-                                              (str(int(dseq) + 1), "gates:1", "1"), (str(int(dseq) + 2), "seal", "1")])
-        self.assertEqual(start(r, f"{C1}/{wseq}/writer:1/4")["opened"]["snapshot"], f"snapshot {C1}/{wseq}/writer:1/3")
+        out = self.resume(r, "b-v", override=self.WHY, spec={"case_money_usd_micros": 50 * M})
+        self.assertEqual(r.keys(1)[before], (str(int(dseq) - 1), "stress:1", "2"))
         self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "sealed"})
-        self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()),
-                         [f"{C1}/{wseq}/writer:1/{n}" for n in (1, 2, 3)])
         self.assertEqual(card(out, C1)["override"], self.WHY)
+
+    def test_an_exhausted_round_or_call_ceiling_is_refused_even_with_the_override(self):
+        # FACTORY.md: exhausted ceilings need higher explicit flags, not a reset. A factory_bug hold
+        # whose diagnosed writer stopped on one is not rerun by the override.
+        for reason in ("writer:rounds_exhausted", "writer:call_limit", "writer:total_call_limit"):
+            with self.subTest(reason):
+                r, out = self.manual_run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
+                                          "script": {"1/writer:1/1": {"outcome": "infra_error",
+                                                                      "reason": "infra:execution_retries_exhausted"},
+                                                     "1/writer:1/2": {"outcome": "exhausted", "reason": reason},
+                                                     "1/diagnosis/*": {"verdict": "factory_bug"}}})
+                self.addCleanup(r.close)
+                self.assertEqual(out["result"]["cases"], {C1: "held"})
+                self.assertEqual(self.resume(r, "b-u", override=self.WHY, spec={"max_infra_retries_per_step": 2}),
+                                 {"refused": "resume:ceiling_stop"})
 
     def test_a_case_retired_by_the_deadline_after_close_to_passing_reruns_its_diagnosis(self):
         # f46dac-4-1: out of case money, then the diagnosis said close_to_passing after the batch
@@ -1640,6 +1645,22 @@ class ResumeOverride(unittest.TestCase):
         c = card(out, C1)
         self.assertEqual((c["override"], c["extensions"], c["diagnoses"]), (self.WHY, 1, 1))
         self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()), [])
+
+    def test_a_deadline_retire_after_an_extension_without_progress_is_refused(self):
+        # decide_diagnosis retires a close_to_passing case whose extension made no progress, deadline
+        # or not: that is a judgment, so the override does not ask again.
+        r, out = self.manual_run({"spec": {"max_cases_started": 1}, "deadline_in": 14,
+                                  "script": {"1/stress:1/1": {"feedback": True},
+                                             "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                             "1/5/diagnosis/1": {"verdict": "close_to_passing"},
+                                             "1/gates:3/1": {"outcome": "gate_failed", "gate": "G5",
+                                                             "repairable": True, "passed": []},
+                                             "1/9/diagnosis/1": {"verdict": "close_to_passing", "dur": 16}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        self.assertEqual(r.keys(1)[-1], ("9", "diagnosis", "1"))
+        self.assertEqual(card(out, C1)["extensions"], 1)
+        self.assertEqual(self.resume(r, "b-u", override=self.WHY), {"refused": "resume:scientific_stop"})
 
     def test_scientific_stops_are_refused_even_with_the_override(self):
         retire = {"when": {"case": 1, "status": "escalated"}, "reply": {"action": "retire"}}

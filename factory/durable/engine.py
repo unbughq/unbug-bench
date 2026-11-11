@@ -379,16 +379,69 @@ def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
 # explicit operator override (`start --resume-case <case> --override-reason <text>`), where the rules
 # above refuse it: a factory_bug hold whose diagnosed stops are not all rerunnable, or that reached
 # MAX_FACTORY_BUG_RESUMES, or a case held or retired whose last attempt was not an infra stop. Never
-# a case that has not finished or sealed, and never a scientific stop (_scientific). Once per lineage:
+# a case that has not finished or sealed, and never a stop _override_refusal names. Once per lineage:
 # the override and its reason ride in the resume record (and on the case card), so a later one sees it.
 OVERRIDE_REASON_MAX = 200
 
 
-def _scientific(r) -> bool:
-    """A result that is a scientific judgment, which no override reruns: a gate verdict, a founder
-    escalation (NEEDS_FOUNDER, e.g. G8/G9/G16/G17 or a stress split) or a stress round's findings."""
-    return isinstance(r, dict) and (r.get("outcome") in (Outcome.GATE_FAILED.value, Outcome.NEEDS_FOUNDER.value)
-                                    or r.get("outcome") == Outcome.OK.value and r.get("feedback") is not None)
+def _override_refusal(kind: Optional[str], r) -> Optional[str]:
+    """Why no override reruns a step of `kind` that stopped with result `r`, or None when it reached
+    no result (never started, infra, a provider limit, a handback, or a FACTORY_BUG_RESUMABLE check).
+    A scientific judgment: a gate verdict, a founder escalation (NEEDS_FOUNDER, e.g. G8/G9/G16/G17 or
+    a stress split) or a stress round's findings. A ceiling: any other EXHAUSTED stop, such as
+    writer:rounds_exhausted or a call or cost limit; FACTORY.md: exhausted ceilings need higher
+    explicit flags, not a reset, and unchanged repairs still stop."""
+    if not isinstance(r, dict):
+        return None
+    outcome = r.get("outcome")
+    if (outcome in (Outcome.GATE_FAILED.value, Outcome.NEEDS_FOUNDER.value)
+            or outcome == Outcome.OK.value and r.get("feedback") is not None):
+        return "resume:scientific_stop"
+    if outcome == Outcome.EXHAUSTED.value and r.get("reason") not in FACTORY_BUG_RESUMABLE.get(kind, ()):
+        return "resume:ceiling_stop"
+    return None
+
+
+def _retired_only_by_deadline(latest, attempts: dict, last: tuple, earlier: list, result_of) -> bool:
+    """Whether a close_to_passing diagnosis (`last`) was retired only because the batch deadline had
+    passed (_Case.diagnose), not by decide_diagnosis: it finished after the deadline, the case had
+    extensions left, its last extension (if any) progressed, and it is not a recertified case (never
+    rewritten). Progress compares the gates passed when that extension began with those its own
+    GATES passed, from the recorded results, as _Case.diagnose does (ext_before, ext_after)."""
+    spec = DBOS.list_workflows(workflow_ids=[latest.workflow_id])[0].input["args"][0]["spec"]
+    if (attempts[last].updated_at or 0) / 1000 < spec["deadline_epoch"]:
+        return False
+    card = DBOS.get_event(latest.workflow_id, "card", timeout_seconds=0) or {}
+    used = card.get("extensions")
+    if type(used) is not int or used >= min(spec.get("max_extensions", 5), 5):
+        return False
+    rows = sorted(attempts.items(), key=lambda kv: (kv[1].created_at or 0, kv[0]))
+
+    def kind(w):
+        return w.workflow_id.split("/")[2].split(":")[0]
+    admit = [result_of(w) for _, w in rows if kind(w) == StepKind.ADMIT.value]
+    if (any(isinstance(r, dict) and r.get("reason") == "admit:imported_sealed" for r in admit)
+            and not any(r.get("recertify_repair") is True for r in earlier)):
+        return False
+    if used == 0:
+        return True
+    # The extension began at the last close_to_passing diagnosis before this one.
+    started = [i for i, (k, w) in enumerate(rows) if k != last and kind(w) == StepKind.DIAGNOSIS.value
+               and (result_of(w) or {}).get("verdict") == Verdict.CLOSE_TO_PASSING.value]
+    if not started:
+        return False
+
+    def passed(lo, hi):   # the latest GATES result among rows[lo:hi], as _Case.absorb keeps it
+        found = [r.get("passed") or [] for _, w in rows[lo:hi] if kind(w) == StepKind.GATES.value
+                 for r in [result_of(w)] if isinstance(r, dict)]
+        return tuple(found[-1]) if found else None
+    end = next(i for i, (k, _) in enumerate(rows) if k == last)
+    before = passed(0, started[-1]) or ()
+    after = passed(started[-1] + 1, end) or ()
+    try:
+        return progressed(before, after)
+    except ContractError:
+        return False
 
 
 def resume_point(case_id: str, override: Optional[str] = None) -> dict:
@@ -501,12 +554,11 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         if override is None:
             raise ContractError("resume:not_stopped_by_infra")
         if diagnosis_ok:
-            spec = DBOS.list_workflows(workflow_ids=[latest.workflow_id])[0].input["args"][0]["spec"]
             if not (result.get("verdict") == Verdict.CLOSE_TO_PASSING.value and latest.output.get("status") == "retired"
-                    and (attempts[(seq, attempt)].updated_at or 0) / 1000 >= spec["deadline_epoch"]):
+                    and _retired_only_by_deadline(latest, attempts, (seq, attempt), earlier, result_of)):
                 raise ContractError("resume:scientific_stop")
-        elif _scientific(result):
-            raise ContractError("resume:scientific_stop")
+        elif _override_refusal(last_step.split(":")[0], result):
+            raise ContractError(_override_refusal(last_step.split(":")[0], result))
         overridden = True
         factory_bug_resumes += unreplayed(seq)
     elif not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
@@ -521,8 +573,11 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
             # The override reruns the diagnosed step whatever its stops, but never a scientific one.
             if override is None:
                 raise ContractError("resume:not_stopped_by_infra")
-            if not diagnosed or any(_scientific(s) for s in stops):
-                raise ContractError("resume:scientific_stop")
+            if not diagnosed:
+                raise ContractError("resume:no_diagnosed_step")
+            refusal = next(filter(None, (_override_refusal(name.split(":")[0], s) for s in stops)), None)
+            if refusal:
+                raise ContractError(refusal)
             overridden = True
         factory_bug_resumes += unreplayed(seq - 1)
         if factory_bug_resumes >= MAX_FACTORY_BUG_RESUMES:   # defensive: the policy retires first

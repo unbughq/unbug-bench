@@ -411,14 +411,17 @@ the guard neither alerts on it nor counts it as a stall.
 Founder 2026-11-11: an operator override resumes, once per lineage, a case these rules refuse:
 `start --resume-case <case> --override-reason <text>`. It drops only the rerunnable-stops and
 held-only requirements of a `factory_bug` diagnosis, `MAX_FACTORY_BUG_RESUMES`, and the
-infra-last-attempt requirement for a held or retired case whose last attempt reached no
-scientific result (it never started, or stopped on money or a call limit) or whose diagnosis said
-`close_to_passing` after the batch deadline retired it. It resumes where the rules would: the
+infra-last-attempt requirement for a held or retired case whose last attempt reached no result
+(it never started, stopped on infrastructure, or on a `FACTORY_BUG_RESUMABLE` check), or whose
+diagnosis said `close_to_passing` and the batch deadline alone retired it (it had extensions left,
+its last extension progressed, and it is not a recertified case). It resumes where the rules would: the
 diagnosed step after a `factory_bug` diagnosis (booked as `factory_bug` waste, the resume counted),
 otherwise the stopped step itself, so such a diagnosis is asked afresh. It never resumes an
 unfinished, unknown or sealed case, nor a scientific stop (`resume:scientific_stop`): a gate verdict
 other than a recertified case's repair, a `NEEDS_FOUNDER` escalation or a stress round's findings,
-whether last or among the diagnosed step's attempts, and no diagnosis verdict but those two. The
+whether last or among the diagnosed step's attempts, and no diagnosis verdict but those two; nor an
+exhausted round, call or cost ceiling (`resume:ceiling_stop`, such as `writer:rounds_exhausted`):
+FACTORY.md raises those by explicit flags, never by a reset. The
 reason rides in the resume record, so a second override of the lineage is refused
 (`resume:override_used`); an override the rules did not need is not recorded. A lineage past the cap
 retires at its next `factory_bug` diagnosis. The override's case card and the board show the reason;
