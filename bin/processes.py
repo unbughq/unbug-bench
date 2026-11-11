@@ -107,7 +107,26 @@ def _remove_cgroup(path, end):
         Path(directory).rmdir()
 
 
-def _check_calls(scope):
+def _mount_record(ledger, call):
+    """The call's tmpfs state mount, recorded beside its ledger (cgroupfs holds no files)."""
+    return Path(str(Path(ledger).resolve()) + f'.{call}.mount')
+
+
+def _unmount_state(record):
+    """Unmount exactly the recorded mount of a dead call; tolerate already-unmounted."""
+    try: mount = record.read_text()
+    except FileNotFoundError: return
+    path = Path(mount)
+    if not path.is_absolute() or not path.name.startswith('factory-tester-state-'):
+        raise ContainmentError('containment_unavailable')
+    if os.path.ismount(path):
+        subprocess.run(['sudo', '-n', 'umount', '--', mount], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
+    with contextlib.suppress(FileNotFoundError): path.rmdir()
+    record.unlink()
+
+
+def _check_calls(scope, ledger):
     for call in scope.iterdir():
         if not call.is_dir(): continue  # cgroup control files
         if (call / '.poisoned').exists():
@@ -123,8 +142,10 @@ def _check_calls(scope):
             try:
                 end = time.monotonic() + 5
                 _kill_cgroup(call, end)
+                # Emptied: no process still uses its tmpfs. A failed unmount keeps the cgroup for retry.
+                _unmount_state(_mount_record(ledger, call.name))
                 _remove_cgroup(call, end)
-            except (OSError, ValueError):
+            except (OSError, ValueError, subprocess.SubprocessError):
                 raise ContainmentError('containment_unavailable') from None
         finally:
             os.close(fd)
@@ -134,7 +155,7 @@ def check_containment(ledger):
     """Also guard isolated calls and resume against abandoned non-isolated work."""
     if not os.environ.get('UNBUG_MODEL_CGROUP_ROOT'): return
     try:
-        with _containment_scope(ledger) as scope: _check_calls(scope)
+        with _containment_scope(ledger) as scope: _check_calls(scope, ledger)
     except OSError:
         raise ContainmentError('containment_unavailable') from None
 
@@ -146,12 +167,12 @@ class ContainedCall:
     poisoning). The short scope lock orders enrollment against leftover checks.
     No PID/session scans, shared process owner, or unsafe fallback.
     """
-    def __init__(self, ledger):
+    def __init__(self, ledger, mount=None):
         self.ledger, self.fd, self.path = ledger, None, None
         self.failed = False
         try:
             with _containment_scope(ledger) as scope:
-                _check_calls(scope)
+                _check_calls(scope, ledger)
                 self.path = scope / uuid.uuid4().hex
                 self.path.mkdir()
                 # Fresh cgroupfs directories create these files themselves.
@@ -163,6 +184,8 @@ class ContainedCall:
                 with (self.path / 'cgroup.kill').open('w') as control: control.write('1')
                 self.fd = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY)
                 fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # A reaper unmounts this if we die; a live owner unmounts it itself.
+                if mount is not None: _mount_record(ledger, self.path.name).write_text(str(mount))
         except OSError:
             if self.fd is not None: os.close(self.fd); self.fd = None
             raise ContainmentError('containment_unavailable') from None
@@ -195,6 +218,7 @@ class ContainedCall:
             _kill_cgroup(self.path, end)
             with _containment_scope(self.ledger):
                 _remove_cgroup(self.path, end)
+                _mount_record(self.ledger, self.path.name).unlink(missing_ok=True)
                 os.close(self.fd); self.fd = None
         except BaseException:
             self.failed = True

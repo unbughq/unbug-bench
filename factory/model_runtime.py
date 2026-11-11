@@ -783,7 +783,7 @@ class ModelRuntime:
                                   or getattr(c, "force_budget_resume", False),
                                   concurrent=getattr(c, 'engine', None) is not None or getattr(c.args, "concurrent_roles", False), cancel=gate,
                                   case_budget=getattr(c.args, 'case_budget', 50.0), role=role, invocation_name=name,
-                                  containment=not user, **attempt_kwargs)
+                                  containment=not user, state_mount=scratch if memory_scratch else None, **attempt_kwargs)
             update_case_budget(c)
             c.budget_resumed = True; c.force_budget_resume = False
             self.progress(c, 'role:' + progress_role, 'completed' if result.returncode == 0 else 'failed',
