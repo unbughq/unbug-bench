@@ -375,19 +375,35 @@ def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
                              and all(returned_nothing(s) for s in stops))
 
 
-def resume_point(case_id: str) -> dict:
+# Founder 2026-11-11: a case killed by a factory bug since fixed may be resumed once more by an
+# explicit operator override (`start --resume-case <case> --override-reason <text>`), where the rules
+# above refuse it: a factory_bug hold whose diagnosed stops are not all rerunnable, or that reached
+# MAX_FACTORY_BUG_RESUMES, or a case held or retired whose last attempt was not an infra stop. Never
+# a case that has not finished or sealed, and never a scientific stop (_scientific). Once per lineage:
+# the override and its reason ride in the resume record (and on the case card), so a later one sees it.
+OVERRIDE_REASON_MAX = 200
+
+
+def _scientific(r) -> bool:
+    """A result that is a scientific judgment, which no override reruns: a gate verdict, a founder
+    escalation (NEEDS_FOUNDER, e.g. G8/G9/G16/G17 or a stress split) or a stress round's findings."""
+    return isinstance(r, dict) and (r.get("outcome") in (Outcome.GATE_FAILED.value, Outcome.NEEDS_FOUNDER.value)
+                                    or r.get("outcome") == Outcome.OK.value and r.get("feedback") is not None)
+
+
+def resume_point(case_id: str, override: Optional[str] = None) -> dict:
     """Where a case stopped by an infrastructure failure continues (_resume_point)."""
-    return _resume_point(case_id)[0]
+    return _resume_point(case_id, override)[0]
 
 
-def factory_bug_waste_keys(case_id: str) -> list:
+def factory_bug_waste_keys(case_id: str, override: Optional[str] = None) -> list:
     """The idempotency keys of the attempts a factory_bug diagnosis found lost to our own bug: every
     recorded attempt of the diagnosed step, when the case resumes after such a diagnosis, else none.
     Their money is waste, never the case's (ledger.book_waste with reason factory_bug)."""
-    return _resume_point(case_id)[1]
+    return _resume_point(case_id, override)[1]
 
 
-def _resume_point(case_id: str) -> tuple:
+def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     """Where a case stopped by an infrastructure failure continues, from its recorded attempts.
 
     The case keeps its ID, so its key, artifacts, snapshot card and admission binding stay valid;
@@ -402,6 +418,9 @@ def _resume_point(case_id: str) -> tuple:
     and the resume counts against the lineage's factory_bug_resumes."""
     if type(case_id) is not str or not CASE_ID.fullmatch(case_id):
         raise ContractError("resume:bad_case")
+    if override is not None and not (type(override) is str and 0 < len(override.strip()) <= OVERRIDE_REASON_MAX
+                                     and override.isprintable()):
+        raise ContractError("resume:bad_override")
     runs = (DBOS.list_workflows(workflow_ids=[case_id], name=case_workflow.__qualname__, load_input=False)
             + DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__))
     if not runs:
@@ -432,6 +451,9 @@ def _resume_point(case_id: str) -> tuple:
     seq, attempt = max(attempts)
     result = result_of(attempts[(seq, attempt)])
     earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
+    if override is not None and any(r.get("override") is not None for r in earlier):
+        raise ContractError("resume:override_used")   # once per lineage
+    overridden = False
     factory_bug_resumes = max([r.get("factory_bug_resumes", 0) for r in earlier], default=0)
     # Resumes the latest workflow made in place (rerun_after_release), by diagnosis seq. The new
     # workflow replays, and so counts again, those below the seq it resumes at; the rest it is told of.
@@ -462,7 +484,27 @@ def _resume_point(case_id: str) -> tuple:
                  "factory_bug_resumes": factory_bug_resumes + unreplayed(seq + 1), "recertify_repair": True,
                  "recertify_repair_seq": seq,
                  "renumber": {str(k): v for k, v in sorted(renumber.items())}}, waste_keys)
-    if not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
+    last_step = attempts[(seq, attempt)].workflow_id.split("/")[2]
+    diagnosis_ok = (last_step == StepKind.DIAGNOSIS.value and isinstance(result, dict)
+                    and result.get("outcome") == Outcome.OK.value)
+    if not (diagnosis_ok and result.get("verdict") == Verdict.FACTORY_BUG.value) and not (
+            isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
+        # Operator override only: the last attempt reached no scientific result (it never started,
+        # or stopped on money or a limit), or a diagnosis said close_to_passing and the batch deadline
+        # retired it (no extension starts after it). That step runs again at its seq, as after an
+        # infra stop; a diagnosis verdict is asked afresh rather than replayed into an extension.
+        if override is None:
+            raise ContractError("resume:not_stopped_by_infra")
+        if diagnosis_ok:
+            spec = DBOS.list_workflows(workflow_ids=[latest.workflow_id])[0].input["args"][0]["spec"]
+            if not (result.get("verdict") == Verdict.CLOSE_TO_PASSING.value and latest.output.get("status") == "retired"
+                    and (attempts[(seq, attempt)].updated_at or 0) / 1000 >= spec["deadline_epoch"]):
+                raise ContractError("resume:scientific_stop")
+        elif _scientific(result):
+            raise ContractError("resume:scientific_stop")
+        overridden = True
+        factory_bug_resumes += unreplayed(seq)
+    elif not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
         # The diagnosed step is the one that ran last at seq - 1. A factory_bug resume can give that
         # seq to a new step while an older diagnosis there kept higher-numbered attempts; those belong
         # to another step and must not decide this one (they still count for skip and renumber).
@@ -470,15 +512,18 @@ def _resume_point(case_id: str) -> tuple:
         name = max(before, key=lambda w: (w.created_at or 0, w.workflow_id)).workflow_id.split("/")[2] if before else None
         diagnosed = sorted(a for (s, a), w in attempts.items() if s == seq - 1 and w.workflow_id.split("/")[2] == name)
         stops = [result_of(attempts[(seq - 1, a)]) for a in diagnosed]
-        if not (latest.output.get("status") == "held"
-                and attempts[(seq, attempt)].workflow_id.split("/")[2] == StepKind.DIAGNOSIS.value
-                and isinstance(result, dict) and result.get("outcome") == Outcome.OK.value
-                and result.get("verdict") == Verdict.FACTORY_BUG.value
-                and factory_bug_rerunnable(name, stops)):
-            raise ContractError("resume:not_stopped_by_infra")
+        if not (latest.output.get("status") == "held" and factory_bug_rerunnable(name, stops)):
+            # The override reruns the diagnosed step whatever its stops, but never a scientific one.
+            if override is None:
+                raise ContractError("resume:not_stopped_by_infra")
+            if not diagnosed or any(_scientific(s) for s in stops):
+                raise ContractError("resume:scientific_stop")
+            overridden = True
         factory_bug_resumes += unreplayed(seq - 1)
         if factory_bug_resumes >= MAX_FACTORY_BUG_RESUMES:   # defensive: the policy retires first
-            raise ContractError("resume:factory_bug_resumes_exhausted")
+            if override is None:
+                raise ContractError("resume:factory_bug_resumes_exhausted")
+            overridden = True
         # A later diagnosis at that seq numbers its attempts after this one, so its key is new.
         renumber[seq] = {StepKind.DIAGNOSIS.value: max(renumber.get(seq, {}).get(StepKind.DIAGNOSIS.value, 0), attempt)}
         waste_keys = [attempts[(seq - 1, a)].workflow_id for a in diagnosed]
@@ -504,6 +549,8 @@ def _resume_point(case_id: str) -> tuple:
     repaired = [r["recertify_repair_seq"] for r in earlier if r.get("recertify_repair_seq") is not None]
     if repaired:   # a repaired recertified case that stopped again replays its repair decision
         point.update(recertify_repair=True, recertify_repair_seq=repaired[0])
+    if overridden:   # only when the rules above refused it: an allowed resume spends no override
+        point["override"] = override
     return (point, waste_keys)
 
 
@@ -747,6 +794,7 @@ class _Case:
         self.ran: Optional[tuple] = None
         self.ran_on: Optional[tuple] = None
         self.rerun_seqs: list = []   # diagnosis seqs of factory_bug resumes in this workflow (rerun_after_release)
+        self.override: Optional[str] = None   # the operator's reason, when an override resumed this case
 
     @property
     def replaying(self) -> bool:
@@ -779,13 +827,16 @@ class _Case:
                         in_extension=self.in_extension)
 
     def card(self) -> None:
-        DBOS.set_event("card", {
+        card = {
             "case_id": self.case_id, "replacement_of": self.replacement_of, "status": self.status,
             "stage": self.stage, "reason": self.last_reason, "passed": list(self.passed),
             "failed_gate": self.failed_gate, "writer_rounds": self.writer_rounds_used,
             "attack_rounds": self.attack_rounds,   # stress rounds that returned findings (cap: ATTACK_ROUNDS)
             "extensions": self.extensions_used, "diagnoses": self.diagnoses_used, "verdict": self.verdict,
-            "hard": None if self.sealed is None else self.sealed["hard"]})
+            "hard": None if self.sealed is None else self.sealed["hard"]}
+        if self.override is not None:   # only an override's own workflow: other cards are unchanged
+            card["override"] = self.override
+        DBOS.set_event("card", card)
 
     def tell(self, kind: str, *, _idempotency_key: Optional[str] = None, **fields) -> None:
         if self.replaying:
@@ -1330,6 +1381,7 @@ def case_workflow(job: dict) -> dict:
         if resume.get("attack_cap_from") is not None:
             case.attack_cap_from = resume["attack_cap_from"]
             DBOS.set_event("attack_cap_from", case.attack_cap_from)
+        case.override = resume.get("override")
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
@@ -1417,6 +1469,8 @@ class _Batch:
                                                                         self.resume["seq"] - 1)
             if self.resume.get("attack_cap_from") is not None:
                 job["resume"]["attack_cap_from"] = self.resume["attack_cap_from"]
+            if self.resume.get("override") is not None:   # absent otherwise: older jobs replay unchanged
+                job["resume"]["override"] = self.resume["override"]
             self.case_ids[workflow_id] = case_id
         with SetWorkflowID(workflow_id):
             DBOS.start_workflow(case_workflow, job)
@@ -1855,17 +1909,18 @@ class Engine:
             DBOS.register_queue(decision_queue(spec.batch_id), global_concurrency=1,
                                 polling_interval_sec=self.timing.queue_poll_s, on_conflict="always_update")
 
-    def factory_bug_waste_keys(self, case_id: str) -> list:
+    def factory_bug_waste_keys(self, case_id: str, override: Optional[str] = None) -> list:
         """See the module function: what a resume of this case books as waste first."""
-        return factory_bug_waste_keys(case_id)
+        return factory_bug_waste_keys(case_id, override)
 
     def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None,
-                    resume_of: Optional[str] = None):
+                    resume_of: Optional[str] = None, override: Optional[str] = None):
         """Attach to the batch if it exists (rule 3); start it otherwise. initial_registry is the
         batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2). import_snapshot,
         a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case.
         resume_of, a case stopped by an infrastructure failure, continues it as the batch's first
-        case where it stopped (resume_point)."""
+        case where it stopped (resume_point). override, the operator's reason, resumes it once where
+        resume_point's rules refuse it (founder 2026-11-11)."""
         if not isinstance(initial_registry, Ref) or initial_registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise ContractError("initial_registry must be a registry Ref")
         if import_snapshot is not None and (not isinstance(import_snapshot, Ref)
@@ -1876,7 +1931,9 @@ class Engine:
             return DBOS.retrieve_workflow(spec.batch_id)
         if resume_of is not None and import_snapshot is not None:
             raise ContractError("a batch either imports or resumes its first case")
-        resume = None if resume_of is None else {"case": resume_of, **resume_point(resume_of)}
+        if override is not None and resume_of is None:
+            raise ContractError("an override only resumes a case")
+        resume = None if resume_of is None else {"case": resume_of, **resume_point(resume_of, override)}
         with SetWorkflowID(spec.batch_id):
             job = {"spec": to_record(spec), "initial_registry": to_record(initial_registry), "queue_v2": False}
             if import_snapshot is not None:

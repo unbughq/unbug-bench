@@ -258,8 +258,13 @@ class Runtime:
         self.store.put_sealed(scope, ref, ciphertext)
         return ref
 
-    def start(self, spec_record, registry_record, import_record=None, resume_of=None):
+    def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None):
         spec = batch_spec_from_record(spec_record)
+        # An operator override (founder 2026-11-11) resumes a case once where engine.resume_point's
+        # rules refuse it; the engine checks the reason and that the lineage has not used one.
+        if override is not None and resume_of is None:
+            raise RuntimeErrorCode("resume_invalid")
+        extra = {} if override is None else {"override": override}
         registry = Ref(**registry_record)
         if registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise RuntimeErrorCode("registry_required")
@@ -304,7 +309,7 @@ class Runtime:
             # Money a factory_bug diagnosis found lost to our own bug is waste, not the case's: book
             # it so before counting what the case used. Idempotent, so a refused start books nothing twice.
             try:
-                waste_keys = self.engine.factory_bug_waste_keys(resume_of)
+                waste_keys = self.engine.factory_bug_waste_keys(resume_of, **extra)
             except ContractError:
                 waste_keys = []   # not resumable: engine.start_batch refuses it with its own reason
             for key in waste_keys:
@@ -330,7 +335,7 @@ class Runtime:
         if hold is not None and hold + 1 > min(spec.money_bound_usd_micros, spec.case_money_usd_micros):
             raise RuntimeErrorCode("bound_below_call_hold")
         self.releases.bundle(spec.plumbing_version)
-        self.engine.start_batch(spec, registry, imported, resume_of)
+        self.engine.start_batch(spec, registry, imported, resume_of, **extra)
         return {"batch_id": spec.batch_id}
 
     def drain(self):
