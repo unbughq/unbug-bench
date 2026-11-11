@@ -27,13 +27,20 @@ and publishes the allowed summary. The existing production release remains pinne
 removed its legacy launchers and controllers; shared runner and budget callers
 now use the durable path. Live cutover is not yet qualified.
 
-The benchmark resets its own Postgres/Redis stack for each trial. The checker uses
+The benchmark resets its own Postgres/Redis stack for each trial. A reset that fails before
+the guard is installed, with hard evidence that Postgres crashed (`pg_isready` fails, or its container
+is OOM-killed or not running; never error text), restarts it once, records the container state and
+any readable OOM line in the trial, and redoes the reset; if that fails the same way the trial's
+worker stops with one infrastructure error (in a parallel pool, other slots finish on their own
+stacks first). A failure once the guard is being installed stays that trial's ordinary reset error. The checker uses
 read-only database access. Parallel factory slots have separate Compose projects,
 volumes, ports and seed manifests. Model roles run with information walls between
 case internals, testers and contestant-visible material.
 Durable OpenCode calls put each role's private CLI state on an executable tmpfs.
 After process containment closes, cleanup unmounts that state instead of overwriting
-a potentially large disk cache. Failed cleanup remains an infrastructure failure.
+a potentially large disk cache.
+A call cgroup left unlocked by a dead owner (a step killed at its deadline) is killed, emptied
+and removed by the next call's check; a poisoned or undrainable one still refuses containment. Failed cleanup remains an infrastructure failure.
 
 ## Invariants
 
@@ -62,10 +69,24 @@ worker per watched batch is allowed): failures pause new attempts. A stall (a ca
 the router, no case, ledger or router-spend progress for 15 minutes while cases are live and no step is in flight, or a case parked on a
 founder decision for 30 minutes) reads `degraded` with its reason in `stalled` and alerts; it pauses nothing. Only a money,
 deadline or confirmed Boat limit is a hard stop: after a bounded checkpoint grace the guard stops the
-controller and deletes the workers. `preflight.py` adds advance warnings to the guard's alerts and
+controller and deletes the workers. Worker size is a Boat type: the controller config's `vm_type` (Boat's
+default when absent), or for a bounded campaign the request's `vm_type` (default `"default"`), read at each
+create. A type other than `default` needs its approved rate in the request's `worker_rates_usd_per_second`
+(e.g. `{"large": ...}` for 8 vCPU/16 GB); otherwise nothing is created and the guard degrades. The guard's
+compute bound uses that rate and each live worker is judged at its own Boat type's approved rate, so a
+large worker does not trip the default type's `max_worker_rate_usd_per_second` (always the default rate; a
+`"default"` key in the map is ignored); the infrastructure approval is unchanged, so a dearer type fits
+fewer running slots. `preflight.py` adds advance warnings to the guard's alerts and
 status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
-degrade, pause or stop, and an unreadable input is an "unknown" warning. On SIGTERM the engine drains, then
+degrade, pause or stop, and an unreadable input is an "unknown" warning. The guard itself alerts once router
+paid spend reaches 80% of its ceiling and when the provider credit falls below a floor (`UNBUG_LOW_CREDIT_USD`,
+default $25), each with the time left at the last hour's spend rate; `unbug board` shows the same wallet line.
+On SIGTERM the engine drains, then
 exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
+Restart the controller or send a plumbing or bench release only when `control/check-drained.py --config
+<config>` exits 0: no attempt holds a leased worker without its recorded `attempt_step`, and the
+model router holds no unexpired lease (read-only; exit 1 names what runs, 2 means unreadable). Restarts
+and release sends mid-step cost 19 hours of `infra:worker_lost` from 6 November.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 `client.py` reads that operator's public status/report over SSH using a saved local
 connection and default batch. `bin/install-unbug` packages a standalone read-only
@@ -82,8 +103,28 @@ remain on the separately pinned worker image.
 Images may supply `~/bench-source/prepare.py` to verify their bound public source
 and prune obsolete files restored by a snapshot overlay. This runs before release
 qualification and key delivery; changed source fails preparation.
+`control/release.py` makes both releases from one git commit on the control VM, recording each step
+under `~/.unbug-release` so a rerun resumes where it stopped. `bake-bench <commit> --from-image <current>`
+builds `~/bench-source` (tracked bench files hashed as git blobs, the reviewed `tools/install_source.py`
+pinned by sha, a `prepare.py` binding manifest, bundle and count), installs it on a sandbox of the current
+image keeping Medusa's generated files, runs `bin/bake-image.sh` and `prepare.py`, writes
+`~/bench-source/result.json` ({source, bench_version, source_files_verified, no_model_secrets, model_calls}),
+snapshots it under a name unique to that bake, `durable-bench-<UTC date-time>-<sha7>` (never `bench-env`, the
+source image or an earlier bake), and tests a fresh sandbox (`prepare.py`, bench fingerprint, that
+result.json, and unless `--no-image-build` the Medusa image build). Its sandboxes are named
+`bench-bake-…`/`bench-test-…`, which the pool never claims as case workers; the name is recorded before
+the create, so a lost create response is found in `boat list` and deleted. `build-plumbing <commit>` builds
+the commit's bundle with its own `workers.py release`; `register` runs `bin/unbug install` (both it and
+`send` refuse a bench tested without its Medusa build unless `--allow-unbuilt`); `send` runs `bin/check-release-pair.py`,
+then requires `control/check-drained.py` to exit 0, then sends `plumbing_release`/`bench_release` per
+batch; `switch` checks drained and prints the root commands (source-current symlink, unit restart) without
+running them. Every Boat call goes through `bin/boat-call` with `BOAT_NO_UPDATE=1`.
 The control units and setup script live under `control/`. ADMIT reuses the existing
-selector, registry, freshness and idea-realism screens. Unless INPUTS pins `rotation_slot`
+selector, registry, freshness and idea-realism screens. A retried ADMIT keeps the provider
+preflight checks that passed in the same step within 30 minutes and re-asks the rest; an unresolved G2
+freshness review is asked again up to twice within the attempt, re-fetching flagged pages not read
+live (the hit still blocks until cleared)
+before the admit fails `infra:freshness_review_unavailable`. Unless INPUTS pins `rotation_slot`
 or models, a new case's rotation slot cycles by the count of other cases on the registry
 board, which batches carry forward, so one-case batches still rotate. DIAGNOSIS uses the existing
 review contract through an isolated pilot user. These paths passed combined offline
@@ -121,11 +162,24 @@ repair round included, adopts them when a new writer round begins
 round that already began keeps its settings, and an explicit `parallel_gates` on the card is never
 overridden (`false` is the only pin; an older card's `bench_workers` is replaced). For those cases G10's two calibrators run at once and
 may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second thread after G1,
-joining before G6. Any snapshot requested while two threads work on the case is deferred
+joining before G6. In a writer step's early checks under the same G10 overlap conditions
+(`run.early_lane`, at least two bench workers), G3 runs first, then G15 keeps the foreground pool
+while G4, G5 and the saved-cheat sample run in order on the first reserved tester instance; both
+finish and every failure goes to the writer in serial order. The lane is fingerprinted as the
+foreground case (`gate_state.inputs`; instance and worker count are not scientific), so GATES
+reuses its G4/G5, and each gate's evidence is scoped to its own lane's files. Otherwise the serial order G15, G3,
+G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
-progress and the card's `phase_times`.
+progress and the card's `phase_times`. Before another writer call and its checks in the same
+attempt, the round compares the time left with 1.25 times the cycle just finished plus 15 minutes;
+when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
+returns `writer:handback` (OK, with its snapshot). Under the `writer_handback_retry` DBOS patch the engine retries that seq outside the infra
+allowance (at most `MAX_WRITER_HANDBACKS` per seq, then as infra; a STRESS step finding a pending
+handback stops as infrastructure), and the new attempt continues the round at that call with those findings. The early
+saved-cheat sample shares one 30-minute allowance; cheats it does not reach are recorded
+`unchecked` (it is advisory; full G6 runs them all), and a spent allowance is never an infra retry.
 An older card with no `parallel_gates` key also adopts just that flag at GATES entry
 (`run.adopt_parallel_gates_at_entry`), leaving its `bench_workers` value unchanged so its
 already earned gate cache identities remain valid. An explicit true or false stays pinned.
@@ -134,10 +188,10 @@ DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
 side transfers blobs; workers receive no R2 credentials. Invoke executors through
 `guarded_run`; sanitize exception paths and disable Conductor/DBOS Cloud.
-Worker steps share structured wait classification: quota/rate/credit wait durably,
+Worker steps share structured wait classification: quota/rate/credit/capacity wait durably,
 credential delivery, unbounded routes and router outages park without consuming
 infrastructure retries; known CLI and unavailable-model faults retain the finite
-infrastructure allowance. Each wait retains an
+infrastructure allowance. Each wait, and every failed step, killed, crashed or raising included, retains an
 encrypted operational diagnostic with allowlisted causes, retry times and lease
 IDs. Worker diagnostics automatically include safe HTTP statuses and error categories.
 Scope-bound `durable.diagnostics` inspection runs in worker memory and exports
@@ -256,7 +310,19 @@ chain with none is refused up front as `unbounded_route`. A full or failing lane
 the next route in its chain.
 A usage-limit (quota) failure on an OpenCode Go account is published as that account's router health
 block until its reset, even when it came from an unstructured CLI line, so later calls skip the exhausted
-account instead of retrying it per call.
+account instead of retrying it per call. The failed call itself moves on inside its attempt, to the same
+model's next route (the other Go account, then its OpenRouter twin): a Go call's unseen usage books $0, so
+nothing needs settling first (`model_runtime.go_quota_moves_on`). Any other Go fault ends the attempt as
+before, since a refusal or crash would repeat on the paid twin. Chains never cross model family
+(`model_router.routes` refuses one that would).
+When every seat of a lane is leased to our own calls the router answers `capacity`, not `rate`, to clients
+that send `capacity_protocol: 1` (older ones still get `rate`): no provider refused anything, so no health is
+published. The call waits in its worker, in FIFO order, for up to `model_router.CAPACITY_WAIT_SECONDS`
+(30 min, within the step deadline and the call's own timeout); only past that does the attempt end, as
+`router:capacity`, a provider-limit sleep of at most one lease that keeps its worker. Seats are the router
+config's per-pool `capacities` (default 1, at least 1); size each pool at least concurrent cases x
+concurrent model calls per case on it, counting an exam owner question (asked while its calibrator still
+holds a seat) as one more call.
 
 Codex (`codex/gpt-6.1-sol`, the strong calibrator's other family) has no gate either. Its lease
 maximum is $50 at the Codex list price (`CODEX_PROFILES`), lowered by funding. The runtime reads Codex's
@@ -279,6 +345,10 @@ wait or message. If any attempt it needs is missing, it fails (`resume:diverged`
 starting new work in that history. The stopped seq first restores its recorded attempts
 (their snapshots, diagnostics and keys, so a changed step also diverges), then continues
 with a fresh infra retry allowance.
+Replayed seqs keep the bench their attempts recorded; the first live seq, unless it is GATES or SEAL
+(which take their versions as before), adopts the new batch's current bench release (patch
+`resume_adopts_bench`). Nothing kept depends on the old bench: SEAL runs only under its GATES versions and
+every later path to SEAL passes a GATES step, which adopts the current bench anyway.
 Counters, snapshot and evidence therefore come out of the same code that built them. `start`
 refuses unless the earlier spend (the ledger across the original and every earlier resume
 batch, plus any declared import spend) plus the batch's
@@ -331,23 +401,35 @@ Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
 geography stays conservatively priced, while explicit global usage releases it.
 Engine invocations request a quote bounded by their currently uncommitted attempt
 funding. OpenRouter qualification-sized default windows are replaced by this
-funded window (at most $50); explicit Claude profile ceilings remain binding.
+funded window (at most $50, and at most $12.50 for an OpenRouter or OpenCode model outside the
+writer and stress roles, so four such calls fit one grant at once); explicit Claude profile ceilings remain binding.
+A reservation is marked launched before its model process can start; a pending one never
+launched spent nothing, so spend accounting and crash reconciliation settle it at $0, while
+admission still counts it.
 The router persists and validates that quote, and the worker atomically reserves
 it before execution. Exam calibrators leave a qualified reviewer window outside
 their hold so nested owner questions remain funded. This changes no case/batch bound and retains unknown charges.
 The router's operator configuration may set `paid_ceiling_usd`, an absolute shared
 wallet spending limit including all retained charges. Restart applies an explicit
 limit transactionally without resetting settled or uncertain spending; live wallet
-credit is checked separately on every paid request. Without this setting, the
+credit is checked separately on every paid request (a refused request still records the balance it saw).
+A paid route whose ceiling cannot cover one more request's hold is also refused at lease time as a
+`credit` wait; current holds are under the guard's $1 margin, so with the guard running its stop
+usually comes first. An older request waiting only on such routes does not hold back newer requests
+for that pool. Without this setting, the
 historical first-use qualification ceiling remains fixed across restarts.
 An unconfirmed paid request books its whole hold until the provider says otherwise.
 The gate passes the call's OpenRouter generation id with an unconfirmed settle, and a
 router pass every minute (or `model_router.py --reconcile-once`) settles such a row at
-that generation's reported `total_cost`, never above its hold, and one generation
-settles one row. Older unknown rows are bounded by the account's all-time usage: rows
+that generation's reported `total_cost` ($0 when nothing was charged), never above its hold,
+and one generation settles one row. The report names the route's model or its dated permaslug
+(`xiaomi/mimo-v2.6-pro-20260921`); a row already bounded below still settles at its report, and
+each pass samples unknown rows at random so ones the provider never reports cannot starve the rest. Older unknown rows are bounded by the account's all-time usage: rows
 older than the credit window together cost at most that usage less the provider-reported
 costs of settled rows equally old, so their charges are scaled down to that bound and
-marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged.
+marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged; a later
+generation report replaces the bounded share with the provider's cost, which may be higher but
+never above the row's hold.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and

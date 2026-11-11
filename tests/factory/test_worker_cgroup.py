@@ -41,6 +41,67 @@ class StartupTests(unittest.TestCase):
 
 
 
+class LeftoverCallTests(unittest.TestCase):
+    """Simulated cgroupfs: control files are plain files, removed with their directory."""
+    def scope(self, tmp):
+        ledger = Path(tmp) / 'ledger.json'
+        scope = Path(tmp) / 'root' / processes.hashlib.sha256(os.fsencode(ledger.resolve())).hexdigest()
+        return ledger, scope
+
+    def call(self, scope, name, populated='0'):
+        call = scope / name; call.mkdir(parents=True)
+        (call / 'cgroup.kill').write_text('')
+        (call / 'cgroup.events').write_text(f'populated {populated}\nfrozen 0\n')
+        return call
+
+    def check(self, tmp, ledger, killed):
+        real = processes._remove_cgroup
+        def remove(path, end):  # cgroupfs drops control files itself on rmdir
+            killed.append((path.name, (path / 'cgroup.kill').read_text()))
+            for f in path.iterdir():
+                if f.is_file(): f.unlink()
+            real(path, end)
+        with patch.dict(os.environ, {'UNBUG_MODEL_CGROUP_ROOT': str(Path(tmp) / 'root')}), \
+                patch.object(processes.sys, 'platform', 'linux'), patch.object(processes, '_remove_cgroup', remove):
+            processes.check_containment(ledger)
+
+    def test_dead_call_left_by_deadline_kill_is_reaped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger, scope = self.scope(tmp)
+            dead = self.call(scope, 'dead')
+            live = self.call(scope, 'live')
+            fd = os.open(live, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                processes.fcntl.flock(fd, processes.fcntl.LOCK_EX | processes.fcntl.LOCK_NB)
+                killed = []
+                self.check(tmp, ledger, killed)
+            finally:
+                os.close(fd)
+            self.assertEqual(killed, [('dead', '1')])  # killed before removal
+            self.assertFalse(dead.exists())
+            self.assertTrue(live.exists())  # another live call is never touched
+
+    def test_poisoned_call_still_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger, scope = self.scope(tmp)
+            poisoned = self.call(scope, 'poisoned'); (poisoned / '.poisoned').mkdir()
+            killed = []
+            with self.assertRaisesRegex(processes.ContainmentError, '^containment_unavailable$'):
+                self.check(tmp, ledger, killed)
+            self.assertEqual(killed, []); self.assertTrue(poisoned.exists())
+
+    def test_dead_call_that_will_not_empty_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger, scope = self.scope(tmp)
+            stuck = self.call(scope, 'stuck', populated='1')
+            clock = iter([0.0, 0.0, 10.0, 10.0])
+            killed = []
+            with patch.object(processes.time, 'monotonic', lambda: next(clock)), \
+                    self.assertRaisesRegex(processes.ContainmentError, '^containment_unavailable$'):
+                self.check(tmp, ledger, killed)
+            self.assertEqual(killed, []); self.assertTrue(stuck.exists())
+
+
 @unittest.skipUnless(sys.platform == 'linux' and os.environ.get('O7_TEST_CGROUP_ROOT'),
                      'requires disposable real Linux cgroup v2')
 class KernelTests(unittest.TestCase):

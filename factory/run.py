@@ -101,6 +101,20 @@ def g10_overlap_reason(c):
     return None
 
 
+def early_lane(c):
+    """A context for G4, G5 and the saved-cheat sample on the first reserved tester instance (its own
+    ports, database and lock), beside G15 on the foreground pool during a writer step. G3 prepares
+    that instance under G10's overlap conditions, and no tester uses it until GATES. None keeps the
+    serial early order (no flag, one worker, dry run, isolation or memory)."""
+    if not parallel_gates(c) or getattr(c.args, "bench_workers", 1) < 2 or g10_overlap_reason(c) is not None:
+        return None
+    lane = copy.copy(c)
+    lane.args = copy.copy(c.args); lane.args.bench_workers = 1  # never fan out over the foreground pool
+    lane.factory_slot, lane.role_cancel = c.args.bench_workers, threading.Event()
+    lane.reuse_as = c  # GATES reuses the lane's G4/G5 (gate_state.inputs)
+    return lane
+
+
 def factory_slots(c):
     if g10_overlap_reason(c) is None: return c.args.bench_workers + 2
     return max(getattr(c.args, "bench_workers", 1), 2 if parallel_calibrators(c) else 1)
@@ -411,11 +425,23 @@ def run_context(c, **more):
 
 
 PROVIDER_PREFLIGHT_S = 180   # a slow route is not an unavailable one; an hour-long retry costs more
+PREFLIGHT_REUSE_S = 1800     # a passed check is reused by a retry of the same step only this long
 
 
-def provider_preflight(c):
-    """Check non-writer routes before spending on construction; availability is not a gate pass."""
+def provider_preflight(c, step=None):
+    """Check non-writer routes before spending on construction; availability is not a gate pass.
+    With `step` (the engine step's identity), a role that passed in this step within
+    PREFLIGHT_REUSE_S is not asked again: a retried ADMIT re-ran every "Reply OK" call and queued
+    for the same routes it needed. An older pass (a retry after a long wait) is checked again."""
+    same_step = step is not None and c.card.get("provider_preflight_step") == step
+    previous = (c.card.get("provider_preflight") or []) if same_step else []
+    now = time.time()
+    passed = {(r.get("role"), r.get("model")): r["checked_at"] for r in previous
+              if isinstance(r, dict) and r.get("status") == "completed"
+              and type(r.get("checked_at")) in (int, float) and 0 <= now - r["checked_at"] < PREFLIGHT_REUSE_S}
     rows = c.card["provider_preflight"] = []
+    if step is not None:
+        c.card["provider_preflight_step"] = step
     seen = set()
     checks = [
             ("stress_tester", c.models["attacker"], "attacker-provider-preflight"),
@@ -434,13 +460,16 @@ def provider_preflight(c):
         seen.add(key)
         row = {"role": role, "model": chain[0], "scope": "availability_only", "status": "running"}
         rows.append(row)
+        if (role, chain[0]) in passed:
+            row.update(status="completed", reused=True, checked_at=passed[(role, chain[0])])
+            continue
         started = time.monotonic()
         try:
             code = opencode(c, chain, "Reply exactly OK. Do not use tools or read files. "
                             "This is a provider availability check, not a case task.", c.case, name,
                             timeout=PROVIDER_PREFLIGHT_S)
             if code: raise BudgetError("process_error")
-            row["status"] = "completed"
+            row.update(status="completed", checked_at=time.time())
         except BudgetError as error:
             if str(error).partition(":")[0] in ("budget_exhausted", "codex_login_expired", "provider_wait", "model_call_cap"): raise
             row.update(status="failed", reason=str(error))
@@ -919,7 +948,7 @@ def _gate_pipeline():
         budget_boundary=case_budget_boundary, after_gate=_gate_completed,
         overlap_reason=g10_overlap_reason, gates=tuple(GATES),
         early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP,
-        side_gates=SIDE_GATES, side_lane=parallel_gates)
+        side_gates=SIDE_GATES, side_lane=parallel_gates, early_lane=early_lane)
 
 
 def checked_gate(c, gate):
@@ -1111,6 +1140,10 @@ def build_fixture(c):
 
 # ---------------------------------------------------------------- bench helpers
 
+class AllowanceSpent(TimeoutError):
+    """A checkpoint's caller-given time allowance ran out."""
+
+
 def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=None):
     """bin/checkpoint on the case's base scenario (+ more); returns (summary, per-run records).
     slot=k runs it whole on bench instance k (its own ports, database and lock) instead of spreading runs."""
@@ -1131,11 +1164,16 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
     def invoke():
         case_budget_boundary(c)
         remaining = deadline - time.monotonic() if deadline is not None else None
-        if remaining is not None and remaining <= 0: raise TimeoutError('checkpoint allowance exhausted')
-        p = sh(c, args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label], capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
+        if remaining is not None and remaining <= 0: raise AllowanceSpent('checkpoint allowance exhausted')
+        try:
+            p = sh(c, args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label], capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
+        except subprocess.TimeoutExpired:
+            if deadline is None: raise
+            raise AllowanceSpent('checkpoint allowance exhausted') from None  # the caller's time, not a fault
         summary, records, _ = read_completed(p, runs, label, require_valid=True)
         return summary, records
-    return retry(c.work / "infra-attempts.json", identity, invoke, interruption=BudgetError)
+    # A spent caller allowance is neither retried nor counted as an invalid attempt.
+    return retry(c.work / "infra-attempts.json", identity, invoke, interruption=(BudgetError, AllowanceSpent))
 
 
 def verdicts(c, records):
@@ -1183,18 +1221,24 @@ def plain_and_reference(c, seed, tag):
     return verdicts(c, none), verdicts(c, ref), s
 
 
-def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=None):
+def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=None, unchecked=None):
+    """(guards that solved, guards). With a deadline (the advisory early check only), guards left when
+    it passes go to `unchecked` and do not run; full G6 and G7 pass no deadline."""
     guards = cheats(c) if guards is None else guards
     passed = 0
-    for g in guards:
+    for i, g in enumerate(guards):
         options = {}
         if deadline is not None:
             case_budget_boundary(c)
-            remaining = deadline - time.monotonic()
-            if remaining <= 0: raise TimeoutError("saved-cheat validation time allowance exhausted")
-            options['timeout'] = remaining
-        _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
-                             seed, f"{tag}-cheat", **options)
+            options['timeout'] = deadline - time.monotonic()
+        try:
+            if options.get('timeout', 1) <= 0: raise AllowanceSpent("saved-cheat validation time allowance exhausted")
+            _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
+                                 seed, f"{tag}-cheat", **options)
+        except AllowanceSpent:
+            if unchecked is None: raise
+            unchecked.extend(str(x) for x in guards[i:])
+            break
         values = verdicts(c, recs)
         solved = any(v["solved"] for v in values)
         passed += solved
@@ -1207,16 +1251,18 @@ def early_cheat_check(c):
     from case_contract import CaseProblem
     guards = sorted(p for p in (c.case / "guards/cheats").glob("*") if p.is_dir())
     if not guards: return None
-    reopened = []
+    reopened, unchecked = [], []
     try:
         passed, total = cheat_runs(c, c.seed, "early-g6", guards=guards, runs=1,
-            deadline=time.monotonic() + 1800, failures=reopened)
+            deadline=time.monotonic() + 1800, failures=reopened, unchecked=unchecked)
     except CaseProblem as error:
         return [str(error)]
     except (RuntimeError, TimeoutError, subprocess.TimeoutExpired) as error:
         _gate_pipeline().record_crash(c, "saved-cheats", error)
         raise
-    c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': passed == 0, 'checked': total, 'runs_each': 1}
+    # Advisory: cheats the allowance did not reach are recorded unchecked; full G6 still runs them all.
+    c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': passed == 0, 'checked': total - len(unchecked),
+                                                           'unchecked': len(unchecked), 'runs_each': 1}
     # Private feedback only. This sample must never populate c.early['G6'] or its cache.
     return ["Retained cheat passed after repair: " + name for name in reopened] or None
 
@@ -1774,7 +1820,9 @@ def confirm_hits(c, flagged, *, retained_path=None):
                      'an access failure with no snapshot stays unresolved.')
             retained_answer(c, c.models['reviewers'][0], text, d, 'reviewer-g2-confirm', out,
                 {'binding': semantic_binding(binding, flagged),
-                 'judgment': judgment_digest(c.freshness_retrieval)}, 'freshness',
+                 'judgment': judgment_digest(c.freshness_retrieval),
+                 # A re-ask after an unresolved review (ordinary_freshness.ensure) is a new question.
+                 **({'reask': c.freshness_reask} if getattr(c, 'freshness_reask', 0) else {})}, 'freshness',
                 'Object with hits array in supplied URL order; every row has url, resolved boolean, '
                 'same_bug boolean or null, retrieved boolean, app_version, version_scope, why and retrieval/archive fields.',
                 lambda v: isinstance(v, dict) and isinstance(v.get('hits'), list) and len(v['hits']) == len(flagged)
@@ -2730,6 +2778,25 @@ def _writer_round_start(c, receipt_path, n):
     return {"case": case_hash(c), "feedback": digest}
 
 
+# A writer call plus its checks is started only when this much of its predecessor's time, plus the
+# reserve (freshness and the step's final snapshot), is left in the attempt.
+WRITER_CYCLE_MARGIN, WRITER_CYCLE_RESERVE_S = 1.25, 900.0
+
+
+def _writer_handback(receipt_path, n, start):
+    """{"call", "problems", "case"} when an earlier attempt of writer round n (same feedback) handed
+    back its findings (WRITER_HANDBACK) and nothing ran since; else None."""
+    prior = jload(receipt_path, None)
+    if not (isinstance(prior, dict) and prior.get("engine") is True and prior.get("round") == n
+            and prior.get("repair_pending") and prior.get("round_start") == start):
+        return None
+    handback = prior.get("handback")
+    if (isinstance(handback, dict) and type(handback.get("call")) is int and handback["call"] > 1
+            and isinstance(handback.get("problems"), list) and isinstance(handback.get("case"), str)):
+        return handback
+    return None
+
+
 def _output_capped(c, name):
     """True when the newest transcript of call `name` ended its last model step at the output cap.
     A reply cut there applies none of its edits, so the case looks unchanged though the writer worked."""
@@ -2812,8 +2879,13 @@ def engine_writer_round(c, n, feedback):
     requested = bool(problems or report)
     start = _writer_round_start(c, receipt_path, n)
     capped = False
-    for call in range(1, c.args.rounds + 1):
-        before = start["case"] if call == 1 else case_hash(c)
+    first, resumed = 1, _writer_handback(receipt_path, n, start)
+    if resumed is not None:  # an earlier attempt of this round handed back before its next call
+        first, problems, report, requested = resumed["call"], resumed["problems"], None, True
+    deadline = getattr(getattr(c, "engine", None), "deadline_monotonic", None)
+    for call in range(first, c.args.rounds + 1):
+        before = start["case"] if call == 1 else resumed["case"] if call == first else case_hash(c)
+        cycle_started = time.monotonic()
         atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                    "report": f"round-{n}.json", "round_start": start, "repair_pending": True})
         name = f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}"
@@ -2846,6 +2918,16 @@ def engine_writer_round(c, n, feedback):
                                        "report": f"round-{n}.json", "round_start": start, "awaiting_stress": True})
             return {"outcome": Outcome.OK, "reason": "writer:validated"}
         report, requested = None, True
+        # The next call and its checks would likely outlive this attempt (writer steps were killed at
+        # the 4 h deadline mid-cycle, losing the cycle and an infra retry). Hand the findings to a
+        # fresh attempt of this round instead: same call count, same problems, full time.
+        if (deadline is not None and call < c.args.rounds
+                and deadline - time.monotonic() < WRITER_CYCLE_MARGIN * (time.monotonic() - cycle_started) + WRITER_CYCLE_RESERVE_S):
+            from durable.policy import WRITER_HANDBACK
+            atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
+                                       "report": f"round-{n}.json", "round_start": start, "repair_pending": True,
+                                       "handback": {"call": call + 1, "problems": problems, "case": case_hash(c)}})
+            return {"outcome": Outcome.OK, "reason": WRITER_HANDBACK}
     return {"outcome": Outcome.EXHAUSTED, "reason": "writer:rounds_exhausted"}
 
 
@@ -2858,6 +2940,9 @@ def engine_stress_round(c, n):
     if (c.card.get("admission_freshness") or {}).get("outcome") == "public_match":
         return {"outcome": Outcome.OK, "reason": "stress:public_match"}
     infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
+    pending = jload(c.work / "attack-state.json", None)
+    if isinstance(pending, dict) and pending.get("handback") is not None:
+        return infra("writer_handback_pending")  # an engine without writer_handback_retry advanced a handback
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
     report = c.work / "attacks" / f"round-{n}.json"

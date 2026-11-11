@@ -21,8 +21,9 @@ NOW = 1793990000.0
 USAGE = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 100000}).encode()
 
 
-def inventory(*ids):
-    return json.dumps({"sandboxes": [{"id": i} for i in ids], "pageInfo": {"hasMore": False}}).encode()
+def inventory(*ids, types=None):
+    rows = [{"id": i, **({"type": types[i]} if i in (types or {}) else {})} for i in ids]
+    return json.dumps({"sandboxes": rows, "pageInfo": {"hasMore": False}}).encode()
 
 
 class Fake:
@@ -32,6 +33,7 @@ class Fake:
         self.calls, self.stopped, self.sent = [], 0, []
         self.boat_failures = {}
         self.rows = ["bx_aaaaaaaa"]
+        self.types = {}   # Boat's type per sandbox, when the inventory says
         self.usage = USAGE
         self.active = "active"
         self.cases = [{"case": REQUEST["case_id"], "status": "running"}]
@@ -50,7 +52,7 @@ class Fake:
             self.boat_failures[args[0]] = left - 1
             self.clock += timeout
             return {"code": 124, "out": b"", "stderr": b"boat-call: timed out reaching 10.0.0.1", "seconds": timeout}
-        out = {"list": inventory(*self.rows), "usage": self.usage}.get(args[0], b"{}")
+        out = {"list": inventory(*self.rows, types=self.types), "usage": self.usage}.get(args[0], b"{}")
         return {"code": 0, "out": out, "stderr": b"", "seconds": 0.1}
 
     def rpc(self, op, batch=None):
@@ -123,6 +125,58 @@ class GuardTests(unittest.TestCase):
         self.f.calls.clear(); self.f.stopped = 0
         import shutil; shutil.rmtree(self.f.state_dir / "guard", ignore_errors=True)
         self.assertEqual(self.tick()["hard_stop"], None)
+
+    def test_a_large_worker_is_judged_at_its_approved_type_rate(self):
+        # A large (8 vCPU/16 GB) worker at $6e-05/s passes the default type's $2e-05/s cap: a false
+        # worker_rate stop unless the request approves the large rate. The approval itself is unchanged.
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 1 / 6e-05}).encode()
+        large = {**REQUEST, "vm_type": "large", "worker_rates_usd_per_second": {"large": 8e-05},
+                 "approved_infrastructure_usd": 14}
+        self.f.request = large
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("healthy", None))
+        self.f.request = {**large, "approved_infrastructure_usd": 10}   # $7.54 of large compute, $4 headroom
+        self.f.calls.clear()
+        self.hard("compute_bound")
+
+    def test_a_worker_type_without_an_approved_rate_only_degrades(self):
+        self.f.request = {**REQUEST, "vm_type": "large"}
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
+        self.assertLessEqual({"request", "request_rate"}, set(out["failed_checks"]))
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 1 / 6e-05}).encode()
+        self.f.request = REQUEST                                          # the default type keeps its cap
+        self.f.calls.clear()
+        self.hard("worker_rate")
+
+    def test_each_live_worker_is_judged_at_its_own_type_rate(self):
+        # The request moved to large while a default worker still runs at $6e-05/s: that worker is
+        # over the default cap. A large worker at the same rate is within its approved rate.
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 1 / 6e-05}).encode()
+        large = {**REQUEST, "vm_type": "large", "worker_rates_usd_per_second": {"large": 8e-05},
+                 "approved_infrastructure_usd": 14}
+        self.f.request, self.f.types = large, {"bx_aaaaaaaa": "large"}
+        self.assertEqual(self.tick()["hard_stop"], None)
+        self.f.request = REQUEST   # back to default: the live large worker's rate is not approved
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
+        self.assertIn("request_rate", out["failed_checks"])
+        self.f.request, self.f.types = large, {"bx_aaaaaaaa": "default"}
+        self.f.calls.clear()
+        self.hard("worker_rate")
+
+    def test_a_default_key_never_overrides_the_default_rate(self):
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 1 / 6e-05}).encode()
+        self.f.request = {**REQUEST, "worker_rates_usd_per_second": {"default": 1.0}}
+        self.hard("worker_rate")
+
+    def test_a_malformed_worker_type_only_degrades(self):
+        for bad in ({"vm_type": 7}, {"worker_rates_usd_per_second": [1]},
+                    {"max_worker_rate_usd_per_second": None}):
+            with self.subTest(bad=bad):
+                self.f.request = {**REQUEST, **bad}
+                out = self.tick()
+                self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
 
     def test_starts_never_add_to_the_compute_bound(self):
         # The old lifetime cap stopped every case once 30 workers had been created.
@@ -594,6 +648,34 @@ class GuardTests(unittest.TestCase):
         self.f.clock += 60
         self.f.guard(router=lambda: (5.0, 49.95, 120.0)).run()
         self.assertEqual(self.f.sent, [])
+
+    def test_router_ceiling_and_low_credit_alert_early_with_time_left(self):
+        """Nov 6-11: 39 attempts were cut off at the ceiling or an empty balance, found only mid-call."""
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        spend = [30.0]
+        for _ in range(10):                                   # $1 a minute for ten minutes, under 80%
+            self.f.clock += 60
+            out = self.f.guard(router=lambda: (spend[0], 50.0, 200.0)).run()
+            spend[0] += 1.0
+        self.assertEqual(self.f.sent, [])
+        self.assertAlmostEqual(out["router_burn_usd_per_hour"], 60.0, delta=1)
+        self.f.clock += 60
+        out = self.f.guard(router=lambda: (40.0, 50.0, 24.0)).run()   # 80% of the ceiling; credit under $25
+        self.assertEqual(out["phase"], "healthy")             # an alert, not a stop
+        ceiling = next(m for m in self.f.sent if "ceiling" in m)
+        self.assertIn("$40.00 of its $50.00 ceiling (80%)", ceiling)
+        self.assertRegex(ceiling, r"after \$9\.00 more, about 0\.2 hours at the last hour's \$(59|60)\.\d\d/hour")
+        credit = next(m for m in self.f.sent if "credit" in m)
+        self.assertIn("$24.00, below $25.00; about 0.4 hours", credit)
+        self.f.clock += 60
+        self.f.guard(router=lambda: (40.5, 50.0, 23.0)).run()
+        self.assertEqual(len(self.f.sent), 2)                 # each alert once while it lasts
+        from durable.board import render_board
+        board = {"at": NOW, "controller": {}, "guard": health(self.f.state_dir), "cases": [], "sealed": 0, "live": 0,
+                 "unavailable": [], "spend_usd_micros": {"spent": 0, "held": 0, "waste": 0}}
+        line = next(l for l in render_board(board).splitlines() if l.startswith("Router paid"))
+        self.assertIn("$40.50 of $50.00 ceiling (81%); provider credit $23.00; burning $", line)
+        self.assertIn("guard stop in ~", line)
 
     def test_router_below_its_ceiling_changes_nothing_and_unreadable_only_degrades(self):
         self.f.money = {"spent": 1, "bound": 2, "held": 0}

@@ -191,6 +191,41 @@ class PaidTests(unittest.TestCase):
         self.credit = Decimal('.20')                  # less than one request's $0.23 hold
         self.assertFalse(self.reserve(admit(self.store))[1]['granted'])
 
+    def test_a_call_the_ceiling_cannot_fund_is_refused_before_it_starts(self):
+        """Nov 6-11: calls past the ceiling were leased, started, then refused at their first request."""
+        self.store = router.Store(self.path, clock=lambda: self.now[0], capacities={'openrouter-key': 100},
+                                  credit_reader=lambda: self.credit, paid_ceiling_usd='.5')
+        running = admit(self.store)
+        for _ in range(2): self.assertTrue(self.reserve(running)[1]['granted'])   # $0.46 of $0.50
+        identity = uuid.uuid4().hex
+        refused = admit(self.store, identity=identity)
+        self.assertEqual((refused['kind'], refused['reason']), ('wait', 'credit'))
+        self.assertGreater(refused['retry_after'], self.now[0])
+        self.store = router.Store(self.path, clock=lambda: self.now[0], capacities={'openrouter-key': 100},
+                                  credit_reader=lambda: self.credit, paid_ceiling_usd='1')   # an operator raise
+        self.assertIsInstance(admit(self.store, identity=identity), router.Lease)   # the waiting caller's retry
+
+    def test_an_older_unfundable_request_does_not_block_a_fundable_one(self):
+        """Near the ceiling a request for a dear route waits; a cheaper route in the same pool still leases."""
+        self.store = router.Store(self.path, clock=lambda: self.now[0], capacities={'openrouter-key': 100},
+                                  credit_reader=lambda: self.credit, paid_ceiling_usd='1')
+        running = admit(self.store)
+        for _ in range(2): self.assertTrue(self.reserve(running)[1]['granted'])   # $0.46: GLM's $0.63 hold no longer fits
+        def acquire(model, identity):
+            return self.store.rpc('acquire', dict(id=identity, model=model, accounts=['openrouter-key'], role='writer',
+                deadline=self.now[0] + 3600, paid_protocol=1, excluded_lanes=['opencode-free/opencode/glm-5.3-flash-free']))
+        older = acquire('openrouter/z-ai/glm-5.3-flash', 'a' * 32)
+        self.assertEqual((older['kind'], older['reason']), ('wait', 'credit'))
+        newer = acquire('openrouter/meta/muse-spark-1.3-contributor', 'b' * 32)   # $0.29 hold fits
+        self.assertEqual((newer['kind'], newer['route']), ('lease', 'openrouter/meta/muse-spark-1.3-contributor'))
+
+    def test_a_refused_request_still_records_the_balance_it_saw(self):
+        lease = admit(self.store)
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.credit = Decimal('.1')
+        self.assertFalse(self.reserve(lease)[1]['granted'])
+        self.assertEqual(self.status()['available_credit_usd'], '0.100000000')   # the guard's low-credit alert reads this
+
     def test_a_request_is_charged_what_the_provider_reports(self):
         """A real MiniMax request of 7 November: 306,502 prompt tokens, mostly cached."""
         profile = {'prices': ['0.15', '0.015', '0.6'], 'context': 1048576, 'output': 524288}
@@ -345,6 +380,50 @@ class PaidTests(unittest.TestCase):
         self.assertEqual(sorted(r[3] for r in self.rows()), ['settled', 'unknown'])
         self.assertEqual(self.status()['total_usd'], '0.240000000')
 
+    def test_zero_usage_generations_settle_at_the_dated_model_report(self):
+        """11 November: mimo reviews answered with no usage. OpenRouter reports a generation's model
+        by its dated permaslug, the exact slug check refused every one, and each stayed at its hold."""
+        self.credit = Decimal('100')
+        self.unknown_with_generation('gen-zero')
+        self.unknown_with_generation('gen-charged')
+        replies = {'gen-zero': (Decimal('0'), 'minimax/minimax-m3.1-flash-20261106'),
+                   'gen-charged': (Decimal('0.0123'), 'minimax/minimax-m3.1-flash-20261106')}
+        result = self.store.reconcile(cost_reader=replies.get)
+        self.assertEqual(result['generations'], 2)
+        self.assertEqual(sorted((r[4], r[1], r[3]) for r in self.rows()),
+                         [('gen-charged', 12300000, 'settled'), ('gen-zero', 0, 'settled')])
+        self.assertEqual(self.status()['total_usd'], '0.012300000')
+
+    def test_a_lookalike_model_never_settles_a_row(self):
+        self.credit = Decimal('100')
+        for model in ('minimax/minimax-m3.1-flash-extended', 'minimax/minimax-m3.1-flash-2026110',
+                      'minimax/minimax-m3.1-flash:free', 'xminimax/minimax-m3.1-flash', 'z-ai/glm-5.3-flash-20261106'):
+            self.assertFalse(router.served_by(model, MINIMAX), model)
+        self.unknown_with_generation('gen-lookalike')
+        self.store.reconcile(cost_reader=lambda g: (Decimal('0'), 'minimax/minimax-m3.1-flash-extended'))
+        self.assertEqual([r[3] for r in self.rows()], ['unknown'])
+
+    def test_a_bounded_row_still_settles_at_its_generation_cost(self):
+        """The ~$149 already bounded on 11 November: its generation report still decides the charge."""
+        self.credit = Decimal('100')
+        self.unknown_with_generation('gen-bounded')
+        self.now[0] += 901
+        self.store.reconcile(usage_reader=lambda: Decimal('0.2'))
+        self.assertEqual([r[3] for r in self.rows()], ['reconciled'])
+        self.store.reconcile(cost_reader=lambda g: (Decimal('0'), 'minimax/minimax-m3.1-flash-20261106'))
+        self.assertEqual(self.rows()[0][1:4], (0, 230000000, 'settled'))
+        self.assertEqual(self.status()['total_usd'], '0.000000000')
+
+    def test_unreadable_generations_do_not_starve_later_rows(self):
+        """Oldest-first, rows whose report never fits held all 25 places of every pass."""
+        self.credit = Decimal('100')
+        for i in range(30): self.unknown_with_generation('gen-dead-%d' % i)
+        self.unknown_with_generation('gen-live')
+        reader = lambda g: (Decimal('0'), 'minimax/minimax-m3.1-flash') if g == 'gen-live' else None
+        for _ in range(20):
+            if self.store.reconcile(cost_reader=reader)['generations']: break
+        self.assertEqual([r[3] for r in self.rows() if r[4] == 'gen-live'], ['settled'])
+
     def test_invalid_generation_ids_are_refused(self):
         data, _ = self.reserve(admit(self.store))
         for bad in ('', 'gen-', 'not-a-generation', 'gen-' + 'a' * 121, 'gen-a/b', 7, True, ['gen-a']):
@@ -403,13 +482,13 @@ class PaidTests(unittest.TestCase):
         self.store = router.Store(self.path, clock=lambda: self.now[0], capacities={'openrouter-key': 100},
                                   credit_reader=lambda: self.credit, paid_ceiling_usd='0.92')
         self.unknown_holds(4)                            # $0.92: the whole ceiling
-        self.assertFalse(self.reserve(admit(self.store))[1]['granted'])
+        self.assertEqual(admit(self.store, identity='e' * 32)['reason'], 'credit')   # refused before it starts
         self.now[0] += 901
         self.store.reconcile(usage_reader=lambda: Decimal('0.02'))
         self.assertEqual(self.status()['total_usd'], '0.020000000')
         self.assertEqual(self.status()['ceiling_usd'], '0.920000000')   # the ceiling itself is unchanged
         for _ in range(3): self.assertTrue(self.reserve(admit(self.store))[1]['granted'])
-        self.assertFalse(self.reserve(admit(self.store))[1]['granted'])
+        self.assertEqual(admit(self.store)['reason'], 'credit')
 
     def test_rows_from_before_the_generation_column_still_load(self):
         with closing(sqlite3.connect(self.path)) as db, db:
@@ -521,6 +600,22 @@ class PaidWireTests(unittest.TestCase):
             store.reconcile(cost_reader=lambda g: (Decimal('0.0004'), 'minimax/minimax-m3.1-flash'))
             self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.000400000')
 
+    def test_an_error_frame_still_records_its_generation(self):
+        import test_model_call_maxima as core
+        event = dict(id='gen-1762780000-Errored', model='minimax/minimax-m3.1-flash',
+                     error=dict(code=502, message='synthetic'), choices=[dict(index=0, finish_reason='error')])
+        payload = b'data: ' + json.dumps(event).encode() + b'\n\n'
+        self.responses = [payload]
+        actual = core.lease(MINIMAX)
+        with authority(actual) as store, patch.object(gate.sys, 'platform', 'linux'):
+            with gate.enforce(actual, self.env(), {}, 3) as active:
+                self.assertEqual(self.post(active), (200, payload))
+            with closing(sqlite3.connect(store.path)) as db:
+                self.assertEqual(db.execute('SELECT state,generation FROM paid_requests').fetchall(),
+                                 [('unknown', 'gen-1762780000-Errored')])
+            store.reconcile(cost_reader=lambda g: (Decimal('0'), 'minimax/minimax-m3.1-flash-20261106'))
+            self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.000000000')
+
     def test_refusal_latch_and_lost_reserve_ack_never_connect(self):
         import test_model_call_maxima as core
         from budget import BudgetError
@@ -606,11 +701,12 @@ class PaidWireTests(unittest.TestCase):
                     c = context(index)
                     self.assertEqual(runtime.call(c,[MINIMAX],'synthetic',c.work,name,user=user),0)
                     self.assertEqual(store.rpc('status',{})['paid']['total_usd'],f'{Decimal(".23")*index:.9f}')
-                # A third funded Engine attempt cannot replenish the shared provider wallet.
+                # A third funded Engine attempt cannot replenish the shared provider wallet, and
+                # with the ceiling spent it is refused at its lease, before any process starts.
                 c = context(3)
                 with self.assertRaises(router.ProviderWait):
                     runtime.call(c,[MINIMAX],'synthetic',c.work,'builder-1')
-            self.assertEqual(calls,[('builder-1',False),('diagnosis-synthetic',True),('builder-1',False)])
+            self.assertEqual(calls,[('builder-1',False),('diagnosis-synthetic',True)])
             self.assertEqual(len(self.seen),2)
             self.assertEqual(store.rpc('status',{})['paid']['total_usd'],'0.460000000')
             with closing(sqlite3.connect(store.path)) as db:

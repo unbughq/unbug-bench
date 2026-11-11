@@ -267,6 +267,7 @@ class AttemptBudget(unittest.TestCase):
         worker._save_baseline(si, self.ledger, ledger_totals(self.ledger))
         lease = self.lease()
         self.reserve(lease)
+        budget.mark_launched(self.ledger, lease.lease_id)   # the call's process may be spending
         for reason in ('infra:deadline', 'infra:step_crashed', 'infra:worker_error'):
             result = worker._failure_result(si.idempotency_key, reason)
             self.assertEqual(result.usage.paid_usd_micros, 50_000_000)
@@ -277,6 +278,108 @@ class AttemptBudget(unittest.TestCase):
         self.assertEqual(worker.usage_so_far(si.idempotency_key).paid_usd_micros, 50_000_000)
         self.attempt = SimpleNamespace(key='attempt-2', baseline_spent_usd=50, ceiling_usd=50)
         self.reserve(self.lease())
+
+    def test_a_call_that_never_launched_settles_at_zero(self):
+        """case-import-f46dac-3, November: an admit attempt booked its $45.70 hold with 0 calls."""
+        from durable.worker_step import Worker, ledger_totals
+        self.ledger.write_text(json.dumps({'calls': 0, 'events': [], 'cost': 0}))
+        worker = Worker(self.root)
+        si = SimpleNamespace(idempotency_key=self.attempt.key, money_ceiling_usd_micros=50_000_000)
+        worker.paths(si.idempotency_key)['attempt'].mkdir(parents=True)
+        worker._save_baseline(si, self.ledger, ledger_totals(self.ledger))
+        lease = self.lease()
+        self.reserve(lease)                               # reserved, then the worker died before launch
+        self.assertEqual(worker._failure_result(si.idempotency_key, 'infra:deadline').usage.paid_usd_micros, 0)
+        # Admission still counts the hold while it is pending: it could launch at any moment.
+        second = self.lease()
+        with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient'):
+            self.reserve(second)
+        budget.reconcile_reservations(self.root, self.ledger)
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(ledger['invocation_reservations'][lease.lease_id]['state'], 'settled')
+        self.assertEqual(ledger_totals(self.ledger)['total'], 0)
+        self.assertIsNotNone(budget.usage_coverage(ledger))
+        self.reserve(second)                              # the whole grant is free again
+
+    def test_parallel_cheap_calls_are_both_funded_within_the_grant(self):
+        """6-11 November: an OpenRouter call reserved the whole grant, and the call beside it in the
+        same attempt failed grant_insufficient. Each now reserves at most CHEAP_CALL_WINDOW_USD."""
+        paid = 'openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model'] = paid
+        self.c.router_accounts = NO_GO
+        self.store.capacities['openrouter-key'] = 4
+        window = Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD))
+        both, release, windows = threading.Barrier(2, timeout=5), threading.Event(), []
+        def transport(c, *args, **kwargs):
+            c.model_process_state['started'] = True
+            windows.append(Decimal(str(c.model_lease.max_usd)))
+            both.wait()                                   # both calls hold their reservations at once
+            ledger = json.loads(self.ledger.read_text())
+            self.assertLessEqual(budget.outstanding_reservations(ledger), self.attempt.ceiling_usd)
+            state = model_call_gate.Allowance(c.model_lease)
+            request = state.reserve(1); self.assertIsNotNone(request)
+            state.finish(request, dict(prompt_tokens=10, completion_tokens=1, total_tokens=11))
+            state.close(); c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
+                ThreadPoolExecutor(2) as pool:
+            calls = [pool.submit(self.runtime.call, self.c, [paid], 'x', self.root, name)
+                     for name in ('stress-1', 'reviewer-1')]
+            self.assertEqual([f.result(timeout=10) for f in calls], [0, 0])
+        self.assertEqual(windows, [window, window])
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(sorted(r['state'] for r in ledger['invocation_reservations'].values()), ['settled', 'settled'])
+        self.assertEqual(budget.outstanding_reservations(ledger), 0)
+
+    def test_writer_and_stress_keep_the_funded_window_and_a_reviewer_is_capped(self):
+        """An in-flight role finishes (FACTORY.md section 4): long writer and stress sessions keep the
+        whole funded window; a review is capped at CHEAP_CALL_WINDOW_USD."""
+        paid = 'openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model'] = paid
+        self.c.router_accounts = NO_GO
+        self.attempt.ceiling_usd = Decimal('40')
+        windows = {}
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started'] = True
+            windows[name] = Decimal(str(c.model_lease.max_usd))
+            state = model_call_gate.Allowance(c.model_lease)
+            state.close(); c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport):
+            for name in ('builder-1', 'attacker-1', 'reviewer-1', 'strong-calibrator-1'):
+                self.assertEqual(self.runtime.call(self.c, [paid], 'x', self.root, name), 0)
+        self.assertEqual(windows, {'builder-1': Decimal('40'), 'attacker-1': Decimal('40'),
+                                   'reviewer-1': Decimal('12.5'), 'strong-calibrator-1': Decimal('12.5')})
+
+    def test_cheap_windows_never_exceed_the_case_grant(self):
+        paid = 'openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model'] = paid
+        self.c.router_accounts = NO_GO
+        self.store.capacities['openrouter-key'] = 10
+        self.attempt.ceiling_usd = Decimal('30')
+        entered, release, windows = threading.Semaphore(0), threading.Event(), []
+        def transport(c, *args, **kwargs):
+            c.model_process_state['started'] = True
+            windows.append(Decimal(str(c.model_lease.max_usd)))
+            entered.release()
+            self.assertTrue(release.wait(5))
+            state = model_call_gate.Allowance(c.model_lease)
+            state.close(); c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
+                ThreadPoolExecutor(3) as pool:
+            calls = []
+            for name in ('reviewer-1', 'reviewer2-1', 'stress-1'):   # each holds its window, in turn
+                calls.append(pool.submit(self.runtime.call, self.c, [paid], 'x', self.root, name))
+                self.assertTrue(entered.acquire(timeout=5))
+            # Two windows fit; the third gets what is left; a fourth gets nothing.
+            self.assertEqual(windows, [Decimal('12.5'), Decimal('12.5'), Decimal('5')])
+            with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient'):
+                self.runtime.call(self.c, [paid], 'x', self.root, 'reviewer-2')
+            ledger = json.loads(self.ledger.read_text())
+            self.assertEqual(budget.outstanding_reservations(ledger), self.attempt.ceiling_usd)
+            release.set()
+            self.assertEqual([f.result(timeout=10) for f in calls], [0, 0, 0])
 
     def test_atomic_reservation_and_idempotent_honest_settlement(self):
         leases = [self.lease(), self.lease()]

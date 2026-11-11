@@ -33,6 +33,14 @@ PAUSE_REASONS = frozenset({"infra:paused"})
 # told apart; the batch deadline only stops new cases and extensions, so after it such a stop
 # retries outside the infra allowance and must not be diagnosed as a case defect.
 DEADLINE_REASON = "infra:deadline"
+# A writer attempt that stopped between writer calls because the next call and its checks would
+# likely outlive the attempt (run.engine_writer_round). Its snapshot holds the findings for the next
+# call: the round continues in a new attempt with fresh time. Not a fault, so no infra allowance.
+# The engine (run_seq, under the writer_handback_retry patch) retries it, not decide: a workflow that
+# recorded ADVANCE for one must replay ADVANCE. Past MAX_WRITER_HANDBACKS per seq (the writer's call
+# cap, run.py --rounds) a handback counts as an infra error.
+WRITER_HANDBACK = "writer:handback"
+MAX_WRITER_HANDBACKS = 8
 # A failed worker create or Boat outage waits like a pause, for at most this long in total per seq; after
 # that it counts against max_infra_retries_per_step like any infra error. Six hours rides out a provider
 # quota or a Boat incident; a bad image or a lasting outage still ends instead of holding the batch.

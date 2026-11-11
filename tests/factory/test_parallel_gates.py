@@ -342,6 +342,157 @@ class SideLane(unittest.TestCase):
         self.assertEqual(order, GATES)
 
 
+def early(test, gates, *, parallel=True, cheats=None, slots=4, engine=True, overlap=None, **args):
+    """run.early_checks with synthetic G15/G3/G4/G5 and saved-cheat sample. gates: name -> fn(c) -> (ok, info).
+    Returns (problems, c, calls) where calls lists (gate, factory_slot, bench_workers) per execution."""
+    tmp = tempfile.TemporaryDirectory(); test.addCleanup(tmp.cleanup)
+    work = pathlib.Path(tmp.name)
+    c = types.SimpleNamespace(args=types.SimpleNamespace(**{"dry_run": False, "bench_workers": 2, **args}),
+                              card={"gates": {}}, prepared_factory_slots=1, work=work, case=work / "case")
+    c.case.mkdir(); (c.case / "answer-key.json").write_text("{}")
+    test.c = c  # for tests whose early_checks raises
+    if engine:
+        c.engine = types.SimpleNamespace(key="case-x/1/writer/1")
+        c.published = []
+        c.engine_checkpoint = lambda: c.published.append(getattr(c.engine, "concurrent_sections", 0)) or True
+    calls, lock = [], threading.Lock()
+    def wrap(name, fn):
+        def gate(ctx):
+            with lock: calls.append((name, getattr(ctx, "factory_slot", 0), ctx.args.bench_workers))
+            if name == "G3": ctx.prepared_factory_slots = slots
+            return fn(ctx)
+        return gate
+    with ExitStack() as stack:
+        for name in ("log", "public_progress"):
+            stack.enter_context(mock.patch.object(run, name))
+        stack.enter_context(mock.patch.object(run, "case_hash", return_value="h"))
+        stack.enter_context(mock.patch.object(run, "parallel_gates", return_value=parallel))
+        stack.enter_context(mock.patch.object(run, "g10_overlap_reason", return_value=overlap))
+        for name in ("G15", "G3", "G4", "G5"):
+            stack.enter_context(mock.patch.object(run, name.lower(), wrap(name, gates.get(name, lambda c: (True, {})))))
+        stack.enter_context(mock.patch.object(run, "early_cheat_check", wrap("cheats", cheats or (lambda c: None))))
+        problems = run.early_checks(c)
+    return problems, c, calls
+
+
+class EarlyLane(unittest.TestCase):
+    """G15 beside G4, G5 and the saved-cheat sample during a writer step (early_checks)."""
+
+    def test_g15_runs_beside_the_lane_on_separate_bench_instances(self):
+        lane_running, g15_running = threading.Event(), threading.Event()
+        def g15(c):
+            g15_running.set()
+            self.assertTrue(lane_running.wait(5), "G5 did not run beside G15")
+            return True, {"honest_reference": {}}
+        def g5(c):
+            lane_running.set()
+            self.assertTrue(g15_running.wait(5), "G15 did not run beside G5")
+            return True, {"keys": "3/3"}
+        problems, c, calls = early(self, {"G15": g15, "G5": g5})
+        self.assertIsNone(problems)
+        self.assertEqual(calls[0], ("G3", 0, 2), "G3 rebuilds every instance before the lanes start")
+        self.assertIn(("G15", 0, 2), calls, "G15 keeps the foreground pool and its reuse identity")
+        self.assertEqual([x for x in calls if x[0] != "G15"][1:],
+                         [("G4", 2, 1), ("G5", 2, 1), ("cheats", 2, 1)], "the lane owns instance 2, in serial order")
+        self.assertEqual(set(c.early), {"G15", "G3", "G4", "G5"})
+        self.assertEqual(c.early_hash, "h")
+
+    def test_verdicts_and_feedback_match_serial(self):
+        fixtures = {
+            "pass": ({}, None),
+            "g4": ({"G4": lambda c: (False, {"broke": "0/10"})}, None),
+            "g15": ({"G15": lambda c: (False, {"worse": {"ask-everything": False}})}, None),
+            "cheat": ({}, lambda c: ["Retained cheat passed after repair: x"]),
+        }
+        for name, (gates, cheats) in fixtures.items():
+            with self.subTest(fixture=name):
+                serial = early(self, gates, cheats=cheats, parallel=False)
+                parallel = early(self, gates, cheats=cheats)
+                self.assertEqual(parallel[0], serial[0])
+                self.assertEqual(parallel[1].early, serial[1].early)
+                # Serial stops at the first failure; the lanes may also finish gates it never reached.
+                verdicts = lambda c: {g: v["ok"] for g, v in c.card.get("early_gates", {}).items()}
+                self.assertLessEqual(verdicts(serial[1]).items(), verdicts(parallel[1]).items())
+
+    def test_each_lane_cites_only_its_own_evidence(self):
+        scopes = {}
+        def g15(c):
+            scopes["G15"] = c.evidence_scope; return True, {}
+        def g5(c):
+            scopes["G5"] = c.evidence_scope; return True, {}
+        _, c, _ = early(self, {"G15": g15, "G5": g5})
+        mine, theirs = scopes["G15"], scopes["G5"]
+        self.assertTrue(mine("bench", "runs/x/checkpoint.json")); self.assertTrue(mine("bench", "factory-slots/1/runs/x"))
+        self.assertFalse(mine("bench", "factory-slots/2/runs/x")); self.assertFalse(mine("work", "gate-details/G5.json"))
+        self.assertTrue(theirs("bench", "factory-slots/2/runs/x")); self.assertFalse(theirs("bench", "runs/x"))
+        self.assertFalse(theirs("work", "gate-details/G15.json")); self.assertTrue(theirs("work", "gate-details/G5.json"))
+        self.assertFalse(hasattr(c, "evidence_scope"), "the foreground scope ends with the lanes")
+
+    def test_a_failing_g15_and_a_failing_g5_are_both_reported_in_serial_order(self):
+        problems, c, _ = early(self, {"G15": lambda c: (time.sleep(0.2), (False, {"lazy": "keeps up"}))[1],
+                                      "G5": lambda c: (False, {"keys": "1/3"})})
+        self.assertEqual(len(problems), 2)
+        self.assertIn("early check G15 failed", problems[0]); self.assertIn("keeps up", problems[0])
+        self.assertIn("early check G5 failed", problems[1]); self.assertIn("1/3", problems[1])
+        self.assertEqual(c.early, {})
+        self.assertFalse(c.card["early_gates"]["G15"]["ok"]); self.assertFalse(c.card["early_gates"]["G5"]["ok"])
+
+    def test_serial_when_parallel_work_is_not_permitted(self):
+        for name, options, reason in (("flag", dict(parallel=False), None), ("one worker", dict(bench_workers=1), None),
+                                      ("dry run", dict(dry_run=True), "dry run"), ("memory", {}, "memory allowance")):
+            with self.subTest(name):
+                problems, c, calls = early(self, {}, overlap=reason, **options)
+            self.assertIsNone(problems)
+            workers = 1 if name == "one worker" else 2
+            self.assertEqual(calls, [(g, 0, workers) for g in ("G15", "G3", "G4", "G5", "cheats")])
+        c = types.SimpleNamespace(args=types.SimpleNamespace(parallel_gates=True, bench_workers=2))
+        self.assertIsNone(run.early_lane(c), "outside the engine the flag is off")
+        c.args.parallel_gates = False; c.engine = object()
+        self.assertIsNone(run.early_lane(c), "an explicit false pin")
+
+    def test_instances_not_prepared_after_g3_run_the_rest_serially(self):
+        problems, _, calls = early(self, {}, slots=2)
+        self.assertIsNone(problems)
+        self.assertEqual(calls, [(g, 0, 2) for g in ("G3", "G15", "G4", "G5", "cheats")])
+
+    def test_a_g3_failure_stops_before_g15(self):
+        problems, c, calls = early(self, {"G3": lambda c: (False, {"problems": ["setup"]})})
+        self.assertEqual([x[0] for x in calls], ["G3"])
+        self.assertIn("early check G3 failed", problems[0]); self.assertEqual(c.early, {})
+
+    def test_engine_snapshots_wait_for_the_join_and_a_retry_resumes(self):
+        problems, c, _ = early(self, {"G15": lambda c: (time.sleep(0.2), (True, {}))[1]})
+        self.assertIsNone(problems)
+        # G3's snapshot publishes at once; the four inside the section publish once, after the join.
+        self.assertEqual(c.published, [0, 0])
+        self.assertEqual(c.engine.concurrent_sections, 0)
+        self.assertFalse(c.engine.checkpoint_deferred)
+        again = early(self, {})
+        self.assertEqual(again[1].early.keys(), c.early.keys())
+
+    def test_a_g15_crash_cancels_the_lane_and_leaves_the_section(self):
+        cancelled = threading.Event()
+        def g4(c):
+            self.assertTrue(c.role_cancel.wait(5), "the lane was not cancelled")
+            cancelled.set()
+            raise run.BudgetError("cancelled")
+        def g15(c):
+            time.sleep(0.1); raise RuntimeError("strategy crashed")
+        with self.assertRaisesRegex(RuntimeError, "strategy crashed"):
+            early(self, {"G15": g15, "G4": g4})
+        self.assertTrue(cancelled.is_set())
+        self.assertEqual(self.c.published, [0], "only G3's snapshot: neither crashed gate requested one")
+        self.assertEqual(self.c.engine.concurrent_sections, 0)
+
+    def test_a_lane_crash_is_raised_after_g15_finishes(self):
+        finished = []
+        def g15(c):
+            time.sleep(0.2); finished.append("G15"); return True, {}
+        with self.assertRaisesRegex(RuntimeError, "bench died"):
+            early(self, {"G15": g15, "G5": lambda c: (_ for _ in ()).throw(RuntimeError("bench died"))})
+        self.assertEqual(finished, ["G15"])
+
+
 class WriterPhases(unittest.TestCase):
     def test_phases_are_public_stages(self):
         for phase in public_progress.PHASES:
