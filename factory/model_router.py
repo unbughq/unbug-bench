@@ -367,7 +367,9 @@ class Store:
         self.path, self.clock = str(path), clock
         self.capacities, self.accounts = capacities or {}, tuple(accounts)
         if any(a not in ACCOUNTS for a in self.accounts): raise ValueError('unapproved account')
-        if any(type(n) is not int or not 1 <= n <= 100 for n in self.capacities.values()):
+        # 0 closes a lane (e.g. "opencode-free" while the anonymous free lane hangs): its routes are
+        # skipped like disabled routes, so a call moves on along its chain instead of waiting for a seat.
+        if any(type(n) is not int or not 0 <= n <= 100 for n in self.capacities.values()):
             raise ValueError('invalid lane capacity')
         # Route prefixes the operator has switched off (e.g. "opencode-go/" while the Go plan's weekly
         # quota is spent): never leased or counted, while other routes of the same account pool, such
@@ -399,7 +401,8 @@ class Store:
                            'ON CONFLICT(id) DO UPDATE SET ceiling=excluded.ceiling', (approved_ceiling,))
 
     def _routes(self, model, accounts, funding=None):
-        return [r for r in _bounded_routes(model, accounts, funding) if not r['route'].startswith(self.disabled_routes)]
+        return [r for r in _bounded_routes(model, accounts, funding)
+                if not r['route'].startswith(self.disabled_routes) and self.capacities.get(r['pool'], 1) != 0]
 
     def rpc(self, operation, data, *, handling_started=None):
         started = time.monotonic() if handling_started is None else handling_started
