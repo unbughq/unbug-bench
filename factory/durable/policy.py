@@ -33,6 +33,10 @@ PAUSE_REASONS = frozenset({"infra:paused"})
 # told apart; the batch deadline only stops new cases and extensions, so after it such a stop
 # retries outside the infra allowance and must not be diagnosed as a case defect.
 DEADLINE_REASON = "infra:deadline"
+# A writer attempt that stopped between writer calls because the next call and its checks would
+# likely outlive the attempt (run.engine_writer_round). Its snapshot holds the findings for the next
+# call: the round continues in a new attempt with fresh time. Not a fault, so no infra allowance.
+WRITER_HANDBACK = "writer:handback"
 # A failed worker create or Boat outage waits like a pause, for at most this long in total per seq; after
 # that it counts against max_infra_retries_per_step like any infra error. Six hours rides out a provider
 # quota or a Boat incident; a bad image or a lasting outage still ends instead of holding the batch.
@@ -109,6 +113,8 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
             raise ContractError("route a diagnosis verdict through decide_diagnosis")
         if k is StepKind.STRESS and result.feedback is not None:
             return Action.REPAIR if rounds_left else give_up()
+        if k is StepKind.WRITER and result.reason == WRITER_HANDBACK:
+            return Action.RETRY
         return Action.ADVANCE
     if is_operational_wait(result):
         return Action.RETRY

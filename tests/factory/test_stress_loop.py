@@ -147,6 +147,82 @@ class StressLoopTests(unittest.TestCase):
         self.assertEqual(state['binding'], run.attack_binding(h.c))
         self.assertFalse(state['review_pending'])
 
+    def test_saved_cheat_allowance_leaves_rest_unchecked_without_infra(self):
+        from run_validity import retry
+        h = self.harness(); h.c.seed = 5
+        for name in ('alpha', 'beta', 'gamma'):
+            (h.c.case / 'guards/cheats' / name).mkdir(parents=True)
+        record = {'errors': [], 'checker': {'valid': True}, 'judge': {'checks': {'synthetic': False}, 'paths': {}}}
+        runs = []
+        def command(c, args, **kw):  # alpha completes, beta's run outlives the allowance
+            runs.append(kw['timeout'])
+            if len(runs) == 2: raise subprocess.TimeoutExpired(args, kw['timeout'])
+            return types.SimpleNamespace()
+        with patch.object(run, 'sh', command), patch.object(run, 'case_budget_boundary'), \
+             patch.object(run, 'tree_digest', return_value='d'), patch.object(run, 'case_hash', return_value='h'), \
+             patch('checkpoint_evidence.read_completed', return_value=({}, [record], None)), \
+             patch.object(run.GatePipeline, 'record_crash') as crash:
+            problems = run.early_cheat_check(h.c)
+        self.assertIsNone(problems)
+        self.assertEqual(len(runs), 2)  # beta's retry never started on a spent allowance; gamma never ran
+        crash.assert_not_called()
+        self.assertEqual(h.c.card['early_gates']['saved_cheats'],
+                         {'ok': True, 'checked': 1, 'unchecked': 2, 'runs_each': 1})
+        attempts = json.loads((h.c.work / 'infra-attempts.json').read_text())
+        self.assertTrue(all(row['invalid_attempts'] == 0 for row in attempts.values()))
+        # Full G6 passes no deadline: a timeout there is still an infrastructure failure.
+        with patch.object(run, 'checkpoint', side_effect=subprocess.TimeoutExpired('x', 1)), \
+             self.assertRaises(subprocess.TimeoutExpired):
+            run.cheat_runs(h.c, 5, 'g6')
+
+    def test_writer_hands_back_findings_instead_of_starting_a_doomed_cycle(self):
+        from durable.contract import ArtifactKind, BatchSpec, Outcome, Ref, Step, StepKind, StepResult
+        from durable.policy import Action, Counters, WRITER_HANDBACK, decide
+        h = self.harness()
+        calls, prompts = [], {}
+        def model(c, models, text, cwd, name):
+            calls.append(name); prompts[name] = text
+            (c.case / 'repair.txt').write_text(name)
+        h.early_checks.side_effect = [['early check G4 failed: synthetic'], None]
+        feedback = run._feedback('stress', ['A synthetic defect.'])
+        # Attempt 1: ten minutes left after the first cycle, below the cycle reserve.
+        h.c.engine = types.SimpleNamespace(deadline_monotonic=run.time.monotonic() + 600,
+                                           source_binding={'feedback': 'f'})
+        with patch.object(run, 'opencode', model):
+            first = run.engine_writer_round(h.c, 2, feedback)
+        self.assertEqual(first, {'outcome': Outcome.OK, 'reason': WRITER_HANDBACK})
+        self.assertEqual(calls, ['builder-2'])
+        state = json.loads((h.c.work / 'attack-state.json').read_text())
+        self.assertEqual(state['handback']['call'], 2)
+        self.assertEqual(state['handback']['problems'], ['early check G4 failed: synthetic'])
+        # The engine reruns the round with fresh time, outside the infra allowance.
+        spec = BatchSpec(batch_id='b-pilot', plumbing_version='a' * 64, bench_version='a' * 64,
+                         app_repo='medusajs/medusa', app_commit='c' * 40, inputs=Ref('a' * 64, ArtifactKind.INPUTS),
+                         target_sealed=5, money_bound_usd_micros=1, deadline_epoch=2e9, max_cases_started=4)
+        self.assertIs(decide(Step(StepKind.WRITER, 2), StepResult(Outcome.OK, WRITER_HANDBACK, snapshot=Ref("b" * 64, ArtifactKind.CASE_SNAPSHOT)),
+                             Counters(), spec),
+                      Action.RETRY)
+        # Attempt 2 continues at call 2 with the early-check findings, not the stress feedback.
+        h.c.engine.deadline_monotonic = run.time.monotonic() + 14400
+        with patch.object(run, 'opencode', model):
+            second = run.engine_writer_round(h.c, 2, feedback)
+        self.assertEqual(second, {'outcome': Outcome.OK, 'reason': 'writer:validated'})
+        self.assertEqual(calls, ['builder-2', 'builder-2-fix-1'])
+        self.assertIn('early check G4 failed: synthetic', prompts['builder-2-fix-1'])
+        self.assertNotIn('handback', json.loads((h.c.work / 'attack-state.json').read_text()))
+
+    def test_writer_keeps_cycling_when_time_remains(self):
+        from durable.contract import Outcome
+        h = self.harness()
+        h.early_checks.side_effect = [['early check G4 failed: synthetic'], None]
+        h.c.engine = types.SimpleNamespace(deadline_monotonic=run.time.monotonic() + 14400, source_binding={})
+        calls = []
+        def model(c, models, text, cwd, name):
+            calls.append(name); (c.case / 'repair.txt').write_text(name)
+        with patch.object(run, 'opencode', model):
+            self.assertEqual(run.engine_writer_round(h.c, 1, None)['reason'], 'writer:validated')
+        self.assertEqual(calls, ['builder-1', 'builder-1-fix-1'])
+
     @unittest.skipUnless(os.environ.get('UNBUG_PRIVATE_REPLAY') == '1' and PRIVATE.is_dir(), 'private e15450 replay artifacts absent')
     def test_private_e15450_replay(self):
         reports = {int(p.stem.split('-')[1]): run.attack_report(p)

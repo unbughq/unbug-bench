@@ -1111,6 +1111,10 @@ def build_fixture(c):
 
 # ---------------------------------------------------------------- bench helpers
 
+class AllowanceSpent(TimeoutError):
+    """A checkpoint's caller-given time allowance ran out."""
+
+
 def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=None):
     """bin/checkpoint on the case's base scenario (+ more); returns (summary, per-run records).
     slot=k runs it whole on bench instance k (its own ports, database and lock) instead of spreading runs."""
@@ -1131,11 +1135,16 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
     def invoke():
         case_budget_boundary(c)
         remaining = deadline - time.monotonic() if deadline is not None else None
-        if remaining is not None and remaining <= 0: raise TimeoutError('checkpoint allowance exhausted')
-        p = sh(c, args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label], capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
+        if remaining is not None and remaining <= 0: raise AllowanceSpent('checkpoint allowance exhausted')
+        try:
+            p = sh(c, args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label], capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
+        except subprocess.TimeoutExpired:
+            if deadline is None: raise
+            raise AllowanceSpent('checkpoint allowance exhausted') from None  # the caller's time, not a fault
         summary, records, _ = read_completed(p, runs, label, require_valid=True)
         return summary, records
-    return retry(c.work / "infra-attempts.json", identity, invoke, interruption=BudgetError)
+    # A spent caller allowance is neither retried nor counted as an invalid attempt.
+    return retry(c.work / "infra-attempts.json", identity, invoke, interruption=(BudgetError, AllowanceSpent))
 
 
 def verdicts(c, records):
@@ -1183,18 +1192,24 @@ def plain_and_reference(c, seed, tag):
     return verdicts(c, none), verdicts(c, ref), s
 
 
-def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=None):
+def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=None, unchecked=None):
+    """(guards that solved, guards). With a deadline (the advisory early check only), guards left when
+    it passes go to `unchecked` and do not run; full G6 and G7 pass no deadline."""
     guards = cheats(c) if guards is None else guards
     passed = 0
-    for g in guards:
+    for i, g in enumerate(guards):
         options = {}
         if deadline is not None:
             case_budget_boundary(c)
-            remaining = deadline - time.monotonic()
-            if remaining <= 0: raise TimeoutError("saved-cheat validation time allowance exhausted")
-            options['timeout'] = remaining
-        _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
-                             seed, f"{tag}-cheat", **options)
+            options['timeout'] = deadline - time.monotonic()
+        try:
+            if options.get('timeout', 1) <= 0: raise AllowanceSpent("saved-cheat validation time allowance exhausted")
+            _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
+                                 seed, f"{tag}-cheat", **options)
+        except AllowanceSpent:
+            if unchecked is None: raise
+            unchecked.extend(str(x) for x in guards[i:])
+            break
         values = verdicts(c, recs)
         solved = any(v["solved"] for v in values)
         passed += solved
@@ -1207,16 +1222,18 @@ def early_cheat_check(c):
     from case_contract import CaseProblem
     guards = sorted(p for p in (c.case / "guards/cheats").glob("*") if p.is_dir())
     if not guards: return None
-    reopened = []
+    reopened, unchecked = [], []
     try:
         passed, total = cheat_runs(c, c.seed, "early-g6", guards=guards, runs=1,
-            deadline=time.monotonic() + 1800, failures=reopened)
+            deadline=time.monotonic() + 1800, failures=reopened, unchecked=unchecked)
     except CaseProblem as error:
         return [str(error)]
     except (RuntimeError, TimeoutError, subprocess.TimeoutExpired) as error:
         _gate_pipeline().record_crash(c, "saved-cheats", error)
         raise
-    c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': passed == 0, 'checked': total, 'runs_each': 1}
+    # Advisory: cheats the allowance did not reach are recorded unchecked; full G6 still runs them all.
+    c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': passed == 0, 'checked': total - len(unchecked),
+                                                           'unchecked': len(unchecked), 'runs_each': 1}
     # Private feedback only. This sample must never populate c.early['G6'] or its cache.
     return ["Retained cheat passed after repair: " + name for name in reopened] or None
 
@@ -2730,6 +2747,25 @@ def _writer_round_start(c, receipt_path, n):
     return {"case": case_hash(c), "feedback": digest}
 
 
+# A writer call plus its checks is started only when this much of its predecessor's time, plus the
+# reserve (freshness and the step's final snapshot), is left in the attempt.
+WRITER_CYCLE_MARGIN, WRITER_CYCLE_RESERVE_S = 1.25, 900.0
+
+
+def _writer_handback(receipt_path, n, start):
+    """{"call", "problems", "case"} when an earlier attempt of writer round n (same feedback) handed
+    back its findings (WRITER_HANDBACK) and nothing ran since; else None."""
+    prior = jload(receipt_path, None)
+    if not (isinstance(prior, dict) and prior.get("engine") is True and prior.get("round") == n
+            and prior.get("repair_pending") and prior.get("round_start") == start):
+        return None
+    handback = prior.get("handback")
+    if (isinstance(handback, dict) and type(handback.get("call")) is int and handback["call"] > 1
+            and isinstance(handback.get("problems"), list) and isinstance(handback.get("case"), str)):
+        return handback
+    return None
+
+
 def _output_capped(c, name):
     """True when the newest transcript of call `name` ended its last model step at the output cap.
     A reply cut there applies none of its edits, so the case looks unchanged though the writer worked."""
@@ -2798,8 +2834,13 @@ def engine_writer_round(c, n, feedback):
     requested = bool(problems or report)
     start = _writer_round_start(c, receipt_path, n)
     capped = False
-    for call in range(1, c.args.rounds + 1):
-        before = start["case"] if call == 1 else case_hash(c)
+    first, resumed = 1, _writer_handback(receipt_path, n, start)
+    if resumed is not None:  # an earlier attempt of this round handed back before its next call
+        first, problems, report, requested = resumed["call"], resumed["problems"], None, True
+    deadline = getattr(getattr(c, "engine", None), "deadline_monotonic", None)
+    for call in range(first, c.args.rounds + 1):
+        before = start["case"] if call == 1 else resumed["case"] if call == first else case_hash(c)
+        cycle_started = time.monotonic()
         atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                    "report": f"round-{n}.json", "round_start": start, "repair_pending": True})
         name = f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}"
@@ -2832,6 +2873,16 @@ def engine_writer_round(c, n, feedback):
                                        "report": f"round-{n}.json", "round_start": start, "awaiting_stress": True})
             return {"outcome": Outcome.OK, "reason": "writer:validated"}
         report, requested = None, True
+        # The next call and its checks would likely outlive this attempt (writer steps were killed at
+        # the 4 h deadline mid-cycle, losing the cycle and an infra retry). Hand the findings to a
+        # fresh attempt of this round instead: same call count, same problems, full time.
+        if (deadline is not None and call < c.args.rounds
+                and deadline - time.monotonic() < WRITER_CYCLE_MARGIN * (time.monotonic() - cycle_started) + WRITER_CYCLE_RESERVE_S):
+            from durable.policy import WRITER_HANDBACK
+            atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
+                                       "report": f"round-{n}.json", "round_start": start, "repair_pending": True,
+                                       "handback": {"call": call + 1, "problems": problems, "case": case_hash(c)}})
+            return {"outcome": Outcome.OK, "reason": WRITER_HANDBACK}
     return {"outcome": Outcome.EXHAUSTED, "reason": "writer:rounds_exhausted"}
 
 

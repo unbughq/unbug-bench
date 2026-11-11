@@ -125,7 +125,13 @@ joining before G6. Any snapshot requested while two threads work on the case is 
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
-progress and the card's `phase_times`.
+progress and the card's `phase_times`. Before another writer call and its checks in the same
+attempt, the round compares the time left with 1.25 times the cycle just finished plus 15 minutes;
+when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
+returns `writer:handback` (OK, with its snapshot). The policy retries that seq outside the infra
+allowance, and the new attempt continues the round at that call with those findings. The early
+saved-cheat sample shares one 30-minute allowance; cheats it does not reach are recorded
+`unchecked` (it is advisory; full G6 runs them all), and a spent allowance is never an infra retry.
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
