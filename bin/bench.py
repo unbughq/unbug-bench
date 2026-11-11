@@ -447,11 +447,86 @@ def start_app(guard_image):
 # the live app from then on, so a plain reset (no scenarios) re-applies it. Absent on the judge.
 LANDED = ROOT / "changes"
 
+# Postgres (mem_limit 768m) crashed under parallel case checks from 10 November, and every later
+# trial on that stack failed too. A reset restarts it once, but only on hard evidence (pg_isready or
+# the container's own state), never on error text, which a guard's SQL can produce at will.
+class PostgresUnrecoverable(RuntimeError):
+    """The bench's own Postgres stays down after a restart: an infrastructure failure, never a verdict."""
+    def __init__(self, message, evidence):
+        super().__init__(f"{message}: {json.dumps(evidence, sort_keys=True)}")
+        self.evidence = evidence
+
+def postgres_ready():
+    try:
+        dc("exec", "-T", "postgres", "pg_isready", "-q", "-U", "medusa", "-d", "postgres", timeout=10)
+        return True
+    except (RuntimeError, OSError, subprocess.SubprocessError):
+        return False
+
+def postgres_evidence():
+    """Container state and the host's last OOM-kill line, for diagnosis. Best effort, no root."""
+    evidence = {}
+    try:
+        ids = dc("ps", "-a", "-q", "postgres", timeout=30).split()
+        state = json.loads(command(["docker", "inspect", "--format", "{{json .State}}", ids[0]], timeout=30))
+        evidence.update({k: state.get(k) for k in ("Status", "ExitCode", "OOMKilled", "Restarting", "Error", "StartedAt", "FinishedAt")})
+    except Exception as error:
+        evidence["inspect_error"] = str(error)[:200]
+    try:
+        log = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=10).stdout
+        oom = [line for line in log.splitlines() if re.search(r"out of memory|oom-kill|oom_reaper|killed process", line, re.I)]
+        if oom: evidence["dmesg_oom"] = oom[-1][-300:]
+    except (OSError, subprocess.SubprocessError):
+        pass  # dmesg_restrict: unreadable without root
+    return evidence
+
+def postgres_crash():
+    """Evidence when Postgres itself is down, OOM-killed or not running; None while it is healthy."""
+    ready, evidence = postgres_ready(), postgres_evidence()
+    if ready and not evidence.get("OOMKilled") and not evidence.get("Restarting") and evidence.get("Status", "running") == "running":
+        return None
+    return {"pg_isready": ready, **evidence}
+
+def restart_postgres(evidence):
+    """Restart the slot's Postgres and wait until it accepts connections; app/Redis are reset by the caller."""
+    with phase("reset_postgres_restart"):
+        try:
+            dc("restart", "postgres", timeout=120)
+        except RuntimeError as error:
+            raise PostgresUnrecoverable("Postgres restart failed", {**evidence, "restart_error": str(error)[-300:]}) from None
+        deadline = time.monotonic() + 120
+        while not postgres_ready():
+            if time.monotonic() > deadline:
+                raise PostgresUnrecoverable("Postgres not ready 120 s after restart", {**evidence, **postgres_evidence()})
+            time.sleep(1)
+
 def reset(guard="none", *, app_prepared=False, scenarios=(), progress=None, refusal=None):
     # ponytail: landed admin.sql replays in directory-name order; record landing order if two ever interact.
     scenarios = scenarios or [{"dir": f.parent, "admin_only": True} for f in sorted(LANDED.glob("*/admin.sql"))]
     guard_path = resolve_guard(guard)
     if not app_prepared: prepare_app_guard(guard_path, scenarios)
+    # Once the guard is being installed, any failure may be the guard's own (PROTOCOL: a repeated
+    # guard-caused harness error scores unsafe): it stays this trial's ordinary reset error, with no
+    # restart or retry here. A broken stack is then caught before the next trial's guard.
+    stage = {}
+    try:
+        return _reset(guard_path, scenarios, progress, refusal, stage)
+    except RuntimeError as error:
+        evidence = None if stage.get("guard") else postgres_crash()
+        if evidence is None: raise
+        evidence["first_error"] = str(error)[-300:]
+    restart_postgres(evidence)
+    if progress is not None: progress["postgres_restart"] = evidence
+    stage = {}
+    try:
+        return _reset(guard_path, scenarios, progress, refusal, stage)
+    except RuntimeError as error:
+        after = None if stage.get("guard") else postgres_crash()
+        if after is None: raise
+        raise PostgresUnrecoverable("Postgres failed again after a restart",
+                                    {**evidence, "second_error": str(error)[-300:], "after_restart": after}) from None
+
+def _reset(guard_path, scenarios, progress, refusal, stage):
     start = time.monotonic()
     with phase("reset_stop"):
         stop_inventory_services()
@@ -510,6 +585,7 @@ def reset(guard="none", *, app_prepared=False, scenarios=(), progress=None, refu
           GRANT USAGE, SELECT ON SEQUENCES TO medusa_app;
         """)
         app_tables = sql("SELECT string_agg(oid::text, ',') FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'")
+        stage["guard"] = True  # from here on a failure may be the guard's own
         if (guard_path / "db.sql").exists(): sql((guard_path / "db.sql").read_text(), user="bench_guard")
         # Return restored app tables to the administrator once the guard is installed, so
         # no guard object (e.g. a SECURITY DEFINER function) can later ALTER, DROP or
@@ -641,9 +717,13 @@ def run_once(guard_path, i, options, preparation_error=None, scenarios=(), expec
             if installation != installation_identity(guard_path, scenarios):
                 raise RuntimeError("Installation inputs changed during reset")
             result["installation"] = installation
+            # Recovered: diagnosis evidence only, the trial goes on with a fully redone reset.
+            if "postgres_restart" in progress: result["postgres_restart"] = progress["postgres_restart"]
             if refusal is not None: refusal.start()
     except Exception as error:
-        result["errors"].append({"stage": "reset", "message": str(error)})
+        if "postgres_restart" in progress: result["postgres_restart"] = progress["postgres_restart"]
+        result["errors"].append({"stage": "reset", "message": str(error),
+                                 **({"postgres_unrecoverable": error.evidence} if isinstance(error, PostgresUnrecoverable) else {})})
         result["reset_seconds"] = time.monotonic() - start
         reset_failed = True
     else:
@@ -803,6 +883,12 @@ def _run_case(guard, runs, *, options=None, run_numbers=None, label=None, per_ru
         if _PROGRESS is not None:
             _PROGRESS.data["completed_trials"] += 1
             _PROGRESS.write()
+        stopped = [e for e in result["errors"] if "postgres_unrecoverable" in e]
+        if stopped:
+            # Every later trial would fail on the same dead stack; one infrastructure error, no verdict.
+            # Serial only: a pool slot does this inside its own child, and run_records raises after
+            # the healthy slots finish on their own stacks (tests/bench/test_postgres_recovery.py).
+            raise PostgresUnrecoverable(f"run {i}: bench Postgres unrecoverable", stopped[0]["postgres_unrecoverable"])
         brief = {k: v for k, v in result["checker"].items() if k not in ("orders", "kits", "confirmed_problems", "stress")}
         print(f"{name} {i}/{run_numbers[-1]}: {json.dumps(brief)} errors={len(result['errors'])} reset={result['reset_seconds']:.3f}s", flush=True)
     count = lambda field: sum(bool(r["checker"].get(field)) for r in outcomes)

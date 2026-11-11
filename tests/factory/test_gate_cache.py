@@ -109,5 +109,38 @@ class EvidenceCacheTests(unittest.TestCase):
         self.assertTrue(ok); gate.assert_not_called()
         self.assertTrue(info['reused_verified_evidence']); self.assertEqual(info['fingerprint_version'], gate_state.VERSION)
 
+    def early_lane_g4(self, *, owner=True):
+        """G4 run on run.early_lane's reserved instance (slot 2, one worker), beside a G15 writing slot 0."""
+        self.c.args.bench_workers = 2
+        (self.root / 'bin').mkdir(exist_ok=True); (self.root / 'bin/factory_pool.py').write_text('pool')
+        with patch.object(run, 'parallel_gates', return_value=True), patch.object(run, 'g10_overlap_reason', return_value=None):
+            lane = run.early_lane(self.c)
+        self.assertEqual((lane.factory_slot, lane.args.bench_workers), (2, 1))
+        if not owner: del lane.reuse_as
+        lane.evidence_scope = lambda kind, rel: rel.startswith('factory-slots/2/') if kind == 'bench' else True
+        def g4(c):
+            for rel in ('factory-slots/2/runs/g4/checkpoint.json', 'runs/g15-step/checkpoint.json',
+                        'bench-progress-11.json', 'factory-slots/2/bench-progress-12.json'):
+                path = self.root / 'results' / rel; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(rel)
+            return True, {'broke': '3/10'}
+        with patch.object(run, 'BENCH', self.root), patch.object(run, 'g4', g4):
+            self.assertEqual(run.checked_gate(lane, 'G4'), (True, {'broke': '3/10'}))
+        # GATES restores a fresh context: foreground pool, no slot attribute.
+        gates = types.SimpleNamespace(**vars(self.c)); gates.args = copy.copy(self.c.args)
+        with patch.object(run, 'BENCH', self.root), patch.object(run, 'g4', return_value=(True, {})) as gate:
+            return run.checked_gate(gates, 'G4'), gate
+
+    def test_an_early_lane_g4_is_reused_at_gates(self):
+        (ok, info), gate = self.early_lane_g4()
+        gate.assert_not_called()
+        self.assertTrue(ok); self.assertTrue(info['reused_verified_evidence'])
+        record = json.loads((self.c.work / 'gate-cache/G4.json').read_text())
+        self.assertEqual([e['path'] for e in record['evidence']], ['factory-slots/2/runs/g4/checkpoint.json'],
+                         "only the lane's own run: neither G15's files nor live progress files")
+
+    def test_the_lane_owner_identity_is_what_makes_it_reusable(self):
+        _, gate = self.early_lane_g4(owner=False)
+        gate.assert_called_once()
+
 
 if __name__ == '__main__': unittest.main()

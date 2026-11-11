@@ -51,7 +51,8 @@ class AccountingTests(unittest.TestCase):
                       **synthetic_maximum('accounting-fixture-only'))
         row = budget.reserve_invocation(self.path, lease, maximum, attempt=self.attempt,
             operation_id=operation or str(uuid.uuid4()), call_name=name)
-        return lease, row
+        budget.mark_launched(self.path, lease.lease_id)   # these fixtures model calls that ran
+        return lease, dict(row, launched=True)
 
     def receipt(self, lease, values, *, final=False):
         events = [{'id': identity, 'cost': amount, 'role': 'writer', 'invocation': 'builder-continuation'}

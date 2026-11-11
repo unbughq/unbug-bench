@@ -31,6 +31,12 @@ from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX
                           codex_gate_maximum, free_maximum, go_maximum, openrouter_gate_maximum)
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
+# Every seat of a lane leased is our own queue, not a provider limit: the call waits in its worker,
+# polling in FIFO order, for up to this long before the attempt ends as `capacity` (8 November:
+# 74 attempts ended as `rate` while OpenRouter's 1-4 seats served 8 batches, each retry recreating
+# a worker and rerunning preflight). Size seats per pool (router config `capacities`) at least
+# concurrent cases x concurrent model roles per case on that pool.
+CAPACITY_WAIT_SECONDS = 1800
 from worker_secrets import SECRETS
 ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
             'opencode-go-key-2', 'codex-auth.json', 'openrouter-key')
@@ -49,7 +55,7 @@ CHAINS = (
     ('opencode-go/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
 )
 ACCOUNT_FREE_ROUTES = ('opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4.1-flash-free')
-REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route'}
+REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route', 'capacity'}
 MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
 
 
@@ -278,6 +284,14 @@ def generation_cost(generation, token=None):
     return None if cost is None else (cost, data['model'])
 
 
+def served_by(model, route):
+    """Whether a generation's reported model is this route's. OpenRouter reports the dated permaslug
+    (xiaomi/mimo-v2.6-pro-20260921), which the exact slug check refused: 11 November, every
+    zero-usage mimo review stayed at its hold (~$149 of charges the provider never made)."""
+    slug = route.partition('/')[2]
+    return isinstance(model, str) and re.fullmatch(re.escape(slug) + r'(-\d{8})?', model) is not None
+
+
 def production_database(config):
     if 'database' in config or 'UNBUG_CONTROL_HOME' in os.environ:
         raise ValueError('router database is not configurable')
@@ -353,7 +367,7 @@ class Store:
         self.path, self.clock = str(path), clock
         self.capacities, self.accounts = capacities or {}, tuple(accounts)
         if any(a not in ACCOUNTS for a in self.accounts): raise ValueError('unapproved account')
-        if any(type(n) is not int or not 0 <= n <= 100 for n in self.capacities.values()):
+        if any(type(n) is not int or not 1 <= n <= 100 for n in self.capacities.values()):
             raise ValueError('invalid lane capacity')
         # Route prefixes the operator has switched off (e.g. "opencode-go/" while the Go plan's weekly
         # quota is spent): never leased or counted, while other routes of the same account pool, such
@@ -448,7 +462,7 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd', 'capacity_protocol'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
                 if 'funding_usd' in data and _nano(data['funding_usd'], ROUND_FLOOR) <= 0: raise ValueError('empty invocation funding')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
@@ -491,7 +505,10 @@ class Store:
                                                        if self._unfunded(db, route, now) else None)
                             ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
                                      min((e for pool,e in active if pool == route['pool']), default=now + 15))
-                            alternatives.append((ready, limit['reason'] if limit else 'rate', route))
+                            # Only a client that waits for seats is told `capacity`; an older one rejects the reason
+                            # as an invalid response, which would recreate its worker on every full seat.
+                            alternatives.append((ready, limit['reason'] if limit else
+                                                 'capacity' if data.get('capacity_protocol') == 1 else 'rate', route))
                         bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
                         ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
                             now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'outage') if bounded
@@ -546,7 +563,7 @@ class Store:
                         row = db.execute('SELECT route FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
                         if not row: raise ValueError('unknown observation lease')
                         route = json.loads(row[0]); reason = data['reason']
-                        if reason not in REASONS - {'unbounded_route'}: raise ValueError('invalid provider reason')
+                        if reason not in REASONS - {'unbounded_route', 'capacity'}: raise ValueError('invalid provider reason')
                         key = route['pool'] + ('/' + route['route'] if reason == 'outage' else '')
                         old = health.get(key, {}); failures = old.get('failures', 0) + 1
                         reset = retry_at(reason, now=now, failures=failures, reset_at=data.get('reset_at'))
@@ -630,7 +647,8 @@ class Store:
 
         An unknown row books its whole hold (10 November: 51 such rows made about $29 of spend that
         never happened, and the ceiling refused calls). Two provider observations correct that:
-        1. A row whose generation id was recorded settles at that generation's own reported cost.
+        1. A row whose generation id was recorded settles at that generation's own reported cost,
+           $0 when nothing was charged, also after a bound (2.) has scaled it.
         2. The account's all-time usage bounds the rest. Everything charged before the credit
            window is in it, so unknown rows that old cost at most that usage less the
            provider-reported costs of settled rows equally old. When the booked unknown charges
@@ -638,8 +656,10 @@ class Store:
         Provider I/O runs outside the ledger transaction; nothing is ever raised or refunded on
         the worker's word alone."""
         with closing(sqlite3.connect(self.path, timeout=10)) as db:
-            pending = db.execute("SELECT id,generation FROM paid_requests WHERE state='unknown' "
-                                 "AND generation IS NOT NULL ORDER BY settled_at LIMIT ?", (limit,)).fetchall()
+            # Random, not oldest first: rows whose report never fits kept the oldest 25 places forever.
+            # A bounded ('reconciled') row is still settled at its generation's own report.
+            pending = db.execute("SELECT id,generation FROM paid_requests WHERE state IN ('unknown','reconciled') "
+                                 "AND generation IS NOT NULL ORDER BY RANDOM() LIMIT ?", (limit,)).fetchall()
         costs = {}
         for identity, generation in pending if cost_reader else ():
             try: costs[identity] = (generation, cost_reader(generation))
@@ -658,9 +678,9 @@ class Store:
             before, _ = _paid_counts(db, now)
             for identity, (generation, observed) in costs.items():
                 row = db.execute('SELECT route,hold,state,generation FROM paid_requests WHERE id=?', (identity,)).fetchone()
-                if (observed is None or not row or row[2] != 'unknown' or row[3] != generation
-                        or observed[1] != row[0].partition('/')[2]
-                        or db.execute("SELECT 1 FROM paid_requests WHERE generation=? AND id!=? AND state!='unknown'",
+                if (observed is None or not row or row[2] not in ('unknown', 'reconciled') or row[3] != generation
+                        or not served_by(observed[1], row[0])
+                        or db.execute("SELECT 1 FROM paid_requests WHERE generation=? AND id!=? AND state='settled'",
                                       (generation, identity)).fetchone()):
                     continue
                 charge = _nano(observed[0], ROUND_CEILING)
@@ -746,7 +766,8 @@ def _account_order(case):
 
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
-    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1)
+    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1,
+                capacity_protocol=1)
     funding = getattr(case, 'router_funding_usd', None)
     if funding is not None: data['funding_usd'] = funding
     result = _rpc('acquire', data)
@@ -880,14 +901,17 @@ def await_lease(role, case, deadline=None):
                         route=wait.route if wait else getattr(case, 'router_model', None),
                         account=wait.account if wait else None,
                         lease_id=wait.lease_id if wait else None, call_id=wait.call_id if wait else None)
-        if enabled and (time.monotonic() - started >= WAIT_SECONDS or time.time() >= stop_at):
+        # A call with its own short timeout (an exam owner question: 120 s) never waits past it.
+        patience = (min(CAPACITY_WAIT_SECONDS, getattr(case, 'router_capacity_seconds', CAPACITY_WAIT_SECONDS))
+                    if wait.reason == 'capacity' else WAIT_SECONDS)
+        if enabled and (time.monotonic() - started >= patience or time.time() >= stop_at):
             try: _rpc('cancel', {'id': identity})
             except RouterUnavailable:
                 case.card.setdefault('router_pending_requests', []).append(identity)
             raise ProviderWait(role, wait)
         seconds = min(15, max(.01, wait.retry_after - time.time()))
         seconds = min(seconds, max(.01, stop_at - time.time()))
-        if enabled: seconds = min(seconds, max(.01, WAIT_SECONDS - (time.monotonic() - started)))
+        if enabled: seconds = min(seconds, max(.01, patience - (time.monotonic() - started)))
         _heartbeat(case, seconds)
 
 

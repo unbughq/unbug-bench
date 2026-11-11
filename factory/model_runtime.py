@@ -35,6 +35,16 @@ CLAUDE_PREFIX = pathlib.Path(tempfile.gettempdir()) / "factory-claude-cli"
 CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "browser_use_external",
              "in_app_browser", "computer_use", "image_generation"]
 INTERRUPTED_LOCK = threading.Lock()
+# The most one OpenRouter or OpenCode call may reserve. Its quote was the whole uncommitted grant (up
+# to $50), so the first call took it all and a parallel call in the same attempt failed
+# grant_insufficient (6-11 November, ~$313 booked unspent). A quarter of the $50 case ceiling funds
+# four such calls at once (two calibrators, their owner question, a side-lane gate) and is 4x the
+# dearest real one in the retained cards ($2.89, a G2 mimo review). Claude and Codex keep their
+# profile ceilings. Writer and stress sessions are long agentic work measured across the whole
+# session (a Go call at list price), so they keep the funded window: an in-flight role finishes
+# (FACTORY.md section 4). Only the other roles (reviewers, calibrators, preflights, diagnosis) are capped.
+CHEAP_CALL_WINDOW_USD = 12.5
+UNCAPPED_ROLES = ('writer', 'stress_tester')
 
 
 def accounting_work(c):
@@ -316,6 +326,14 @@ def free_usage_settled(lease):
     return lease.route in FREE_ROUTES and lease.max_usd == 0
 
 
+def go_quota_moves_on(lease, reason):
+    """A Go plan call's unseen tail books $0 (budget.py, "book Go at cost"), so a Go quota moves the call
+    to the same model's next route (its OpenRouter twin, token_prices.GO_TWINS) inside the attempt instead
+    of ending it (13 attempts, 12.9 h lost to Go quota, 6-11 November). Any other Go fault (a refusal, a
+    crash) would likely repeat on the paid twin, so it defers and ends the attempt as before."""
+    return lease.route in GO_ROUTES and reason == 'quota'
+
+
 OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]
 
 
@@ -388,6 +406,7 @@ class ModelRuntime:
         call_group = uuid.uuid4().hex
         operation_id = getattr(c, 'model_operation_id', None) or str(uuid.uuid4())
         duration = timeout or getattr(getattr(c, 'args', None), 'agent_timeout', 2400)
+        context.router_capacity_seconds = duration
         if user is not None or role in model_router.WALLED_ROLES:
             # A walled role reaches only a gate's port, and a free or Go plan route has no gate: it takes
             # the family's gated or subscription route instead (model_call_gate.enforce refuses it too).
@@ -414,6 +433,8 @@ class ModelRuntime:
                         # Keep one qualified reviewer window outside the parent's hold.
                         funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
                         if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
+                    if family(requested) not in ('anthropic', 'openai') and role not in UNCAPPED_ROLES:
+                        funding = min(funding, Decimal(str(CHEAP_CALL_WINDOW_USD)))
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)
                 except model_router.ProviderWait as error:
@@ -468,6 +489,8 @@ class ModelRuntime:
                     if deadline is not None: limit = min(limit, deadline - time.monotonic())
                     if limit <= 0: raise BudgetError('timeout')
                     if before_attempt is not None: before_attempt()
+                    if getattr(c, 'engine', None) is not None:
+                        budget.mark_launched(c.ledger, lease.lease_id)
                     invoked, outcome = True, 'interrupted'
                     context.model_process_state = {'started': False}
                     try:
@@ -595,6 +618,7 @@ class ModelRuntime:
                                            and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1')
                                        or (getattr(c, 'engine', None) is not None and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
                                            and not free_usage_settled(lease)
+                                           and not go_quota_moves_on(lease, last_wait.reason)
                                            and not _read_json(accounting_work(c) / receipt, {}).get('final_usage_known', False)))
             context.force_budget_resume = c.force_budget_resume = True
             lease = None
