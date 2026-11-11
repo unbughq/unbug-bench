@@ -35,6 +35,16 @@ CLAUDE_PREFIX = pathlib.Path(tempfile.gettempdir()) / "factory-claude-cli"
 CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "browser_use_external",
              "in_app_browser", "computer_use", "image_generation"]
 INTERRUPTED_LOCK = threading.Lock()
+# The most one OpenRouter or OpenCode call may reserve. Its quote was the whole uncommitted grant (up
+# to $50), so the first call took it all and a parallel call in the same attempt failed
+# grant_insufficient (6-11 November, ~$313 booked unspent). A quarter of the $50 case ceiling funds
+# four such calls at once (two calibrators, their owner question, a side-lane gate) and is 4x the
+# dearest real one in the retained cards ($2.89, a G2 mimo review). Claude and Codex keep their
+# profile ceilings. Writer and stress sessions are long agentic work measured across the whole
+# session (a Go call at list price), so they keep the funded window: an in-flight role finishes
+# (FACTORY.md section 4). Only the other roles (reviewers, calibrators, preflights, diagnosis) are capped.
+CHEAP_CALL_WINDOW_USD = 12.5
+UNCAPPED_ROLES = ('writer', 'stress_tester')
 
 
 def accounting_work(c):
@@ -414,6 +424,8 @@ class ModelRuntime:
                         # Keep one qualified reviewer window outside the parent's hold.
                         funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
                         if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
+                    if family(requested) not in ('anthropic', 'openai') and role not in UNCAPPED_ROLES:
+                        funding = min(funding, Decimal(str(CHEAP_CALL_WINDOW_USD)))
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)
                 except model_router.ProviderWait as error:
@@ -468,6 +480,8 @@ class ModelRuntime:
                     if deadline is not None: limit = min(limit, deadline - time.monotonic())
                     if limit <= 0: raise BudgetError('timeout')
                     if before_attempt is not None: before_attempt()
+                    if getattr(c, 'engine', None) is not None:
+                        budget.mark_launched(c.ledger, lease.lease_id)
                     invoked, outcome = True, 'interrupted'
                     context.model_process_state = {'started': False}
                     try:
