@@ -941,12 +941,41 @@ def _gate_completed(c, gate, ok, quiescent):
         engine_checkpoint(c)
 
 
+def g10_money_headroom(c):
+    """Founder 2026-11-12: before bench gate work, check the strong calibrator's calls are funded.
+    Each reserves its route's whole maximum (budget.reserve_invocation), so a shortfall found
+    mid-G10 stopped the case after G7 and a resume reran G7 (2.3 h). Raises the money stop now, which
+    the engine already turns into a wait for the batch bound; no call is admitted that would not be."""
+    if not under_engine(c) or c.args.dry_run or not getattr(c, "models", None): return
+    from decimal import Decimal
+    from budget import invocation_headroom, event_charge
+    accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
+    def largest(model, pick):
+        maxima = [Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)]
+        return pick(maxima) if maxima else Decimal(0)
+    # The cheapest route that could run it: a shortfall is certain only when none fits.
+    need = largest(c.models["strong_calibrator"][0], min)
+    if not need: return
+    need += largest(c.models["reviewers"][0][0], max)   # calibrate keeps one owner window outside the hold
+    done = max(len(jload(c.work / name / "results.json", []) or []) for name in ("strong_calibrator", "early_probe"))
+    remaining = c.args.pilot_tries - done
+    if remaining <= 0: return
+    cost = {}
+    for event in jload(c.ledger, {}).get("events", []):
+        name = event.get("invocation") or ""
+        if name.startswith("strong-calibrator"): cost[name] = cost.get(name, 0) + event_charge(event)
+    need += (remaining - 1) * max(cost.values(), default=Decimal(0))   # observed cost of each earlier try
+    if invocation_headroom(c.ledger, c.engine) < need:
+        log(c, "G10", f"money headroom below ${need:.2f} for {remaining} strong tries: stopping before the bench gates")
+        raise BudgetError("budget_exhausted:grant_insufficient")
+
+
 def _gate_pipeline():
     return GatePipeline(
         bench=BENCH, evaluate=lambda c, gate: globals()[gate.lower()](c),
         case_hash=case_hash, log=log, publish=public_progress,
         budget_boundary=case_budget_boundary, after_gate=_gate_completed,
-        overlap_reason=g10_overlap_reason, gates=tuple(GATES),
+        overlap_reason=g10_overlap_reason, gates=tuple(GATES), money_headroom=g10_money_headroom,
         early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP,
         side_gates=SIDE_GATES, side_lane=parallel_gates, early_lane=early_lane)
 

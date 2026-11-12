@@ -39,7 +39,7 @@ from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
 from durable.policy import (DEADLINE_REASON, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
-                            progressed, request_usd_micros, starts_replacement)
+                            progressed, request_usd_micros, starts_replacement, gates_money_extension)
 from durable.report import verified_seal
 
 APP_NAME = "unbug-factory-engine"
@@ -980,6 +980,10 @@ class _Case:
                    "request": max(requested_minimum, request_usd_micros(step, counters, self.spec)),
                    "case_limit": self.spec.case_money_usd_micros, "draws": draws_case_money(step, counters),
                    "prev": prev}
+            extension = gates_money_extension(step)
+            if extension and DBOS.patch("gates_money_up_front"):
+                job["request"] += extension
+                job["case_limit"] += extension
             if admit and not admission_started:
                 job["admission_deadline"] = self.spec.deadline_epoch
             restoring = attempt <= recorded

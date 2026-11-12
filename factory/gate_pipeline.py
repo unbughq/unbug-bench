@@ -44,6 +44,8 @@ class GatePipeline:
     # A context whose bench commands run on their own reserved instance, for the early gates beside G15
     # (early_parallel); None keeps today's serial early order.
     early_lane: Callable = lambda c: None
+    # Raises BudgetError before the first bench gate when G10's strong calls could not be funded.
+    money_headroom: Callable = lambda c: None
 
     def section(self, c):
         """Defer engine snapshots while two threads work on this case."""
@@ -344,10 +346,21 @@ class GatePipeline:
                 self.budget_boundary(c)
                 if a.dry_run and gate in self.dry_skip:
                     c.card["gates"][gate] = f"skipped ({self.dry_skip[gate]})"; continue
-                # 2026-10-20: a completed G10 rejection/stop wins at the next boundary;
-                # an already-running foreground gate finishes first (its failure wins).
+                # 2026-10-20: a completed G10 rejection wins at the next boundary; an already-running
+                # foreground gate finishes first (its failure wins). Founder 2026-11-12: a G10 stop
+                # (money, quota, provider refusal) is parked instead: bench gates cost no model money,
+                # so they finish, and the stop is raised when G10 is joined.
                 if future is not None and future.done() and gate != "G10":
-                    if not future.result().ok: gate = "G10"
+                    error = future.exception()
+                    if error is None:
+                        if not future.result().ok: gate = "G10"
+                    elif not isinstance(error, BudgetError) or str(error) == "cancelled":
+                        future.result()
+                    elif g10_section is not None:
+                        self.log(c, "G10", "stopped, parked until the bench gates finish:", str(error))
+                        g10_section.__exit__(None, None, None); g10_section = None
+                if gate == "G6" and "G10" in order and not a.dry_run:
+                    self.money_headroom(c)
                 if gate == "G6" and not (a.dry_run and "G10" in self.dry_skip):
                     reason = self.overlap_reason(c)
                     if reason is None and getattr(c, "prepared_factory_slots", 1) < a.bench_workers + 2:

@@ -255,15 +255,20 @@ def outstanding_reservations(ledger, exclude_lease=None, *, launched_only=False)
     return total
 
 
-def available_invocation_funding(path, attempt):
-    """Uncommitted funding only; reserve_invocation arbitrates concurrent callers."""
+def invocation_headroom(path, attempt):
+    """What reserve_invocation may still admit: the attempt's limit less spend and pending holds."""
     with ledger_transaction(path) as ledger:
         limit = attempt_limit(ledger, attempt)
         total = case_spending(ledger)['total_spent_usd']
         if total is None: raise BudgetError('usage_unknown')
-        available = limit - usd(total) - outstanding_reservations(ledger)
-        if available <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
-        return format(available, '.9f')
+        return limit - usd(total) - outstanding_reservations(ledger)
+
+
+def available_invocation_funding(path, attempt):
+    """Uncommitted funding only; reserve_invocation arbitrates concurrent callers."""
+    available = invocation_headroom(path, attempt)
+    if available <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
+    return format(available, '.9f')
 
 
 def _usage_leaves(work, relative, seen=None, depth=0):
