@@ -34,6 +34,42 @@ def context(work, si):
         card=json.loads((work / 'scorecard.json').read_text()))
 
 
+class ReleaseScope(unittest.TestCase):
+    def test_a_plumbing_only_release_keeps_saved_gate_results(self):
+        """18681d (12 November): a plumbing release that changed no gate made the GATES retry redo
+        ~8 hours of passed gates. Saved results now survive plumbing releases; each still needs its
+        exact binding, and a new bench, feedback or ruling starts afresh."""
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        work = Path(tmp.name)
+        base = {'plumbing': 'p1', 'bench': 'b1', 'feedback': None, 'ruling': None}
+        def ctx(**change):
+            return types.SimpleNamespace(work=work, card={}, engine=types.SimpleNamespace(
+                key='b-test/case-test/3/gates:1/1', source_binding={**base, **change}))
+        ran = []
+        def gate():
+            ran.append(1); return True, {'ok': True}
+        self.assertEqual(cp.gate_call(ctx(), 'G4', gate, 'binding'), (True, {'ok': True}))
+        self.assertEqual(cp.gate_call(ctx(plumbing='p2'), 'G4', gate, 'binding'), (True, {'ok': True}))
+        self.assertEqual(len(ran), 1)                     # reused across the plumbing release
+        cp.gate_call(ctx(plumbing='p2'), 'G4', gate, 'changed-binding')
+        self.assertEqual(len(ran), 2)                     # its own binding still decides
+        for change in ({'bench': 'b2'}, {'feedback': 'f'}, {'ruling': 'r'}):
+            cp.gate_call(ctx(**change), 'G4', gate, 'binding')
+        self.assertEqual(len(ran), 5)                     # bench, feedback and ruling still scope it
+        # A saved failure replays only under the release that recorded it (the next may be its fix).
+        def failing():
+            ran.append(1); return False, {'problems': ['x']}
+        cp.gate_call(ctx(plumbing='p3'), 'G5', failing, 'binding')
+        cp.gate_call(ctx(plumbing='p3'), 'G5', failing, 'binding')
+        self.assertEqual(len(ran), 6)
+        cp.gate_call(ctx(plumbing='p4'), 'G5', failing, 'binding')
+        self.assertEqual(len(ran), 7)
+        # A change to the verdict-path code starts afresh even for passes.
+        with patch.object(cp, 'verdict_code', return_value='other'):
+            cp.gate_call(ctx(plumbing='p5'), 'G4', gate, 'binding')
+        self.assertEqual(len(ran), 8)
+
+
 @unittest.skipUnless(shutil.which('age'), 'requires local age CLI')
 class Checkpoints(unittest.TestCase):
     def setUp(self):

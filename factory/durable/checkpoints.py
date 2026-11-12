@@ -71,9 +71,37 @@ def concurrent_section(c):
 
 def directory(c):
     # Attempts of the same sequence share receipts. Later scientific steps do not.
+    # Keyed by the bench release, feedback, ruling and the verdict-path code (verdict_code), not
+    # the whole plumbing release: every entry also carries its own exact binding (gate_call:
+    # gate_state.inputs = case, bench and judge-source digests, prompts, models, seed;
+    # _model_effect: request text, roles and the workspace pre-image), so a plumbing release that
+    # leaves all of those unchanged reuses them. On 12 November a plumbing
+    # release that changed no gate made 18681d's GATES retry redo ~8 hours of passed gates.
     scope = c.engine.key.rsplit('/', 1)[0]
-    identity = json.dumps([scope, getattr(c.engine, 'source_binding', None)], sort_keys=True)
+    binding = getattr(c.engine, 'source_binding', None)
+    if isinstance(binding, dict):   # bench, feedback and ruling still scope it; plumbing via verdict_code
+        binding = {k: v for k, v in binding.items() if k != 'plumbing'}
+    identity = json.dumps([scope, binding, verdict_code()], sort_keys=True)
     return c.work / 'engine-checkpoints' / hashlib.sha256(identity.encode()).hexdigest()
+
+
+# Factory code that turns a run into a saved verdict or model effect but sits outside each entry's
+# own binding (gate_state traces only the gate's functions in run.py and its listed science files):
+# the gate pipeline and attempt classification, the reuse rules, this module, the ordinary-retry
+# answers and the model harness. A plumbing release that changes any of them starts afresh.
+VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'durable/checkpoints.py',
+                'ordinary_retry.py', 'model_runtime.py', 'model_router.py', 'model_call_gate.py')
+_VERDICT_DIGEST = None
+
+
+def verdict_code():
+    global _VERDICT_DIGEST
+    if _VERDICT_DIGEST is None:
+        root = Path(__file__).resolve().parents[1]
+        _VERDICT_DIGEST = hashlib.sha256(json.dumps(
+            {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in VERDICT_CODE},
+            sort_keys=True).encode()).hexdigest()
+    return _VERDICT_DIGEST
 
 
 def workpath(c, label, suffix=''):
@@ -216,11 +244,15 @@ def gate_call(c, gate, invoke, binding):
     if gate in ('G2', 'G3'): return invoke()
     binding = json.loads(json.dumps(binding))  # Scientific inventories contain tuples; receipts contain JSON lists.
     path = directory(c) / ('gate-' + gate + '.json')
+    source = getattr(c.engine, 'source_binding', None)
+    plumbing = source.get('plumbing') if isinstance(source, dict) else None
     if path.exists():
         saved = json.loads(path.read_text())
-        if saved['binding'] == binding:
+        # A failure replays only under the release that recorded it: the next release may be the
+        # fix for a factory bug that produced it (engine failed_releases). Passes carry over.
+        if saved['binding'] == binding and (saved['ok'] or saved.get('plumbing') == plumbing):
             return saved['ok'], saved['info']
     ok, info = invoke()
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_json(path, {'binding': binding, 'ok': ok, 'info': info})
+    atomic_json(path, {'binding': binding, 'ok': ok, 'info': info, 'plumbing': plumbing})
     return ok, info
