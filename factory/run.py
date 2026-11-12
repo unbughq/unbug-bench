@@ -1973,9 +1973,30 @@ def g4(c):
     return all(x["clean"] for x in v) and broke >= 1, {"broke": f"{broke}/{n}", "unclean": sum(not x["clean"] for x in v)}
 
 
+def g5_shards(c):
+    """Checkpoints of G5 (the reference run and every scenario key's guard) that helper machines
+    completed, dispatched together: {"reference" | "<scenario>/<key>": (summary, records)}. Empty with the
+    flag off, in rehearsal (reference only) or when no helper completes a job; G5 runs those here."""
+    if getattr(c.args, "helper_workers", 0) <= 0 or getattr(c, "helper_pool", None) is None or getattr(c.args, "rehearse_only", False):
+        return {}
+    from durable import helpers
+    base = tree_digest(c.case / "base")
+    specs = {"reference": {"guard": c.case / "guards/reference", "scenarios": [base], "runs": c.args.runs,
+                           "seed": c.seed, "label": "g5-reference"}}
+    for d in sorted(x for x in (c.case / "scenarios").glob("*") if x.is_dir()):
+        for name in ((jload(d / "key.json") or {}).get("expected_judge") or {}):
+            try: guard = find_guard(c, name, d)
+            except LookupError: continue   # a case defect g5 reports itself
+            specs[f"{d.name}/{name}"] = {"guard": guard, "scenarios": [base, tree_digest(d)], "runs": c.args.scenario_runs,
+                                         "seed": c.seed, "label": "g5-key", "workers": 1}
+    return helpers.run_checkpoints(c, specs, case=case_hash(c), bench=getattr(c, "manifest0", None),
+                                   boundary=lambda: case_budget_boundary(c))
+
+
 def g5(c):
     """Solvable, no over-blocking: reference solves every run; every scenario key matches the judge."""
-    s, recs = checkpoint(c, [c.case / "base"], c.case / "guards/reference", c.args.runs, c.seed, "g5-reference")
+    shards = g5_shards(c)   # helper machines (off unless --helper-workers): checkpoints a helper completed
+    s, recs = shards.get("reference") or checkpoint(c, [c.case / "base"], c.case / "guards/reference", c.args.runs, c.seed, "g5-reference")
     v = verdicts(c, recs)
     solved, n = sum(x["solved"] for x in v), len(v)
     c.card["reference_fix"] = f"{solved}/{n}"
@@ -1990,7 +2011,7 @@ def g5(c):
         try: guard = find_guard(c, name, d)
         except LookupError as error:  # a case defect the writer can repair, not a runner error (2026-10-19)
             unresolved[f"{d.name}/{name}"] = str(error); per_key[f"{d.name}/{name}"] = False; return False
-        summary, _ = checkpoint(c, [c.case / "base", d], guard, c.args.scenario_runs, c.seed, "g5-key", slot=slot)
+        summary, _ = shards.get(f"{d.name}/{name}") or checkpoint(c, [c.case / "base", d], guard, c.args.scenario_runs, c.seed, "g5-key", slot=slot)
         per_key[f"{d.name}/{name}"] = bool(summary.get("key_consistent"))
         return per_key[f"{d.name}/{name}"]
     if workers > 1 and total > 1 and no_fixed_port_services(c, keys):
@@ -2115,6 +2136,168 @@ def calibration_identity(c, role, exposure, *, runs=None, bench=None):
     return identity
 
 
+def _author_try(c, role, name, exposure, i, make_workspace):
+    """One calibrator try's model attempt: fresh reset, delivery, the pilot wall, the time limit. Returns
+    (workspace, capped). Shared by calibrate and by a helper running the same try (hosted_try)."""
+    import bench
+    a, base = c.args, c.case / "base"
+    if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
+    if hasattr(c, "factory_slot"):
+        sh(c, [sys.executable, "-c", "import bench,sys; bench.reset('none', scenarios=[bench.load_scenario(sys.argv[1])])", base],
+           cwd=BENCH / "bin", timeout=3600, check=True)
+    else:
+        bench.reset("none", scenarios=[bench.load_scenario(base)])  # live app for the pilot (ports 9000/9001)
+    ws = make_workspace()
+    prepare_delivery(c.case, BENCH, ws, exposure=exposure, slot=getattr(c, "factory_slot", 0))
+    user = getattr(c, "pilot_user", "pilot")
+    dest = pilot_home(user) / f"{name}-try-{i}"
+    # An interrupted copy may have left this path behind. cp -a would otherwise
+    # nest the new workspace inside it and reuse an old guard.
+    shred_tree(dest, sudo=True)
+    sh(c, ["sudo", "cp", "-a", ws, dest]); sh(c, ["sudo", "chown", "-R", f"{user}:{user}", dest])
+    text = prompt("pilot", "Work in this directory. Write your guard to ./guard/.\n")
+    if exposure == "statement":
+        text += "\nRead statement.md for the bug description, then implement your own fix against promise.md.\n"
+    if hasattr(c, "factory_slot"):
+        services = bench.inventory_services([bench.load_scenario(base)])
+        ports = [9000, 9001] + [p for s in services for p in s.get("host_ports", [])]
+        replacements = {str(p): str(p + 100 * c.factory_slot) for p in ports}
+        text = re.sub(r":(\d+)(?!\d)", lambda m: ":" + replacements.get(m[1], m[1]), text)
+    capped = None
+    try:  # a weak model can flail for hours: each try gets --calibrator-minutes; running out = whatever guard it left
+        call_name = f"{role.replace('_', '-')}-{name}-{i}"
+        call_context = copy.copy(c)
+        call_context.args = copy.copy(a)
+        if exposure == "exam":
+            call_context.exam_owner_models = c.models["reviewers"][0]
+            from exam_responder import owner_channel
+            if getattr(a, "resume", None) and not getattr(c, "budget_resumed", False):
+                from budget import resume_ledger
+                resume_ledger(c.ledger); c.budget_resumed = True
+            call_context.budget_resumed = True
+            call_context.args.concurrent_roles = True
+            call_context.role_cancel = getattr(c, "role_cancel", None) or threading.Event()
+            channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user)
+        else:
+            channel = contextlib.nullcontext("")
+        try:
+            with channel as instruction:
+                model_call(call_context, c.models[role], text + instruction, dest, call_name,
+                           user=user, timeout=a.calibrator_minutes * 60)
+        finally:
+            # Budget state belongs to the attempt even when a model or owner
+            # stops it. The cap handler below then explicitly permits continuation.
+            c.budget_resumed = getattr(call_context, "budget_resumed", False)
+            c.force_budget_resume = getattr(call_context, "force_budget_resume", False)
+    except BudgetError as error:
+        if str(error) not in ("timeout", "call_limit"):
+            label = interruption_label(error)
+            counts = c.card.setdefault("calibration_interruptions", {}).setdefault(name, {})
+            counts[label] = counts.get(label, 0) + 1
+            raise
+        capped = str(error); c.force_budget_resume = True
+    sh(c, ["sudo", "cp", "-a", dest / "guard", ws / "guard"]); sh(c, ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", ws])
+    shred_tree(dest, sudo=True)  # later tries and the other tester cannot read this attempt
+    return ws, capped
+
+
+def helper_try_authority(c, role, exposure, tries):
+    """(per-try USD, how many of `tries` the case's funding covers all at once). Concurrent tries are
+    admitted against the worst case of each, up front (founder-approved 2026-11-12): a try serial
+    execution would not have reserved yet is never dispatched, so the cap cannot be overrun by tries that
+    all start at once. The rest run here, one at a time, as today. A try's worst case is one call window
+    (the serial funding cap) plus, for the exam, the owner reviewer window held outside it."""
+    from decimal import Decimal
+    from model_runtime import CHEAP_CALL_WINDOW_USD, UNCAPPED_ROLES
+    accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
+    def widest(model):
+        return max((Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)), default=None)
+    per_try = widest(c.models[role][0])
+    if per_try is None: return Decimal(0), 0
+    if role not in UNCAPPED_ROLES: per_try = min(per_try, Decimal(str(CHEAP_CALL_WINDOW_USD)))
+    if exposure == "exam":
+        owner = widest(c.models["reviewers"][0][0])
+        if owner is None: return Decimal(0), 0
+        per_try += owner
+    if getattr(c, "engine", None) is not None:
+        from budget import available_invocation_funding
+        available = Decimal(available_invocation_funding(c.ledger, c.engine))
+    else:
+        _, summary = update_case_budget(c)
+        available = Decimal(str(summary["limit_usd"])) - Decimal(str(summary.get("total_spent_usd") or 0))
+    return per_try, max(0, min(tries, int(available // per_try)))
+
+
+def hosted_tries(c, series, role, name, exposure, runs):
+    """{try: helpers.unpack_try result} for the tries of this series a helper completed, all dispatched
+    at once. Each try is the whole serial unit (fresh reset and workspace, the pilot wall, the time limit,
+    then the scoring checkpoint) on its own helper, so tries stay independent. Tries with a saved
+    interrupted attempt (series.pending) keep their local path, and so do tries beyond the up-front money
+    authority (helper_try_authority). Committing stays with the caller."""
+    from durable import helpers
+    from durable.checkpoints import verdict_code
+    a = c.args
+    numbers = [i for i in series.remaining() if series.pending(i) is None]
+    per_try, covered = helper_try_authority(c, role, exposure, len(numbers))
+    numbers = numbers[:covered]
+    if not numbers: return {}
+    c.card.setdefault("helper_try_authority", {})[name] = {"per_try_usd": float(per_try), "hosted_tries": numbers,
+                                                          "reserved_usd": float(per_try * len(numbers))}
+    identity = calibration_identity(c, role, exposure, runs=runs)
+    identity_digest = helpers.digest_of({k: v for k, v in identity.items() if k != "slot"})
+    jobs = {i: helpers.make_try_job(case=case_hash(c), role=role, name=name, exposure=exposure, number=i, seed=c.seed + i,
+                                    runs=runs, minutes=a.calibrator_minutes, model=list(c.models[role]),
+                                    identity=identity_digest, bench=getattr(c, "manifest0", None), release=verdict_code(),
+                                    workers=getattr(a, "bench_workers", 1), authority_usd=str(per_try))
+            for i in numbers}
+    def boundary():
+        if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
+        case_budget_boundary(c)
+    return helpers.try_shards(c, jobs, boundary=boundary)
+
+
+def install_hosted_try(c, series, exposure, i, result):
+    """The workspace a local try would have left: the same delivery, plus the helper's guard bytes."""
+    ws = series.workspace(i)
+    prepare_delivery(c.case, BENCH, ws, exposure=exposure, slot=getattr(c, "factory_slot", 0))
+    for relative, data in result["guard"].items():
+        target = ws / "guard" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    if result["capped"]: c.force_budget_resume = True   # as the serial cap handler: the run may continue past the cap
+    execution = result["execution"]
+    return ws, result["capped"], (execution["summary"], execution["records"]) if execution else None
+
+
+def hosted_try(c, job):
+    """Helper side of one try job (the transport passes helpers.execute's `run` a context for this
+    helper's own case copy, models and pilot user): author the try exactly as calibrate does, score it
+    with the same checkpoint, and return the sealed-file form. A stale job is refused before any model call."""
+    from durable import helpers
+    from durable.checkpoints import verdict_code
+    role, name, i, runs, exposure = job["role"], job["name"], job["try"], job["runs"], job["exposure"]
+    a = c.args
+    mine = {"case": case_hash(c), "seed": c.seed + i, "minutes": a.calibrator_minutes, "bench": getattr(c, "manifest0", None),
+            "release": verdict_code(), "model": list(c.models[role]), "workers": getattr(a, "bench_workers", 1)}
+    for key, value in mine.items():
+        if job[key] != value: raise helpers.HelperRefused(f"try job's {key} differs from this helper's")
+    identity = calibration_identity(c, role, exposure, runs=runs)
+    if job["identity"] != helpers.digest_of({k: v for k, v in identity.items() if k != "slot"}):
+        raise helpers.HelperRefused("try job's calibration identity differs from this helper's")
+    ws = c.work / name / f"try-{i}"
+    if ws.exists(): shutil.rmtree(ws)
+    try:
+        ws, capped = _author_try(c, role, name, exposure, i, lambda: ws)
+    except BudgetError as error:   # a model or money stop is a result for the case side, not a helper fault
+        return helpers.pack_stop(str(error), interruption_label(error))
+    execution = None
+    if guard_submitted(ws / "guard"):
+        summary, recs = checkpoint(c, [c.case / "base"], ws / "guard", runs, job["seed"], "g10-" + name)
+        if not verdicts(c, recs): raise RuntimeError('calibrator checkpoint produced no runs')
+        execution = {"summary": summary, "records": recs}
+    return helpers.pack_try(ws / "guard", capped, execution)
+
+
 def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, collect_passes=True):
     """Fresh blind base-guard attempts behind the selected pilot Unix information wall.
     name (default role) names the work folder, so the early probe keeps apart from G10's tries."""
@@ -2135,69 +2318,23 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
             from durable.checkpoints import checkpoint as engine_checkpoint
             engine_checkpoint(c)
     def author(i):
-        if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
-        if hasattr(c, "factory_slot"):
-            sh(c, [sys.executable, "-c", "import bench,sys; bench.reset('none', scenarios=[bench.load_scenario(sys.argv[1])])", base],
-               cwd=BENCH / "bin", timeout=3600, check=True)
-        else:
-            bench.reset("none", scenarios=[bench.load_scenario(base)])  # live app for the pilot (ports 9000/9001)
-        ws = series.workspace(i)
-        prepare_delivery(c.case, BENCH, ws, exposure=exposure, slot=getattr(c, "factory_slot", 0))
-        user = getattr(c, "pilot_user", "pilot")
-        dest = pilot_home(user) / f"{name}-try-{i}"
-        # An interrupted copy may have left this path behind. cp -a would otherwise
-        # nest the new workspace inside it and reuse an old guard.
-        shred_tree(dest, sudo=True)
-        sh(c, ["sudo", "cp", "-a", ws, dest]); sh(c, ["sudo", "chown", "-R", f"{user}:{user}", dest])
-        text = prompt("pilot", "Work in this directory. Write your guard to ./guard/.\n")
-        if exposure == "statement":
-            text += "\nRead statement.md for the bug description, then implement your own fix against promise.md.\n"
-        if hasattr(c, "factory_slot"):
-            services = bench.inventory_services([bench.load_scenario(base)])
-            ports = [9000, 9001] + [p for s in services for p in s.get("host_ports", [])]
-            replacements = {str(p): str(p + 100 * c.factory_slot) for p in ports}
-            text = re.sub(r":(\d+)(?!\d)", lambda m: ":" + replacements.get(m[1], m[1]), text)
-        capped = None
-        try:  # a weak model can flail for hours: each try gets --calibrator-minutes; running out = whatever guard it left
-            call_name = f"{role.replace('_', '-')}-{name}-{i}"
-            call_context = copy.copy(c)
-            call_context.args = copy.copy(a)
-            if exposure == "exam":
-                call_context.exam_owner_models = c.models["reviewers"][0]
-                from exam_responder import owner_channel
-                if getattr(a, "resume", None) and not getattr(c, "budget_resumed", False):
-                    from budget import resume_ledger
-                    resume_ledger(c.ledger); c.budget_resumed = True
-                call_context.budget_resumed = True
-                call_context.args.concurrent_roles = True
-                call_context.role_cancel = getattr(c, "role_cancel", None) or threading.Event()
-                channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user)
-            else:
-                channel = contextlib.nullcontext("")
-            try:
-                with channel as instruction:
-                    model_call(call_context, c.models[role], text + instruction, dest, call_name,
-                               user=user, timeout=a.calibrator_minutes * 60)
-            finally:
-                # Budget state belongs to the attempt even when a model or owner
-                # stops it. The cap handler below then explicitly permits continuation.
-                c.budget_resumed = getattr(call_context, "budget_resumed", False)
-                c.force_budget_resume = getattr(call_context, "force_budget_resume", False)
-        except BudgetError as error:
-            if str(error) not in ("timeout", "call_limit"):
-                label = interruption_label(error)
-                counts = c.card.setdefault("calibration_interruptions", {}).setdefault(name, {})
-                counts[label] = counts.get(label, 0) + 1
-                raise
-            capped = str(error); c.force_budget_resume = True
-        sh(c, ["sudo", "cp", "-a", dest / "guard", ws / "guard"]); sh(c, ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", ws])
-        shred_tree(dest, sudo=True)  # later tries and the other tester cannot read this attempt
-        return ws, capped
+        return _author_try(c, role, name, exposure, i, lambda: series.workspace(i))
 
+    hosted = {}   # helper machines (off unless --helper-workers): tries a helper completed; the rest run here
+    if getattr(a, "helper_workers", 0) > 0 and getattr(c, "helper_pool", None) is not None:
+        hosted = hosted_tries(c, series, role, name, exposure, runs)
     for i in series.remaining():
         pending = series.pending(i)
+        execution = None
         if pending is None:
-            ws, capped = author(i)
+            if i in hosted and hosted[i]["stopped"] is not None:
+                counts = c.card.setdefault("calibration_interruptions", {}).setdefault(name, {})
+                counts[hosted[i]["label"]] = counts.get(hosted[i]["label"], 0) + 1
+                raise BudgetError(hosted[i]["stopped"])
+            if i in hosted:
+                ws, capped, execution = install_hosted_try(c, series, exposure, i, hosted[i])
+            else:
+                ws, capped = author(i)
             series.save_pending(i, ws, capped)
             if under_engine(c):
                 from durable.checkpoints import checkpoint as engine_checkpoint
@@ -2208,7 +2345,7 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
             commit({"try": i, "solved": False, "guard_submitted": False,
                             "stop_reason": {"timeout": "time_limit", "call_limit": "call_limit"}.get(capped, "completed"),
                             "why": f"no guard written{' (' + capped + ')' if capped else ''}"}, ws); continue
-        summary, recs = checkpoint(c, [base], ws / "guard", runs, c.seed + i, "g10-" + name)
+        summary, recs = execution or checkpoint(c, [base], ws / "guard", runs, c.seed + i, "g10-" + name)
         v = verdicts(c, recs)
         if not v: raise RuntimeError('calibrator checkpoint produced no runs')  # infrastructure, not the pilot
         # Only a completed valid execution can advance the scientific attempt.

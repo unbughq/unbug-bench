@@ -511,7 +511,28 @@ Boat/R2, Docker, control restart, worker replacement and authenticated checkpoin
 reuse. Model access, routing and provider spending ceilings still require live
 qualification before production cutover. The practice fixture is not a scientific case.
 
-## Helper machines (G6/G7 built; the rest designed)
+## Helper machines (G6/G7, G5 and G10 job side built; transport and G15 not)
+
+Job side added on top, same flag and seal: G5's reference and key checkpoints (`run.g5_shards`,
+full G5 only, dispatched together, read by the same `read_completed`) and each G10 calibrator try
+(`run.hosted_tries`: one `kind: "try"` job per remaining try with no saved interrupted attempt, all
+at once; the helper runs `run._author_try` plus the scoring checkpoint via `run.hosted_try`, returns
+the guard bytes and the checkpoint's summary and records sealed, and the case worker installs them
+into the `AttemptSeries` workspace with the same delivery and commits in order, so identity, scoring
+and blinding are the serial path's). The helper refuses a job whose case, seed, minutes, model, bench,
+release or calibration identity differs from its own; the case worker checks a scored try like a
+checkpoint job (`read_completed`: run count, order, validity, summary against records). Money: the
+worst case of every dispatched try (one call window, plus the owner window for the exam) is sized
+against available funding up front (`run.helper_try_authority`, recorded in
+`card["helper_try_authority"]`); tries beyond it stay serial here. Helper-side model spend is booked
+by the transport, not yet built. A finished try is saved when accepted (`helper-tries/`) and reused
+when the identical job is dispatched again after a stop or crash. A model or money stop on a helper
+is returned as a result (never requeued, never paid twice) and re-raised at that try's turn with its
+interruption label; a capped try sets `force_budget_resume` as the serial handler does. A try no
+helper completes, or whose result is inconsistent, is authored here as today. Caps apply per `calibrate`
+call, so strong and easy together may lease up to twice N. `durable/helpers.py` is also in G5's and
+G10's dependencies. G15 strategies stay local: they deliberately share identical executions
+(`bin/strategy execute_shared`), which separate jobs would give up (a founder decision).
 
 Independent seeded gate work can run on short-lived helper workers instead of serially on the case
 worker. Built: G6/G7 cheat checkpoints (`run.cheat_runs`, full G6/G7 only, never the advisory early
