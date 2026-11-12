@@ -69,6 +69,7 @@ class GatePipeline:
                               "fingerprint_version": c.gate_fingerprint_versions[gate]}
             signature = gate_state.fingerprint(c, gate, self.bench)
             before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.bench).items()}
+            gate_state.forget_receipts(c, gate)
         try:
             with self.window(c, gate):
                 ok, info = self.evaluate(c, gate)

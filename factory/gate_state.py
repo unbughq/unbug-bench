@@ -14,6 +14,20 @@ from registry import atomic_json
 REUSABLE = {"G4", "G5", "G6", "G8", "G9", "G13", "G14", "G15", "G16"}
 
 
+# Receipt directories each gate's checkpoints used (fresh or reused), per work dir and label:
+# a gate's evidence must cover all of them, including ones a retry did not rerun.
+RECEIPTS = {}
+
+
+def note_receipt(c, label, directory):
+    RECEIPTS.setdefault(str(c.work), {}).setdefault(label, set()).add(directory)
+
+
+def forget_receipts(c, gate):
+    mine = RECEIPTS.get(str(c.work), {})
+    for label in [k for k in mine if k.startswith(gate.lower() + "-")]: del mine[label]
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -52,7 +66,9 @@ MODEL_STAGES = {"G2", "G8", "G9", "G10", "G11", "G16", "G17"}
 # External model/checker code remains conservatively pinned as whole modules.
 SIDE_EFFECTS = {"checked_gate", "_gate_pipeline", "_gate_completed", "seal", "wipe", "_run_artifacts",
                 "log", "public_progress", "update_case_budget", "case_budget_boundary", "bench_manifest",
-                "sh", "opencode", "_opencode", "model_call", "resume_provider_wait", "shred_tree"}
+                "sh", "opencode", "_opencode", "model_call", "resume_provider_wait", "shred_tree",
+                # Gate-checkpoint receipts only skip finished work; the verdict still comes from the saved runs.
+                "_save_checkpoint", "_saved_checkpoint", "_checkpoint_receipt_dir", "under_engine"}
 
 
 def source_inputs(*roots, path=None):
@@ -232,13 +248,15 @@ def inventory(c, bench):
     While two lanes run, `evidence_scope(kind, relative)` keeps each gate to its own files."""
     paths = {}
     scope = getattr(c, "evidence_scope", None)
-    roots = [("bench", bench / "results"), ("work", c.work / "gate-details"),
+    # A mid-gate snapshot moves bench results into c.work/bench-results; load looks in both.
+    roots = [("bench", bench / "results"), ("bench", c.work / "bench-results"), ("work", c.work / "gate-details"),
              ("work", c.work / "judge_breadth")]
     roots += [("work", p) for p in c.work.glob("review-*") if p.is_dir()]
     for kind, root in roots:
         for p in root.rglob("*") if root.exists() else []:
             if p.is_file() and not p.name.startswith(".") and not p.name.startswith("bench-progress-"):
-                relative = p.relative_to(bench / "results" if kind == "bench" else c.work).as_posix()
+                base = c.work if kind == "work" else (c.work / "bench-results" if root == c.work / "bench-results" else bench / "results")
+                relative = p.relative_to(base).as_posix()
                 if scope is None or scope(kind, relative): paths[(kind, relative)] = p
     return paths
 
@@ -249,6 +267,13 @@ def save(c, gate, info, signature, before, bench):
     evidence = [{"kind": kind, "path": rel, "sha256": digest(p)}
                 for (kind, rel), p in inventory(c, bench).items()
                 if (kind, rel) not in before or before[(kind, rel)] != digest(p)]
+    seen = {e["path"] for e in evidence if e["kind"] == "work"}
+    for label, directories in sorted(RECEIPTS.get(str(c.work), {}).items()):
+        if not label.startswith(gate.lower() + "-"): continue
+        for directory in sorted(directories):
+            for p in sorted(directory.glob("*.json")):
+                rel = p.relative_to(c.work).as_posix()
+                if rel not in seen: seen.add(rel); evidence.append({"kind": "work", "path": rel, "sha256": digest(p)})
     if not evidence and gate in {"G8", "G9"}:
         evidence = [{"kind": "work", "path": p.relative_to(c.work).as_posix(), "sha256": digest(p)}
                     for p in c.work.glob("review-[0-9]/verdict.json") if p.is_file()]

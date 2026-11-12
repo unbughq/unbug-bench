@@ -12,6 +12,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
 import run
+import gate_state
+import claims
+from durable import checkpoints as engine_checkpoints
 from checkpoint_evidence import publish
 from test_invalid_runs import batch, PRACTICE
 
@@ -78,6 +81,89 @@ class GateCheckpointReceipts(unittest.TestCase):
         with self.shell() as sh:
             self.call(label='g10-x'); self.call(label='g10-x'); self.call(label='g11-rerun'); self.call(label='g11-rerun')
         self.assertEqual(sh.call_count, 4)
+
+    def cheats(self, n):
+        guards = []
+        for i in range(n):
+            g = self.c.case / f'guards/cheats/c{i}'; g.mkdir(parents=True, exist_ok=True); (g / 'x').write_text(str(i)); guards.append(g)
+        return guards
+
+    def test_killed_g6_retried_reruns_only_unfinished_cheats_with_same_verdicts(self):
+        guards = self.cheats(5)
+        calls = []
+        patch.object(run, 'verdicts', return_value=[{'solved': True}]).start(); self.addCleanup(patch.stopall)
+        def killed(*a, **k):
+            if len(calls) == 3: raise KeyboardInterrupt  # the worker dies in the middle of the fourth cheat
+            calls.append(1); return subprocess.CompletedProcess([], 0, self.receipt, '')
+        with patch.object(run, 'sh', side_effect=killed):
+            with self.assertRaises(KeyboardInterrupt): run.cheat_runs(self.c, 42, 'g6', guards=guards, runs=self.runs)
+        with self.shell() as sh:
+            retried = run.cheat_runs(self.c, 42, 'g6', guards=guards, runs=self.runs)
+        self.assertEqual(sh.call_count, 2)
+        with self.shell():
+            # an uninterrupted pass over fresh receipts gives the same verdicts
+            import shutil; shutil.rmtree(self.work / 'gate-checkpoints')
+            self.assertEqual(run.cheat_runs(self.c, 42, 'g6', guards=guards, runs=self.runs), retried)
+
+    def test_scoring_identity_change_reruns(self):
+        with self.shell() as sh:
+            self.call()
+            with patch.object(claims, 'scoring_identity', return_value={'scoring_source_sha256': 'other'}):
+                self.call()
+        self.assertEqual(sh.call_count, 2)
+
+    def test_bench_manifest_change_reruns(self):
+        with self.shell() as sh:
+            self.call(); self.c.manifest0 = 'b2'; self.call()
+        self.assertEqual(sh.call_count, 2)
+
+    def test_saved_batch_whose_summary_disagrees_with_its_records_is_not_reused(self):
+        with self.shell():
+            self.call()
+        d = next(self.work.glob('gate-checkpoints/*'))
+        summary = json.loads((d / 'checkpoint.json').read_text()); summary['runs'] += 1
+        (d / 'checkpoint.json').write_text(json.dumps(summary))
+        with self.shell() as sh:
+            self.call()
+        self.assertEqual(sh.call_count, 1)
+
+    def test_gate_evidence_covers_reused_and_moved_checkpoints(self):
+        bench = self.work / 'bench'; (bench / 'results').mkdir(parents=True)
+        before = {k: gate_state.digest(p) for k, p in gate_state.inventory(self.c, bench).items()}
+        gate_state.forget_receipts(self.c, 'G5')
+        with self.shell():
+            self.call(); self.call(label='g5-other')
+        gate_state.forget_receipts(self.c, 'G5')
+        with self.shell() as sh:  # the retry reuses both; nothing new appears under bench/results
+            self.call(); self.call(label='g5-other')
+        sh.assert_not_called()
+        moved = self.work / 'bench-results/factory-slots/1/r.json'; moved.parent.mkdir(parents=True); moved.write_text('{}')
+        with patch.object(gate_state, 'inputs', return_value={}), patch.object(gate_state, 'scientific_version', return_value='v'):
+            gate_state.save(self.c, 'G5', {}, 'sig', before, bench)
+        record = json.loads((self.work / 'gate-cache/G5.json').read_text())
+        paths = {e['path'] for e in record['evidence']}
+        self.assertEqual(len([p for p in paths if p.startswith('gate-checkpoints/')]), 2 * (1 + self.runs + 1))
+        self.assertIn('factory-slots/1/r.json', paths)
+
+    def test_receipt_helpers_do_not_change_gate_runner_digests(self):
+        for gate in ('G4', 'G5', 'G6'):
+            names = gate_state.runner_inputs(gate)
+            for n in ('_save_checkpoint', '_saved_checkpoint', '_checkpoint_receipt_dir', 'under_engine', 'shutil', 'argparse'):
+                self.assertNotIn(n, names, (gate, n))
+
+    def test_g5_key_threads_run_inside_a_concurrent_section(self):
+        c = self.c; c.engine = SimpleNamespace(); c.args.bench_workers = 2; c.args.runs = 1
+        for d in ('s1', 's2'):
+            (c.case / 'scenarios' / d).mkdir(parents=True); (c.case / 'scenarios' / d / 'key.json').write_text('{"expected_judge": {"a": 1}}')
+        seen = []
+        def fake(c_, scenarios, guard, runs, seed, label, slot=None, **k):
+            seen.append((label, engine_checkpoints._unsettled(c_))); return {'legit_completion': 1, 'key_consistent': True}, []
+        with patch.object(run, 'checkpoint', side_effect=fake), patch.object(run, 'verdicts', return_value=[{'solved': True}]), \
+             patch.object(run, 'find_guard', return_value=c.case / 'base'), patch.object(run, 'no_fixed_port_services', return_value=True):
+            ok, _ = run.g5(c)
+        self.assertTrue(ok)
+        keys = [u for label, u in seen if label == 'g5-key']
+        self.assertTrue(keys and all(keys))
 
     def test_snapshot_keeps_receipts(self):
         for n in ('gate-checkpoints', 'strategy-g15-checkpoints', 'strategy-g14-checkpoints'):

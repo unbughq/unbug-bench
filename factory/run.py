@@ -1161,15 +1161,13 @@ def _saved_checkpoint(c, identity, runs, label):
             return None
         receipt = "UNBUG_CHECKPOINT=" + json.dumps({"version": 1, "path": str(directory / "checkpoint.json"), "requested_runs": runs})
         summary, records, _ = read_completed(argparse.Namespace(returncode=0, stdout=receipt, stderr=""), runs, label, require_valid=True)
+        import gate_state; gate_state.note_receipt(c, label, directory)
         return summary, records
     except Exception:  # unreadable, incomplete or invalid saved batch: just run it again
         return None
 
 
-_CHECKPOINT_PUBLISHED = [0.0]
-
-
-def _save_checkpoint(c, identity, source):
+def _save_checkpoint(c, identity, source, label):
     """Keep a finished checkpoint's verdict files (summary and per-run records) in c.work/gate-checkpoints,
     which the snapshot retains, so a retried GATES step on a fresh worker skips it."""
     directory = _checkpoint_receipt_dir(c, identity)
@@ -1184,9 +1182,10 @@ def _save_checkpoint(c, identity, source):
         staging.rename(directory)
     except OSError:
         return  # a lost receipt only costs a rerun
+    import gate_state; gate_state.note_receipt(c, label, directory)
     # Throttled snapshot (the engine defers it while anything runs concurrently): a kill loses at most a few minutes.
-    if under_engine(c) and time.monotonic() - _CHECKPOINT_PUBLISHED[0] > 300:
-        _CHECKPOINT_PUBLISHED[0] = time.monotonic()
+    if under_engine(c) and time.monotonic() - getattr(c.engine, "receipts_published", 0.0) > 300:
+        c.engine.receipts_published = time.monotonic()
         from durable.checkpoints import checkpoint as engine_checkpoint
         engine_checkpoint(c)
 
@@ -1227,7 +1226,7 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
             if deadline is None: raise
             raise AllowanceSpent('checkpoint allowance exhausted') from None  # the caller's time, not a fault
         summary, records, path = read_completed(p, runs, label, require_valid=True)
-        if reusable and path is not None: _save_checkpoint(c, receipt_identity, path.parent)
+        if reusable and path is not None: _save_checkpoint(c, receipt_identity, path.parent, label)
         return summary, records
     # A spent caller allowance is neither retried nor counted as an invalid attempt.
     return retry(c.work / "infra-attempts.json", identity, invoke, interruption=(BudgetError, AllowanceSpent))
@@ -2031,13 +2030,15 @@ def g5(c):
         # Independent key checks, each whole on its own bench instance (same seeds and run counts as serial).
         # Legacy services with hardcoded hook endpoints retain the serial path.
         import concurrent.futures, queue
+        from durable.checkpoints import concurrent_section
         free = queue.Queue()
         for slot in range(workers): free.put(slot)
         def on_free_slot(d, name):
             slot = free.get()
             try: return key_ok(d, name, slot)
             finally: free.put(slot)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        # A snapshot inside would move other slots' half-written results; the section defers it to the join.
+        with concurrent_section(c), concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             consistent = sum(pool.map(lambda k: on_free_slot(*k), keys))
     else:
         consistent = sum(key_ok(d, name) for d, name in keys)
