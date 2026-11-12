@@ -134,10 +134,12 @@ with tempfile.TemporaryDirectory() as tmp:
         assert c.card['early_probe'].get('label') == want and (want or c.card['early_probe']['skipped'] == 'BudgetError')
     assert run.GATES == ['G1', 'G2', 'G3', 'G4', 'G5', 'G16', 'G8', 'G9', 'G6', 'G13', 'G14', 'G15', 'G7', 'G10', 'G17', 'G11']
     # Early review: findings go back to the writer; a pass is reused; a changed case is reviewed again.
-    verdicts = iter([{'fairness': {'approve': False, 'findings': ['unstated rule']}, 'realism': {'approve': True}},
-                     {'fairness': {'approve': True}, 'realism': {'approve': True}}])
+    # G8/G9 are a two-reviewer panel: each review pass asks both reviewers once.
+    first = {'fairness': {'approve': False, 'findings': ['unstated rule']}, 'realism': {'approve': True}}
+    second = {'fairness': {'approve': True}, 'realism': {'approve': True}}
+    verdicts = iter([first, first, second, second])
     def reviewer(c, chain, text, d, label): (d / 'verdict.json').write_text(json.dumps(next(verdicts)))
-    c.models = {'reviewers': [['r']]}; c.case.mkdir(exist_ok=True); (c.case / 'case.json').write_text('{}')
+    c.models = {'reviewers': [['r'], ['r2']]}; c.case.mkdir(exist_ok=True); (c.case / 'case.json').write_text('{}')
     for k in ('early', 'early_hash', 'votes'): c.__dict__.pop(k, None)
     with mock.patch.object(run, 'opencode', reviewer), mock.patch.object(run, 'prompt', lambda *a: ''), \
          mock.patch.object(run, 'run_context', lambda *a, **k: ''):
