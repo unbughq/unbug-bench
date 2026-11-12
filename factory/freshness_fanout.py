@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from urllib.parse import quote
@@ -24,7 +25,9 @@ EXA_URL = 'https://mcp.exa.ai/mcp'   # the endpoint opencode's websearch tool (O
 UA = 'unbug-bench-freshness/1'
 MAX_LEADS = 12                        # deep dives per role; further leads stay flagged for G2's reviewer
 REPAIRABLE = ('evidence_expired', 'retrieval_failed')   # a re-run search fixes these; other defects go agentic
-MODEL_LOCK = threading.Lock()        # model calls of the two roles share the case's accounting
+SNIPPET = 1000                        # body excerpt the scorer reads per result
+THIN = 40                             # a web result with less body than this cannot be cleared unread
+COPIED = ('statement.md', 'disclosure.md', 'provenance.json', 'promise.md', 'case.json')
 norm = lambda q: ' '.join(q.casefold().split())
 
 
@@ -52,8 +55,9 @@ def web_search(query, limit=8):
         url = re.search(r'(?m)^URL: (\S+)', chunk)
         if url:
             title = re.match(r'Title: (.*)', chunk)
+            body = re.sub(r'(?m)^(Title|URL|Published|Published Date|Author|Id|Image|Favicon): .*$', '', chunk)
             out.append({'url': url[1], 'title': title[1].strip() if title else '',
-                        'snippet': re.sub(r'\s+', ' ', chunk)[:400]})
+                        'snippet': re.sub(r'\s+', ' ', body).strip()[:SNIPPET]})
     return _results(out)[:limit]
 
 
@@ -61,11 +65,19 @@ def github_search(query, limit=8):
     headers = {'Accept': 'application/vnd.github+json', 'User-Agent': UA}
     token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')   # used only if the worker already has one
     if token: headers['Authorization'] = 'Bearer ' + token
-    with urlopen(Request(f'https://api.github.com/search/issues?per_page={limit}&q=' + quote(query), headers=headers),
-                 timeout=30) as response:
-        items = json.loads(response.read())['items']
-    return _results([{'url': i.get('html_url'), 'title': str(i.get('title') or ''),
-                      'snippet': re.sub(r'\s+', ' ', str(i.get('body') or ''))[:400]} for i in items])[:limit]
+    def get(kind, n):
+        with urlopen(Request(f'https://api.github.com/search/{kind}?per_page={n}&q=' + quote(query), headers=headers),
+                     timeout=30) as response:
+            return json.loads(response.read())['items']
+    out = [{'url': i.get('html_url'), 'title': str(i.get('title') or ''),
+            'snippet': re.sub(r'\s+', ' ', str(i.get('body') or ''))[:SNIPPET]} for i in get('issues', limit)]
+    try:   # fix commits are public evidence too; a failed commit search leaves the issue results
+        for i in get('commits', max(1, limit // 2)):
+            message = str((i.get('commit') or {}).get('message') or '')
+            out.append({'url': i.get('html_url'), 'title': message.split('\n')[0][:200],
+                        'snippet': re.sub(r'\s+', ' ', message)[:SNIPPET]})
+    except Exception: pass
+    return _results(out)[:limit + limit // 2]
 
 
 SEARCH = {'web': web_search, 'github': github_search}
@@ -87,14 +99,29 @@ def _read(path):
     finally: path.unlink(missing_ok=True)
 
 
-def _ask(c, who, models, opencode, name, text, deadline):
+def _ask(c, who, models, opencode, scratch, name, text, deadline):
     timeout = deadline - time.monotonic()
     if timeout <= 0: raise BudgetError('timeout')
-    with MODEL_LOCK:
-        opencode(c, models, text, c.case, f'{who}-freshness-{name}', timeout=timeout, deadline=deadline)
+    opencode(c, models, text, scratch, f'{who}-freshness-{name}', timeout=timeout, deadline=deadline)
 
 
 def _role(run, c, who, opencode, deadline, lock, version, now):
+    """One role in a private scratch directory (copies of the bug's files only): its scratch JSON never
+    touches the case (so case_hash and gate fingerprints stay put) and the other role's plan, scores and
+    rows are not in reach of its model calls."""
+    scratch = c.work / 'freshness' / who
+    shutil.rmtree(scratch, ignore_errors=True)
+    scratch.mkdir(parents=True)
+    try:
+        for name in COPIED:
+            if (c.case / name).is_file(): shutil.copy(c.case / name, scratch / name)
+        _role_in(run, c, who, opencode, deadline, lock, version, now, scratch)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
+    ctx = '```json\n' + json.dumps({'case_dir': str(scratch), 'bug_source': c.args.source}, indent=2) + '\n```\n'
     models = c.models['builder' if who == 'builder' else 'attacker']
     case, kinds = c.case, ('web', 'github')
     rows, counts = run.freshness_lines(c), run.freshness_counts(c)
@@ -119,16 +146,16 @@ def _role(run, c, who, opencode, deadline, lock, version, now):
     if who == 'attacker' and sum(amend.values()) >= short['web']: want = dict.fromkeys(kinds, 0)
     if any(want.values()):
         plan = f'{who}-freshness-plan.json'
-        (case / plan).unlink(missing_ok=True)
-        _ask(c, who, models, opencode, 'plan',
-             f"Freshness search PLAN only; do not search, browse or run anything, and change nothing except writing `{plan}` in case_dir. "
-             f"Read `statement.md` and any `disclosure.md`, `provenance.json`, `promise.md` and `case.json` in case_dir to learn the bug and "
+        (scratch / plan).unlink(missing_ok=True)
+        _ask(c, who, models, opencode, scratch, 'plan',
+             f"Freshness search PLAN only; do not search, browse or run anything, and change nothing except writing `{plan}` in the current directory. "
+             f"Read `statement.md` and any `disclosure.md`, `provenance.json`, `promise.md` and `case.json` in the current directory to learn the bug and "
              f"pinned app version{' ' + version if version else ''}. Do not read `freshness.jsonl` or any other role's files; plan from the "
              f"bug alone. Write `{plan}` as JSON {{\"web\": [\"query\", ...], \"github\": [\"query\", ...]}} with exactly {want['web']} "
              f"distinct web queries and {want['github']} distinct GitHub issue-search queries that would find a public report, fix or "
              f"workaround of this bug in this app. Vary the angle: symptom wording, API/flow names, error text, fix commits.\n\n"
-             f"## This run\n\n" + run.run_context(c), deadline)
-        planned = _read(case / plan)
+             f"## This run\n\n" + ctx, deadline)
+        planned = _read(scratch / plan)
         for kind in kinds:
             queries = planned.get(kind) if isinstance(planned, dict) else None
             for q in (queries if isinstance(queries, list) else [])[:want[kind] + 4]:
@@ -149,37 +176,44 @@ def _role(run, c, who, opencode, deadline, lock, version, now):
     verdict = {}
     if listing:
         out = f'{who}-freshness-scores.json'
-        (case / out).unlink(missing_ok=True)
-        _ask(c, who, models, opencode, 'score',
-             f"Freshness scoring only; do not search or browse, and change nothing except writing `{out}` in case_dir. Read `statement.md` "
-             f"(and `disclosure.md`, `promise.md`, `case.json` if present) in case_dir to learn the bug and pinned app version"
-             f"{' ' + version if version else ''}. Do not read `freshness.jsonl`. For every search result below judge how close it is to "
-             f"THIS bug in THIS app: \"miss\" (unrelated, other app, or only the generic pattern), \"close\" (discusses this bug, its fix or "
-             f"a workaround) or \"unsure\" (could be this bug; needs reading). Write JSON {{\"results\": [{{\"id\": \"...\", "
-             f"\"verdict\": \"miss\" | \"close\" | \"unsure\", \"reason\": \"one sentence on why, including version applicability\"}}]}} "
-             f"with one entry per id.\n\n## Results\n\n```json\n{json.dumps(listing, indent=1)}\n```\n\n## This run\n\n" + run.run_context(c),
-             deadline)
-        scored = _read(case / out)
-        for e in (scored.get('results') if isinstance(scored, dict) else None) or []:
-            if isinstance(e, dict) and isinstance(e.get('id'), str):
-                verdict[e['id']] = (e.get('verdict') if e.get('verdict') in ('miss', 'close', 'unsure') else 'unsure',
-                                    str(e.get('reason') or '').strip())
+        for step in ('score', 'score-retry'):   # a scoring that skips results is asked once more, never defaulted
+            (scratch / out).unlink(missing_ok=True)
+            _ask(c, who, models, opencode, scratch, step,
+                 f"Freshness scoring only; do not search or browse, and change nothing except writing `{out}` in the current directory. Read `statement.md` "
+                 f"(and `disclosure.md`, `promise.md`, `case.json` if present) in the current directory to learn the bug and pinned app version"
+                 f"{' ' + version if version else ''}. Do not read `freshness.jsonl`. For every search result below judge how close it is to "
+                 f"THIS bug in THIS app: \"miss\" (positively unrelated, other app, or only the generic pattern; never \"miss\" a result whose excerpt is too short or vague to tell), \"close\" (discusses this bug, its fix or "
+                 f"a workaround) or \"unsure\" (could be this bug; needs reading). Write JSON {{\"results\": [{{\"id\": \"...\", "
+                 f"\"verdict\": \"miss\" | \"close\" | \"unsure\", \"reason\": \"one sentence on why, including version applicability\"}}]}} "
+                 f"with one entry per id.\n\n## Results\n\n```json\n{json.dumps(listing, indent=1)}\n```\n\n## This run\n\n" + ctx,
+                 deadline)
+            scored = _read(scratch / out)
+            verdict = {}
+            for e in (scored.get('results') if isinstance(scored, dict) else None) or []:
+                if isinstance(e, dict) and isinstance(e.get('id'), str):
+                    verdict[e['id']] = (e.get('verdict') if e.get('verdict') in ('miss', 'close', 'unsure') else 'unsure',
+                                        str(e.get('reason') or '').strip())
+            if all(r['id'] in verdict for r in listing): break
+        else:
+            return   # still incomplete: log nothing; the role stays short and the agentic top-up fills it
+        for r in listing:   # a result with next to no text cannot be cleared unread
+            if len(r['snippet']) < THIN and verdict[r['id']][0] == 'miss': verdict[r['id']] = ('unsure', 'excerpt too short to clear')
     # 5. Deep dive (today's agentic browsing) only on close/unsure leads; an unanswered lead stays flagged.
     leads = [r for r in listing if verdict.get(r['id'], ('unsure', ''))[0] != 'miss']
     final = {r['id']: ('close' if verdict.get(r['id'], ('unsure',))[0] == 'close' else 'unsure',
                        verdict.get(r['id'], ('', ''))[1]) for r in leads}
     if leads[:MAX_LEADS]:
         out = f'{who}-freshness-dive.json'
-        (case / out).unlink(missing_ok=True)
-        _ask(c, who, models, opencode, 'dive',
-             f"Freshness deep dive; browse ONLY these leads, nothing else, and change nothing except writing `{out}` in case_dir. Read "
-             f"`statement.md` (and `case.json`) in case_dir for the bug and pinned app version{' ' + version if version else ''}. Open each "
+        (scratch / out).unlink(missing_ok=True)
+        _ask(c, who, models, opencode, scratch, 'dive',
+             f"Freshness deep dive; browse ONLY these leads, nothing else, and change nothing except writing `{out}` in the current directory. Read "
+             f"`statement.md` (and `case.json`) in the current directory for the bug and pinned app version{' ' + version if version else ''}. Open each "
              f"URL, read it and decide whether it discusses this bug, its fix or a workaround in this app at a version that still "
              f"applies. Write JSON {{\"leads\": [{{\"id\": \"...\", \"verdict\": \"hit\" | \"miss\" | \"unsure\", \"note\": \"what the page "
              f"says\", \"version_scope\": \"why it applies or not\"}}]}}. \"unsure\" if you cannot read it or cannot tell; never invent evidence."
-             f"\n\n## Leads\n\n```json\n{json.dumps(leads[:MAX_LEADS], indent=1)}\n```\n\n## This run\n\n" + run.run_context(c),
+             f"\n\n## Leads\n\n```json\n{json.dumps(leads[:MAX_LEADS], indent=1)}\n```\n\n## This run\n\n" + ctx,
              deadline)
-        dived = _read(case / out)
+        dived = _read(scratch / out)
         for e in (dived.get('leads') if isinstance(dived, dict) else None) or []:
             if isinstance(e, dict) and e.get('id') in final and e.get('verdict') in ('hit', 'miss', 'unsure'):
                 note = ' '.join(str(e.get('note') or e.get('version_scope') or '').split())
