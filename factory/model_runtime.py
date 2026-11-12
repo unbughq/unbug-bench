@@ -175,7 +175,14 @@ def rotation(slot, table_name=None):
         raise ValueError('invalid family rotation')
     for fam, roles in (table.get('refused') or {}).items():
         if any(row.get(r) == fam for r in roles): raise ValueError(f'{fam} is refused as {"/".join(roles)}: {table.get("refused_why", "")}')
-    return {role: dict(table['families'][fam]) for role, fam in row.items()}
+    # role_models: {role: {family: model}} gives one role another model of the same family.
+    roles = {role: dict(table['families'][fam]) for role, fam in row.items()}
+    for role, by_family in (table.get('role_models') or {}).items():
+        model = by_family.get(row.get(role))
+        if model is None: continue
+        if family(model) != row[role]: raise ValueError('role model changes family')
+        roles[role]['model'] = model
+    return roles
 
 
 def opencode_config(model=None, case=None, *, diagnosis=False):

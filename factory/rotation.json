@@ -62,11 +62,17 @@
     },
     {
       "writer": "deepseek",
-      "stress_tester": "openai",
-      "strong_calibrator": "anthropic",
+      "stress_tester": "anthropic",
+      "strong_calibrator": "openai",
       "reviewer": "minimax"
     }
   ],
+  "role_models": {
+    "stress_tester": {
+      "anthropic": "claude/claude-mythos-5-2"
+    }
+  },
+  "role_models_note": "2026-11-12: OpenAI's filter kills Codex mid-attack; Anthropic stress-testers run Mythos 5.2",
   "refused": {
     "openai": [
       "writer",

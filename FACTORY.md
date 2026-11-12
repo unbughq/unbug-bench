@@ -50,7 +50,9 @@ reported per source, and synthetic cases count only in secondary analysis. Optio
 
 V2.md supersedes the former ban on contestant families in the factory. Four distinct
 families fill writer, stress-tester, strong calibrator and reviewer. `factory/rotation.json`
-balances eight cases, two written by each family. Exact model IDs and efforts are recorded
+balances eight cases, two written by each family. A table's `role_models` gives one role another
+model of its family: OpenAI's filter kills a Codex attacker mid-attack (2026-11-12), so its
+Anthropic stress-testers run Claude Mythos 5.2 and Codex calibrates. Exact model IDs and efforts are recorded
 per role on the scorecard; explicit role flags override a slot and still must satisfy family
 separation. Claude and GPT run only through their subscription CLIs. No automatic fallback.
 Information walls and sealed transcripts remain unchanged. Report the primary same-model

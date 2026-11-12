@@ -12,6 +12,7 @@ sys.path[:0] = [str(_ROOT / "factory"), str(_TestPath(__file__).resolve().parent
 import json
 from types import SimpleNamespace
 import unittest
+import unittest.mock
 
 import model_router
 import model_runtime
@@ -49,6 +50,20 @@ class RotationRouteTests(unittest.TestCase):
                           "easy_calibrator": ["opencode/glm-5.3-flash-free"]}
                 with self.subTest(table=name, slot=slot, check="require_bounded_models"):
                     model_runtime.require_bounded_models(SimpleNamespace(models=models))
+
+    def test_role_models_give_the_anthropic_attacker_mythos(self):
+        """OpenAI's filter kills a Codex attacker mid-attack: slot 8 attacks with Mythos 5.2, and
+        Codex calibrates. Other roles keep their family's model."""
+        roles = model_runtime.rotation(8, "rotation.json")
+        self.assertEqual({r: d["model"] for r, d in roles.items()},
+                         {"writer": "opencode/deepseek-v4.1-flash-free", "stress_tester": "claude/claude-mythos-5-2",
+                          "strong_calibrator": "codex/gpt-6.1-sol", "reviewer": "opencode/minimax-m3.1-flash-free"})
+        self.assertEqual(model_runtime.rotation(1, "rotation.json")["writer"]["model"], "claude/claude-opus-5-5")
+        table = json.loads((model_runtime.PROMPTS.parent / "rotation.json").read_text())
+        table["role_models"] = {"stress_tester": {"anthropic": "codex/gpt-6.1-sol"}}
+        with unittest.mock.patch.object(model_runtime, "_read_json", return_value=table), \
+                self.assertRaisesRegex(ValueError, "role model changes family"):
+            model_runtime.rotation(8, "rotation.json")
 
 
 if __name__ == "__main__":

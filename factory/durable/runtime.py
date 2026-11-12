@@ -122,7 +122,7 @@ class PublishingStore(SealedStore):
 def largest_call_hold(inputs_plaintext):
     """Micro-USD of the largest single-request hold among the batch's gated model routes.
 
-    Explicit INPUTS models are used as given; without them every rotation family may be
+    Explicit INPUTS models are used as given; without them every rotation family or role model may be
     chosen. None for an opaque, dry-run or ungated batch: nothing to compare.
     """
     import math
@@ -141,6 +141,7 @@ def largest_call_hold(inputs_plaintext):
         import model_runtime
         table = json.loads((model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")).read_text())
         routes = [family["model"] for family in table["families"].values()]
+        routes += [m for by_family in (table.get("role_models") or {}).values() for m in by_family.values()]
     holds = [h for h in map(request_hold, routes) if h is not None]
     return math.ceil(max(holds) * 1_000_000) if holds else None
 

@@ -64,7 +64,7 @@ def check_deadline(request: dict, now: float) -> Optional[str]:
 
 def campaign_routes(request: dict, rotation_path) -> list:
     """The models the campaign's roles use: the request's explicit `models` (role -> chain, as
-    INPUTS spells them) when it has them, otherwise every family in the rotation table."""
+    INPUTS spells them) when it has them, otherwise every family and role model in the rotation table."""
     models = request.get("models")
     if isinstance(models, dict) and models:
         chains = [chain for role, chain in models.items() if role != "reviewers"] + list(models.get("reviewers") or [])
@@ -72,6 +72,7 @@ def campaign_routes(request: dict, rotation_path) -> list:
     else:
         table = json.loads(Path(rotation_path).read_text())
         found = [family["model"] for family in table["families"].values()]
+        found += [m for by_family in (table.get("role_models") or {}).values() for m in by_family.values()]
     if not found or not all(isinstance(m, str) for m in found):
         raise ValueError("no routes")
     return sorted(set(found))
