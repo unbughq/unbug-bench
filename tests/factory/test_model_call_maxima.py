@@ -838,7 +838,10 @@ class ProtocolTests(unittest.TestCase):
         # or live worker. Protocol bytes and attempt grants are synthetic.
         paid = model == MINIMAX
         maximum = Decimal(str(router.route_maximum(model)['max_usd'])) if paid else CLAUDE_PROFILES[model]
-        hold = Decimal('0.4718592' if paid else '2.409600' if model.startswith(GATED_CLAUDE45) else '9.520896')
+        hold = (gate.request_hold(model) if paid else Decimal('2.409600') if model.startswith(GATED_CLAUDE45) else Decimal('9.520896'))
+        # The router's central paid hold still prices the model's whole output limit; the worker
+        # gate holds only the clamped request output (OPENROUTER_OUTPUT).
+        central = Decimal('0.4718592') if paid else hold
         provider = model.partition('/')[2] if paid else claude_profile(model)['model'].partition('/')[2]
         prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
                         cache_creation_input_tokens=0,output_tokens=1),model=provider).split(b'\n\n')[0]+b'\n\n'
@@ -1013,8 +1016,8 @@ class ProtocolTests(unittest.TestCase):
                         self.assertEqual(c.ledger.read_bytes(),before)
                     self.assertEqual(store.rpc('status',{})['leases'],[])
                     if paid:
-                        self.assertEqual(Decimal(store.rpc('status',{})['paid']['total_usd']),hold)
-                        self.assertEqual(Decimal(store.rpc('status',{})['paid']['outstanding_usd']),hold)
+                        self.assertEqual(Decimal(store.rpc('status',{})['paid']['total_usd']),central)
+                        self.assertEqual(Decimal(store.rpc('status',{})['paid']['outstanding_usd']),central)
                     interrupted,=c.router_interrupted_calls
                     self.assertEqual(interrupted['lease_id'],row['lease_id'])
                     self.assertEqual(interrupted['call_id'],route['call_id'])
