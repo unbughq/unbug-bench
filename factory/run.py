@@ -1227,7 +1227,7 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
             if deadline is None: raise
             raise AllowanceSpent('checkpoint allowance exhausted') from None  # the caller's time, not a fault
         summary, records, path = read_completed(p, runs, label, require_valid=True)
-        if reusable: _save_checkpoint(c, receipt_identity, path.parent)
+        if reusable and path is not None: _save_checkpoint(c, receipt_identity, path.parent)
         return summary, records
     # A spent caller allowance is neither retried nor counted as an invalid attempt.
     return retry(c.work / "infra-attempts.json", identity, invoke, interruption=(BudgetError, AllowanceSpent))
