@@ -182,6 +182,27 @@ class RunningCases(unittest.TestCase):
             self.assertEqual(c.card["recovery_config"], config)
             self.assertEqual(c.args.bench_workers, 1)
 
+    def test_gates_entry_uses_the_bench_copies_the_worker_memory_fits(self):
+        """A large worker fits more copies: GATES spreads the cheat checks over them, keeping two for
+        G10's testers. A default worker (or an unsure check) keeps the case's own setting."""
+        import bench
+        for fits, expected in ((6, 4), (4, 2), (3, 2), (20, run.MAX_GATE_BENCH_WORKERS)):
+            c, _ = self.case({"bench_workers": 2, "parallel_gates": True})
+            c.engine = object(); c.args.parallel_gates = True; c.args.bench_workers = 2
+            tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+            c.case = pathlib.Path(tmp.name); (c.case / "scenarios").mkdir()
+            with mock.patch.object(bench, "load_scenario", return_value={}), \
+                 mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
+                 mock.patch.object(bench, "factory_memory_fits", side_effect=lambda s, n: n <= fits), \
+                 mock.patch.object(run, "log"):
+                run.scale_bench_workers_at_entry(c)
+            self.assertEqual(c.args.bench_workers, expected, fits)
+        c, _ = self.case({"bench_workers": 2, "parallel_gates": True})
+        c.engine = object(); c.args.parallel_gates = True; c.args.bench_workers = 2; c.case = pathlib.Path(tmp.name)
+        with mock.patch.object(bench, "load_scenario", side_effect=OSError):
+            self.assertFalse(run.scale_bench_workers_at_entry(c))
+        self.assertEqual(c.args.bench_workers, 2)
+
     def test_gates_entry_keeps_passed_gate_cache_identities(self):
         c, _ = self.case({"bench_workers": 1})
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)

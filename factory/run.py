@@ -2866,6 +2866,30 @@ def adopt_parallel_gates_at_entry(c):
     return True
 
 
+MAX_GATE_BENCH_WORKERS = 8
+
+
+def scale_bench_workers_at_entry(c):
+    """GATES runs the cheat checks (G6, G7: ~20 guards x 10 stress runs, ~4.5 of 18681d's 8 hours on
+    11-12 November) spread over c.args.bench_workers bench copies. On a worker with memory to spare
+    (a Boat "large" machine fits ~6 copies, "default" ~3), use as many copies as fit beside the two
+    tester instances G10 reserves, never fewer than the case's own setting. Results do not depend on
+    the copy count; only checkpoint identities (and so reuse of checks earned in the writer step) do."""
+    if c.args.dry_run or not parallel_gates(c) or getattr(c, "case", None) is None: return False
+    import bench
+    try:
+        scenarios = [bench.load_scenario(c.case / "base")] + [bench.load_scenario(d) for d in sorted((c.case / "scenarios").iterdir()) if d.is_dir()]
+        if not bench.isolated_inventory_services(scenarios): return False
+        n = getattr(c.args, "bench_workers", 1)
+        while n < MAX_GATE_BENCH_WORKERS and bench.factory_memory_fits(scenarios, n + 1 + 2): n += 1
+    except (OSError, ValueError): return False
+    if n == getattr(c.args, "bench_workers", 1): return False
+    log(c, "GATES bench workers", c.args.bench_workers, "->", n)
+    c.card["gate_bench_workers"] = n
+    c.args.bench_workers = n
+    return True
+
+
 def engine_writer_round(c, n, feedback):
     """WRITER round n: today's writer call, G1 and early checks; a G1 or early-check failure goes back
     to the writer within the round, bounded by the runner's round cap."""
@@ -3014,6 +3038,7 @@ def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
     adopt_parallel_gates_at_entry(c)
+    scale_bench_workers_at_entry(c)
     if not c.args.dry_run and not parallel_gates(c) and not g1(c)[1]["problems"]:
         ensure_freshness(c)  # parallel_gates: G2 is ensure_freshness, in the lane beside the bench gates
     for key in ("gates", "gate_results", "gate_minutes"): c.card[key] = {}
