@@ -323,6 +323,19 @@ class SideLane(unittest.TestCase):
         with self.assertRaises(run.BudgetError):
             exercise(self, {"G9": g9})
 
+    def test_a_money_stop_in_the_bench_gates_keeps_the_lane_verdict(self):
+        """A lane G8 failure that finishes after the foreground ran out of money is still recorded, so
+        run.run_step reports the failed gate instead of a resumable engine:money stop."""
+        seen = {}
+        def g8(c):
+            time.sleep(0.3); return False, {"approve": "0/2"}
+        def g4(c):
+            seen["c"] = c; raise run.BudgetError("budget_exhausted")
+        with self.assertRaisesRegex(run.BudgetError, "budget_exhausted"):
+            exercise(self, {"G8": g8, "G4": g4})
+        self.assertEqual(seen["c"].card["failed_gate"], "G8")
+        self.assertEqual(seen["c"].card["gates"]["G8"], "fail")
+
     def test_serial_without_the_flag(self):
         order = []
         gates = {g: (lambda g: lambda c: (order.append(g), (True, {}))[1])(g) for g in GATES}

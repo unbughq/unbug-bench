@@ -858,6 +858,33 @@ class HookTests(unittest.TestCase):
             self.assertEqual(out["passed"], ("G1",))
             self.assertEqual(out.get("feedback") is not None, repairable)
 
+    def test_a_money_stop_after_a_failed_gate_keeps_the_gate_verdict(self):
+        """Parallel gates: G5 failed in the foreground, then the side lane raised budget_exhausted. The
+        step reports the failed gate, never engine:money, which a factory_bug resume could rerun."""
+        c, si = self.context(StepKind.GATES)
+        def gates(c):
+            c.card["gates"]["G5"] = "fail"; c.card["gates"]["G1"] = "pass"
+            c.card.update(failed_gate="G5", failed_detail={"problems": ["reference unsolved"]})
+            raise run.BudgetError("budget_exhausted")
+        with patch.object(run, "run_gates", side_effect=gates):
+            out = run.run_step(c, si)
+        self.assertEqual((out["outcome"], out["reason"], out["gate"]), (Outcome.GATE_FAILED, "g5:failed", "G5"))
+        self.assertIsNone(out["stop"])
+        def crash_then_money(c):   # a lane crash set the infra stop beside a recorded failure
+            c.card["gates"]["G5"] = "fail"; c.card.update(failed_gate="G5", failed_detail={"problems": ["x"]})
+            c.stopped = True; c.card["infrastructure_gate"] = {"gate": "G8", "exhausted": True}
+            raise run.BudgetError("budget_exhausted")
+        with patch.object(run, "run_gates", side_effect=crash_then_money):
+            out = run.run_step(c, si)
+        self.assertEqual((out["outcome"], out["gate"]), (Outcome.GATE_FAILED, "G5"))
+        c.stopped = False
+        def money_only(c):   # no gate failed: the money stop stands
+            c.card["gates"]["G1"] = "pass"
+            raise run.BudgetError("budget_exhausted")
+        with patch.object(run, "run_gates", side_effect=money_only):
+            out = run.run_step(c, si)
+        self.assertNotEqual(out.get("outcome"), Outcome.GATE_FAILED)
+
     def test_engine_gate_checkpoint_uses_explicit_hook_and_no_legacy_upload(self):
         c, _ = self.context(StepKind.GATES)
         c.recipient = run.FOUNDER_RECIPIENT; c.args.dry_run = False; c.args.no_early_probe = True

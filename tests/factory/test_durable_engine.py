@@ -1290,6 +1290,20 @@ class Resume(unittest.TestCase):
                 # Its money was the case's; the resume books it as waste first (runtime.start).
                 self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()), [f"{C1}/{seq}/{step}/1"])
 
+    def test_a_case_held_after_a_gates_money_stop_resumes_at_its_gates_step(self):
+        """86b100-r9 (11 November): GATES ran out of money on a factory bug with no gate failed."""
+        script = {"1/diagnosis/*": {"verdict": "factory_bug"},
+                  "1/gates:1/1": {"outcome": "exhausted", "reason": "engine:money", "checkpoint": True}}
+        r, out = self.manual_run({"spec": {"max_cases_started": 1}, "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        before = len(r.starts(1))
+        out = self.resume(r, {})
+        rerun = r.keys(1)[before:]
+        self.assertEqual(rerun[0][1:], ("gates:1", "2"))
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+        self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()), [f"{C1}/{rerun[0][0]}/gates:1/1"])
+
     def test_a_money_stop_of_another_step_or_without_factory_bug_is_not_resumable(self):
         r, out = self.manual_run({"spec": {"max_cases_started": 1},
                       "script": {"1/stress:1/1": {"feedback": True},
@@ -1299,7 +1313,8 @@ class Resume(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
         self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
         from durable.engine import FACTORY_BUG_RESUMABLE
-        self.assertEqual(set(FACTORY_BUG_RESUMABLE), {"writer", "stress"})   # never gates, admit or seal
+        self.assertEqual(set(FACTORY_BUG_RESUMABLE), {"writer", "stress", "gates"})   # never admit or seal
+        self.assertEqual(FACTORY_BUG_RESUMABLE["gates"], ("engine:money",))   # never a gate verdict
 
     # 86b100 on 10 November: its recertify G16 asked for a repair, which retires a recertified case.
     def test_a_recertified_case_retired_at_a_repairable_gate_resumes_into_a_writer_repair(self):

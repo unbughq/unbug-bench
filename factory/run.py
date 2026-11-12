@@ -2334,8 +2334,12 @@ def early_probe(c):
             r = calibrate(child, "strong_calibrator", tries=1, name="early_probe")
         r["label"] = "solvable" if r["solved"] else "likely_hard"
     except Exception as error:  # Provider waits are plumbing, even for this optional probe.
-        if str(error) in ("provider_wait", "model_call_cap"): raise
-        r = {"skipped": type(error).__name__}  # Command diagnostics stay in encrypted logs.
+        if str(error) == "provider_wait": raise
+        # A per-call cap is skipped like any other probe failure: the probe is a label, and G10's own
+        # strong tester still meets any real money limit. 2abb0a (11 November) had its probe leased the
+        # $0.29 left beside a reviewer's $12.50 hold; the re-raised model_call_cap ended gates:9 with
+        # G1-G5 passed and $13.43 of the case unspent.
+        r = {"skipped": "model_call_cap" if str(error) == "model_call_cap" else type(error).__name__}
     finally:
         home = pilot_home("pilot")
         if home.exists():  # G10 creates the pilot user afresh
@@ -3023,14 +3027,23 @@ def engine_gates(c):
         c.card["kept_gate_source"] = {"case": recertify["case"], "kind": "recertify", "gates": list(RECERTIFY_KEPT)}
         c.audit_gates = list(RECERTIFY_RERUN)
     validate_and_repair(c)
+    return gates_result(c)
+
+
+def gates_result(c, prefer_failed=False):
+    """The GATES step's result from the card. run_step also asks it when the step stopped after a gate
+    failed: a parallel side lane or overlapping calibrator can raise budget_exhausted once the
+    foreground recorded failed_gate, and the stop must not hide that verdict (an engine:money stop is
+    resumable after a factory_bug diagnosis, a failed gate never is)."""
+    from durable.contract import Outcome
     passed = tuple(g for g in GATES if c.card["gates"].get(g) == "pass")
     receipt = json.dumps({key: c.card.get(key) for key in (
         "gates", "gate_results", "gate_minutes", "failed_gate", "failed_detail", "early_gates", "infrastructure_gate",
         "reviewers_fairness", "reviewers_realism", "calibrators", "difficulty")}, sort_keys=True, default=str).encode()
     base = {"passed": passed, "receipt": receipt}
-    if c.stopped or c.card.get("infrastructure_gate"):
-        return {**base, "stop": c.card.get("terminal_stop") or "infrastructure_exhausted"}
     failed = c.card.get("failed_gate")
+    if (c.stopped or c.card.get("infrastructure_gate")) and not (prefer_failed and failed):
+        return {**base, "stop": c.card.get("terminal_stop") or "infrastructure_exhausted"}
     if not failed: return {**base, "outcome": Outcome.OK, "reason": "engine:gates_passed"}
     detail = c.card.get("failed_detail")
     stage = failed.lower()
@@ -3104,6 +3117,11 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
         stop = "paused" if isinstance(error, PauseRequested) else str(error)
         log(c, "ENGINE STOPPED", stop)
         result = {"stop": stop, "traceback": traceback.format_exc()}
+        if kind is StepKind.GATES and isinstance(error, BudgetError) and c.card.get("failed_gate"):
+            verdict = gates_result(c, prefer_failed=True)   # a recorded failure wins over any stop
+            if verdict.get("outcome") is not None:
+                log(c, "ENGINE GATE VERDICT KEPT", c.card["failed_gate"])
+                result = {**verdict, "stop": None}
     except Exception as error:
         log(c, traceback.format_exc())
         result = {"stop": type(error).__name__, "traceback": traceback.format_exc()}
