@@ -160,8 +160,14 @@ def worst_request(route, output=None):
         worst[CLAUDE_GATE_FIELDS[incoming]] = profile['context']
         worst['output_tokens'] = profile['output'] if output is None else output
         return worst
+    # openrouter_body clamps every request's max_tokens to OPENROUTER_OUTPUT, so that (or the request's
+    # own smaller bound) is all it can produce, not the model's whole output limit. Holding the model
+    # limit (943,718 tokens on GLM 5.3 Flash, $0.63 a request against $0.17) made 19 requests whose
+    # stream ended without usage retain $11.95 of a $12.50 window, and 18681d's G10 easy calibrator
+    # (12 November) stopped model_call_cap after $0.17 of real spend.
     profile = GATED_OPENROUTER[route]
-    return dict(prompt_tokens=profile['context'], completion_tokens=profile['output'])
+    output = OPENROUTER_OUTPUT if output is None else output
+    return dict(prompt_tokens=profile['context'], completion_tokens=min(output, profile['output']))
 
 
 def request_hold(route):

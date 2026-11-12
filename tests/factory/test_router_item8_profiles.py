@@ -170,10 +170,11 @@ class ProfileTests(unittest.TestCase):
             state.settled[0] = Decimal('0.5904' if parallel==1 else '2.5904')
             self.assertIsNone(state.reserve(16384)); self.assertTrue(state.exhaustion.is_set())
         state = gate.Allowance(core.lease(MINIMAX))
-        for _ in range(3):
-            identity=state.reserve(32768); self.assertIsNotNone(identity); state.finish(identity,None)
-        self.assertIsNone(state.reserve(32768)); state.close()
-        self.assertEqual(Decimal(state.snapshot()['held_usd']),Decimal('1.4155776'))
+        hold, fits = gate.request_hold(MINIMAX), 0   # each unknown retains its clamped-output hold
+        while (identity := state.reserve(32768)) is not None: fits += 1; state.finish(identity,None)
+        state.close()
+        self.assertEqual(fits, int((Decimal(str(core.lease(MINIMAX).max_usd)) - gate.HEADROOM) // hold))
+        self.assertEqual(Decimal(state.snapshot()['held_usd']), hold*fits)
 
     def test_saved_writer_counters_are_priced_under_new_alias_not_old_tariff(self):
         # Counter envelope only: these are Opus5.5 records, NOT Opus4.5 role evidence.
@@ -263,7 +264,7 @@ class WireTests(unittest.TestCase):
                 self.assertEqual(status,200);self.assertEqual(received,data)
             self.assertEqual(active.state.snapshot()['validated_requests'],1)
             self.assertEqual(active.state.snapshot()['unknown_requests'],1)
-            self.assertEqual(Decimal(active.state.snapshot()['held_usd']),Decimal('.23'))
+            self.assertEqual(Decimal(active.state.snapshot()['held_usd']),gate.request_hold(MINIMAX))
             self.assertEqual(Decimal(active.state.snapshot()['settled_usd']),Decimal('.00000025'))
             for _,body,headers in self.seen:
                 self.assertEqual(body['provider']['only'],['tenstorrent/fp8'])
