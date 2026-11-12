@@ -27,7 +27,7 @@ import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
 from durable.contract import ArtifactKind, BatchSpec, CASE_ID, ContractError, Ref, assert_no_conductor, batch_spec_from_record
-from durable.guard import degraded as guard_degraded
+from durable.guard import degraded as guard_degraded, router_clear
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
 from durable.workers import BoatPool, PoolError, ReleaseStore, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
@@ -188,7 +188,9 @@ class Runtime:
             self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys,
                                      sleep=draining_sleep, pause=hold_if_draining)
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
-                                 admission_paused=lambda: guard_degraded(self.state))
+                                 admission_paused=lambda: guard_degraded(self.state),
+                                 router_clear=(lambda: router_clear(config["router_db"])) if "router_db" in config
+                                 else (lambda: False))
         except Exception:
             self.close()
             raise

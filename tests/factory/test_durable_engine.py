@@ -1718,6 +1718,110 @@ class ResumeOverride(unittest.TestCase):
         self.assertEqual(r.run(), {"refused": "resume:unknown_case"})
 
 
+class AutoResumeHolds(unittest.TestCase):
+    """A factory_bug hold whose cause is a provider limit or a money stop resumes with no release
+    once that cause has cleared (engine.auto_resume_kind); anything else waits for a release."""
+
+    HELD = {"case": 1, "status": "held_for_release"}
+    LOST = {"outcome": "infra_error", "reason": "infra:invalid_execution"}
+    BUG = {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/stress:1/1": {"feedback": True}}
+    MONEY = {"outcome": "exhausted", "reason": "writer:money"}
+    SPEC = {"max_cases_started": 1, "max_infra_retries_per_step": 1}
+    DEADLINE = {"deadline_in": 25, "timing": {"wake_poll_s": 0.3}}
+
+    def quota(self, **extra):   # a provider limit, then two infra stops: the step gave up, and was diagnosed
+        return {"spec": self.SPEC, "script": {**self.BUG, "1/writer:2/1": {"outcome": "provider_limit"},
+                                              "1/writer:2/2": self.LOST, "1/writer:2/3": self.LOST}, **extra}
+
+    def test_a_quota_hold_resumes_by_itself_once_the_router_reports_healthy(self):
+        r, out = run(self.quota(actions=[{"when": self.HELD, "router_clear": True}]))
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual([x["status"] for x in r.actions()], ["held_for_release"])
+        self.assertEqual(r.keys(1)[-5:][1], ("4", "writer:2", "4"))   # the diagnosed step runs again, no release sent
+        self.assertEqual(card(out, C1)["diagnoses"], 0)
+
+    def test_a_quota_hold_waits_while_the_router_reports_a_pool_blocked(self):
+        r, out = run(self.quota(**self.DEADLINE))
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "1"))
+
+    def test_an_infra_only_hold_does_not_resume_on_a_healthy_router(self):
+        script = {**self.BUG, "1/writer:2/1": self.LOST, "1/writer:2/2": self.LOST}
+        r, out = run({"spec": self.SPEC, "script": script, **self.DEADLINE,
+                      "actions": [{"when": self.HELD, "router_clear": True}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})   # only a release or an operator reruns it
+        self.assertEqual(r.keys(1)[-1][1], "diagnosis")
+
+    def test_a_money_hold_resumes_by_itself_when_money_is_left(self):
+        r, out = run({"spec": {"max_cases_started": 1}, "script": {**self.BUG, "1/writer:2/1": self.MONEY}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(r.keys(1)[-5:][1], ("4", "writer:2", "2"))
+        self.assertEqual([x["key"] for x in r.ledger_log() if x["op"] == "book_waste"], [f"{C1}/4/writer:2/1"])
+
+    def test_auto_resumes_count_against_the_factory_bug_cap(self):
+        script = {**self.BUG, "1/writer:2/*": self.MONEY}
+        r, out = run({"spec": {"max_cases_started": 1, "max_factory_bug_resumes": 2}, "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})   # two resumes, then the policy retires the third
+        self.assertEqual(len([k for k in r.keys(1) if k[1] == "diagnosis"]), 3)
+
+    def test_a_workflow_recorded_before_the_patch_keeps_waiting_for_a_release(self):
+        r, out = run({"spec": {"max_cases_started": 1}, "script": {**self.BUG, "1/writer:2/1": self.MONEY},
+                      "disabled_patches": ["auto_resume_safe_holds"], **self.DEADLINE})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+
+    def test_a_ceiling_or_a_gate_verdict_is_never_resumed_this_way(self):
+        for name, script in (("rounds", {"1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds_exhausted"}}),
+                             ("gate", {"1/gates:2/*": {"outcome": "gate_failed", "gate": "G5", "repairable": False}})):
+            with self.subTest(name):
+                r, out = run({"spec": {"max_cases_started": 1}, "script": {**self.BUG, **script}, **self.DEADLINE,
+                              "actions": [{"when": self.HELD, "router_clear": True}]})
+                self.addCleanup(r.close)
+                self.assertNotEqual(out["result"]["cases"], {C1: "sealed"})
+                self.assertEqual([x for x in r.actions() if x.get("status") == "held_for_release"], [])
+
+    def test_the_kinds_and_the_router_check(self):
+        import sqlite3
+        import tempfile
+        from durable.engine import auto_resume_kind
+        from durable.guard import router_clear
+        lim, lost, money = ({"outcome": "provider_limit", "reason": "router:quota"},
+                            {"outcome": "infra_error", "reason": "infra:x"},
+                            {"outcome": "exhausted", "reason": "engine:money"})
+        self.assertEqual([auto_resume_kind(x) for x in ([lim, lost], [lost, money], [lim, money], [lost], [])[:4]],
+                         ["quota", "money", "money", None])
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "router.sqlite"
+            self.assertFalse(router_clear(path))   # unreadable books are not clear
+            with sqlite3.connect(path) as db:
+                db.execute("CREATE TABLE health (pool TEXT PRIMARY KEY, value TEXT)")
+                db.execute("INSERT INTO health VALUES ('claude-token', ?)", (json.dumps({"reason": "quota", "blocked_until": 200}),))
+            self.assertFalse(router_clear(path, now=100))
+            self.assertTrue(router_clear(path, now=300))   # its reset time has passed
+            with sqlite3.connect(path) as db:
+                db.execute("INSERT INTO health VALUES ('openrouter-key', ?)", (json.dumps({"reason": "credit", "blocked_until": 0}),))
+            self.assertFalse(router_clear(path, now=300))   # a credit refusal waits for a top-up
+
+    def test_money_allows_needs_money_in_the_case_and_the_batch(self):
+        from durable.executor import Executor
+        booked = []
+
+        class L:
+            def __init__(self, case, batch): self.c, self.b = case, batch
+            def book_waste(self, key, reason): booked.append((key, reason))
+            def case_balance(self, *a): return {"remaining": self.c}
+            def balance(self, *a): return {"remaining": self.b}
+        for case, batch, ok in ((5 * M, 5 * M, True), (M // 2, 5 * M, False), (5 * M, M // 2, False)):
+            ex = Executor(None, None, L(case, batch), None, None, None)
+            self.assertEqual(ex.money_allows("b-t", C1, ["k1"], 50 * M, M), ok)
+        self.assertEqual(booked, [("k1", "factory_bug")] * 3)
+
+
 class ReleaseHolds(unittest.TestCase):
     """A factory_bug hold of a step that may run again waits in its own workflow for a factory
     release, then reruns that step on it, as a `--resume-case` batch would (86b100, 11 November)."""
