@@ -1729,23 +1729,14 @@ class AutoResumeHolds(unittest.TestCase):
     SPEC = {"max_cases_started": 1, "max_infra_retries_per_step": 1}
     DEADLINE = {"deadline_in": 25, "timing": {"wake_poll_s": 0.3}}
 
-    def quota(self, **extra):   # a provider limit, then two infra stops: the step gave up, and was diagnosed
-        return {"spec": self.SPEC, "script": {**self.BUG, "1/writer:2/1": {"outcome": "provider_limit"},
-                                              "1/writer:2/2": self.LOST, "1/writer:2/3": self.LOST}, **extra}
-
-    def test_a_quota_hold_resumes_by_itself_once_the_router_reports_healthy(self):
-        r, out = run(self.quota(actions=[{"when": self.HELD, "router_clear": True}]))
+    def test_a_provider_limit_before_a_real_infra_stop_does_not_resume_on_a_healthy_router(self):
+        script = {**self.BUG, "1/writer:2/1": {"outcome": "provider_limit"},
+                  "1/writer:2/2": self.LOST, "1/writer:2/3": self.LOST}
+        r, out = run({"spec": self.SPEC, "script": script, **self.DEADLINE,
+                      "actions": [{"when": self.HELD, "router_clear": True}]})
         self.addCleanup(r.close)
-        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
-        self.assertEqual([x["status"] for x in r.actions()], ["held_for_release"])
-        self.assertEqual(r.keys(1)[-5:][1], ("4", "writer:2", "4"))   # the diagnosed step runs again, no release sent
-        self.assertEqual(card(out, C1)["diagnoses"], 0)
-
-    def test_a_quota_hold_waits_while_the_router_reports_a_pool_blocked(self):
-        r, out = run(self.quota(**self.DEADLINE))
-        self.addCleanup(r.close)
-        self.assertEqual(out["result"]["cases"], {C1: "held"})
-        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "1"))
+        self.assertEqual(out["result"]["cases"], {C1: "held"})   # the last stop is a plumbing failure: a release first
+        self.assertEqual(r.keys(1)[-1][1], "diagnosis")
 
     def test_an_infra_only_hold_does_not_resume_on_a_healthy_router(self):
         script = {**self.BUG, "1/writer:2/1": self.LOST, "1/writer:2/2": self.LOST}
@@ -1793,8 +1784,9 @@ class AutoResumeHolds(unittest.TestCase):
         lim, lost, money = ({"outcome": "provider_limit", "reason": "router:quota"},
                             {"outcome": "infra_error", "reason": "infra:x"},
                             {"outcome": "exhausted", "reason": "engine:money"})
-        self.assertEqual([auto_resume_kind(x) for x in ([lim, lost], [lost, money], [lim, money], [lost], [])[:4]],
-                         ["quota", "money", "money", None])
+        self.assertEqual([auto_resume_kind(x) for x in ([lost, lim], [lim, lost], [lost, money], [lim, money], [lost])],
+                         ["quota", None, "money", "money", None])
+
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "router.sqlite"
             self.assertFalse(router_clear(path))   # unreadable books are not clear
@@ -1807,7 +1799,7 @@ class AutoResumeHolds(unittest.TestCase):
                 db.execute("INSERT INTO health VALUES ('openrouter-key', ?)", (json.dumps({"reason": "credit", "blocked_until": 0}),))
             self.assertFalse(router_clear(path, now=300))   # a credit refusal waits for a top-up
 
-    def test_money_allows_needs_money_in_the_case_and_the_batch(self):
+    def test_money_allows_needs_money_in_the_case_and_the_batch_and_books_nothing(self):
         from durable.executor import Executor
         booked = []
 
@@ -1818,8 +1810,27 @@ class AutoResumeHolds(unittest.TestCase):
             def balance(self, *a): return {"remaining": self.b}
         for case, batch, ok in ((5 * M, 5 * M, True), (M // 2, 5 * M, False), (5 * M, M // 2, False)):
             ex = Executor(None, None, L(case, batch), None, None, None)
-            self.assertEqual(ex.money_allows("b-t", C1, ["k1"], 50 * M, M), ok)
-        self.assertEqual(booked, [("k1", "factory_bug")] * 3)
+            self.assertEqual(ex.money_allows("b-t", C1, 50 * M, M), ok)
+        self.assertEqual(booked, [])   # a poll that keeps waiting must not touch the ledger
+
+    def test_hold_clear_step_polls_the_router_for_a_quota_hold(self):
+        import durable.engine as eng
+        from unittest.mock import patch
+        clear = [False]
+        with patch.object(eng._RT, "router_clear", lambda: clear[0]):
+            f = eng.hold_clear_step.__wrapped__ if hasattr(eng.hold_clear_step, "__wrapped__") else eng.hold_clear_step
+            self.assertFalse(f("quota", "b-t", C1, 50 * M))
+            clear[0] = True
+            self.assertTrue(f("quota", "b-t", C1, 50 * M))
+
+    def test_the_runtime_reads_the_production_router_books_unless_configured(self):
+        import durable.runtime as rt
+        from unittest.mock import patch
+        seen = []
+        with patch.object(rt, "router_clear", lambda path: seen.append(str(path)) or True), \
+                patch("model_router.production_database", lambda c: "/prod/factory.sqlite3"):
+            self.assertEqual(rt._router_db(), "/prod/factory.sqlite3")
+        self.assertEqual(seen, [])
 
 
 class ReleaseHolds(unittest.TestCase):

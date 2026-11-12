@@ -406,9 +406,9 @@ and stress steps run on the bench image too), so an unrelated release costs one 
 resumes. Plumbing and bench releases both wake it (patch `bench_release_wakes`). The operator's go-ahead
 names the hold (diagnosis seq/attempt), so a leftover one never frees a later hold. Two causes also end the wait with no release and no operator (patch
 `auto_resume_safe_holds`, `engine.auto_resume_kind`), polled every `wake_poll_s` and logged as `auto-resume`
-(event `auto_resume`): a hold whose attempts met a provider limit once the router's books (`router_db` in the
-controller config, `guard.router_clear`) show no blocked pool, and a hold whose last stop was a money stop
-once the case (under its limit, after the waste rebook) and the batch each have `MIN_GRANT` left
+(event `auto_resume`): a hold whose last stop was a provider limit (a limit followed by an infra stop is a real failure) once the router's books (`router_db` in the
+controller config, default the production router's `factory.sqlite3`; `guard.router_clear`) show no blocked pool, and a hold whose last stop was a money stop
+once the case (as booked now: a poll never rebooks, so a case that really spent its money stays held) and the batch each have `MIN_GRANT` left
 (`Executor.money_allows`). They count against `factory_bug_resumes` like any resume; an infra-only hold, a
 gate verdict, an exhausted ceiling or a founder decision never resume this way. At the batch
 deadline it is held as before, for `--resume-case`, which counts the resumes made in place that it

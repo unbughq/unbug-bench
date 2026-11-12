@@ -87,6 +87,12 @@ def database_lock(config):
         engine.dispose()
 
 
+def _router_db():
+    """The router's books, where the production router keeps them (an error counts as not clear)."""
+    from model_router import production_database
+    return production_database({})
+
+
 def load_config(path):
     config = json.loads(private_bytes(path))
     config["database_url"] = os.environ.get("UNBUG_DURABLE_DSN") or private_bytes(config["database_url_file"]).decode().strip()
@@ -189,8 +195,7 @@ class Runtime:
                                      sleep=draining_sleep, pause=hold_if_draining)
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
                                  admission_paused=lambda: guard_degraded(self.state),
-                                 router_clear=(lambda: router_clear(config["router_db"])) if "router_db" in config
-                                 else (lambda: False))
+                                 router_clear=lambda: router_clear(config.get("router_db") or _router_db()))
         except Exception:
             self.close()
             raise

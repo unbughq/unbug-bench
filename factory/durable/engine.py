@@ -288,14 +288,15 @@ def book_waste_step(keys: list) -> None:
 
 
 @DBOS.step()
-def hold_clear_step(kind: str, batch_id: str, case_id: str, keys: list, case_limit: int) -> bool:
+def hold_clear_step(kind: str, batch_id: str, case_id: str, case_limit: int) -> bool:
     """Whether a hold of this kind may resume without a release (auto_resume_kind): a provider
     limit once the router reports no blocked pool, a money stop once the case and the batch have
-    money for another call after the diagnosed attempts are booked as waste (as a resume would)."""
+    money for another call as booked now: a poll never rebooks anything, so a case that really spent
+    its money stays held (the resume itself books the diagnosed attempts as waste)."""
     try:   # an unreadable router or ledger is "not yet": the hold keeps waiting and the next poll asks again
         if kind == "quota":
             return bool(_RT.router_clear())
-        return _ex().money_allows(batch_id, case_id, keys, case_limit, MIN_GRANT_USD_MICROS)
+        return _ex().money_allows(batch_id, case_id, case_limit, MIN_GRANT_USD_MICROS)
     except Exception:
         return False
 
@@ -378,14 +379,15 @@ MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many 
 def auto_resume_kind(stops: list) -> Optional[str]:
     """What a factory_bug hold may wait on besides a release, from the diagnosed step's stops
     (oldest first): "money" when the last one ran out of money ("<stage>:money", resumes once the
-    case and the batch have money for another call), else "quota" when any of them was a provider
-    limit (resumes once the router reports no blocked pool). Anything else, a gate verdict, an
+    case and the batch have money for another call), else "quota" when the last one was a provider
+    limit (resumes once the router reports no blocked pool); a limit followed by an infra stop is a
+    real failure, and policy.decide today never ends a step on a limit, so this fires only for such stops. Anything else, a gate verdict, an
     exhausted round limit, a founder decision, or an infra-only hold, never resumes without a
     release or an operator; factory_bug_rerunnable has already refused the scientific ones."""
     last = stops[-1]
     if last.get("outcome") == Outcome.EXHAUSTED.value and str(last.get("reason")).endswith(":money"):
         return "money"
-    return "quota" if any(s.get("outcome") == Outcome.PROVIDER_LIMIT.value for s in stops) else None
+    return "quota" if last.get("outcome") == Outcome.PROVIDER_LIMIT.value else None
 
 
 def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
@@ -1389,7 +1391,7 @@ class _Case:
         diagnosis = Step(StepKind.DIAGNOSIS).name
         diagnosis_attempt = max(h["attempt"] for h in self.history if h["seq"] == self.seq and h["step"] == diagnosis)
         keys = [f"{self.case_id}/{self.seq - 1}/{step.name}/{h['attempt']}" for h in diagnosed]
-        if not self.wait_for_fix(ran_on, f"{self.seq}/{diagnosis_attempt}", auto_resume_kind(diagnosed), keys):
+        if not self.wait_for_fix(ran_on, f"{self.seq}/{diagnosis_attempt}", auto_resume_kind(diagnosed)):
             return None
         self.renumber.setdefault(self.seq, {})[diagnosis] = diagnosis_attempt
         self.renumber.setdefault(self.seq - 1, {})[step.name] = max(h["attempt"] for h in diagnosed)
@@ -1405,7 +1407,7 @@ class _Case:
         self.seq -= 2                        # run_seq numbers the rerun at the diagnosed seq
         return step.kind.value, feedback
 
-    def wait_for_fix(self, failed: tuple, hold: str, auto: Optional[str] = None, keys: tuple = ()) -> bool:
+    def wait_for_fix(self, failed: tuple, hold: str, auto: Optional[str] = None) -> bool:
         """Park without a worker until the batch's (plumbing, bench) differs from `failed`, the
         releases the diagnosed step ran on, or an operator sends Engine.resume_held for this hold
         (`hold`: diagnosis seq/attempt; a resume left over from an earlier hold is ignored). Never
@@ -1431,7 +1433,7 @@ class _Case:
             if (self.current("plumbing"), self.current("bench")) != failed:
                 LOG.info("auto-resume %s: %s, a new release", self.case_id, hold)
                 break
-            if auto and hold_clear_step(auto, self.batch_id, self.case_id, list(keys), self.spec.case_money_usd_micros):
+            if auto and hold_clear_step(auto, self.batch_id, self.case_id, self.spec.case_money_usd_micros):
                 LOG.info("auto-resume %s: %s, %s cleared", self.case_id, hold, auto)
                 DBOS.set_event("auto_resume", {"hold": hold, "kind": auto})
                 break
