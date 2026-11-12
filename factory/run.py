@@ -429,7 +429,8 @@ PREFLIGHT_REUSE_S = 1800     # a passed check is reused by a retry of the same s
 
 
 def provider_preflight(c, step=None):
-    """Check non-writer routes before spending on construction; availability is not a gate pass.
+    """Check every role's route, the writer's too (a silent writer route hung 11 admissions), before
+    spending on construction; availability is not a gate pass.
     With `step` (the engine step's identity), a role that passed in this step within
     PREFLIGHT_REUSE_S is not asked again: a retried ADMIT re-ran every "Reply OK" call and queued
     for the same routes it needed. An older pass (a retry after a long wait) is checked again."""
@@ -447,7 +448,11 @@ def provider_preflight(c, step=None):
             ("stress_tester", c.models["attacker"], "attacker-provider-preflight"),
             ("strong_tester", c.models["strong_calibrator"], "strong-calibrator-provider-preflight"),
             ("easy_tester", c.models["easy_calibrator"], "easy-calibrator-provider-preflight")]
-    checks[1:1] = [('reviewer' if i == 0 else 'reviewer2', chain,
+    # The writer's first call is candidate selection: only a case with no statement yet will make it.
+    if not (pathlib.Path(c.case) / "statement.md").is_file():
+        checks.insert(0, ("writer", c.models["builder"], "builder-provider-preflight"))
+    at = 2 if checks[0][0] == "writer" else 1
+    checks[at:at] = [('reviewer' if i == 0 else 'reviewer2', chain,
                     'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
     for role, chain, name in checks:

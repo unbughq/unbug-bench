@@ -341,9 +341,21 @@ def go_quota_moves_on(lease, reason):
 OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]
 
 
-def call_failure_reason(label, route):
+# A silent route (12 Nov: opencode/deepseek-v4.1-flash-free hung every writer admission call, 11 attempts of
+# 45 min each) must cost minutes, not an attempt. These short writer calls give up after 10 minutes without
+# output, and a stall or timeout moves them to the chain's next route, which later calls of the role also skip.
+SHORT_CALL_PREFIXES = ('builder-selection', 'builder-provider-preflight')
+SHORT_CALL_NO_PROGRESS_MINUTES = 10
+
+
+def short_call(name):
+    return name.startswith(SHORT_CALL_PREFIXES)
+
+
+def call_failure_reason(label, route, name=''):
     """A per-call failure that moves this call to its chain's next route, or None (the step fails).
     A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
+    if short_call(name) and label in ('stalled', 'timeout'): return 'outage'
     if label.startswith('provider_limit'): return 'quota'
     if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
     if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
@@ -404,6 +416,8 @@ class ModelRuntime:
         if not hasattr(c, 'router_interrupted_calls'): c.router_interrupted_calls = []
         context.router_interrupted_calls = c.router_interrupted_calls
         context.router_model = requested
+        if getattr(c, 'stalled_routes', {}).get(role):
+            context.router_excluded = (*getattr(context, 'router_excluded', ()), *sorted(c.stalled_routes[role]))
         context.role_cancel = getattr(c, 'role_cancel', None) or threading.Event()
         context.model_env = dict(getattr(c, 'model_env', {}))
         active_seconds, last_wait, prior_waits = 0, None, []
@@ -510,7 +524,7 @@ class ModelRuntime:
                 failure = ({'reason': 'router_unavailable', 'model': lease.route} if lost is not None and lost.is_set()
                            else getattr(error, 'provider_failure', None))
                 if failure is None:
-                    reason = call_failure_reason(str(error), lease.route)
+                    reason = call_failure_reason(str(error), lease.route, name)
                     if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
                 if failure.get('reason') == 'quota' and lease.account in OPENCODE_ACCOUNTS:
@@ -526,6 +540,9 @@ class ModelRuntime:
                     if 'source_stop' not in failure and stop in FAILURE_STOPS:
                         failure = {**failure, 'source_stop': stop}
                     context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.pool + '/' + lease.route)
+                    if short_call(name) and str(error) in ('stalled', 'timeout'):
+                        # Later calls of this role skip the silent route too (not other roles' routes).
+                        c.__dict__.setdefault('stalled_routes', {}).setdefault(role, set()).add(lease.pool + '/' + lease.route)
                 context.router_condition_since = time.monotonic()
                 if failure.get('reason') == 'quota' and lease.route.startswith('claude/'):
                     reset = _read_json(getattr(c, 'ledger', '/nonexistent'), {}).get('claude_resets_at')
@@ -782,7 +799,8 @@ class ModelRuntime:
                     result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
                                   max_cost=None if getattr(c, 'engine', None) is not None else c.args.max_cost,
                                   max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls, driver=driver,
-                                  progress_timeout=c.args.no_progress_minutes * 60, max_zero_tokens=c.args.max_zero_tokens,
+                                  progress_timeout=(min(c.args.no_progress_minutes, SHORT_CALL_NO_PROGRESS_MINUTES) if short_call(name)
+                                                    else c.args.no_progress_minutes) * 60, max_zero_tokens=c.args.max_zero_tokens,
                                   configured_model=model, resume=(bool(getattr(c.args, "resume", None)) and not getattr(c, "budget_resumed", False))
                                   or getattr(c, "force_budget_resume", False),
                                   concurrent=getattr(c, 'engine', None) is not None or getattr(c.args, "concurrent_roles", False), cancel=gate,

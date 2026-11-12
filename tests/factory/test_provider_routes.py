@@ -33,16 +33,16 @@ class ProviderRoutesTest(TestCase):
             "strong_calibrator": ["codex/gpt-6.1-sol"],
             "easy_calibrator": ["opencode/deepseek-v4.1-flash-free"]})
 
-    def test_preflight_checks_distinct_nonwriter_routes_without_gate_credit(self):
+    def test_preflight_checks_distinct_routes_without_gate_credit(self):
         self.addCleanup(offline_router()[0].close)
         c = self.preflight_context()
         with mock.patch.object(run, "opencode", return_value=0) as call:
             run.provider_preflight(c)
         # Stress tester and easy calibrator share DeepSeek free, but the calibrator never takes the
-        # free lane, so its route is checked on its own (#41 review): attacker, reviewer, strong, easy.
-        self.assertEqual(call.call_count, 4)
+        # free lane, so its route is checked on its own (#41 review): writer, attacker, reviewer, strong, easy.
+        self.assertEqual(call.call_count, 5)
         self.assertTrue(all(item.kwargs["timeout"] == 180 for item in call.call_args_list))
-        self.assertNotIn(c.models["builder"], [item.args[1] for item in call.call_args_list])
+        self.assertEqual(call.call_args_list[0].args[1], c.models["builder"])   # the writer is checked first
         self.assertTrue(all(row["status"] == "completed" and row["scope"] == "availability_only"
                             for row in c.card["provider_preflight"]))
         self.assertNotIn("gates", c.card)
@@ -51,7 +51,7 @@ class ProviderRoutesTest(TestCase):
         self.addCleanup(offline_router()[0].close)
         for reason, stop in (("provider_limit:openrouter/deepseek/deepseek-v4.1-flash",
                               "provider_limit:openrouter/deepseek/deepseek-v4.1-flash"),
-                             ("opencode_error", "provider_preflight_failed:stress_tester:opencode_error")):
+                             ("opencode_error", "provider_preflight_failed:writer:opencode_error")):
             c = self.preflight_context()
             with mock.patch.object(run, "opencode", side_effect=run.BudgetError(reason)) as call:
                 with self.assertRaisesRegex(run.BudgetError, "^" + stop + "$"):

@@ -620,7 +620,7 @@ class MaximaTests(unittest.TestCase):
 
     def test_cap_stop_is_not_preflight_failure_optional_skip_or_scientific_try(self):
         c=SimpleNamespace(case=self.root,card={},args=SimpleNamespace(bench_workers=1),
-            models={'attacker':[GATED_CLAUDE],'reviewers':[[GATED_CLAUDE]],
+            models={'builder':[GATED_CLAUDE],'attacker':[GATED_CLAUDE],'reviewers':[[GATED_CLAUDE]],
                     'strong_calibrator':[GATED_CLAUDE],'easy_calibrator':[GATED_CLAUDE]})
         with patch.object(run,'opencode',side_effect=budget.BudgetError('model_call_cap')) as call:
             with self.assertRaisesRegex(budget.BudgetError,'^model_call_cap$'):run.provider_preflight(c)
