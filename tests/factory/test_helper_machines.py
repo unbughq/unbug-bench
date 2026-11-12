@@ -29,7 +29,7 @@ class FakePool:
     """Helpers that run a fake bin/checkpoint; `die_on` kills the helper running that guard once."""
     def __init__(self, tmp, solves, die_on=()):
         self.tmp, self.solves, self.die_on, self.lock = tmp, solves, set(die_on), threading.Lock()
-        self.leased, self.dead, self.ran = 0, [], []
+        self.leased, self.dead, self.ran, self.jobs = 0, [], [], []
 
     def lease(self):
         with self.lock:
@@ -39,6 +39,7 @@ class FakePool:
     def run(self, handle, job, key):
         with self.lock:
             self.ran.append((handle, job["guard"]))
+            self.jobs.append(job)
             if job["guard"] in self.die_on:
                 self.die_on.discard(job["guard"])
                 raise helpers.HelperDied()
@@ -154,6 +155,50 @@ class HelperTests(unittest.TestCase):
         def boundary(): raise Stop()
         with self.assertRaises(Stop):
             helpers.run_jobs(Counting(), jobs, cap=2, key=b"k" * 32, accept=lambda j, f: f, boundary=boundary)
+
+    def test_job_identity_equals_serial_checkpoint_identity(self):
+        def go():
+            with patch.object(run, "checkpoint", side_effect=self.serial_checkpoint) as cp, \
+                 patch.object(run, "case_budget_boundary"):
+                run.cheat_runs(self.c, 9, "g7", guards=self.guards)
+            return cp
+        serial = {str(c.args[2]): (c.args[3], c.args[4], c.args[5]) for c in go().call_args_list}
+        pool = self.pool()
+        self.c.args.helper_workers, self.c.helper_pool = 3, pool
+        go()
+        self.assertEqual(len(pool.jobs), 3)
+        for job in pool.jobs:
+            g = next(g for g in self.guards if helpers.digest_of(helpers._tree(g)) == job["guard"])
+            self.assertEqual((job["runs"], job["seed"], job["label"]), serial[str(g)])
+            self.assertEqual(job["scenarios"], [helpers.digest_of(helpers._tree(self.case / "base"))])
+            self.assertEqual(job["case"], run.case_hash(self.c))
+            self.assertEqual(job["bench"], "m")
+            self.assertEqual((job["seed"], job["label"], job["workers"]), (9, "g7-cheat", 1))
+
+    def test_helper_of_another_machine_class_is_refused_and_seal_records_class(self):
+        job = helpers.make_job(case="c", guard={}, scenarios=[], bench="m", release="r", runs=1, seed=1, label="l")
+        other = lambda: {"cpus": job["machine"]["cpus"] + 1, "mem_gib": 1}
+        with self.assertRaises(helpers.HelperRefused):
+            helpers.execute(job, b"k" * 32, check=lambda j: None, run=lambda j: write_checkpoint(self.tmp / "x", 1, True), machine=other)
+        forged = helpers.seal(b"k" * 32, job, {"checkpoint.json": "{}", "01.json": "{}"}, other())
+        with self.assertRaises(ValueError): helpers.open_sealed(b"k" * 32, job, forged)
+        ok = helpers.execute(job, b"k" * 32, check=lambda j: None, run=lambda j: write_checkpoint(self.tmp / "y", 1, True))
+        helpers.open_sealed(b"k" * 32, job, ok)
+
+    def test_result_must_be_exactly_one_checkpoint_batch(self):
+        job = helpers.make_job(case="c", guard={}, scenarios=[], bench="m", release="r", runs=2, seed=1, label="l")
+        full = helpers.collect(write_checkpoint(self.tmp / "z", 2, True))
+        helpers.open_sealed(b"k" * 32, job, helpers.seal(b"k" * 32, job, full))
+        for bad in ({k: v for k, v in full.items() if k != "checkpoint.json"}, {k: v for k, v in full.items() if k != "02.json"},
+                    {**full, "03.json": "{}"}, {}):
+            with self.assertRaises(ValueError): helpers.open_sealed(b"k" * 32, job, helpers.seal(b"k" * 32, job, bad))
+
+    def test_helper_code_is_part_of_the_verdict_binding(self):
+        from durable.checkpoints import VERDICT_CODE
+        import gate_state
+        self.assertIn("durable/helpers.py", VERDICT_CODE)
+        self.assertIn("factory/durable/helpers.py", gate_state.DEPENDENCIES["G6"])
+        self.assertIn("factory/durable/helpers.py", gate_state.STAGE_DEPENDENCIES["G7"])
 
 
 if __name__ == "__main__":

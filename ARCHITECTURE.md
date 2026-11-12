@@ -522,7 +522,12 @@ inputs, bad seal, invalid batch) requeues that job only, once; a job no helper c
 case worker as today (with its normal infra-retry allowance). At most N helpers at once and N +
 jobs leases per dispatch; `case_budget_boundary` runs before each dispatch; each lease, job and
 release (with seconds) goes to `helper-ledger.jsonl`. Cheat checkpoints are no-model runs, so no
-per-helper money is booked yet. Same runs, seeds, guards and pass rules; only where they execute
+per-helper money is booked yet. Trust: the seal authenticates the transport (the helper holds the
+per-dispatch key), not that `bin/checkpoint` really ran, so helpers are our own workers; the case
+worker also requires exactly one `runs`-run batch, `read_completed` cross-checks summary against
+records, and the job carries the machine class (vCPU, RAM) and bench worker count, which a helper
+of another size refuses and the seal echoes. `durable/helpers.py` is in `VERDICT_CODE` and in G6/G7's
+bench dependencies, so editing it re-binds cached verdicts. Same runs, seeds, guards and pass rules; only where they execute
 changes.
 
 Not built (needs a control-VM transport, since a case worker holds no Boat credentials): the

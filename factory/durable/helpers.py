@@ -12,6 +12,11 @@ The transport (how a helper is leased and a job reaches it) is a small interface
     lease() -> handle            raises HelperUnavailable when no helper can be had now
     run(handle, job, key) -> sealed result (seal()); raises HelperDied when the helper is lost
     release(handle, dead)        deletes the helper
+Trust: the seal authenticates the transport (the helper holds the per-dispatch key, so it proves the
+result came from a helper that echoed this exact job), not that bin/checkpoint really ran; a
+compromised helper could fabricate records. Helpers are our own short-lived workers, as snapshot
+authors are. Structural checks narrow the gap: exactly the files a `runs`-run checkpoint writes, the
+summary agreeing with its records (read_completed), and the helper's own machine class equal to the job's.
 Design and the remaining build (Boat transport, G10 tries, G5/G15): ARCHITECTURE.md "Helper machines".
 """
 from __future__ import annotations
@@ -19,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import queue
 import re
 import secrets
@@ -51,11 +57,19 @@ def digest_of(value) -> str:
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def make_job(*, case, guard, scenarios, bench, release, runs, seed, label) -> dict:
+def machine_class() -> dict:
+    """Stress timing depends on the machine: a helper must be the size of the case worker."""
+    try: gib = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30)
+    except (ValueError, OSError, AttributeError): gib = None
+    return {"cpus": os.cpu_count(), "mem_gib": gib}
+
+
+def make_job(*, case, guard, scenarios, bench, release, runs, seed, label, machine=None, workers=1) -> dict:
     """Everything that decides what the checkpoint measures. Digests are of trees, not paths."""
     return {"version": JOB_VERSION, "kind": "checkpoint", "case": case, "guard": digest_of(guard),
             "scenarios": [digest_of(s) for s in scenarios], "bench": bench, "release": release,
-            "runs": runs, "seed": seed, "label": label}
+            "runs": runs, "seed": seed, "label": label,
+            "machine": machine_class() if machine is None else machine, "workers": workers}
 
 
 def collect(directory) -> dict:
@@ -63,8 +77,8 @@ def collect(directory) -> dict:
     return {p.name: p.read_text() for p in sorted(Path(directory).glob("*.json")) if _NAME.fullmatch(p.name)}
 
 
-def seal(key: bytes, job: dict, files: dict) -> dict:
-    body = {"job": job, "files": files}
+def seal(key: bytes, job: dict, files: dict, machine=None) -> dict:
+    body = {"job": job, "files": files, "machine": machine_class() if machine is None else machine}
     return {"body": body, "mac": hmac.new(key, canonical(body), hashlib.sha256).hexdigest()}
 
 
@@ -77,18 +91,25 @@ def open_sealed(key: bytes, job: dict, sealed) -> dict:
         raise ValueError("helper result seal does not verify")
     if body.get("job") != job:
         raise ValueError("helper result answers a different job")
+    if job.get("machine") is not None and body.get("machine") != job["machine"]:
+        raise ValueError("helper machine class differs from the job's")
     files = body.get("files")
-    if not isinstance(files, dict) or not files or any(
-            not _NAME.fullmatch(str(n)) or type(t) is not str for n, t in files.items()):
+    if not isinstance(files, dict) or any(type(t) is not str for t in files.values()):
         raise ValueError("helper result files malformed")
+    if job.get("kind") == "checkpoint" and set(files) != {"checkpoint.json", *(f"{i:02}.json" for i in range(1, job["runs"] + 1))}:
+        raise ValueError("helper result is not exactly one checkpoint batch")
     return files
 
 
-def execute(job: dict, key: bytes, *, check, run) -> dict:
+def execute(job: dict, key: bytes, *, check, run, machine=machine_class) -> dict:
     """Helper side of one job. `check(job)` raises HelperRefused if local inputs differ; `run(job)`
-    runs bin/checkpoint and returns the checkpoint directory."""
+    runs bin/checkpoint and returns the checkpoint directory. A helper of another machine class
+    refuses, and the seal records the class it ran on."""
     check(job)
-    return seal(key, job, collect(run(job)))
+    mine = machine()
+    if job.get("machine") is not None and mine != job["machine"]:
+        raise HelperRefused(f"machine class {mine} differs from job's {job['machine']}")
+    return seal(key, job, collect(run(job)), mine)
 
 
 def run_jobs(pool, jobs: dict, *, cap: int, key: bytes, accept, boundary=lambda: None, ledger=None) -> dict:
@@ -151,7 +172,8 @@ def checkpoint_shards(c, guards, runs, seed, label, *, case, scenarios, bench, b
     import checkpoint_evidence
     from durable.checkpoints import verdict_code
     jobs = {str(g): make_job(case=case, guard=_tree(g), scenarios=scenarios, bench=bench, release=verdict_code(),
-                             runs=runs, seed=seed, label=label) for g in guards}
+                             runs=runs, seed=seed, label=label,
+                             workers=getattr(c.args, "bench_workers", 1)) for g in guards}
     root = c.work / "helper-results"
 
     def accept(job, files):
