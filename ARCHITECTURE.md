@@ -507,7 +507,19 @@ Boat/R2, Docker, control restart, worker replacement and authenticated checkpoin
 reuse. Model access, routing and provider spending ceilings still require live
 qualification before production cutover. The practice fixture is not a scientific case.
 
-## Helper machines (G6/G7 built; the rest designed)
+## Helper machines (G6/G7, G5 and G10 job side built; transport and G15 not)
+
+Job side added on top, same flag and seal: G5's reference and key checkpoints (`run.g5_shards`,
+full G5 only, dispatched together, read by the same `read_completed`) and each G10 calibrator try
+(`run.hosted_tries`: one `kind: "try"` job per remaining try with no saved interrupted attempt, all
+at once; the helper runs `run._author_try` plus the scoring checkpoint via `run.hosted_try`, returns
+the guard bytes and the checkpoint's summary and records sealed, and the case worker installs them
+into the `AttemptSeries` workspace with the same delivery and commits in order, so identity, scoring
+and blinding are the serial path's). A try no helper completes, or whose result is inconsistent
+(guard without execution or the reverse), is authored here as today. Caps apply per `calibrate`
+call, so strong and easy together may lease up to twice N. `durable/helpers.py` is also in G5's and
+G10's dependencies. G15 strategies stay local: they deliberately share identical executions
+(`bin/strategy execute_shared`), which separate jobs would give up (a founder decision).
 
 Independent seeded gate work can run on short-lived helper workers instead of serially on the case
 worker. Built: G6/G7 cheat checkpoints (`run.cheat_runs`, full G6/G7 only, never the advisory early
