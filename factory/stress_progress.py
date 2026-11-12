@@ -99,6 +99,9 @@ def run(runner, c, number, report, receipt, completed):
     # One round covers every category (FACTORY.md 4, 2026-11-10): a finding ends its own category,
     # never the round, so the writer gets every category's findings in one fix. Stopping at the
     # first finding gave one category per round, and the next round found the next category's.
+    # `exhausted` is a per-run stop: a resumed round (factory_bug resume of a stress step that stopped
+    # stress_validation_exhausted) must retry unfinished categories, not skip them with zero attacker calls.
+    for row in state['categories'].values(): row['exhausted'] = False
     for category, subchecks in CATEGORIES.items():
         row = state['categories'].setdefault(category, {'complete': False, 'done': [], 'results': [], 'exhausted': False})
         if row['complete'] or row.get('found'): continue

@@ -392,6 +392,20 @@ class RetryTests(unittest.TestCase):
         self.c.card.update(terminal_stop='stress_validation_exhausted',status='stopped',gates={})
         self.assertTrue(diagnosis.exhaustion(self.c.card))
 
+    def test_resume_retries_exhausted_category(self):
+        # A resumed stress step must call the attacker again for a category the first run left exhausted.
+        stuck = [True]
+        def emit(config, value):
+            if stuck[0]: value.update(category_complete=False, completed_subchecks=[], unfinished_validation=['stuck'])
+        self.stress_setup(emit)
+        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
+        first = len(self.calls)
+        stuck[0] = False
+        self.fresh_context()
+        self.stress_round(self.c, copy.deepcopy(self.c.card))
+        self.assertGreater(len(self.calls), first)
+        self.assertTrue(run.jload(self.work/'attacks/round-1.json')['complete'])
+
     def test_publication_retries_before_next_dispatch(self):
         uploaded, failures = [], [0]
         def checkpoint():
