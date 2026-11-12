@@ -49,6 +49,9 @@ def worker_command(verb: str) -> str:
     return f"cd ~/{RELEASE_ROOT} && exec {shlex.join(WORKER_COMMAND)} {verb}"
 
 
+REUSE_MIN_BYTES = 1 << 20   # smaller blobs cost less to push than to ask about
+
+
 class BoatChannel:
     """WorkerChannel on Boat. Workers hold no R2 credentials: blobs move over ssh here."""
 
@@ -128,6 +131,12 @@ class BoatChannel:
 
     def _push(self, worker: str, blobs: str, name: str, data: bytes) -> bool:
         digest = hashlib.sha256(data).hexdigest()
+        if len(data) >= REUSE_MIN_BYTES:
+            # The blob dir outlives attempts: the same case's next step finds its snapshot already
+            # there. Only a file whose sha256 matches counts; anything else is pushed again.
+            have = f"set -eu; f=~/{blobs}/{name}; test -f \"$f\"; printf '%s  %s\\n' {digest} \"$f\" | sha256sum -c - >/dev/null"
+            if self.boat.ssh(worker, have, timeout=self.command_timeout)[0] == 0:
+                return True
         script = (f"set -eu; umask 077; d=~/{blobs}; mkdir -p \"$d\"; t=\"$d/.{name}.$$\"; cat > \"$t\"; "
                   f"if printf '%s  %s\\n' {digest} \"$t\" | sha256sum -c - >/dev/null; "
                   f"then mv \"$t\" \"$d/{name}\"; else rm -f \"$t\"; exit 1; fi")

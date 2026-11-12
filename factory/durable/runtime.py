@@ -177,7 +177,7 @@ class Runtime:
             self.store = PublishingStore(objects_for(config), self.keys)
             self.releases = ReleaseStore(self.state / "releases")
             self.pool = BoatPool(self.state / "pool", self.releases, config["pool_id"], image=config.get("image", "bench-env"),
-                                 vm_type=config.get("vm_type"))
+                                 vm_type=config.get("vm_type"), warm_target=config.get("warm_workers", 0))
             if "worker_credentials" in config:
                 from model_router import ACCOUNTS
                 names = config["worker_credentials"]["accounts"]
@@ -215,7 +215,7 @@ class Runtime:
             # one refuses them until its first clean launch, because its source may still own them.
             restored = json.loads((self.state / "restored.json").read_text())
             records = self.pool._records()
-            ownership = {ownership_hash(case_id): record for case_id, record in records.items()}
+            ownership = {h: records[c] for h, c in self.pool._owners(records).items()}
             rows = self.pool._inventory()
             for row in rows:
                 labels = self.pool._ours(row)
@@ -232,7 +232,8 @@ class Runtime:
                         raise RuntimeErrorCode("restore_unclaimed_worker")
                     self.pool._delete_raw(row["id"])
             for case_id, record in records.items():
-                worker = self.pool._find(rows, case_id, worker=record["worker"], intent=record["intent"])
+                worker = self.pool._find(rows, case_id, worker=record["worker"], intent=record["intent"],
+                                         owner=record.get("slot"))
                 if worker is not None and record["worker"] != worker:
                     self.pool._write(case_id, {**record, "worker": worker})
             if restored.get("quarantined") and not restored.get("launched"):
@@ -244,6 +245,8 @@ class Runtime:
         self.launched = True  # destroy even if DBOS launch fails halfway through
         self.engine.launch()
         threading.Thread(target=self._sweep_pool, daemon=True).start()
+        if self.pool.warm_target:
+            threading.Thread(target=self._warm_pool, daemon=True).start()
 
     def _sweep_pool(self):
         while not self._sweep_stop.wait(SWEEP_INTERVAL_S):
@@ -251,6 +254,16 @@ class Runtime:
                 self.pool.sweep()
             except Exception as error:   # the next pass retries; log a fixed code, never the text
                 LOG.warning("pool sweep failed: %s", error.reason if isinstance(error, PoolError) else "infra:sweep_failed")
+
+    def _warm_pool(self):
+        """Keep the idle prepared workers topped up: now, after each lease that took one, and every sweep interval."""
+        while not self._sweep_stop.is_set():
+            try:
+                self.pool.refill()
+            except Exception as error:
+                LOG.warning("warm refill failed: %s", error.reason if isinstance(error, PoolError) else "infra:refill_failed")
+            self.pool.refill_wanted.wait(SWEEP_INTERVAL_S)
+            self.pool.refill_wanted.clear()
 
     def prepare(self, scope, kind, plaintext):
         check_scope(scope, Ref("0" * 64, ArtifactKind(kind)))
@@ -340,11 +353,15 @@ class Runtime:
 
     def drain(self):
         self._sweep_stop.set()
+        if getattr(self, "pool", None) is not None:
+            self.pool.stopping.set()
         if self.launched:
             self.engine.drain(DRAIN_S)
 
     def close(self):
         self._sweep_stop.set()
+        if getattr(self, "pool", None) is not None:
+            self.pool.stopping.set()
         try:
             if self.launched:
                 self.engine.shutdown()

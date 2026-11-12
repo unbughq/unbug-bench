@@ -19,6 +19,7 @@ import gzip
 import hashlib
 import io
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -27,6 +28,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import uuid
 
@@ -39,6 +41,7 @@ from durable.contract import (CASE_ID, DIGEST, REASON, RELEASE_MANIFEST, RELEASE
 from worker_release import PLUMBING_FILES  # noqa: E402
 
 REPO = _FACTORY.parent
+LOG = logging.getLogger("durable.pool")
 BOAT_CALL = REPO / "bin/boat-call"
 MANIFEST_NAME = "worker-release-manifest.json"
 FACTORY_MANIFEST_NAME = "worker-release-manifest.factory.json"
@@ -46,6 +49,12 @@ WORKER_SCRIPT = WORKER_COMMAND[-1]                  # factory/durable/worker_ste
 RELEASES = "releases"                               # ~/releases/<plumbing_version>/
 # Internal ownership keys; Boat carries these in its supported sandbox name field.
 LABEL_POOL, LABEL_CASE, LABEL_INTENT = "unbug-durable/pool", "unbug-durable/case", "unbug-durable/intent"
+# Warm workers (prepared, idle, never touched by a case) are journalled under pseudo-case ids with
+# this prefix, one fresh id per worker. A case that takes one keeps its ownership name through the
+# case record's "slot" field, so no ownership name is ever shared by two workers.
+WARM_PREFIX = "case-warm-"
+WARM_MAX = 8
+WARM_RELEASES = 4   # releases kept warm side by side
 OWNERSHIP_NAME = re.compile(r"unbugd1-([0-9a-f]{32})-([0-9a-f]{32})-([0-9a-f]{32})")
 LIVE_STATES = frozenset({"init", "provisioning", "provisioned", "cloning", "ready", "idle", "running"})
 DEAD_STATES = frozenset({"archived", "stopped", "deleted", "failed", "error"})
@@ -329,7 +338,8 @@ class BoatPool:
     def __init__(self, state_dir, store: ReleaseStore, pool_id: str, *, boat: BoatCli | None = None,
                  image: str = "bench-env", vm_type: str | None = None, ttl_seconds: int = 259_200,
                  steps: dict | None = None, ready_timeout: float = 600.0, poll_interval: float = 5.0,
-                 delete_timeout: float = 300.0, new_timeout: float = 300.0, create_settle_seconds: float = 900.0):
+                 delete_timeout: float = 300.0, new_timeout: float = 300.0, create_settle_seconds: float = 900.0,
+                 warm_target: int = 0, warm_idle_seconds: float = 3600.0):
         _check(type(pool_id) is str and POOL_ID.fullmatch(pool_id) is not None, "bad pool id")
         _check(type(ttl_seconds) is int and 1 <= ttl_seconds <= 2_592_000, "bad ttl")
         self.state = Path(state_dir)
@@ -343,6 +353,31 @@ class BoatPool:
         # timeouts. Boat's exit status and stderr never prove that no sandbox will appear.
         self.create_settle = create_settle_seconds
         self.credential_bundle = None
+        # Idle warm workers are paid for and sit on no budget line, so the count is capped low and the
+        # pool drains itself once no step has asked for a release for warm_idle_seconds.
+        _check(type(warm_target) is int and 0 <= warm_target <= WARM_MAX, "bad warm target")
+        self.warm_target, self.warm_idle = warm_target, warm_idle_seconds
+        self.stopping = threading.Event()   # set by the runtime on drain/close: no more warm creates
+        self._remember_lock = threading.Lock()
+        self.refill_wanted = threading.Event()   # set when a lease took a warm worker; the runtime refills
+        self._refill_lock = threading.Lock()
+
+    # -- setup timings
+
+    @contextlib.contextmanager
+    def _timed(self, phase: str, worker: str | None = None):
+        """Log how long one phase of step setup took (also one json line in setup-timings.jsonl), so the
+        4-6 minutes before a step's first real work can be broken down. Never fails the setup."""
+        start = time.monotonic()
+        try:
+            yield
+        finally:
+            seconds = round(time.monotonic() - start, 3)
+            LOG.info("setup phase %s %.1fs", phase, seconds)
+            with contextlib.suppress(OSError):
+                with open(self.state / "setup-timings.jsonl", "a") as out:
+                    out.write(json.dumps({"at": round(time.time(), 3), "phase": phase, "worker": worker,
+                                          "seconds": seconds}, sort_keys=True) + "\n")
 
     # -- journal
 
@@ -355,9 +390,32 @@ class BoatPool:
         except FileNotFoundError:
             return None
         _check(isinstance(record, dict) and set(record) == {"intent", "worker", "deleting"}, "bad pool record")
-        return record
+        slot = self._slot_of(case_id, record)
+        return {**record, "slot": slot} if slot else record
+
+    # A case that took a warm worker keeps the warm slot's name in a sidecar, never in its record: the
+    # record keeps the three-key shape, so an older controller still reads it after a rollback.
+    def _slot_path(self, case_id: str) -> Path:
+        return self.state / (_id(case_id, CASE_ID, "case_id") + ".slot")
+
+    def _slot_of(self, case_id: str, record: dict) -> str | None:
+        """The warm slot a case's worker came from, only while the sidecar names that very worker."""
+        try:
+            side = json.loads(self._slot_path(case_id).read_text())
+        except (OSError, ValueError):
+            return None
+        ok = (isinstance(side, dict) and set(side) == {"slot", "worker"} and type(side["slot"]) is str
+              and side["slot"].startswith(WARM_PREFIX) and record["worker"] is not None
+              and side["worker"] == record["worker"])
+        return side["slot"] if ok else None
 
     def _write(self, case_id: str, record: dict):
+        slot = record.get("slot")
+        record = {k: v for k, v in record.items() if k != "slot"}
+        if slot:
+            _atomic_json(self._slot_path(case_id), {"slot": slot, "worker": record["worker"]})   # first: a crash leaves it inert
+        else:
+            self._slot_path(case_id).unlink(missing_ok=True)
         _atomic_json(self._record_path(case_id), record)
 
     def _records(self) -> dict:
@@ -366,10 +424,18 @@ class BoatPool:
             out[path.stem] = self._read(path.stem)
         return out
 
+    def _lock_path(self, case_id: str) -> Path:
+        return self.state / (_id(case_id, CASE_ID, "case_id") + ".lock")
+
+    @staticmethod
+    def _owners(records: dict) -> dict:
+        """ownership hash -> case id. A case holding a warm worker answers to that worker's name."""
+        return {ownership_hash((record or {}).get("slot") or case_id): case_id for case_id, record in records.items()}
+
     @contextlib.contextmanager
     def _lock(self, case_id: str, wait: bool = True):
         """Yields whether the case lock is held; only a no-wait caller can get False."""
-        fd = os.open(self.state / (_id(case_id, CASE_ID, "case_id") + ".lock"), os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(self._lock_path(case_id), os.O_CREAT | os.O_RDWR, 0o600)
         try:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
@@ -415,10 +481,11 @@ class BoatPool:
     def _live(row: dict) -> bool:
         return type(row.get("state")) is str and row["state"] in LIVE_STATES
 
-    def _find(self, rows, case_id, *, worker=None, intent=None):
+    def _find(self, rows, case_id, *, worker=None, intent=None, owner=None):
+        owner = ownership_hash(owner or case_id)
         for row in rows:
             labels = self._ours(row)
-            matches = (labels is not None and labels[LABEL_CASE] == ownership_hash(case_id)
+            matches = (labels is not None and labels[LABEL_CASE] == owner
                        and labels[LABEL_INTENT] == intent)
             if worker is not None and row.get("id") == worker:
                 if not matches or type(row.get("state")) is not str or row["state"] not in LIVE_STATES | DEAD_STATES:
@@ -433,9 +500,11 @@ class BoatPool:
         _id(case_id, CASE_ID, "case_id")
         _id(plumbing_version, DIGEST, "plumbing_version")
         _id(bench_version, DIGEST, "bench_version")
+        _check(not case_id.startswith(WARM_PREFIX), "case id is reserved for warm workers")
         if not self.store.has_bundle(plumbing_version):
             raise PoolError("infra:release_missing")
-        with self._lock(case_id):
+        self._remember_release(plumbing_version, bench_version)
+        with self._timed("acquire_total"), self._lock(case_id):
             record = self._read(case_id)
             if record is not None and record["deleting"] is not None:
                 self._finish_delete(case_id, record)
@@ -443,7 +512,8 @@ class BoatPool:
             worker = None
             if record is not None:
                 rows = self._inventory()
-                worker = self._find(rows, case_id, worker=record["worker"], intent=record["intent"])
+                worker = self._find(rows, case_id, worker=record["worker"], intent=record["intent"],
+                                    owner=record.get("slot"))
                 if worker is None:
                     if record["worker"] is None and record["intent"] is not None and not self._settled(case_id):
                         # An empty list response cannot prove that an earlier create request will
@@ -454,6 +524,12 @@ class BoatPool:
                     self._write(case_id, {"intent": None, "worker": None, "deleting": None})
                 elif record["worker"] != worker:
                     self._write(case_id, {**record, "worker": worker})
+            if worker is None and self.warm_target:
+                worker = self._take_warm(case_id, plumbing_version, bench_version)
+                if worker is not None:
+                    self._deliver_credentials(worker)
+                    self.refill_wanted.set()
+                    return WorkerLease(lease_worker_id(worker), case_id)
             installed = None
             if worker is not None:
                 installed = self._installed(worker)
@@ -467,10 +543,12 @@ class BoatPool:
             prepare_image = worker is None or installed is None
             fresh = worker is None
             if fresh:
-                worker = self._create(case_id, bench_version)
+                with self._timed("create"):
+                    worker = self._create(case_id, bench_version)
             try:
                 if fresh:
-                    self._wait_ready(worker)
+                    with self._timed("wait_ready", worker):
+                        self._wait_ready(worker)
                 self._install(worker, plumbing_version, bench_version, prepare_image=prepare_image)
                 self._deliver_credentials(worker)
             except PoolError as error:
@@ -513,7 +591,8 @@ class BoatPool:
             record = self._read(lease.case_id)
             if record is None or record["worker"] != boat_id(lease.worker_id):
                 return False
-            return self._find(self._inventory(), lease.case_id, worker=record["worker"], intent=record["intent"]) is not None
+            return self._find(self._inventory(), lease.case_id, worker=record["worker"], intent=record["intent"],
+                              owner=record.get("slot")) is not None
         except (PoolError, ContractError, OSError, ValueError):
             return True   # unknown is never dead (a transport failure is RUNNING)
 
@@ -527,7 +606,7 @@ class BoatPool:
         rows = self._inventory()
         adopted, deleted = [], []
         records = self._records()
-        cases = {ownership_hash(case_id): case_id for case_id in records}
+        cases = self._owners(records)
         claimed = set()
         for case_id, record in records.items():
             with self._lock(case_id):
@@ -537,7 +616,8 @@ class BoatPool:
                 if record["deleting"] is not None:
                     self._finish_delete(case_id, record)
                     continue
-                worker = self._find(rows, case_id, worker=record["worker"], intent=record["intent"])
+                worker = self._find(rows, case_id, worker=record["worker"], intent=record["intent"],
+                                    owner=record.get("slot"))
                 if worker is None:
                     if record["worker"] is None and record["intent"] is not None:
                         continue  # Keep ownership of an unresolved create across restarts.
@@ -591,7 +671,14 @@ class BoatPool:
                         path.unlink()
             except (PoolError, ContractError, OSError, ValueError):
                 failed = True
-        cases = {ownership_hash(path.stem): path.stem for path in paths}
+        owners = {}
+        for path in paths:
+            try:
+                owners[path.stem] = self._read(path.stem)
+            except (ContractError, OSError, ValueError):
+                owners[path.stem] = None
+                failed = True
+        cases = self._owners(owners)
         for row in rows:
             labels = self._ours(row)
             if labels is None:
@@ -622,6 +709,135 @@ class BoatPool:
                 failed = True
         if failed:
             raise PoolError("infra:sweep_incomplete")
+
+    # -- warm workers
+
+    def _remember_release(self, p: str, b: str):
+        """Note that a step just asked for this release; the most recent ones (a few, so two plumbing
+        versions in flight do not make the pool rebuild itself) are what warm workers carry."""
+        if not self.warm_target:
+            return
+        with self._remember_lock:
+            now = time.time()
+            rows = [r for r in self._asked() if (r["plumbing_version"], r["bench_version"]) != (p, b)]
+            rows = ([{"plumbing_version": p, "bench_version": b, "at": now}] + rows)[:WARM_RELEASES]
+            _atomic_json(self.state / "warm-releases.json", rows)
+
+    def _asked(self) -> list:
+        try:
+            rows = json.loads((self.state / "warm-releases.json").read_text())
+        except (OSError, ValueError):
+            return []
+        ok = (isinstance(rows, list) and all(
+            isinstance(r, dict) and set(r) == {"plumbing_version", "bench_version", "at"}
+            and all(isinstance(r[k], str) and DIGEST.fullmatch(r[k]) for k in ("plumbing_version", "bench_version"))
+            and isinstance(r["at"], (int, float)) for r in rows))
+        return rows if ok else []
+
+    def _wanted(self) -> list[dict]:
+        """Releases to keep warm, newest ask first: asked for recently, and the store still has the bundle."""
+        now = time.time()
+        return [{"plumbing_version": r["plumbing_version"], "bench_version": r["bench_version"]}
+                for r in self._asked() if now - r["at"] <= self.warm_idle and self.store.has_bundle(r["plumbing_version"])]
+
+    def _leased(self) -> dict:
+        """warm slot -> the worker a case record took from it (a crash may leave the slot record behind)."""
+        out = {}
+        for path in self.state.glob("case-*.json"):
+            if not path.stem.startswith(WARM_PREFIX):
+                with contextlib.suppress(ContractError, OSError, ValueError):
+                    record = self._read(path.stem)
+                    if record and record.get("slot"):
+                        out[record["slot"]] = record["worker"]
+        return out
+
+    def _take_warm(self, case_id: str, p: str, b: str) -> str | None:
+        """Hand an idle prepared worker to this case (caller holds the case lock), or None. The worker
+        must still carry exactly this release: RELEASE.json is read back from it, as on any reuse. The
+        case record is written before the slot record goes, so a crash never loses the worker."""
+        want, leased = {"plumbing_version": p, "bench_version": b}, self._leased()
+        for path in sorted(self.state.glob(WARM_PREFIX + "*.json")):
+            slot = path.stem
+            with self._lock(slot, wait=False) as held:
+                record = self._read(slot) if held else None
+                if (record is None or record["worker"] is None or record["deleting"] is not None
+                        or leased.get(slot) == record["worker"]):
+                    continue
+                try:
+                    if self._installed(record["worker"]) != want:
+                        continue   # refill replaces it
+                except PoolError:
+                    continue
+                self._write(case_id, {**record, "slot": slot})
+                path.unlink()
+                self._lock_path(slot).unlink(missing_ok=True)
+                return record["worker"]
+        return None
+
+    def refill(self) -> None:
+        """Bring the idle prepared workers to warm_target on the last release a step asked for:
+        delete stale (other release, gone, unreachable) and surplus ones, create the missing ones
+        in parallel. Called by the runtime's warm loop; one pass at a time."""
+        wants = self._wanted()
+        if not self._refill_lock.acquire(blocking=False):
+            return
+        try:
+            rows, leased, good = self._inventory(), self._leased(), 0
+            for path in sorted(self.state.glob(WARM_PREFIX + "*.json")):
+                slot = path.stem
+                with self._lock(slot, wait=False) as held:
+                    record = self._read(slot) if held else None
+                    if not held:
+                        good += 1   # being filled or taken right now
+                        continue
+                    if record is None or record["deleting"] is not None:
+                        continue   # sweep finishes deletes
+                    if record["worker"] is None:
+                        good += record["intent"] is not None   # an unresolved create counts until sweep settles it
+                        continue
+                    if leased.get(slot) == record["worker"]:
+                        path.unlink()   # a case took it; only a crash leaves this behind
+                        continue
+                    try:
+                        keep = (good < self.warm_target and self._installed(record["worker"]) in wants
+                                and self._find(rows, slot, worker=record["worker"], intent=record["intent"]))
+                    except PoolError:
+                        keep = False
+                    if keep:
+                        good += 1
+                    elif any(r.get("id") == record["worker"] for r in rows):
+                        self._delete_locked(slot, record["worker"])
+                    else:
+                        path.unlink()
+            missing = max(0, self.warm_target - good) if wants and not self.stopping.is_set() else 0
+            threads = [threading.Thread(target=self._make_warm, args=(wants[0],)) for _ in range(missing)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        finally:
+            self._refill_lock.release()
+
+    def _make_warm(self, want: dict) -> None:
+        slot, worker = WARM_PREFIX + uuid.uuid4().hex[:12], None
+        if self.stopping.is_set():
+            return
+        try:
+            with self._lock(slot):
+                try:
+                    with self._timed("warm_create"):
+                        worker = self._create(slot, want["bench_version"])
+                    self._wait_ready(worker)
+                    self._install(worker, want["plumbing_version"], want["bench_version"], prepare_image=True)
+                    if self.stopping.is_set():   # the runtime stopped while this was building: nobody will lease it
+                        raise PoolError("infra:warm_stopped")
+                except PoolError:
+                    if worker is not None:
+                        with contextlib.suppress(PoolError):
+                            self._delete_locked(slot, worker)
+                    raise
+        except (PoolError, ContractError, OSError, ValueError) as error:
+            LOG.warning("warm worker not prepared: %s", getattr(error, "reason", "infra:warm_failed"))
 
     # -- creation
 
@@ -684,7 +900,8 @@ class BoatPool:
 
     def _step(self, worker, name, script, timeout, *, stdin=None, retry=False):
         for attempt in range(2 if retry else 1):
-            code, out = self.boat.ssh(worker, script, stdin=stdin, timeout=timeout)
+            with self._timed(name, worker):
+                code, out = self.boat.ssh(worker, script, stdin=stdin, timeout=timeout)
             if code == 0:
                 return out
             if attempt == 0 and retry:
