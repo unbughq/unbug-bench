@@ -41,6 +41,9 @@ class GatePipeline:
     # gate that follows them (G6, where G10 may start overlapping).
     side_gates: tuple = ()
     side_lane: Callable = lambda c: False
+    # (gate, before): the lane's first gate is recorded before `before` is recorded, so a failure there
+    # stops the loop ahead of whatever `before`'s after_gate spends (G2 before G5's early probe).
+    side_early: tuple = ()
     # A context whose bench commands run on their own reserved instance, for the early gates beside G15
     # (early_parallel); None keeps today's serial early order.
     early_lane: Callable = lambda c: None
@@ -293,17 +296,36 @@ class GatePipeline:
         # Start after G1 when it comes first: an invalid case should not reach the reviewers.
         side_after = "G1" if side and "G1" in order and order.index("G1") < order.index(side[0]) else None
         side_join = next((g for g in order[order.index(side[-1]) + 1:] if g not in side), None) if side else None
-        lane = {"future": None, "hash": None, "section": None}
+        lane = {"future": None, "hash": None, "section": None, "results": [], "first": threading.Event(), "taken": False}
+        early = bool(side and self.side_early and side[0] == self.side_early[0] and self.side_early[1] in order
+                     and order.index(self.side_early[1]) < order.index(side_join or order[-1]))
 
         def side_run():
-            results = []
-            for gate in side:
-                self.budget_boundary(c)
-                started = time.time()
-                outcome = run_gate(gate)
-                results.append((gate, outcome, started, time.time()))
-                if outcome.crashed or not outcome.ok: break
+            results = lane["results"] = []
+            try:
+                for gate in side:
+                    self.budget_boundary(c)
+                    started = time.time()
+                    outcome = run_gate(gate)
+                    results.append((gate, outcome, started, time.time()))
+                    lane["first"].set()
+                    if outcome.crashed or not outcome.ok: break
+            finally:
+                lane["first"].set()
             return results
+
+        def side_first():
+            """Record the lane's first gate now (waiting for it). True when the loop must stop."""
+            lane["first"].wait()
+            if lane["future"].done() and lane["future"].exception(): return side_finish()  # raised: surface it now
+            if not lane["results"]: return False
+            lane["taken"] = True
+            return record(*lane["results"][0], quiet())
+
+        def lane_failed():
+            # A reviewer verdict that failed: G16 (and G5) precede G8/G9 in gate order, so record it at the
+            # join (or after the loop's earliest-failure fix-up), not at the next boundary.
+            return any(not o.ok and not o.crashed for _, o, _, _ in lane["results"])
 
         def side_start():
             lane["hash"] = self.case_hash(c)
@@ -329,7 +351,7 @@ class GatePipeline:
                 c.card["failed_detail"] = {"error": "case_changed_during_parallel_gates"}
                 return True
             stop = False
-            for gate, outcome, started, finished in results:
+            for gate, outcome, started, finished in results[1 if lane["taken"] else 0:]:
                 stop = record(gate, outcome, started, finished, quiet()) or stop
             return stop
 
@@ -341,7 +363,7 @@ class GatePipeline:
             if side and side_after is None: side_start()
             for gate in order:
                 if gate in side: continue
-                if lane["future"] is not None and (lane["future"].done() or gate == side_join):
+                if lane["future"] is not None and ((lane["future"].done() and not lane_failed()) or gate == side_join):
                     if side_finish(): break
                 self.budget_boundary(c)
                 if a.dry_run and gate in self.dry_skip:
@@ -373,6 +395,8 @@ class GatePipeline:
                             g10_section.__exit__(None, None, None); g10_section = None
                 else:
                     outcome = run_gate(gate)
+                if early and gate == self.side_early[1] and lane["future"] is not None and not lane["taken"]:
+                    if side_first(): break
                 if record(gate, outcome, started, time.time(), quiet(gate)): break
                 if side_after == gate and side: side_start()
             if lane["future"] is not None:

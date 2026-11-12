@@ -958,7 +958,7 @@ def _gate_pipeline():
         budget_boundary=case_budget_boundary, after_gate=_gate_completed,
         overlap_reason=g10_overlap_reason, gates=tuple(GATES),
         early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP,
-        side_gates=SIDE_GATES, side_lane=parallel_gates, early_lane=early_lane)
+        side_gates=SIDE_GATES, side_lane=parallel_gates, side_early=('G2', 'G5'), early_lane=early_lane)
 
 
 def checked_gate(c, gate):
@@ -1299,8 +1299,21 @@ def plain_and_reference(c, seed, tag):
     return verdicts(c, none), verdicts(c, ref), s
 
 
-def cheat_runs(c, seed, tag, *, guards=None, runs=None):
-    """(guards that solved, guards). Full G6 and G7: every cheat, no allowance."""
+def reopened_first(c, gate, guards):
+    """refuse-all first (cheats()), then a cheat that failed this gate in an earlier round, then the rest."""
+    named = set((jload(c.work / "gate-details" / f"{gate}.json", {}) or {}).get("passing_cheats") or [])
+    return sorted(guards, key=lambda g: (g != BENCH / "guards/refuse-all", g.name not in named))
+
+
+def record_passing_cheats(c, gate, failures):
+    """Sealed-side, like G5.json: the writer repairing the gate reads which cheat got through."""
+    (c.work / "gate-details").mkdir(exist_ok=True)
+    (c.work / "gate-details" / f"{gate}.json").write_text(json.dumps({"passing_cheats": [pathlib.Path(x).name for x in failures]}))
+
+
+def cheat_runs(c, seed, tag, *, guards=None, runs=None, failures=None, stop_on_pass=False):
+    """(guards that solved, guards). Full G6 and G7: every cheat, no allowance. With stop_on_pass the
+    gate (which passes only at zero) stops at the first solving cheat; a passing case still runs them all."""
     guards = cheats(c) if guards is None else guards
     passed = 0
     shards = {}   # helper machines (off unless --helper-workers): checkpoints a helper completed; the rest run here
@@ -1311,7 +1324,10 @@ def cheat_runs(c, seed, tag, *, guards=None, runs=None):
             boundary=lambda: case_budget_boundary(c))
     for g in guards:
         _, recs = shards.get(str(g)) or checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs, seed, f"{tag}-cheat")
-        passed += any(v["solved"] for v in verdicts(c, recs))
+        solved = any(v["solved"] for v in verdicts(c, recs))
+        passed += solved
+        if solved and failures is not None: failures.append(str(g))
+        if solved and stop_on_pass: break
     return passed, len(guards)
 
 
@@ -1366,7 +1382,28 @@ def g1(c):
     if counts is None: return False, {"problems": problems}
     log(c, "G1 problems", json.dumps(problems))
     c.card["counts"] = counts
-    return not problems, {"problems": problems, "content_checks": "on" if full else "off (dry-run fixture)"}
+    details = {"problems": problems, "content_checks": "on" if full else "off (dry-run fixture)"}
+    if full and not problems and (warning := isolation_warnings(c)): details["warnings"] = warning
+    return not problems, details
+
+
+def isolation_warnings(c):
+    """Never a G1 failure: a case whose inventory services lack host_ports or mem_limit still runs, but
+    serially, because parallel bench copies (bench_workers, G10 overlap) need both. Counts only."""
+    import bench
+    try:
+        scenarios = [bench.load_scenario(c.case / "base")] + [bench.load_scenario(d) for d in sorted((c.case / "scenarios").iterdir()) if d.is_dir()]
+        services = bench.inventory_services(scenarios)
+        if not services: return []
+        warnings = []
+        if missing := [s["name"] for s in services if "host_ports" not in s]:
+            log(c, "G1 warning: inventory services without host_ports", json.dumps(missing))
+            warnings.append(f"{len(missing)} inventory service(s) lack host_ports: bench copies run serially")
+        if not bench.factory_memory_fits(scenarios, 1):
+            log(c, "G1 warning: memory caps missing or one bench copy does not fit")
+            warnings.append("inventory services lack mem_limit (or one copy does not fit): bench copies run serially")
+        return warnings
+    except Exception: return []  # advisory only
 
 
 def strategy_module():
@@ -2094,7 +2131,12 @@ def g5(c):
 
 def g6(c):
     """Cheats fail: block-everything, case cheats (case base traffic) and every generic probe (bin/verify-negative)."""
-    passed, total = cheat_runs(c, c.seed, "g6")
+    failed = []
+    passed, total = cheat_runs(c, c.seed, "g6", guards=reopened_first(c, "G6", cheats(c)), failures=failed, stop_on_pass=True)
+    if passed:  # already failing: the generic probes cannot change the verdict
+        record_passing_cheats(c, "G6", failed)
+        c.card["cheats_passed"] = f"{passed}/{total}"
+        return False, {"cheats_passed": c.card["cheats_passed"], "stopped_at_first_passing_cheat": True}
     command = [BENCH / "bin/verify-negative"]
     if getattr(c.args, "bench_workers", 1) > 1: command += ["--factory-workers", c.args.bench_workers]
     p = sh(c, command, capture=True, timeout=7200)
@@ -2114,7 +2156,9 @@ def g7(c):
     """Flakiness: G4-G6 seeded runs again with a new seed; same verdicts. (Same day, same VM: see README.)"""
     seed = c.seed + 7919
     none, ref, s = plain_and_reference(c, seed, "g7")
-    passed, total = cheat_runs(c, seed, "g7")
+    failed = []
+    passed, total = cheat_runs(c, seed, "g7", guards=reopened_first(c, "G7", cheats(c)), failures=failed, stop_on_pass=True)
+    if passed: record_passing_cheats(c, "G7", failed)
     broke, solved = sum(x["broken"] for x in none), sum(x["solved"] for x in ref)
     c.card["flakiness_rerun"] = {"seed": seed, "plain_app_broke": f"{broke}/{len(none)}", "reference_fix": f"{solved}/{len(ref)}", "cheats_passed": f"{passed}/{total}"}
     ok = all(x["clean"] for x in none + ref) and broke >= 1 and solved == len(ref) and s.get("legit_completion", 0) >= 0.95 and passed == 0

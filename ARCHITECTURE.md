@@ -168,7 +168,7 @@ repair round included, adopts them when a new writer round begins
 round that already began keeps its settings, and an explicit `parallel_gates` on the card is never
 overridden (`false` is the only pin; an older card's `bench_workers` is replaced). For those cases G10's two calibrators run at once and
 may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second thread after G1,
-joining before G6. In a writer step's early checks under the same G10 overlap conditions
+joining before G6 (G2 is recorded before G5, ahead of its early probe, so a G2 failure stops the loop before that spend). G6 and G7 stop at the first passing cheat, since they pass only at zero (G6 then skips `verify-negative`; the cheat's name goes to sealed-side `gate-details`); G1 only warns when an inventory service lacks `host_ports` or `mem_limit`. In a writer step's early checks under the same G10 overlap conditions
 (`run.early_lane`, at least two bench workers), G3 runs first, then G15 keeps the foreground pool
 while G4, G5 and the saved-cheat sample run in order on the first reserved tester instance; both
 finish and every failure goes to the writer in serial order. The lane is fingerprinted as the

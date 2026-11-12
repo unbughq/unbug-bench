@@ -47,6 +47,17 @@ def review_attempts(c, r, gate, folder):
     attempts = r.jload(c.work / folder / "results.json", [])
     if not isinstance(attempts, list) or not attempts:
         raise InvalidInfra("missing calibration evidence")
+    # A try that already ended capped or unknown makes the review inconclusive whatever the missing
+    # tries show, so do not buy replacements for them first (same None as the loop below would reach).
+    for original in attempts:
+        workspace = pathlib.Path(original["workspace"]).resolve()
+        workspace.relative_to(c.work.resolve())
+        if not guard_submitted(workspace / 'guard'): continue
+        execution = r.jload(workspace / 'execution.json', {})
+        try: require_valid(execution.get('summary'), execution.get('records'))
+        except InvalidInfra: continue
+        attempt_summary([dict(original)])
+        if scientific_outcome(dict(original)) not in ('solved', 'demonstrated_failure'): return None
     repaired, review_rows = [], []
     transcript_folders = {folder, 'early_probe'}
     for original in attempts:
