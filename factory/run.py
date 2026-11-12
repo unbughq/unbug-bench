@@ -537,20 +537,17 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
             reverify_timeout = min(1200, max(300, 60 * sum(
                 search_evidence_error(row) is not None for row in freshness_lines(c))))
         deadline = time.monotonic() + min(reverify_timeout, getattr(c.args, 'agent_timeout', 1200))
-    for who, model_key in (("builder", "builder"), ("attacker", "attacker")):
-        if who in completed_roles: continue
+    def role_state(who):
         n = freshness_counts(c)
         errors = [{"row": i + 1, "reason": reason} for i, row in enumerate(freshness_lines(c))
                   if (row.get("who") == who or who == "builder" and row.get("who") not in ("builder", "attacker"))
                   and (reason := ('runner_retrieval_unavailable: append an alternative result as a NEW row'
                                   if row.get('url') in getattr(c, 'freshness_unfetched', set())
                                   else search_evidence_error(row))) is not None]
-        need = (f"at least {max(0, 3 - n['builder_web'])} more web and {max(0, 3 - n['builder_github'])} more GitHub"
-                if who == "builder" else f"at least {max(0, 2 - n['attacker'])} more web or GitHub")
         short = bool(errors) or (n["builder_web"] < 3 or n["builder_github"] < 3 if who == "builder" else n["attacker"] < 2)
-        if not short:
-            if role_completed is not None: role_completed(who)
-            continue
+        return n, errors, short
+
+    def snapshot():
         before = freshness_lines(c)
         # Stable identities let a row's malformed fields be repaired without losing its history.
         seen = set()
@@ -566,6 +563,29 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
         original = statement.read_bytes() if statement.is_file() else None
         atomic_json(c.work / 'freshness-inflight.json',
                     {'rows': before, 'statement_hex': original.hex() if original is not None else None})
+
+    if getattr(c.args, 'freshness_fanout', False):
+        # Both roles plan, search (concurrently) and score on their own; only close/unsure leads are
+        # browsed. A role still short afterwards falls through to the agentic call below.
+        import freshness_fanout
+        roles = [who for who in ("builder", "attacker") if who not in completed_roles and role_state(who)[2]]
+        if roles:
+            snapshot()
+            try:
+                if deadline - time.monotonic() <= 0: raise BudgetError('timeout')
+                case_budget_boundary(c, c.models['builder'][0])
+                freshness_fanout.fan_out(sys.modules[__name__], c, roles, opencode, deadline)
+            finally:
+                finish_freshness_repair(c)
+    for who, model_key in (("builder", "builder"), ("attacker", "attacker")):
+        if who in completed_roles: continue
+        n, errors, short = role_state(who)
+        need = (f"at least {max(0, 3 - n['builder_web'])} more web and {max(0, 3 - n['builder_github'])} more GitHub"
+                if who == "builder" else f"at least {max(0, 2 - n['attacker'])} more web or GitHub")
+        if not short:
+            if role_completed is not None: role_completed(who)
+            continue
+        snapshot()
         text = (f"Freshness check only; change nothing else. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
                 f"case_dir to learn the bug and pinned app version. Then make {need} searches for this bug, its fix or workarounds in this app, and "
                 f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
@@ -3203,6 +3223,9 @@ def argument_parser():
     p.add_argument("--continue-g11-review", action="store_true", help="continue a restored sealed audit, preserving its notes and remaining budget")
     p.add_argument("--concurrent-roles", action=argparse.BooleanOptionalAction, default=True,  # founder, 2026-10-17
                    help="run the two calibrators at once on isolated users and bench instances (Linux firewall required); --no-concurrent-roles for serial")
+    p.add_argument("--freshness-fanout", action=argparse.BooleanOptionalAction, default=True,
+                   help="G2 top-up searches by fan-out (plan, concurrent Exa/GitHub queries, one scoring call, deep dives on unsure hits) "
+                        "before any agentic browsing; --no-freshness-fanout for browsing only")
     p.add_argument("--parallel-gates", action=argparse.BooleanOptionalAction, default=False,
                    help="engine cases admitted with it: parallel calibrators and G10 overlap at quiescent checkpoints, "
                         "G2/G8/G9 beside the bench gates")
