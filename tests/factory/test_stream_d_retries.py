@@ -52,6 +52,7 @@ class RetryTests(unittest.TestCase):
         quote = model_router.funded_maximum
         self.patch(model_router, 'funded_maximum', lambda route, funding:
                    quote(route, min(Decimal(str(funding)), Decimal('.1'))))
+        self.c.args.freshness_fanout = False   # these tests drive the agentic top-up's call sequence
         self.c.stress_checkpoint = lambda: True
         self.calls = []
         self.context_inputs = {key: copy.deepcopy(value) for key, value in vars(self.c).items()
