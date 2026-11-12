@@ -1229,6 +1229,12 @@ def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=
     it passes go to `unchecked` and do not run; full G6 and G7 pass no deadline."""
     guards = cheats(c) if guards is None else guards
     passed = 0
+    shards = {}   # helper machines (off unless --helper-workers): checkpoints a helper completed; the rest run here
+    if deadline is None and getattr(c.args, "helper_workers", 0) > 0 and getattr(c, "helper_pool", None) is not None:
+        from durable import helpers
+        shards = helpers.checkpoint_shards(c, guards, c.args.runs if runs is None else runs, seed, f"{tag}-cheat",
+            case=case_hash(c), scenarios=[tree_digest(c.case / "base")], bench=getattr(c, "manifest0", None),
+            boundary=lambda: case_budget_boundary(c))
     for i, g in enumerate(guards):
         options = {}
         if deadline is not None:
@@ -1236,8 +1242,8 @@ def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=
             options['timeout'] = deadline - time.monotonic()
         try:
             if options.get('timeout', 1) <= 0: raise AllowanceSpent("saved-cheat validation time allowance exhausted")
-            _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
-                                 seed, f"{tag}-cheat", **options)
+            _, recs = shards.get(str(g)) or checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
+                                                       seed, f"{tag}-cheat", **options)
         except AllowanceSpent:
             if unchecked is None: raise
             unchecked.extend(str(x) for x in guards[i:])
@@ -3196,6 +3202,7 @@ def argument_parser():
     p.add_argument("--max-repairs", type=int, default=2, help="retained repair setting for scientific step contexts")
     p.add_argument("--runs", type=int, default=10, help="runs per G4-G7 checkpoint")
     p.add_argument("--scenario-runs", type=int, default=3)
+    p.add_argument("--helper-workers", type=int, default=0, help="max helper machines for G6/G7 cheat checkpoints (needs a helper pool); 0 runs them here, as before")
     p.add_argument("--bench-workers", type=int, default=1, help="factory-only parallel bench instances; 1 preserves serial scheduling")
     p.add_argument("--audit-g11", action="store_true", help="restored case only: sealed reviewer audit, no build or gate changes")
     p.add_argument("--audit-fairness", action="store_true", help="audit a separate copy of a sealed case")
