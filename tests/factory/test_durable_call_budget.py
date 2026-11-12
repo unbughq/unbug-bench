@@ -167,13 +167,15 @@ class AttemptBudget(unittest.TestCase):
             c.model_process_state['started']=True
             invoked.append(name)
             if name.startswith('strong-calibrator'):
-                self.assertEqual(Decimal(str(c.model_lease.max_usd)), self.attempt.ceiling_usd-expected)
+                # Capped like every non-writer call, and never into the owner's room.
+                self.assertEqual(Decimal(str(c.model_lease.max_usd)),
+                                 min(Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD)), self.attempt.ceiling_usd-expected))
                 parent=next(r for r in json.loads(self.ledger.read_text())['invocation_reservations'].values())
                 owner=copy.copy(self.c);owner.parent_call_name=name
                 self.assertEqual(self.runtime.call(owner,[reviewer],'question',self.root,'reviewer-owner-example'),0)
                 self.assertEqual(json.loads(self.ledger.read_text())['invocation_reservations'][parent['lease_id']]['state'],'pending')
-            else:
-                self.assertEqual(Decimal(str(c.model_lease.max_usd)),expected)
+            else:   # the owner is funded beside the parent's capped hold
+                self.assertEqual(Decimal(str(c.model_lease.max_usd)),Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD)))
                 self.assertLessEqual(budget.outstanding_reservations(json.loads(self.ledger.read_text())),self.attempt.ceiling_usd)
             state=model_call_gate.Allowance(c.model_lease)
             request=state.reserve(1);self.assertIsNotNone(request)
@@ -387,6 +389,30 @@ class AttemptBudget(unittest.TestCase):
                 self.assertEqual(self.runtime.call(self.c, [paid], 'x', self.root, name), 0)
         self.assertEqual(windows, {'builder-1': Decimal('40'), 'attacker-1': Decimal('12.5'),
                                    'reviewer-1': Decimal('12.5'), 'strong-calibrator-1': Decimal('12.5')})
+
+    def test_codex_judges_are_capped_and_a_codex_writer_keeps_its_window(self):
+        """86b100-r9 (11 November): a Codex strong calibrator (G16 judge_breadth) took a $48.71
+        window, a parallel lane reserved first, and the case was held grant_insufficient with $41
+        unspent. Every role but the writer is now capped on every family."""
+        codex = 'codex/gpt-6.1-sol'
+        self.c.card['roles']['writer']['model'] = codex
+        self.store.capacities['codex-auth.json'] = 4
+        self.attempt.ceiling_usd = Decimal('49.403501')
+        windows = {}
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started'] = True
+            windows[name] = Decimal(str(c.model_lease.max_usd))
+            state = model_call_gate.Allowance(c.model_lease)
+            state.close(); c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
+                patch.object(model_router, '_credential_ready', return_value=True):
+            for name in ('strong-calibrator-1', 'reviewer-1', 'builder-1'):
+                self.assertEqual(self.runtime.call(self.c, [codex], 'x', self.root, name), 0)
+        window = Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD))
+        self.assertEqual(windows['strong-calibrator-1'], window)
+        self.assertEqual(windows['reviewer-1'], window)
+        self.assertGreater(windows['builder-1'], window)
 
     def test_cheap_windows_never_exceed_the_case_grant(self):
         paid = 'openrouter/minimax/minimax-m3.1-flash'
