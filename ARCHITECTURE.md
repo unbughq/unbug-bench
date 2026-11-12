@@ -515,8 +515,17 @@ full G5 only, dispatched together, read by the same `read_completed`) and each G
 at once; the helper runs `run._author_try` plus the scoring checkpoint via `run.hosted_try`, returns
 the guard bytes and the checkpoint's summary and records sealed, and the case worker installs them
 into the `AttemptSeries` workspace with the same delivery and commits in order, so identity, scoring
-and blinding are the serial path's). A try no helper completes, or whose result is inconsistent
-(guard without execution or the reverse), is authored here as today. Caps apply per `calibrate`
+and blinding are the serial path's). The helper refuses a job whose case, seed, minutes, model, bench,
+release or calibration identity differs from its own; the case worker checks a scored try like a
+checkpoint job (`read_completed`: run count, order, validity, summary against records). Money: the
+worst case of every dispatched try (one call window, plus the owner window for the exam) is sized
+against available funding up front (`run.helper_try_authority`, recorded in
+`card["helper_try_authority"]`); tries beyond it stay serial here. Helper-side model spend is booked
+by the transport, not yet built. A finished try is saved when accepted (`helper-tries/`) and reused
+when the identical job is dispatched again after a stop or crash. A model or money stop on a helper
+is returned as a result (never requeued, never paid twice) and re-raised at that try's turn with its
+interruption label; a capped try sets `force_budget_resume` as the serial handler does. A try no
+helper completes, or whose result is inconsistent, is authored here as today. Caps apply per `calibrate`
 call, so strong and easy together may lease up to twice N. `durable/helpers.py` is also in G5's and
 G10's dependencies. G15 strategies stay local: they deliberately share identical executions
 (`bin/strategy execute_shared`), which separate jobs would give up (a founder decision).

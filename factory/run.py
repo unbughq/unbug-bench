@@ -2187,25 +2187,59 @@ def _author_try(c, role, name, exposure, i, make_workspace):
     return ws, capped
 
 
+def helper_try_authority(c, role, exposure, tries):
+    """(per-try USD, how many of `tries` the case's funding covers all at once). Concurrent tries are
+    admitted against the worst case of each, up front (founder-approved 2026-11-12): a try serial
+    execution would not have reserved yet is never dispatched, so the cap cannot be overrun by tries that
+    all start at once. The rest run here, one at a time, as today. A try's worst case is one call window
+    (the serial funding cap) plus, for the exam, the owner reviewer window held outside it."""
+    from decimal import Decimal
+    from model_runtime import CHEAP_CALL_WINDOW_USD, UNCAPPED_ROLES
+    accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
+    def widest(model):
+        return max((Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)), default=None)
+    per_try = widest(c.models[role][0])
+    if per_try is None: return Decimal(0), 0
+    if role not in UNCAPPED_ROLES: per_try = min(per_try, Decimal(str(CHEAP_CALL_WINDOW_USD)))
+    if exposure == "exam":
+        owner = widest(c.models["reviewers"][0][0])
+        if owner is None: return Decimal(0), 0
+        per_try += owner
+    if getattr(c, "engine", None) is not None:
+        from budget import available_invocation_funding
+        available = Decimal(available_invocation_funding(c.ledger, c.engine))
+    else:
+        _, summary = update_case_budget(c)
+        available = Decimal(str(summary["limit_usd"])) - Decimal(str(summary.get("total_spent_usd") or 0))
+    return per_try, max(0, min(tries, int(available // per_try)))
+
+
 def hosted_tries(c, series, role, name, exposure, runs):
     """{try: helpers.unpack_try result} for the tries of this series a helper completed, all dispatched
     at once. Each try is the whole serial unit (fresh reset and workspace, the pilot wall, the time limit,
     then the scoring checkpoint) on its own helper, so tries stay independent. Tries with a saved
-    interrupted attempt (series.pending) keep their local path. Committing stays with the caller."""
+    interrupted attempt (series.pending) keep their local path, and so do tries beyond the up-front money
+    authority (helper_try_authority). Committing stays with the caller."""
     from durable import helpers
     from durable.checkpoints import verdict_code
     a = c.args
+    numbers = [i for i in series.remaining() if series.pending(i) is None]
+    per_try, covered = helper_try_authority(c, role, exposure, len(numbers))
+    numbers = numbers[:covered]
+    if not numbers: return {}
+    c.card.setdefault("helper_try_authority", {})[name] = {"per_try_usd": float(per_try), "hosted_tries": numbers,
+                                                          "reserved_usd": float(per_try * len(numbers))}
     identity = calibration_identity(c, role, exposure, runs=runs)
     identity_digest = helpers.digest_of({k: v for k, v in identity.items() if k != "slot"})
     jobs = {i: helpers.make_try_job(case=case_hash(c), role=role, name=name, exposure=exposure, number=i, seed=c.seed + i,
                                     runs=runs, minutes=a.calibrator_minutes, model=list(c.models[role]),
                                     identity=identity_digest, bench=getattr(c, "manifest0", None), release=verdict_code(),
-                                    workers=getattr(a, "bench_workers", 1))
-            for i in series.remaining() if series.pending(i) is None}
+                                    workers=getattr(a, "bench_workers", 1), authority_usd=str(per_try))
+            for i in numbers}
     def boundary():
         if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
         case_budget_boundary(c)
-    return helpers.try_shards(c, jobs, boundary=boundary) if jobs else {}
+    return helpers.try_shards(c, jobs, boundary=boundary)
 
 
 def install_hosted_try(c, series, exposure, i, result):
@@ -2216,6 +2250,7 @@ def install_hosted_try(c, series, exposure, i, result):
         target = ws / "guard" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
+    if result["capped"]: c.force_budget_resume = True   # as the serial cap handler: the run may continue past the cap
     execution = result["execution"]
     return ws, result["capped"], (execution["summary"], execution["records"]) if execution else None
 
@@ -2225,12 +2260,22 @@ def hosted_try(c, job):
     helper's own case copy, models and pilot user): author the try exactly as calibrate does, score it
     with the same checkpoint, and return the sealed-file form. A stale job is refused before any model call."""
     from durable import helpers
-    if job["seed"] != c.seed + job["try"] or job["case"] != case_hash(c):
-        raise helpers.HelperRefused("try job does not match this helper's case or seed")
-    role, name, i, runs = job["role"], job["name"], job["try"], job["runs"]
+    from durable.checkpoints import verdict_code
+    role, name, i, runs, exposure = job["role"], job["name"], job["try"], job["runs"], job["exposure"]
+    a = c.args
+    mine = {"case": case_hash(c), "seed": c.seed + i, "minutes": a.calibrator_minutes, "bench": getattr(c, "manifest0", None),
+            "release": verdict_code(), "model": list(c.models[role]), "workers": getattr(a, "bench_workers", 1)}
+    for key, value in mine.items():
+        if job[key] != value: raise helpers.HelperRefused(f"try job's {key} differs from this helper's")
+    identity = calibration_identity(c, role, exposure, runs=runs)
+    if job["identity"] != helpers.digest_of({k: v for k, v in identity.items() if k != "slot"}):
+        raise helpers.HelperRefused("try job's calibration identity differs from this helper's")
     ws = c.work / name / f"try-{i}"
     if ws.exists(): shutil.rmtree(ws)
-    ws, capped = _author_try(c, role, name, job["exposure"], i, lambda: ws)
+    try:
+        ws, capped = _author_try(c, role, name, exposure, i, lambda: ws)
+    except BudgetError as error:   # a model or money stop is a result for the case side, not a helper fault
+        return helpers.pack_stop(str(error), interruption_label(error))
     execution = None
     if guard_submitted(ws / "guard"):
         summary, recs = checkpoint(c, [c.case / "base"], ws / "guard", runs, job["seed"], "g10-" + name)
@@ -2268,6 +2313,10 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
         pending = series.pending(i)
         execution = None
         if pending is None:
+            if i in hosted and hosted[i]["stopped"] is not None:
+                counts = c.card.setdefault("calibration_interruptions", {}).setdefault(name, {})
+                counts[hosted[i]["label"]] = counts.get(hosted[i]["label"], 0) + 1
+                raise BudgetError(hosted[i]["stopped"])
             if i in hosted:
                 ws, capped, execution = install_hosted_try(c, series, exposure, i, hosted[i])
             else:

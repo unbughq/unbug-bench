@@ -4,6 +4,7 @@ import sys
 from pathlib import Path as _P
 _ROOT = _P(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "factory"), str(_ROOT / "bin"), str(_ROOT / "tests/bench")]
+from decimal import Decimal
 import argparse, json, tempfile, threading, time, types, unittest
 from contextlib import ExitStack
 from pathlib import Path
@@ -15,16 +16,25 @@ sys.path.insert(0, str(_ROOT / "tests/factory"))
 from test_helper_machines import write_checkpoint
 
 
+REAL_AUTHORITY, REAL_AUTHOR = run.helper_try_authority, run._author_try
+
+
 def solved_for(i): return i != 2          # try 2 of the fake model fails every run
 
 
-def fake_files(i, *, submit=True, solved=None):
+def fake_execution(i, runs=2, solved=None):
     solved = solved_for(i) if solved is None else solved
-    execution = None
-    if submit:
-        rec = {"run": 1, "errors": [], "checker": {"valid": True},
-               "judge": {"paths": {"p": False}, "checks": {"k": solved}}}
-        execution = {"summary": {"runs": 1, "marker": i}, "records": [rec, rec]}
+    recs = [{"run": n, "errors": [], "checker": {"valid": True},
+             "judge": {"pass": solved, "paths": {"p": False}, "checks": {"k": solved}, "legit": {"attempted": 1, "placed": 1}}}
+            for n in range(1, runs + 1)]
+    summary = {"runs": runs, "pass_runs": runs if solved else 0, "error_runs": 0, "invalid_runs": 0,
+               "paths": {"p": {"violated_runs": 0, "runs": runs}},
+               "checks": {"k": {"ok_runs": runs if solved else 0, "runs": runs}}}
+    return {"summary": summary, "records": recs}
+
+
+def fake_files(i, *, submit=True, solved=None, runs=2):
+    execution = fake_execution(i, runs, solved) if submit else None
     files = {"result.json": json.dumps({"capped": None, "execution": execution})}
     if submit:
         import base64
@@ -92,6 +102,7 @@ class G10Tests(unittest.TestCase):
         for owner, n, v in [(run, "BENCH", root / "bench"), (run, "_author_try", author), (run, "checkpoint", checkpoint),
                             (run, "prompt", lambda *a: "p"), (run, "prepare_delivery", delivery),
                             (run, "case_budget_boundary", lambda c_: None),
+                            (run, "helper_try_authority", lambda c_, role, exposure, n: (Decimal("1"), n)),
                             (run, "verdicts", lambda c_, recs: [{"clean": True, "solved": all(
                                 ((r.get("judge") or {}).get("checks") or {}).get("k") for r in recs)}] * len(recs))]:
             self.stack.enter_context(patch.object(owner, n, v))
@@ -176,6 +187,146 @@ class G10Tests(unittest.TestCase):
         sealed = helpers.execute(job, b"k" * 32, check=lambda j: None, run=lambda j: files)
         self.assertEqual(helpers.open_sealed(b"k" * 32, job, sealed), files)
 
+    # --- review fixes -------------------------------------------------------------------------------
+
+    def hosted(self, name, pool, workers=3, tries=3):
+        c = self.context(name)
+        c.args.helper_workers, c.args.pilot_tries, c.helper_pool = workers, tries, pool
+        return c
+
+    def test_truncated_or_invalid_try_execution_is_not_committed(self):
+        short = lambda i: fake_files(i, runs=1) if i == 1 else fake_files(i)      # 1 record for pilot_runs=2
+        invalid = lambda i: (fake_files(i) if i != 1 else {
+            **fake_files(i), "result.json": json.dumps({"capped": None, "execution": {
+                **fake_execution(1), "records": [{**r, "checker": {"valid": False}} for r in fake_execution(1)["records"]]}})})
+        for n, mutate in enumerate((short, invalid)):
+            pool = TryPool(mutate=mutate)
+            c = self.hosted(f"trunc{n}", pool)
+            run.calibrate(c, "easy_calibrator")
+            self.assertEqual(self.local, [1])                                      # dropped, authored here
+            self.assertEqual(self.rows(c)[0]["checked_runs"], 2)
+            self.assertEqual(sorted(j["try"] for j in pool.jobs).count(1), helpers.MAX_ATTEMPTS)
+
+    def test_money_authority_sized_up_front_for_all_tries(self):
+        c = self.context("money")
+        c.models = {"easy_calibrator": ["synthetic/easy"], "reviewers": [["synthetic/reviewer"]]}
+        spend = {"limit_usd": 50.0, "total_spent_usd": 0.0}
+        with patch.object(run.model_router, "_bounded_routes", lambda model, accounts: [{"max_usd": 20}]), \
+             patch.object(run, "update_case_budget", lambda c_: ({}, spend)):
+            self.assertEqual(REAL_AUTHORITY(c, "easy_calibrator", "blind", 3), (Decimal("12.5"), 3))   # one call window each
+            self.assertEqual(REAL_AUTHORITY(c, "easy_calibrator", "exam", 3), (Decimal("32.5"), 1))    # plus the owner window
+            spend["total_spent_usd"] = 30.0
+            self.assertEqual(REAL_AUTHORITY(c, "easy_calibrator", "blind", 3), (Decimal("12.5"), 1))
+            spend["total_spent_usd"] = 49.0
+            self.assertEqual(REAL_AUTHORITY(c, "easy_calibrator", "blind", 3)[1], 0)
+        with patch.object(run.model_router, "_bounded_routes", lambda model, accounts: []):
+            self.assertEqual(REAL_AUTHORITY(c, "easy_calibrator", "blind", 3)[1], 0)
+
+    def test_tries_beyond_the_authority_run_here_and_the_hold_is_recorded(self):
+        pool = TryPool()
+        c = self.hosted("cap", pool)
+        with patch.object(run, "helper_try_authority", lambda c_, role, exposure, n: (Decimal("12.5"), 1)):
+            run.calibrate(c, "easy_calibrator")
+        self.assertEqual([j["try"] for j in pool.jobs], [1])
+        self.assertEqual(pool.jobs[0]["authority_usd"], "12.5")
+        self.assertEqual(self.local, [2, 3])
+        self.assertEqual(c.card["helper_try_authority"]["easy_calibrator"],
+                         {"per_try_usd": 12.5, "hosted_tries": [1], "reserved_usd": 12.5})
+
+    def job_and_context(self, name="refuse"):
+        c = self.context(name)
+        identity = {"x": 1}
+        self.stack.enter_context(patch.object(run, "calibration_identity", lambda *a, **k: dict(identity, slot=0)))
+        job = helpers.make_try_job(case=run.case_hash(c), role="easy_calibrator", name="easy_calibrator", exposure="blind",
+                                   number=1, seed=c.seed + 1, runs=2, minutes=30, model=["synthetic/easy"],
+                                   identity=helpers.digest_of(identity), bench="m",
+                                   release=__import__("durable.checkpoints", fromlist=["x"]).verdict_code(), workers=1)
+        return c, job
+
+    def test_helper_refuses_a_job_whose_conditions_differ_from_its_own(self):
+        c, job = self.job_and_context()
+        files = run.hosted_try(c, job)                    # matching conditions run
+        self.assertEqual(helpers.unpack_try(files)["execution"]["summary"]["runs"], 2)
+        for key, value in (("minutes", 5), ("model", ["other/model"]), ("bench", "stale"), ("release", "old"),
+                           ("identity", "0" * 64), ("workers", 8), ("case", "x"), ("seed", 99)):
+            self.local.clear()
+            with self.assertRaises(helpers.HelperRefused, msg=key): run.hosted_try(c, {**job, key: value})
+            self.assertEqual(self.local, [], key)         # refused before any model call
+
+    def test_model_stop_on_a_helper_is_a_result_not_a_fault(self):
+        c, job = self.job_and_context("stop")
+        def stop(c_, role, name, exposure, i, make_ws): raise run.BudgetError("budget_exhausted:grant_insufficient")
+        with patch.object(run, "_author_try", stop):
+            out = helpers.unpack_try(run.hosted_try(c, job))
+        self.assertEqual((out["stopped"], out["label"]), ("budget_exhausted:grant_insufficient",
+                         calibration.interruption_label(run.BudgetError("budget_exhausted:grant_insufficient"))))
+        pool = TryPool(mutate=lambda i: helpers.pack_stop("quota:x", "provider_quota") if i == 2 else fake_files(i))
+        c = self.hosted("stopping", pool)
+        with self.assertRaises(run.BudgetError) as raised: run.calibrate(c, "easy_calibrator")
+        self.assertEqual(str(raised.exception), "quota:x")
+        self.assertEqual(sorted(j["try"] for j in pool.jobs), [1, 2, 3])             # never requeued and paid again
+        self.assertEqual(c.card["calibration_interruptions"], {"easy_calibrator": {"provider_quota": 1}})
+        self.assertEqual(self.local, [])
+
+    def test_capped_hosted_try_allows_continuation_like_the_serial_cap_handler(self):
+        pool = TryPool(mutate=lambda i: {**fake_files(i), "result.json": json.dumps(
+            {"capped": "timeout", "execution": fake_execution(i)})})
+        c = self.hosted("capped", pool)
+        run.calibrate(c, "easy_calibrator")
+        self.assertTrue(c.force_budget_resume)
+
+    def test_finished_tries_survive_a_stop_and_are_not_run_again(self):
+        stops = []
+        def boundary(c_):
+            if stops: raise run.BudgetError("budget_exhausted:grant_insufficient")
+        pool = TryPool()
+        c = self.hosted("salvage", pool, workers=1)
+        with patch.object(run, "case_budget_boundary", boundary):
+            def after(*a):
+                stops.append(1)
+            orig = pool.run
+            pool.run = lambda h, j, k: (lambda r: (after(), r)[1])(orig(h, j, k))
+            with self.assertRaises(run.BudgetError): run.calibrate(c, "easy_calibrator")
+        self.assertEqual([j["try"] for j in pool.jobs], [1])                          # try 1 finished, then the stop
+        self.assertEqual(len(list((c.work / "helper-tries").glob("*.json"))), 1)
+        pool2 = TryPool()
+        c.helper_pool = pool2
+        run.calibrate(c, "easy_calibrator")
+        self.assertEqual(sorted(j["try"] for j in pool2.jobs), [2, 3])               # try 1 comes from the saved result
+        self.assertEqual([r["try"] for r in self.rows(c)], [1, 2, 3])
+
+    def test_pack_try_tolerates_symlinks_the_serial_path_ignores(self):
+        outside = self.tmp / "outside"; outside.mkdir(); (outside / "secret.sql").write_text("s")
+        guard = self.tmp / "g2"; guard.mkdir()
+        (guard / "db.sql").write_text("real")
+        (guard / "link.sql").symlink_to(outside / "secret.sql")
+        (guard / "dirlink").symlink_to(outside, target_is_directory=True)
+        out = helpers.unpack_try(helpers.pack_try(guard, None, fake_execution(1)))
+        self.assertEqual(out["guard"], {"db.sql": b"real"})
+
+    def test_author_try_serial_unit(self):
+        c = self.context("author")
+        import bench
+        user_home = self.tmp / "home"; user_home.mkdir()
+        calls = []
+        def model(ctx, models, text, dest, call_name, **kw):
+            calls.append(call_name)
+            (dest / "guard").mkdir(parents=True, exist_ok=True); (dest / "guard/db.sql").write_text("g")
+            if kw.get("timeout") != 30 * 60: raise AssertionError("time limit")
+            raise c.error
+        for owner, n, v in [(run, "sh", lambda *a, **k: None), (run, "pilot_home", lambda u: user_home),
+                            (run, "shred_tree", lambda *a, **k: None), (run, "model_call", model),
+                            (bench, "reset", lambda *a, **k: None), (bench, "load_scenario", lambda x: x)]:
+            self.stack.enter_context(patch.object(owner, n, v))
+        ws = self.tmp / "authored-ws"
+        c.error = run.BudgetError("timeout")
+        out_ws, capped = REAL_AUTHOR(c, "easy_calibrator", "easy_calibrator", "blind", 1, lambda: ws)
+        self.assertEqual((out_ws, capped, calls, c.force_budget_resume), (ws, "timeout", ["easy-calibrator-easy_calibrator-1"], True))
+        c.error = run.BudgetError("quota:x")
+        with self.assertRaises(run.BudgetError): REAL_AUTHOR(c, "easy_calibrator", "easy_calibrator", "blind", 1, lambda: self.tmp / "ws2")
+        label = calibration.interruption_label(c.error)
+        self.assertEqual(c.card["calibration_interruptions"], {"easy_calibrator": {label: 1}})
+
     def test_g10_and_g5_bind_helper_code(self):
         import gate_state
         self.assertIn("factory/durable/helpers.py", gate_state.DEPENDENCIES["G5"])
@@ -183,9 +334,8 @@ class G10Tests(unittest.TestCase):
 
 
 def fake_files_exec(i):
-    rec = {"run": 1, "errors": [], "checker": {"valid": True},
-           "judge": {"paths": {"p": False}, "checks": {"k": solved_for(i)}}}
-    return {"runs": 1, "marker": i}, [rec, rec]
+    ex = fake_execution(i)
+    return ex["summary"], ex["records"]
 
 
 class G5Tests(unittest.TestCase):
