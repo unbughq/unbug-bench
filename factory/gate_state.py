@@ -1,6 +1,7 @@
 """Conservative reuse of passed checks during bounded repairs.
 
-G7 always repeats independently. G10 validates its own attempt receipts; G11 is
+G7 is reusable on resume: it is the same seeded run (c.seed + 7919), so identical inputs mean the
+same samples. G10 validates its own attempt receipts; G11 is
 never cached here. Stored evidence must still exist, including after sealing moves
 bench results into the case workspace.
 """
@@ -11,7 +12,7 @@ import json
 import pathlib
 from registry import atomic_json
 
-REUSABLE = {"G4", "G5", "G6", "G8", "G9", "G13", "G14", "G15", "G16"}
+REUSABLE = {"G4", "G5", "G6", "G7", "G8", "G9", "G13", "G14", "G15", "G16"}
 
 
 def digest(path):
@@ -27,6 +28,7 @@ STRATEGY = ("bin/strategy", "bin/strategy_resume.py", "bin/silent_window.py", "b
             "bin/live_traffic.py", "bin/shoppers", "factory/calibration.py")
 MODEL = ("factory/calibration.py",)
 DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/run_validity.py",), "G6": MEASURE + ("bin/run_validity.py",) + ("bin/verify-negative",),
+                "G7": MEASURE + ("bin/run_validity.py",),
                 "G8": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G9": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G13": MEASURE + STRATEGY + ("bin/run_validity.py",),
@@ -43,7 +45,6 @@ STAGE_DEPENDENCIES = {**DEPENDENCIES,
     "G1": ("factory/calibration.py", "bin/claims.py", "bin/exposure.py", "projects/**"),
     "G2": ("factory/admission.py", "factory/freshness_retrieval.py", "factory/independent_review.py"),
     "G3": MEASURE + ("bin/setup", "compose*.y*ml", "Dockerfile*"),
-    "G7": MEASURE + ("bin/run_validity.py",),
     "G10": MEASURE + STRATEGY + MODEL + ("bin/run_validity.py", "factory/exam_responder.py", "harbor/**"),
     "G11": MEASURE + ("bin/run_validity.py", "bin/fake-pass-check", "factory/independent_review.py"),
     "G17": DEPENDENCIES["G16"]}
@@ -103,6 +104,19 @@ def source_paths(root, pattern):
         yield from sorted(root.glob(pattern))
 
 
+def release_pins():
+    """Source files whose release edit is proven not to change any verdict: {name: {"from", "to"}}.
+    A stored identity or gate cache made under the "from" hash stays valid under the "to" hash; any
+    other edit of the file (a stale pin included) changes the hash and invalidates as before."""
+    try: return json.loads(pathlib.Path(__file__).with_name("invalid-runs-compat.json").read_text()).get("release_pins", {})
+    except (OSError, ValueError): return {}
+
+
+def pinned(name, value):
+    pin = release_pins().get(name)
+    return pin["from"] if isinstance(pin, dict) and value == pin.get("to") else value
+
+
 def dependency_files(c, patterns, bench, *, include_pool=False):
     dependencies = {}
     for pattern in patterns:
@@ -119,7 +133,8 @@ def dependency_files(c, patterns, bench, *, include_pool=False):
             rel = p.relative_to(root).as_posix()
             if not p.is_file() or any(part in {"node_modules", ".medusa", "__pycache__", ".git"} for part in p.relative_to(root).parts): continue
             if rel == "projects/medusa/seed-ids.json": continue
-            dependencies["factory/" + rel if factory else rel] = digest(p)
+            key = "factory/" + rel if factory else rel
+            dependencies[key] = pinned(key, digest(p))
             found = True
         if not found: dependencies[pattern] = None  # additions/removals are inputs too
     return dependencies

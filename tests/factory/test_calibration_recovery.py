@@ -121,11 +121,12 @@ for solved in (True, False):
                 if changed == "runs": c.args.pilot_runs += 1
                 result = run.calibrate(c, "strong_calibrator")
                 assert result["tries"] == 3 and result["solved"] == (3 if solved else 0)
-                assert len(calls) == (3 if changed is None else 4)
-                assert seeds == ([8, 9, 10] if changed is None else [8, *range(c.seed + 1, c.seed + 4)])
+                kept = changed in (None, "slot")  # a tester slot never invalidates a finished try
+                assert len(calls) == (3 if kept else 4)
+                assert seeds == ([8, 9, 10] if kept else [8, *range(c.seed + 1, c.seed + 4)])
                 assert c.card["early_probe"]["label"] == ("solvable" if solved else "likely_hard")
                 rows = json.loads((c.work / "strong_calibrator/results.json").read_text())
-                assert (rows[0].get("source") == "early_probe") == (changed is None)
+                assert (rows[0].get("source") == "early_probe") == kept
 
 # Legacy gates revalidate; matching release/configuration still requires evidence.
 # G10/G11 always reach their durable receipt and solved-guard verification paths.
