@@ -2736,7 +2736,6 @@ def context_for_step(step_input, work):
     if c.case.is_dir(): normalize_case_tree(c.case)
     c.stress_checkpoint = lambda: getattr(c, "engine_checkpoint", lambda: True)()
     card["engine"] = {"step": step_input.step.name, "seq": step_input.seq, "attempt": step_input.attempt}
-    if step_input.step.kind.value in ("writer", "gates"): scale_bench_workers(c)
     return c
 
 
@@ -2871,13 +2870,15 @@ MAX_GATE_BENCH_WORKERS = 8
 
 
 def scale_bench_workers(c):
-    """Writer and GATES steps spread bench runs (G6/G7 cheat checks: ~20 guards x 10 stress runs, ~4.5
-    of 18681d's 8 hours on 11-12 November) over c.args.bench_workers copies. On a worker with room to
-    spare (a Boat "large" machine fits ~6 copies, "default" ~3), use as many as fit beside the two
-    tester instances G10 reserves, by memory and by CPU (one vCPU per copy), never fewer than the
-    case's own setting. Both steps compute it the same way on the same machine type, so the gate
-    cache and the early probe earned in the writer step keep their identities at GATES. Results do
-    not depend on the copy count (fixed run numbers and seeds)."""
+    """At GATES entry: the cheat checks (G6/G7: ~20 guards x 10 stress runs, ~4.5 of 18681d's 8 hours on
+    11-12 November) spread over c.args.bench_workers copies. On a worker with room to spare (a Boat
+    "large" machine fits ~6 copies, "default" ~3), use as many as fit beside the two tester
+    instances G10 reserves, by memory and by CPU (one vCPU per copy), never fewer than the case's
+    own setting. Results do not depend on the copy count (fixed run numbers and seeds).
+    Known cost: the gate cache identity and the early probe's slot include the count, so when it
+    rises, GATES reruns the writer step's G4/G5/G15 (~45 min) and one strong-tester try instead of
+    reusing them; the cheat checks save hours. Every GATES attempt on the same machine type
+    computes the same count, so retries reuse each other. A default worker changes nothing."""
     if c.args.dry_run or not parallel_gates(c) or getattr(c, "case", None) is None: return False
     import bench
     try:
@@ -3043,6 +3044,7 @@ def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
     adopt_parallel_gates_at_entry(c)
+    scale_bench_workers(c)
     if not c.args.dry_run and not parallel_gates(c) and not g1(c)[1]["problems"]:
         ensure_freshness(c)  # parallel_gates: G2 is ensure_freshness, in the lane beside the bench gates
     for key in ("gates", "gate_results", "gate_minutes"): c.card[key] = {}
