@@ -191,10 +191,11 @@ class CheapTests(unittest.TestCase):
                     for data in (encoded(good,True).replace(b'data: [DONE]\n\n',b''),encoded(good,True)*2,
                                  encoded(good,True).replace(b'"prompt_tokens": 100',b'"prompt_tokens":100,"prompt_tokens":1')):
                         parser=gate.OpenRouterUsage(route,True);parser.feed(data);self.assertIsNone(parser.final())
-            state=gate.Allowance(lease(route));holds=[state.reserve(1) for _ in range(profile['windows'])]
+            # A default window fits `windows` requests at the model's whole output limit.
+            state=gate.Allowance(lease(route));holds=[state.reserve(profile['output']) for _ in range(profile['windows'])]
             self.assertTrue(all(holds))
             for identity in holds:state.finish(identity,None)
-            self.assertIsNone(state.reserve(1));self.assertTrue(state.exhaustion.is_set());state.close()
+            self.assertIsNone(state.reserve(profile['output']));self.assertTrue(state.exhaustion.is_set());state.close()
             before=state.snapshot()
             for identity in holds:state.finish(identity,{'prompt_tokens':0,'completion_tokens':0})
             self.assertEqual(state.snapshot(),before)
@@ -234,10 +235,10 @@ class CheapTests(unittest.TestCase):
     def test_overlapping_requests_wait_for_refund_and_platform_guards_deny_launch(self):
         for route,profile in GATED_OPENROUTER.items():
             state=gate.Allowance(lease(route),deadline=time.monotonic()+3)
-            holds=[state.reserve(32768) for _ in range(profile['windows'])]
+            holds=[state.reserve(profile['output']) for _ in range(profile['windows'])]
             entered=threading.Event();finished=threading.Event();result=[]
             def reserve():
-                entered.set();result.append(state.reserve(32768));finished.set()
+                entered.set();result.append(state.reserve(profile['output']));finished.set()
             thread=threading.Thread(target=reserve);thread.start()
             self.assertTrue(entered.wait(1));self.assertFalse(finished.wait(.1))
             self.assertFalse(state.exhaustion.is_set())

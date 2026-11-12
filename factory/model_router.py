@@ -44,9 +44,10 @@ ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
 # the fallback). The Go plan routes lead on both accounts; OpenRouter's paid route follows. The anonymous
 # free lanes hang (8 of 9 free DeepSeek calls, 2026-11-08), so they come after paid, as a last resort.
 CHAINS = (
-    # Free DeepSeek runs on the founder's OpenCode accounts before paid OpenRouter (10 Nov: the anonymous
-    # lane hung on 8 November; the account-backed call answered in 3-4 s on both accounts).
-    ('opencode-go/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free', 'openrouter/deepseek/deepseek-v4.1-flash'),
+    # Paid OpenRouter before free DeepSeek, as for every other free lane. The account-backed free lane
+    # answered in 3-4 s on 10 November, but on 11-12 November it hung every writer call of 1110a's
+    # admission (11 attempts, each killed `stalled` after ~45 min). Paid DeepSeek Flash costs cents.
+    ('opencode-go/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free'),
     # The OpenRouter :free variant has no maximum, so it is never leased.
     ('opencode-go/minimax-m3.1-flash', 'opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free',
      'openrouter/minimax/minimax-m3.1-flash'),

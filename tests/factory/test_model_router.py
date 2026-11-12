@@ -163,13 +163,14 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(self.store.rpc('status', {})['health'], {})
 
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
-        go, source, target = router.CHAINS[0]
+        go, target, source = router.CHAINS[0]
         choices = router.routes(source)
-        # The Go plan on both accounts first, then free on the same accounts (10 Nov), then paid.
+        # The Go plan on both accounts first, then paid, then free on the same accounts (12 Nov: the
+        # account-backed free lane hung every 1110a admission writer call).
         self.assertEqual([(r['route'], r['account'], r['billing']) for r in choices],
                          [(go, 'opencode-go-key', 'subscription'), (go, 'opencode-go-key-2', 'subscription'),
-                          (source, 'opencode-go-key', 'free'), (source, 'opencode-go-key-2', 'free'),
-                          (target, 'openrouter-key', 'paid')])
+                          (target, 'openrouter-key', 'paid'),
+                          (source, 'opencode-go-key', 'free'), (source, 'opencode-go-key-2', 'free')])
         for account in ('opencode-go-key', 'opencode-go-key-2'):
             lease = self.acquire(source)
             self.assertEqual((lease['route'], lease['account']), (go, account))
