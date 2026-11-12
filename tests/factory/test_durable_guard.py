@@ -230,6 +230,15 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.f.stopped, 0)
         self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "7200"], self.f.calls)
 
+    def test_a_renewal_is_recorded_for_the_executor_and_a_failed_one_is_not(self):
+        self.tick()
+        recorded = json.loads((self.f.state_dir / "guard/renewed.json").read_text())
+        self.assertEqual(recorded, {"bx_aaaaaaaa": self.f.clock})
+        before = self.f.clock
+        self.f.boat_failures["extend"] = 3
+        self.tick()
+        self.assertEqual(json.loads((self.f.state_dir / "guard/renewed.json").read_text()), {"bx_aaaaaaaa": before})
+
     def test_the_hung_usage_call_of_6_november_only_degrades(self):
         """All three tries hang: the batch degrades, nothing stops, and the worker stays."""
         self.f.boat_failures["usage"] = 3

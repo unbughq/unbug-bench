@@ -23,6 +23,8 @@ M = 1_000_000
 # The patch under which a factory_bug hold waits for a release (engine._Case.rerun_after_release).
 # Disabling it is the path of workflows recorded before it: the hold ends them for --resume-case.
 RELEASE_WAIT = "factory_bug_release_wait"
+# Workflows recorded before this patch release the worker at every router/credential wait.
+LEGACY_OP_WAIT = {"disabled_patches": ["operational_wait_keeps_worker"]}
 
 
 def manual_holds(scenario):
@@ -486,7 +488,7 @@ class Outcomes(unittest.TestCase):
 
     def test_credential_wait_is_visible_releases_worker_and_resumes(self):
         credential = {"outcome": "infra_error", "reason": "router:credential_expiring", "paid": 0}
-        r = EngineRun({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
+        r = EngineRun({**LEGACY_OP_WAIT, "spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
                        "script": {"1/writer:1/1": credential, "1/writer:1/2": {"dur": 0.6}},
                        "actions": [{"when": {"case": 1, "status": "waiting_for_credentials"}},
                                    {"when": {"case": 1, "status": "running", "started": f"{C1}/2/writer:1/2"}}]})
@@ -540,7 +542,7 @@ class Outcomes(unittest.TestCase):
     def test_credential_problem_retries_without_using_infra_allowance(self):
         reason = "router:credential_expiring"
         first, second = f"{C1}/2/writer:1/1", f"{C1}/2/writer:1/2"
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+        r, out = run({**LEGACY_OP_WAIT, "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                       "timing": {"credential_retry_s": 1.0},
                       "script": {"1/writer:1/1": {"outcome": "infra_error", "reason": reason},
                                  "1/writer:1/2": {"outcome": "infra_error", "reason": reason, "dur": 0.8},
@@ -567,6 +569,28 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(len(set(workers)), 3)
         self.assertTrue(set(workers[:2]) <= releases)
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 4 + ["stress:1", "gates:1", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_credential_wait_keeps_the_worker_then_releases_it_after_the_rechecks(self):
+        reason = "router:credential_expiring"
+        wait = {"outcome": "infra_error", "reason": reason, "paid": 0}
+        key = lambda n: f"{C1}/2/writer:1/{n}"
+        # One wait clears at the first recheck: the retry runs on the same worker, none is released.
+        r, out = run({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 1.0},
+                      "script": {"1/writer:1/1": wait}})
+        self.addCleanup(r.close)
+        self.assertEqual(start(r, key(1))["worker"], start(r, key(2))["worker"])
+        self.assertNotIn(start(r, key(1))["worker"],
+                         [x["worker"] for x in r.pool_log() if x["op"] == "release"][:-1])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        # A wait that outlasts the 2, 4 and 8 minute rechecks (the fourth in a row) releases the worker.
+        r, out = run({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 1.0},
+                      "script": {f"1/writer:1/{n}": wait for n in range(1, 5)}})
+        self.addCleanup(r.close)
+        workers = [start(r, key(n))["worker"] for n in range(1, 6)]
+        self.assertEqual(len(set(workers[:4])), 1)
+        self.assertNotEqual(workers[3], workers[4])
+        self.assertIn(workers[3], [x["worker"] for x in r.pool_log() if x["op"] == "release"])
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_long_sleep_releases_the_worker(self):

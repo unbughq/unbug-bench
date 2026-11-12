@@ -323,10 +323,16 @@ class Guard:
         return None
 
     def _extend(self, owned: list) -> None:
+        renewed: dict = {}
         for row in owned:
             ttl = min(7200, int(self.request["deadline_epoch"] + self.checkpoint_grace_s - self.clock()))
             if ttl >= 1:
-                self.check("boat_extend", lambda: self._boat(["extend", row["id"], "--ttl", str(ttl)], 30))
+                ok, _ = self.check("boat_extend", lambda: self._boat(["extend", row["id"], "--ttl", str(ttl)], 30))
+                if ok:
+                    renewed[row["id"]] = self.clock()
+        if renewed:   # the executor retires a silent worker only when this stops moving (renewing)
+            ids = {row["id"] for row in owned}
+            self.save("renewed.json", {**{k: v for k, v in self.load("renewed.json", {}).items() if k in ids}, **renewed})
 
     # -- the pass --
 
@@ -660,6 +666,19 @@ def degraded(state_dir) -> bool:
         return type(until) in (int, float) and time.time() < until
     except (OSError, ValueError, KeyError, TypeError):
         return False
+
+
+RENEWAL_STALE_S = 900.0   # fifteen missed one-minute guard passes
+
+
+def renewing(state_dir, boat_id: str, *, stale_s: float = RENEWAL_STALE_S) -> Optional[bool]:
+    """Whether the guard still renews this worker's Boat lease: False only when the guard has renewed it
+    before and not within stale_s. Unreadable or never-renewed is unknown (None), never False."""
+    try:
+        at = json.loads((Path(state_dir) / "guard" / "renewed.json").read_text())[boat_id]
+        return None if type(at) not in (int, float) else time.time() - at < stale_s
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def health(state_dir) -> Optional[dict]:

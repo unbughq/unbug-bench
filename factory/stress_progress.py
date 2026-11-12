@@ -46,6 +46,29 @@ def publish(c):
     c.model_publication_barrier()
 
 
+def exhausted(runner, c, number):
+    """Whether a persisted category already ended without coverage or findings, so `run` would only
+    raise stress_validation_exhausted again. Read-only, so engine_stress_round can fail before it
+    spends minutes preparing the bench. An unfinished diagnostic is not this: that retries."""
+    directory = c.work / 'attacks' / f'round-{number}-categories' / digest(runner.attack_binding(c))
+    state = read(directory / 'state.json')
+    if not isinstance(state, dict) or not isinstance(state.get('categories'), dict): return False
+    rows = state['categories']
+    if all(rows.get(k, {}).get('complete') for k in CATEGORIES): return False
+    for category in CATEGORIES:
+        row = rows.get(category)
+        if row is None or row.get('complete') or row.get('found'): continue
+        if row.get('exhausted'):
+            for other in rows.values():   # findings in hand are reported, not raised
+                for item in other.get('results', []):
+                    try: value = json.loads((directory / item['file']).read_bytes())
+                    except (OSError, ValueError, KeyError): return False
+                    if any(entry != 'review incomplete' for entry in value.get('blocking', [])): return False
+            return True
+        return False   # an earlier category still has work: run() gets there first
+    return False
+
+
 def run(runner, c, number, report, receipt, completed):
     binding = runner.attack_binding(c)
     directory = c.work / 'attacks' / f'round-{number}-categories' / digest(binding)

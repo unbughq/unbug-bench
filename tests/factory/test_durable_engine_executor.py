@@ -264,6 +264,55 @@ class Run(Setup):
         self.assertGreaterEqual(self.clock.t, 1000 + 600 + 3600)
         self.assertEqual(ex.pool.released, [lease])   # it cannot run beside the next attempt
 
+    def silent_ex(self, channel, renewing, silent=1800.0):
+        return Executor(self.pool, channel, self.ledger, self.store, self.sealer, self.keys, poll_interval_s=10.0,
+                        grace_s=100.0, clock=self.clock, sleep=self.clock.sleep, unconfirmed_limit_s=3600.0,
+                        renewing=renewing, silent_limit_s=silent)
+
+    def test_a_silent_worker_with_stopped_renewal_is_retired_after_30_minutes(self):
+        ex = self.silent_ex(Channel([None]), lambda lease: False)
+        si = self.si(deadline=6 * 3600.0)
+        lease = WorkerLease("w-1", si.case_id)
+        result = ex.run(si, started_at=self.clock(), lease=lease)
+        self.assertEqual(result.reason, "infra:worker_lost")
+        self.assertGreaterEqual(self.clock.t, 1000 + 1800)
+        self.assertLess(self.clock.t, 1000 + 1800 + 60)   # not the deadline plus the unconfirmed limit
+        self.assertEqual(ex.pool.released, [lease])
+
+    def test_a_silent_worker_whose_lease_is_still_renewed_is_not_retired_early(self):
+        for renewing in (lambda lease: True, lambda lease: None, None):
+            with self.subTest(renewing=renewing):
+                self.clock.t, self.pool.released = 1000.0, []
+                ex = self.silent_ex(Channel([None]), renewing)
+                si = self.si(deadline=600.0)
+                result = ex.run(si, started_at=self.clock(), lease=WorkerLease("w-1", si.case_id))
+                self.assertEqual(result.reason, "infra:worker_lost")
+                self.assertGreaterEqual(self.clock.t, 1000 + 600 + 3600)   # only the old limit ends it
+
+    def test_a_worker_that_answers_polls_is_never_called_silent(self):
+        # Answers every 10 s with RUNNING, then goes quiet: the 30 minutes count from the last answer.
+        class Talks(Channel):
+            def poll(inner, lease, si):
+                if self.clock.t < 1000 + 3000:
+                    return Poll(PollState.RUNNING)
+                raise OSError("ssh: connection reset")
+        ex = self.silent_ex(Talks([None]), lambda lease: False)
+        si = self.si(deadline=6 * 3600.0)
+        result = ex.run(si, started_at=self.clock(), lease=WorkerLease("w-1", si.case_id))
+        self.assertEqual(result.reason, "infra:worker_lost")
+        self.assertGreaterEqual(self.clock.t, 1000 + 3000 + 1800 - 20)   # from the last answer, within one poll
+
+    def test_guard_renewing_is_false_only_once_a_known_renewal_goes_stale(self):
+        from durable.guard import renewing
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(renewing(tmp, "bx_aaaaaaaa"))   # no record: unknown
+            (Path(tmp) / "guard").mkdir()
+            (Path(tmp) / "guard" / "renewed.json").write_text(json.dumps({"bx_aaaaaaaa": time.time() - 60,
+                                                                           "bx_bbbbbbbb": time.time() - 5000}))
+            self.assertTrue(renewing(tmp, "bx_aaaaaaaa"))
+            self.assertFalse(renewing(tmp, "bx_bbbbbbbb"))
+            self.assertIsNone(renewing(tmp, "bx_cccccccc"))
+
     def test_a_result_landing_at_the_limit_beats_deleting_the_worker(self):
         si = self.si(deadline=600.0)
         ex = self.ex(Channel([Poll(PollState.DONE, self.ok())]))

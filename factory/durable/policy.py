@@ -57,6 +57,10 @@ USAGE_STOP_REASONS = frozenset({"infra:usage_unknown", "infra:missing_usage", "i
 # How long past its deadline an attempt may stay unconfirmed before its worker is deleted and the
 # attempt counts as lost, so a controller recovering an unanswering worker never waits forever.
 UNCONFIRMED_WORKER_LIMIT_S = 9000.0
+# A worker that has not answered a poll for this long, and whose lease renewal has also stopped, is deleted
+# without waiting out the deadline and UNCONFIRMED_WORKER_LIMIT_S (hours). Renewal still running means the
+# worker's host is alive: a control-side outage must never kill it.
+SILENT_WORKER_LIMIT_S = 1800.0
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
 LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})

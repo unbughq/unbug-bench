@@ -523,6 +523,11 @@ class Poll:
         _ref(self.checkpoint, ArtifactKind.CASE_SNAPSHOT, "checkpoint")
 
 
+# What a poll returns when the worker could not be reached. Compared by identity: a worker's own
+# "running" answer is a different object, so the executor can tell a silent worker from a busy one.
+UNANSWERED = Poll(PollState.RUNNING)
+
+
 # ---- seams the work packages implement -------------------------------------------------------
 
 @dataclass(frozen=True)
