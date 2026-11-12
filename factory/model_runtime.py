@@ -23,7 +23,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
-from token_prices import FREE_ROUTES, GATED_OPENROUTER, GO_ROUTES
+from token_prices import FREE_ROUTES, GATED_MYTHOS, GATED_OPENROUTER, GO_ROUTES
 import model_call_gate
 from model_router import family
 from registry import atomic_json
@@ -48,6 +48,9 @@ INTERRUPTED_LOCK = threading.Lock()
 # strong-calibrator call when a Codex window of $48.71 met a parallel lane's reservation. The
 # dearest retained attacker call is $3.04.
 CHEAP_CALL_WINDOW_USD = 12.5
+# One Mythos 5.2 request holds $19.04 (1M context at the $16 cache-write rate, 32K output at $40, 1.1x),
+# above $12.50, so its gate would refuse the first request. Its window doubles with its prices.
+CALL_WINDOW_USD = {GATED_MYTHOS: 25.0}
 UNCAPPED_ROLES = ('writer',)
 
 
@@ -438,7 +441,7 @@ class ModelRuntime:
                         funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
                         if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
                     if role not in UNCAPPED_ROLES:
-                        funding = min(funding, Decimal(str(CHEAP_CALL_WINDOW_USD)))
+                        funding = min(funding, Decimal(str(CALL_WINDOW_USD.get(requested, CHEAP_CALL_WINDOW_USD))))
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)
                 except model_router.ProviderWait as error:

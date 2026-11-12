@@ -33,7 +33,7 @@ import model_call_gate as gate
 import model_router as router
 import model_runtime
 import run
-from token_prices import GATED_CLAUDE, CLAUDE_PROFILES, CLAUDE_GATE_FIELDS, claude_gate_cost, claude_cost, claude_profile, GATED_CLAUDE45
+from token_prices import GATED_CLAUDE, CLAUDE_PROFILES, CLAUDE_GATE_FIELDS, claude_gate_cost, claude_cost, claude_profile, GATED_CLAUDE45, GATED_MYTHOS
 
 LEGACY_CLAUDE_PROFILES = {k:v for k,v in CLAUDE_PROFILES.items() if k.startswith(GATED_CLAUDE)}
 MINIMAX = 'openrouter/minimax/minimax-m3.1-flash'
@@ -160,7 +160,8 @@ class MaximaTests(unittest.TestCase):
                     cap = CLAUDE_PROFILES[actual.route]
                     self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens),
                                      (float(cap), int(cap * (2000000 if actual.route.startswith(GATED_CLAUDE45) else 5000000)),
-                                      int(cap * (40000 if actual.route.startswith(GATED_CLAUDE45) else 50000))))
+                                      int(cap * (40000 if actual.route.startswith(GATED_CLAUDE45) else
+                                                 25000 if actual.route == GATED_MYTHOS else 50000))))
                 elif actual.route in FREE_ROUTES:
                     self.assertEqual(actual.max_usd, 0.0)        # free: nothing held, any booked cost stops it
                 elif actual.route in CODEX_PROFILES:
@@ -183,6 +184,24 @@ class MaximaTests(unittest.TestCase):
             self.assertGreater(sum(e['cost'] for e in events), 0)
             self.assertIsNotNone(router.route_maximum(events[0]['configured_model']))
             self.assertEqual(json.dumps(card['continuation_budget'],sort_keys=True),raw)
+
+    def test_mythos_is_a_metered_claude_route_on_the_opus_accounts(self):
+        """Mythos 5.2 (founder 2026-11-12): $8 in, $0.20 cache read, $16 one-hour write, $40 out."""
+        self.assertEqual(router.routes(GATED_MYTHOS), [{**r, 'route': GATED_MYTHOS} for r in router.routes(GATED_CLAUDE)])
+        self.assertEqual(router.family(GATED_MYTHOS), 'anthropic')
+        maximum = router.route_maximum(GATED_MYTHOS)
+        self.assertEqual((maximum['max_usd'], maximum['max_input_tokens'], maximum['max_output_tokens']),
+                         (50.0, 250_000_000, 1_250_000))
+        self.assertEqual(maximum['price_source'],
+                         'token_prices:2026-11-12:claude-mythos-5-2:8.0,0.2,16.0,40.0:1.0:standard-global:joint-gate-v1')
+        usage = dict(input_tokens=1_000_000, cache_read_input_tokens=1_000_000, cache_creation_input_tokens=1_000_000,
+                     output_tokens=1_000_000, inference_geo='global')
+        self.assertEqual(claude_cost(GATED_MYTHOS, usage), 64.2)
+        body = dict(model='claude-mythos-5-2', max_tokens=128000, messages=[], thinking={'type': 'adaptive'},
+                    output_config={'effort': 'max'})
+        self.assertEqual(gate.request_body(json.dumps(body), GATED_MYTHOS)['max_tokens'], 32768)
+        with self.assertRaises(ValueError):   # the gate forwards only the leased model
+            gate.request_body(json.dumps({**body, 'model': 'claude-opus-5-5'}), GATED_MYTHOS)
 
     def test_small_profiles_fit_real_writer_envelopes_and_retain_unknowns(self):
         cases = [('small','252e6df1-f899-427e-aa07-7b98ba7eb156:result',35),
@@ -839,7 +858,7 @@ class ProtocolTests(unittest.TestCase):
         # or live worker. Protocol bytes and attempt grants are synthetic.
         paid = model == MINIMAX
         maximum = Decimal(str(router.route_maximum(model)['max_usd'])) if paid else CLAUDE_PROFILES[model]
-        hold = (gate.request_hold(model) if paid else Decimal('2.409600') if model.startswith(GATED_CLAUDE45) else Decimal('9.520896'))
+        hold = (gate.request_hold(model) if paid else Decimal('2.409600') if model.startswith(GATED_CLAUDE45) else Decimal('19.041792') if model == GATED_MYTHOS else Decimal('9.520896'))
         # The router's central paid hold still prices the model's whole output limit; the worker
         # gate holds only the clamped request output (OPENROUTER_OUTPUT).
         central = Decimal('0.4718592') if paid else hold

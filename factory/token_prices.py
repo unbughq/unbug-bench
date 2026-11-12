@@ -7,7 +7,9 @@ CODEX_PRICES = {"codex/gpt-6.1-sol": (2.0, 0.10, 10.0)}  # input, cached input, 
 
 # https://platform.claude.com/docs/en/about-claude/pricing (2026-10-30).
 # Missing cache TTL uses the dearer one-hour write rate. Results use the CLI receipt.
+# Mythos 5.2 (founder 2026-11-12): $8 in, $0.20 cache read, $40 out; write is the one-hour 2x input.
 CLAUDE_PRICES = {"claude/claude-opus-5-5": (4.0, 0.20, 8.0, 20.0),
+                 "claude/claude-mythos-5-2": (8.0, 0.20, 16.0, 40.0),
                  "claude/claude-opus-4-5-20251101": (5.0, 0.5, 10.0, 25.0)}
 
 # OpenRouter endpoint quotes and primary limit contracts, checked 2026-10-30.
@@ -142,11 +144,13 @@ def invocation_maximum(model, bounds):
 # https://platform.claude.com/docs/en/models/opus-5-5/overview (2026-10-30).
 GATED_CLAUDE = 'claude/claude-opus-5-5'
 GATED_CLAUDE45 = 'claude/claude-opus-4-5-20251101'
+GATED_MYTHOS = 'claude/claude-mythos-5-2'   # 1M context; the gate keeps Opus's 32K output bound
 CLAUDE_CONTEXT, CLAUDE_OUTPUT = 1_000_000, 32768
 CLAUDE_CALL_USD = Decimal('50')
 CLAUDE_PROFILES = {GATED_CLAUDE: CLAUDE_CALL_USD,
     GATED_CLAUDE + ':small': Decimal('10'),
     GATED_CLAUDE + ':medium': Decimal('15'),
+    GATED_MYTHOS: CLAUDE_CALL_USD,
     GATED_CLAUDE45 + ':compact': Decimal('3'),
     GATED_CLAUDE45 + ':small': Decimal('5')}
 
@@ -190,14 +194,15 @@ def claude_gate_cost(usage, route=GATED_CLAUDE):
 def claude_gate_maximum(route=GATED_CLAUDE):
     maximum = CLAUDE_PROFILES.get(route)
     if maximum is None: return None
-    suffix = ('' if route == GATED_CLAUDE else
+    suffix = ('' if ':' not in route else
               f':profile={route.rsplit(":", 1)[1]}:usd={maximum}')
     profile = claude_profile(route)
     rates = [Decimal(str(v)) for v in CLAUDE_PRICES[profile['model']]]
     source = ('token_prices:2026-10-31:claude-opus-4-5-20251101:' + ','.join(map(str, rates))
               + ':context=200000:output=16384:standard-global:joint-gate-v1'
               if profile['model'] == GATED_CLAUDE45 else
-              'token_prices:2026-10-30:claude-opus-5-5:' + ','.join(map(str, rates)) + ':1.0:standard-global:joint-gate-v1')
+              'token_prices:' + ('2026-11-12' if profile['model'] == GATED_MYTHOS else '2026-10-30') + ':'
+              + profile['model'].partition('/')[2] + ':' + ','.join(map(str, rates)) + ':1.0:standard-global:joint-gate-v1')
     return dict(max_usd=float(maximum),
                 max_input_tokens=int(maximum * 1_000_000 / min(rates[:3])),
                 max_output_tokens=int(maximum * 1_000_000 / rates[3]),

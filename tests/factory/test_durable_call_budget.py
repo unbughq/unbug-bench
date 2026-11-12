@@ -414,6 +414,23 @@ class AttemptBudget(unittest.TestCase):
         self.assertEqual(windows['reviewer-1'], window)
         self.assertGreater(windows['builder-1'], window)
 
+    def test_a_mythos_attacker_window_holds_one_full_request(self):
+        """Mythos 5.2's one-request hold ($19.04) is above the $12.50 window: a capped attacker
+        would have its gate refuse the first request. Its window doubles with its prices."""
+        mythos = 'claude/claude-mythos-5-2'
+        self.assertEqual(model_call_gate.request_hold(mythos), Decimal('19.041792'))
+        windows = {}
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started'] = True
+            windows[name] = Decimal(str(c.model_lease.max_usd))
+            state = model_call_gate.Allowance(c.model_lease, deadline=time.monotonic() + 2)
+            self.assertIsNotNone(state.reserve(model_call_gate.worst_request(mythos)['output_tokens']))
+            state.close(); c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport):
+            self.assertEqual(self.runtime.call(self.c, [mythos], 'x', self.root, 'attacker-1'), 0)
+        self.assertEqual(windows, {'attacker-1': Decimal('25')})
+
     def test_cheap_windows_never_exceed_the_case_grant(self):
         paid = 'openrouter/minimax/minimax-m3.1-flash'
         self.c.card['roles']['writer']['model'] = paid
