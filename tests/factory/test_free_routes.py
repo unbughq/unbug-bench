@@ -35,12 +35,13 @@ class FreeRoutes(unittest.TestCase):
         self.assertFalse(model_router.valid_maximum(vars(lease(max_usd=1.0))))   # a free lease holds nothing
         # Paid routes are unchanged.
         self.assertGreater(model_router.route_maximum('openrouter/deepseek/deepseek-v4.1-flash')['max_usd'], 0)
-        # The Go plan on both accounts first, then free DeepSeek on the same accounts (10 Nov: the anonymous
-        # lane hung, the account-backed call answers), then the paid gated route of the same family.
+        # The Go plan on both accounts first, then the paid gated route, then free DeepSeek on the same
+        # accounts (12 Nov: the account-backed free lane hung every 1110a admission writer call).
         go = 'opencode-go/deepseek-v4.1-flash'
         self.assertEqual([(r['route'], r['account']) for r in model_router.routes(FREE, model_router.ACCOUNTS)],
-                         [(go, 'opencode-go-key'), (go, 'opencode-go-key-2'), (FREE, 'opencode-go-key'),
-                          (FREE, 'opencode-go-key-2'), ('openrouter/deepseek/deepseek-v4.1-flash', 'openrouter-key')])
+                         [(go, 'opencode-go-key'), (go, 'opencode-go-key-2'),
+                          ('openrouter/deepseek/deepseek-v4.1-flash', 'openrouter-key'),
+                          (FREE, 'opencode-go-key'), (FREE, 'opencode-go-key-2')])
         # MiniMax: Go, then free on either OpenCode account, past the unbounded OpenRouter :free variant to paid.
         go = 'opencode-go/minimax-m3.1-flash'
         self.assertEqual([(r['route'], r['account']) for r in model_router._bounded_routes(
