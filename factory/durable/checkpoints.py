@@ -71,8 +71,16 @@ def concurrent_section(c):
 
 def directory(c):
     # Attempts of the same sequence share receipts. Later scientific steps do not.
+    # Keyed by the bench release, feedback and ruling, not the plumbing release: every entry carries its own exact
+    # binding (gate_call: gate_state.inputs = case, bench and judge-source digests, prompts,
+    # models, seed; _model_effect: request text, roles and the workspace pre-image), so a
+    # plumbing-only release that leaves those unchanged reuses them. On 12 November a plumbing
+    # release that changed no gate made 18681d's GATES retry redo ~8 hours of passed gates.
     scope = c.engine.key.rsplit('/', 1)[0]
-    identity = json.dumps([scope, getattr(c.engine, 'source_binding', None)], sort_keys=True)
+    binding = getattr(c.engine, 'source_binding', None)
+    if isinstance(binding, dict):   # bench, feedback and ruling still scope it; plumbing does not
+        binding = {k: v for k, v in binding.items() if k != 'plumbing'}
+    identity = json.dumps([scope, binding], sort_keys=True)
     return c.work / 'engine-checkpoints' / hashlib.sha256(identity.encode()).hexdigest()
 
 
