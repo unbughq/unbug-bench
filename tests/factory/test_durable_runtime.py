@@ -310,6 +310,11 @@ class RuntimeTests(unittest.TestCase):
                 patch.object(runtime.engine, "factory_bug_waste_keys", return_value=[]) as named:
             with self.assertRaisesRegex(RuntimeErrorCode, "resume_invalid"):
                 runtime.start(to_record(ok), to_record(registry), None, None, None, roles)
+            # What needs no case card is refused at start, before the lineage records it.
+            for bad in ({"stress_tester": "openrouter/unknown/model-x"}, {"strong_calibrator": roles["stress_tester"]},
+                        {"writer": roles["stress_tester"]}):
+                with self.assertRaisesRegex(RuntimeErrorCode, "roles_invalid"):
+                    runtime.start(to_record(ok), to_record(registry), None, "case-old-1", None, bad)
             start.assert_not_called()
             dispatch(runtime, {"op": "start", "spec": to_record(ok), "registry": to_record(registry),
                                "resume": "case-old-1", "roles": roles})

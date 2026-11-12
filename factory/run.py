@@ -2684,32 +2684,40 @@ def invoke_diagnosis(c, *, model, prompt, inputs, output):
 SWAP_MODEL_KEYS = {"stress_tester": "attacker", "strong_calibrator": "strong_calibrator"}
 
 
-def swap_roles(c, swap):
+def swap_roles(c, step_input):
     """Founder 2026-11-12: a resume's role swap ({role: model}, StepInput.roles) gives this case
     another stress tester or strong calibrator. The swapped selection, as a whole, must pass
-    select_models' rules and have a bounded route; the strong calibrator never changes once G10
-    ran. The snapshot card keeps the swap, so a later step finds nothing left to change."""
+    select_models' rules (rotation `refused` list included), and each swapped model needs a bounded
+    route. The strong calibrator changes only before the case's first GATES step: never on a GATES or
+    SEAL step, nor once card["gates"] holds a result (each GATES step refills it). Its G10 identity
+    names the roles (gate_state), so no try from another calibrator is ever reused. The card keeps every replaced model in role_swaps; the snapshot keeps the swap, so a
+    later step finds nothing left to change. ADMIT applies it after pinning its models; DIAGNOSIS
+    never does, so a refused swap can still be diagnosed (and undone by a resume naming the old model)."""
     roles = copy.deepcopy(c.card.get("roles"))
     if not isinstance(roles, dict) or not all(isinstance(roles.get(r), dict) for r in SWAP_MODEL_KEYS):
         raise ValueError("role swap: the case card records no role selection")
-    changed = {r: m for r, m in swap.items() if roles[r].get("model") != m}
+    changed = {r: m for r, m in step_input.roles.items() if roles[r].get("model") != m}
     if not changed:
         return
-    if "strong_calibrator" in changed and "G10" in (c.card.get("gates") or {}):
-        raise ValueError("role swap: G10 already ran with this case's strong calibrator")
+    kind = step_input.step.kind.value
+    if "strong_calibrator" in changed and (kind in ("gates", "seal") or c.card.get("gates")):
+        raise ValueError("role swap: the strong calibrator changes only before the case's first GATES step")
     models = copy.deepcopy(c.models)
+    history = []
     for role, model in changed.items():
+        history.append({"role": role, "from": roles[role].get("model"), "to": model,
+                        "step": step_input.step.name, "seq": step_input.seq})
         roles[role] = {"model": model, "effort": model_effort(model), "family": family(model)}
         models[SWAP_MODEL_KEYS[role]] = [model]
-    model_runtime.check_role_families(roles)
-    kept, c.models = c.models, models
+    model_runtime.check_role_families(roles, getattr(c.args, "rotation_table", None))
     try:
-        model_runtime.require_bounded_models(c)
-    except model_router.ProviderWait as error:
-        c.models = kept
-        raise ValueError(f"role swap: {error.wait.route} has no bounded route") from None
-    log(c, "roles", "resume swap: " + json.dumps({r: [c.card["roles"][r]["model"], m] for r, m in changed.items()}))
-    c.card["roles"], c.card["models"] = roles, models
+        model_runtime.check_swap_models(changed)
+    except ValueError as error:
+        raise ValueError(f"role swap: {error}") from None
+    log(c, "roles", "resume swap: " + json.dumps(history))
+    c.card.setdefault("role_swaps", []).extend(history)
+    c.models = c.card["models"] = models
+    c.card["roles"] = roles
 
 
 def context_for_step(step_input, work):
@@ -2759,8 +2767,8 @@ def context_for_step(step_input, work):
         c.models = card["models"]
     else:
         c.models = card["models"] = pick_models(c)
-    if getattr(step_input, "roles", None):
-        swap_roles(c, step_input.roles)
+    if getattr(step_input, "roles", None) and step_input.step.kind.value not in ("admit", "diagnosis"):
+        swap_roles(c, step_input)
     prepared = card.get("factory_slots_prepared", 1)
     c.prepared_factory_slots = prepared if type(prepared) is int and prepared >= 1 else 1
     c.manifest0 = bench_manifest()

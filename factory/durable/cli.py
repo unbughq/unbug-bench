@@ -24,9 +24,9 @@ import sys
 import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from durable.contract import (ArtifactKind, BenchRelease, BoundRaised, ContractError, FounderReply, PlumbingRelease,
-                              Ref, Topic, check_roles, to_record, BATCH_ID, CASE_ID)
-from durable.runtime import Runtime, RuntimeErrorCode, load_config, private_bytes
+from durable.contract import (ArtifactKind, BenchRelease, BoundRaised, FounderReply, PlumbingRelease,
+                              Ref, Topic, to_record, BATCH_ID, CASE_ID)
+from durable.runtime import Runtime, RuntimeErrorCode, check_role_swap, load_config, private_bytes
 
 
 def dispatch(runtime, request):
@@ -107,17 +107,15 @@ class Handler(socketserver.StreamRequestHandler):
 
 
 def parse_roles(text):
-    """`--roles stress_tester=<model>[,strong_calibrator=<model>]` as {role: model}."""
+    """`--roles stress_tester=<model>[,strong_calibrator=<model>]` as {role: model}, checked as far as
+    it can be without the case card (runtime.check_role_swap; Runtime.start checks it again)."""
     roles = {}
     for item in text.split(","):
         role, sep, model = item.partition("=")
         if not sep or role in roles:
             raise RuntimeErrorCode("roles_invalid")
         roles[role] = model
-    try:
-        return check_roles(roles)
-    except ContractError:
-        raise RuntimeErrorCode("roles_invalid") from None
+    return check_role_swap(roles)
 
 
 def stop_on_signal(drain, cleanup=lambda: None):
@@ -194,8 +192,8 @@ def main(argv=None):
                        "scientific stop or a sealed case. Recorded on the case card and the board")
     start.add_argument("--roles", help="founder 2026-11-12: resume --resume-case with another model for "
                        "stress_tester and/or strong_calibrator, as role=model[,role=model]; later resumes of "
-                       "the lineage keep it. The worker refuses a swap that breaks the family rules, has no "
-                       "bounded route, or changes the strong calibrator after G10 ran")
+                       "the lineage keep it; undo one by naming the role's earlier model. The worker refuses a swap "
+                       "that breaks the family rules or changes the strong calibrator once a GATES step ran")
     install = commands.add_parser("install")
     install.add_argument("content_file", help="existing worker release bundle")
     install.add_argument("bench_version")

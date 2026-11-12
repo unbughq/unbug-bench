@@ -795,6 +795,8 @@ def run(worker, step_input, keys):
         if inputs.get("recertify") is True and not c.card.get("recertify"):
             return StepResult(Outcome.EXHAUSTED, "admit:import_recertify"), {}   # recertify needs a sealed import
         _pin_models(c, runner, inputs)
+        if step_input.roles:   # a resume's role swap, over the models INPUTS pinned (run.swap_roles)
+            runner.swap_roles(c, step_input)
         imported = c.card.get("imported_from")
         if imported and imported.get("mode") == IDEA_ONLY:
             # Only the statement survives, so today's writer writes the whole case: any supported

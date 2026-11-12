@@ -432,11 +432,18 @@ since a snapshot card pins its models: `start --resume-case <case> --roles
 stress_tester=<model>[,strong_calibrator=<model>]`. No other role may change. The swap rides in the
 resume record, and later resumes of the lineage keep it, a role named again replaced. Every step of
 the resumed workflow carries it in the one optional contract field `StepInput.roles`, which the
-record leaves out when absent, so older records and workers are unchanged. The worker
-(`run.swap_roles`, from `context_for_step`) rewrites the card's models and roles, then checks the
-whole swapped selection against `select_models`' rules (`model_runtime.check_role_families`) and
-`require_bounded_models`; it refuses a strong calibrator change once G10 has run. A refused swap
-fails the attempt (`infra:context_failed`) with the reason in the worker log.
+record leaves out when absent, so older records and workers are unchanged. `start` refuses what it
+can check without the case card (`roles_invalid`): the role names, a model without a bounded route
+for its role, a strong calibrator off the Claude or Codex subscription; and its
+`bound_below_call_hold` check counts the swapped models. The worker (`run.swap_roles`, from
+`context_for_step`; ADMIT applies it after pinning its INPUTS models) rewrites the card's models and
+roles and appends each replaced model to the card's `role_swaps` (role, from, to, step, seq), then
+checks the whole swapped selection against `select_models`' rules (`model_runtime.check_role_families`,
+the rotation table's `refused` list included). The strong calibrator changes only before the case's
+first GATES step. DIAGNOSIS never applies a swap, so a case whose swap the worker refuses (each other
+attempt fails `infra:context_failed`, the reason in the worker log) is still diagnosed and held. To
+undo a swap, resume again naming that role's earlier model (the card's `role_swaps` `from`):
+`--roles stress_tester=<earlier model>`.
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch

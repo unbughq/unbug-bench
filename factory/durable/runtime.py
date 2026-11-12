@@ -119,11 +119,25 @@ class PublishingStore(SealedStore):
         super().put_sealed(scope, ref, ciphertext)
 
 
-def largest_call_hold(inputs_plaintext):
+def check_role_swap(roles):
+    """A resume's role swap ({role: model}), as far as it can be checked before a worker reads
+    the case card: its shape (contract.check_roles) and model_runtime.check_swap_models."""
+    from durable.contract import check_roles
+    import model_runtime
+    try:
+        check_roles(roles)
+        model_runtime.check_swap_models(roles)
+    except ValueError:
+        raise RuntimeErrorCode("roles_invalid") from None
+    return roles
+
+
+def largest_call_hold(inputs_plaintext, swapped=()):
     """Micro-USD of the largest single-request hold among the batch's gated model routes.
 
     Explicit INPUTS models are used as given; without them every rotation family may be
-    chosen. None for an opaque, dry-run or ungated batch: nothing to compare.
+    chosen. A resume's swapped models (`swapped`) count too. None for an opaque, dry-run or
+    ungated batch: nothing to compare.
     """
     import math
     from model_call_gate import request_hold
@@ -141,7 +155,7 @@ def largest_call_hold(inputs_plaintext):
         import model_runtime
         table = json.loads((model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")).read_text())
         routes = [family["model"] for family in table["families"].values()]
-    holds = [h for h in map(request_hold, routes) if h is not None]
+    holds = [h for h in map(request_hold, [*routes, *swapped]) if h is not None]
     return math.ceil(max(holds) * 1_000_000) if holds else None
 
 
@@ -264,6 +278,8 @@ class Runtime:
         # rules refuse it; the engine checks the reason and that the lineage has not used one.
         if (override is not None or roles is not None) and resume_of is None:
             raise RuntimeErrorCode("resume_invalid")
+        if roles is not None:
+            check_role_swap(roles)
         extra = {} if override is None else {"override": override}
         registry = Ref(**registry_record)
         if registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
@@ -330,7 +346,7 @@ class Runtime:
                   for ref in (spec.inputs, registry)]
         # One request reserves its route's worst case before it is forwarded. Money that can't
         # cover the largest such hold can never run that role: refuse now, by name.
-        hold = largest_call_hold(opened[0])
+        hold = largest_call_hold(opened[0], (roles or {}).values())
         # The gate also keeps one micro-USD of headroom (model_call_gate.HEADROOM).
         if hold is not None and hold + 1 > min(spec.money_bound_usd_micros, spec.case_money_usd_micros):
             raise RuntimeErrorCode("bound_below_call_hold")
