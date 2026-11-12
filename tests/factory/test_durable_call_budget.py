@@ -698,14 +698,35 @@ class AttemptBudget(unittest.TestCase):
         hold = model_call_gate.request_hold(lease.route)
         gate = model_call_gate.Allowance(replace(lease, max_usd=float(hold) - 0.01), deadline=time.monotonic()+2)
         self.assertIsNone(gate.reserve(model_call_gate.worst_request(lease.route)['output_tokens']
-                                       if lease.route in model_call_gate.CLAUDE_PROFILES else 1))
+                                       if lease.route in model_call_gate.CLAUDE_PROFILES else model_call_gate.OPENROUTER_OUTPUT))
         # ...and accepts exactly the hold plus the gate's headroom: the hold is not overstated.
         fits = model_call_gate.Allowance(replace(lease, max_usd=float(hold + model_call_gate.HEADROOM)), deadline=time.monotonic()+2)
         self.assertIsNotNone(fits.reserve(model_call_gate.worst_request(lease.route)['output_tokens']
-                                          if lease.route in model_call_gate.CLAUDE_PROFILES else 1))
+                                          if lease.route in model_call_gate.CLAUDE_PROFILES else model_call_gate.OPENROUTER_OUTPUT))
         fits.close()
         self.assertEqual(model_call_gate.request_hold('claude/claude-opus-5-5'), Decimal('9.520896'))
         self.assertIsNone(model_call_gate.request_hold('codex/gpt-6.1-sol'))
 
+
+    def test_unconfirmed_openrouter_requests_hold_only_their_clamped_output(self):
+        """18681d (12 November): 19 of an easy calibrator's 75 GLM requests ended without stream
+        usage. Each retained a hold priced at the model's 943,718-token output limit ($0.63), though
+        every body is clamped to OPENROUTER_OUTPUT, and the call stopped model_call_cap at $0.17 spent."""
+        glm = 'openrouter/z-ai/glm-5.3-flash'
+        worst = model_call_gate.worst_request(glm, model_call_gate.OPENROUTER_OUTPUT)
+        self.assertEqual(worst['completion_tokens'], model_call_gate.OPENROUTER_OUTPUT)
+        self.assertEqual(model_call_gate.worst_request(glm), worst)          # the clamp is the default
+        hold = model_call_gate.request_hold(glm)
+        self.assertLess(hold, Decimal('0.2'))
+        lease = SimpleNamespace(route=glm, max_usd=12.5, max_input_tokens=83333333, max_output_tokens=24999994)
+        gate = model_call_gate.Allowance(lease, deadline=time.monotonic() + 5)
+        for _ in range(19):                                                   # no usage on the stream
+            identity = gate.reserve(model_call_gate.OPENROUTER_OUTPUT); self.assertIsNotNone(identity)
+            gate.finish(identity, None)
+        for _ in range(56):
+            identity = gate.reserve(model_call_gate.OPENROUTER_OUTPUT); self.assertIsNotNone(identity)
+            gate.finish(identity, dict(prompt_tokens=35000, completion_tokens=150))
+        self.assertFalse(gate.exhaustion.is_set())
+        gate.close()
 
 if __name__ == '__main__': unittest.main()
