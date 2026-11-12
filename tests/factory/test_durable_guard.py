@@ -230,6 +230,28 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.f.stopped, 0)
         self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "7200"], self.f.calls)
 
+    def renewed(self):
+        return json.loads((self.f.state_dir / "guard/renewed.json").read_text())
+
+    def test_a_renewal_and_a_refusal_are_recorded_for_the_executor(self):
+        self.tick()
+        self.assertEqual(self.renewed(), {"bx_aaaaaaaa": {"ok": self.f.clock}})
+        before = self.f.clock
+        self.f.boat_failures["extend"] = 3
+        self.tick()
+        self.assertEqual(self.renewed(), {"bx_aaaaaaaa": {"ok": before, "refused": self.f.clock}})
+
+    def test_a_control_plane_outage_or_operator_stop_records_no_refusal(self):
+        self.tick()
+        before = self.renewed()
+        self.f.boat_failures["list"] = 3   # outage: no inventory, so no extend is attempted
+        self.tick()
+        self.f.active = "inactive"          # operator stop: no extend either
+        self.tick()
+        self.assertEqual(self.renewed(), before)
+        from durable.guard import renewing
+        self.assertIsNone(renewing(self.f.state_dir, "bx_aaaaaaaa", stale_s=0.0))
+
     def test_the_hung_usage_call_of_6_november_only_degrades(self):
         """All three tries hang: the batch degrades, nothing stops, and the worker stays."""
         self.f.boat_failures["usage"] = 3

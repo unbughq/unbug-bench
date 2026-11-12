@@ -3189,6 +3189,9 @@ def engine_writer_round(c, n, feedback):
     handbacks = (prior["handbacks"] if isinstance(prior, dict) and prior.get("engine") is True
                  and prior.get("round") == n and type(prior.get("handbacks")) is int else 0)
     deadline =getattr(getattr(c, "engine", None), "deadline_monotonic", None)
+    # The longest cycle (writer call plus its checks) seen in this round, across attempts: the next
+    # one may take as long as any of them, not just as long as the last.
+    longest = resumed["cycle_s"] if resumed is not None and type(resumed.get("cycle_s")) in (int, float) else 0.0
     for call in range(first, c.args.rounds + 1):
         before = start["case"] if call == 1 else resumed["case"] if call == first else case_hash(c)
         cycle_started = time.monotonic()
@@ -3229,13 +3232,15 @@ def engine_writer_round(c, n, feedback):
         # the 4 h deadline mid-cycle, losing the cycle and an infra retry). Hand the findings to a
         # fresh attempt of this round instead: same call count, same problems, full time.
         from durable.policy import WRITER_HANDBACK, WRITER_HANDBACK_CEILING
+        longest = max(longest, time.monotonic() - cycle_started)
         if (deadline is not None and call < c.args.rounds
                 and handbacks < min(c.args.rounds - 1, WRITER_HANDBACK_CEILING)
-                and deadline - time.monotonic() < WRITER_CYCLE_MARGIN * (time.monotonic() - cycle_started) + WRITER_CYCLE_RESERVE_S):
+                and deadline - time.monotonic() < WRITER_CYCLE_MARGIN * longest + WRITER_CYCLE_RESERVE_S):
             atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                        "report": f"round-{n}.json", "round_start": start, "repair_pending": True,
                                        "handbacks": handbacks + 1,
-                                       "handback": {"call": call + 1, "problems": problems, "case": case_hash(c)}})
+                                       "handback": {"call": call + 1, "problems": problems, "case": case_hash(c),
+                                                   "cycle_s": longest}})
             return {"outcome": Outcome.OK, "reason": WRITER_HANDBACK}
     return {"outcome": Outcome.EXHAUSTED, "reason": "writer:rounds_exhausted"}
 

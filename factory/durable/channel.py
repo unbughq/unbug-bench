@@ -21,12 +21,12 @@ from durable.artifacts import ArtifactError
 
 from durable.contract import (BATCH_SCOPED, RELEASE_ROOT, WORKER_COMMAND, ArtifactKind, ArtifactStore, Outcome, Poll,
                               PollState, Ref, StepInput, StepResult, WorkerLease, _check, attempt_paths, key_frame,
-                              poll_from_record, start_frame)
+                              poll_from_record, start_frame, UNANSWERED)
 from durable.workers import BoatCli, boat_id
 
 BLOB_NAME = re.compile(r"([0-9a-f]{64})\.(" + "|".join(k.value for k in ArtifactKind) + r")\.age")
 OUTPUT_FIELDS = ("snapshot", "receipt", "feedback", "report", "registry", "archive", "diagnostic")
-RUNNING = Poll(PollState.RUNNING)
+RUNNING = UNANSWERED   # the contract's shared 'could not reach the worker' answer
 
 
 def blob_name(ref: Ref) -> str:

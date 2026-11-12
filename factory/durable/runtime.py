@@ -27,10 +27,10 @@ import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
 from durable.contract import ArtifactKind, BatchSpec, CASE_ID, ContractError, Ref, assert_no_conductor, batch_spec_from_record
-from durable.guard import degraded as guard_degraded, router_clear
+from durable.guard import degraded as guard_degraded, renewing as guard_renewing, router_clear
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
-from durable.workers import BoatPool, PoolError, ReleaseStore, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
+from durable.workers import BoatPool, PoolError, boat_id, ReleaseStore, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
 
 
 LOG = logging.getLogger("durable.runtime")
@@ -192,7 +192,8 @@ class Runtime:
                 self.pool.credential_bundle = self.worker_credentials
             self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, output_retry_s=retry)
             self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys,
-                                     sleep=draining_sleep, pause=hold_if_draining)
+                                     sleep=draining_sleep, pause=hold_if_draining,
+                                     renewing=lambda lease: guard_renewing(self.state, boat_id(lease.worker_id)))
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
                                  admission_paused=lambda: guard_degraded(self.state),
                                  router_clear=lambda: router_clear(config.get("router_db") or _router_db()))

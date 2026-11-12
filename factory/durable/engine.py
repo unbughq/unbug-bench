@@ -76,6 +76,10 @@ class Timing:
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
 
 
+# Rechecks (seconds of waiting) of a router or credential wait while the case keeps its worker: at 2, 4 and 8 minutes.
+OPERATIONAL_RECHECK_S = (120.0, 120.0, 240.0)
+
+
 class _Runtime:
     executor: Optional[Executor] = None
     timing: Timing = Timing()
@@ -994,6 +998,7 @@ class _Case:
         requested_minimum = 0
         failed_releases = []
         backoffs, admission_waste = 0, 0
+        op_waits = 0   # consecutive router/credential waits of this seq
         admit = step.kind is StepKind.ADMIT
         admission_started = False
         while True:
@@ -1108,13 +1113,25 @@ class _Case:
                 # A later call may not fit even after earlier calls spent money.
                 # Grow only until the ledger applies the batch bound.
                 requested_minimum = min(2**63 - 1, max(job["request"] * 2, 1))
+            op_waits = op_waits if is_operational_wait(result) else 0
             if is_operational_wait(result):
                 self.status = ("waiting_for_credentials" if result.reason in (
                     "router:credential_expiring", "infra:credentials_unavailable") else "waiting_for_router")
                 self.card()
-                self.release_worker()
+                op_waits += 1
+                # A router or credential wait usually clears in minutes, and a released worker costs
+                # 5-10 min to replace. Keep it and recheck at 2, 4 and 8 minutes; only then release it
+                # and wait out the rest of the old credential_retry_s.
+                keep = DBOS.patch("operational_wait_keeps_worker")
+                step_s = OPERATIONAL_RECHECK_S[op_waits - 1] if keep and op_waits <= len(OPERATIONAL_RECHECK_S) else None
+                if step_s is None:
+                    self.release_worker()
                 if not self.replaying:
-                    DBOS.sleep(max(0.001, _RT.timing.credential_retry_s))
+                    if step_s is not None:
+                        DBOS.sleep(min(step_s, _RT.timing.credential_retry_s))
+                    else:
+                        waited = sum(OPERATIONAL_RECHECK_S) if keep else 0
+                        DBOS.sleep(max(0.001, _RT.timing.credential_retry_s - waited))
                 self.status = "running"
                 self.last_reason = None
                 self.card()

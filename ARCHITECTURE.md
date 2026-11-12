@@ -183,7 +183,7 @@ G4, G5, saved cheats is kept. Any snapshot requested while two threads work on t
 case edited during that lane fails the step as infrastructure. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
 progress and the card's `phase_times`. Before another writer call and its checks in the same
-attempt, the round compares the time left with 1.25 times the cycle just finished plus 15 minutes;
+attempt, the round compares the time left with 1.25 times the longest cycle finished in this round (carried in the handback across attempts) plus 15 minutes;
 when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
 returns `writer:handback` (OK, with its snapshot). Under the `writer_handback_retry` DBOS patch the engine retries that seq outside the infra
 allowance (a STRESS step finding a pending handback stops as infrastructure). The writer hands
@@ -493,6 +493,8 @@ costs of settled rows equally old, so their charges are scaled down to that boun
 marked `reconciled`. A bound only ever lowers a charge, and the ceiling is unchanged; a later
 generation report replaces the bounded share with the provider's cost, which may be higher but
 never above the row's hold.
+
+A worker that has answered no poll for 30 minutes (`SILENT_WORKER_LIMIT_S`) is deleted and counted lost at once, but only when the guard's `renewed.json` shows Boat refusing its lease renewal (in a pass whose inventory call worked) and accepting none for 15 minutes (`guard.renewing`); a control-plane outage, an operator stop or no guard pass is unknown and never retires it. A router or credential wait keeps the case's worker and rechecks at 2, 4 and 8 minutes (`operational_wait_keeps_worker` DBOS patch) before releasing it and waiting out the rest of `credential_retry_s`.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and

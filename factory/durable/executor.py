@@ -19,8 +19,8 @@ from typing import Optional
 from durable.artifacts import ArtifactError, open_from, scope_for
 from durable.contract import (ArtifactKind, ArtifactStore, Grant, KeyService, Ledger, Outcome, Poll,
                               PollState, Ref, Sealer, StepInput, StepKind, StepResult, WorkerChannel, WorkerLease,
-                              WorkerPool)
-from durable.policy import POLL_GRACE_S, UNCONFIRMED_WORKER_LIMIT_S, settles_as_waste, settles_lost
+                              WorkerPool, UNANSWERED)
+from durable.policy import POLL_GRACE_S, SILENT_WORKER_LIMIT_S, UNCONFIRMED_WORKER_LIMIT_S, settles_as_waste, settles_lost
 
 OUTPUT_REFS = ("snapshot", "receipt", "feedback", "report", "registry", "archive", "diagnostic")
 
@@ -66,12 +66,16 @@ class Executor:
     def __init__(self, pool: WorkerPool, channel: WorkerChannel, ledger: Ledger, store: ArtifactStore,
                  sealer: Sealer, keys: KeyService, *, poll_interval_s: float = 30.0,
                  grace_s: float = POLL_GRACE_S, clock=time.time, sleep=time.sleep,
-                 pause=lambda: None, unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S):
+                 pause=lambda: None, unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S,
+                 renewing=None, silent_limit_s: float = SILENT_WORKER_LIMIT_S):
         self.pool, self.channel, self.ledger, self.store = pool, channel, ledger, store
         self.sealer, self.keys = sealer, keys
         self.poll_interval_s, self.grace_s = poll_interval_s, grace_s
         self.clock, self.sleep = clock, sleep
         self.pause, self.unconfirmed_limit_s = pause, unconfirmed_limit_s
+        # renewing(lease) -> False only when the worker's lease renewal is known to have stopped
+        # (guard.renewing). None, or any other answer, never retires a worker early.
+        self.renewing, self.silent_limit_s = renewing, silent_limit_s
 
     # ---- the attempt (StepExecutor) ------------------------------------------------------------
 
@@ -109,9 +113,14 @@ class Executor:
         # remains in force and no second attempt is started meanwhile.
         limit = max(start, self.clock()) + si.deadline_s + self.grace_s
         checkpoint = None
+        last_answer = self.clock()
         while True:
             self.pause()   # shutdown: leave the step unrecorded, so a restart reattaches
             poll = self._poll(lease, si)
+            if poll is not UNANSWERED:
+                last_answer = self.clock()
+            elif self._silent_and_unrenewed(lease, last_answer) and self._retire(lease):
+                return self._lost(si, "infra:worker_lost", checkpoint)
             if poll.checkpoint is not None:
                 checkpoint = poll.checkpoint
             if poll.state is PollState.DONE:
@@ -150,7 +159,15 @@ class Executor:
                 return poll
         except Exception:
             pass
-        return Poll(PollState.RUNNING)   # a transport failure is RUNNING, never ABSENT
+        return UNANSWERED   # a transport failure is RUNNING, never ABSENT
+
+    def _silent_and_unrenewed(self, lease, last_answer: float) -> bool:
+        if self.renewing is None or self.clock() - last_answer < self.silent_limit_s:
+            return False
+        try:
+            return self.renewing(lease) is False
+        except Exception:
+            return False   # unknown renewal is not stopped renewal
 
     def _retire(self, lease) -> bool:
         """Past the limit a worker counts as lost only once it cannot still be running. The guard
