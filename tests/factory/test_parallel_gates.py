@@ -194,14 +194,22 @@ class RunningCases(unittest.TestCase):
             with mock.patch.object(bench, "load_scenario", return_value={}), \
                  mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
                  mock.patch.object(bench, "factory_memory_fits", side_effect=lambda s, n: n <= fits), \
-                 mock.patch.object(run, "log"):
-                run.scale_bench_workers_at_entry(c)
+                 mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=16):
+                run.scale_bench_workers(c)
             self.assertEqual(c.args.bench_workers, expected, fits)
         c, _ = self.case({"bench_workers": 2, "parallel_gates": True})
         c.engine = object(); c.args.parallel_gates = True; c.args.bench_workers = 2; c.case = pathlib.Path(tmp.name)
         with mock.patch.object(bench, "load_scenario", side_effect=OSError):
-            self.assertFalse(run.scale_bench_workers_at_entry(c))
+            self.assertFalse(run.scale_bench_workers(c))
         self.assertEqual(c.args.bench_workers, 2)
+        # CPU caps it too: 8 vCPU hold at most 8 copies, 6 bench copies plus G10's two testers.
+        c.args.bench_workers = 2
+        with mock.patch.object(bench, "load_scenario", return_value={}), \
+             mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
+             mock.patch.object(bench, "factory_memory_fits", return_value=True), \
+             mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=8):
+            run.scale_bench_workers(c)
+        self.assertEqual(c.args.bench_workers, 6)
 
     def test_gates_entry_keeps_passed_gate_cache_identities(self):
         c, _ = self.case({"bench_workers": 1})
