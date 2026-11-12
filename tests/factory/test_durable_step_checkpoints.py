@@ -56,6 +56,18 @@ class ReleaseScope(unittest.TestCase):
         for change in ({'bench': 'b2'}, {'feedback': 'f'}, {'ruling': 'r'}):
             cp.gate_call(ctx(**change), 'G4', gate, 'binding')
         self.assertEqual(len(ran), 5)                     # bench, feedback and ruling still scope it
+        # A saved failure replays only under the release that recorded it (the next may be its fix).
+        def failing():
+            ran.append(1); return False, {'problems': ['x']}
+        cp.gate_call(ctx(plumbing='p3'), 'G5', failing, 'binding')
+        cp.gate_call(ctx(plumbing='p3'), 'G5', failing, 'binding')
+        self.assertEqual(len(ran), 6)
+        cp.gate_call(ctx(plumbing='p4'), 'G5', failing, 'binding')
+        self.assertEqual(len(ran), 7)
+        # A change to the verdict-path code starts afresh even for passes.
+        with patch.object(cp, 'verdict_code', return_value='other'):
+            cp.gate_call(ctx(plumbing='p5'), 'G4', gate, 'binding')
+        self.assertEqual(len(ran), 8)
 
 
 @unittest.skipUnless(shutil.which('age'), 'requires local age CLI')
