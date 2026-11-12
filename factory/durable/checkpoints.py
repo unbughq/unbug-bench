@@ -90,7 +90,7 @@ def directory(c):
 # the gate pipeline and attempt classification, the reuse rules, this module, the ordinary-retry
 # answers and the model harness. A plumbing release that changes any of them starts afresh.
 VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'durable/checkpoints.py',
-                'ordinary_retry.py', 'model_runtime.py', 'model_router.py')
+                'ordinary_retry.py', 'model_runtime.py', 'model_router.py', 'model_call_gate.py')
 _VERDICT_DIGEST = None
 
 
