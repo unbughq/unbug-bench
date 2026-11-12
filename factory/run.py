@@ -1147,6 +1147,50 @@ class AllowanceSpent(TimeoutError):
     """A checkpoint's caller-given time allowance ran out."""
 
 
+def _checkpoint_receipt_dir(c, identity):
+    return c.work / "gate-checkpoints" / hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _saved_checkpoint(c, identity, runs, label):
+    """(summary, records) of a finished checkpoint with exactly this identity, or None. Re-read with
+    read_completed, so a saved batch with any invalid or missing run is not reused."""
+    from checkpoint_evidence import read_completed
+    directory = _checkpoint_receipt_dir(c, identity)
+    try:
+        if directory.is_symlink() or json.loads((directory / "identity.json").read_text()) != json.loads(json.dumps(identity, default=str)):
+            return None
+        receipt = "UNBUG_CHECKPOINT=" + json.dumps({"version": 1, "path": str(directory / "checkpoint.json"), "requested_runs": runs})
+        summary, records, _ = read_completed(argparse.Namespace(returncode=0, stdout=receipt, stderr=""), runs, label, require_valid=True)
+        return summary, records
+    except Exception:  # unreadable, incomplete or invalid saved batch: just run it again
+        return None
+
+
+_CHECKPOINT_PUBLISHED = [0.0]
+
+
+def _save_checkpoint(c, identity, source):
+    """Keep a finished checkpoint's verdict files (summary and per-run records) in c.work/gate-checkpoints,
+    which the snapshot retains, so a retried GATES step on a fresh worker skips it."""
+    directory = _checkpoint_receipt_dir(c, identity)
+    try:
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        staging = directory.with_name(directory.name + ".tmp")
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir()
+        for f in pathlib.Path(source).glob("*.json"): shutil.copyfile(f, staging / f.name)
+        (staging / "identity.json").write_text(json.dumps(identity, sort_keys=True, default=str))
+        shutil.rmtree(directory, ignore_errors=True)
+        staging.rename(directory)
+    except OSError:
+        return  # a lost receipt only costs a rerun
+    # Throttled snapshot (the engine defers it while anything runs concurrently): a kill loses at most a few minutes.
+    if under_engine(c) and time.monotonic() - _CHECKPOINT_PUBLISHED[0] > 300:
+        _CHECKPOINT_PUBLISHED[0] = time.monotonic()
+        from durable.checkpoints import checkpoint as engine_checkpoint
+        engine_checkpoint(c)
+
+
 def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=None):
     """bin/checkpoint on the case's base scenario (+ more); returns (summary, per-run records).
     slot=k runs it whole on bench instance k (its own ports, database and lock) instead of spreading runs."""
@@ -1163,6 +1207,15 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
                 "scenarios": [tree_digest(s) for s in scenarios], "runs": runs, "seed": seed,
                 "slot": slot, "label": label, "bench": getattr(c, 'manifest0', None),
                 "workers": getattr(c.args, 'bench_workers', 1)}
+    # Receipt identity: what is scored, not how it was spread (slot, workers). G10 tries and the G11
+    # rerun are never reused here: G10 has its own attempt series, the rerun is a deliberate repeat.
+    reusable = not label.startswith(("g10-", "g11-"))
+    receipt_identity = {k: v for k, v in identity.items() if k not in ("slot", "workers")}
+    if reusable:
+        import claims
+        receipt_identity["scoring"] = claims.scoring_identity()
+        saved = _saved_checkpoint(c, receipt_identity, runs, label)
+        if saved is not None: return saved
     deadline = time.monotonic() + timeout if timeout is not None else None
     def invoke():
         case_budget_boundary(c)
@@ -1173,7 +1226,8 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
         except subprocess.TimeoutExpired:
             if deadline is None: raise
             raise AllowanceSpent('checkpoint allowance exhausted') from None  # the caller's time, not a fault
-        summary, records, _ = read_completed(p, runs, label, require_valid=True)
+        summary, records, path = read_completed(p, runs, label, require_valid=True)
+        if reusable: _save_checkpoint(c, receipt_identity, path.parent)
         return summary, records
     # A spent caller allowance is neither retried nor counted as an invalid attempt.
     return retry(c.work / "infra-attempts.json", identity, invoke, interruption=(BudgetError, AllowanceSpent))
@@ -2587,7 +2641,7 @@ ENGINE_SETTINGS = ("rounds", "runs", "scenario_runs", "pilot_tries", "pilot_runs
 SNAPSHOT_RETAINED = (
     "case", "scorecard.json", "continuation-budget.json", "usage-receipts",
     "gate-cache", "gate-details", "judge_breadth", "review-*", "bench-results", "fairness-*", "g11-evidence",
-    "g2-url-retrieval", "strategy-g14-checkpoints", "delivery-provenance.json",
+    "g2-url-retrieval", "gate-checkpoints", "strategy-*", "delivery-provenance.json",
     "strong_calibrator", "easy_calibrator", "early_probe",
     "attack-state.json", "attacks", "diagnostic-budgets", "infra-attempts.json", "selection-rejections.json", "fixes",
     "prototype.json", "public-search.json", "freshness-verdict.json", "freshness-repair.json",
