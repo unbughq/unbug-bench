@@ -323,16 +323,17 @@ class Guard:
         return None
 
     def _extend(self, owned: list) -> None:
-        renewed: dict = {}
+        # Per worker: when Boat last accepted a renewal and when it last refused one. A refusal counts only
+        # here, in a pass whose inventory call worked: no pass, an operator stop, an expired TTL or a
+        # control-plane outage leave the record alone, so none of them can look like a dead worker.
+        record = self.load("renewed.json", {})
+        record = {k: v for k, v in record.items() if k in {row["id"] for row in owned} and isinstance(v, dict)}
         for row in owned:
             ttl = min(7200, int(self.request["deadline_epoch"] + self.checkpoint_grace_s - self.clock()))
             if ttl >= 1:
                 ok, _ = self.check("boat_extend", lambda: self._boat(["extend", row["id"], "--ttl", str(ttl)], 30))
-                if ok:
-                    renewed[row["id"]] = self.clock()
-        if renewed:   # the executor retires a silent worker only when this stops moving (renewing)
-            ids = {row["id"] for row in owned}
-            self.save("renewed.json", {**{k: v for k, v in self.load("renewed.json", {}).items() if k in ids}, **renewed})
+                record.setdefault(row["id"], {})["ok" if ok else "refused"] = self.clock()
+        self.save("renewed.json", record)
 
     # -- the pass --
 
@@ -672,12 +673,16 @@ RENEWAL_STALE_S = 900.0   # fifteen missed one-minute guard passes
 
 
 def renewing(state_dir, boat_id: str, *, stale_s: float = RENEWAL_STALE_S) -> Optional[bool]:
-    """Whether the guard still renews this worker's Boat lease: False only when the guard has renewed it
-    before and not within stale_s. Unreadable or never-renewed is unknown (None), never False."""
+    """Whether the guard still renews this worker's Boat lease: False only when Boat has refused a renewal
+    within stale_s (in a pass that could list Boat) and has accepted none within stale_s. Unreadable, never
+    renewed, or merely no recent pass is unknown (None), never False."""
     try:
-        at = json.loads((Path(state_dir) / "guard" / "renewed.json").read_text())[boat_id]
-        return None if type(at) not in (int, float) else time.time() - at < stale_s
-    except (OSError, ValueError, KeyError, TypeError):
+        row = json.loads((Path(state_dir) / "guard" / "renewed.json").read_text())[boat_id]
+        ok, refused, now = row.get("ok"), row.get("refused"), time.time()
+        if type(refused) not in (int, float) or now - refused >= stale_s:
+            return None
+        return False if type(ok) not in (int, float) or now - ok >= stale_s else True
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
 
 

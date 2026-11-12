@@ -307,11 +307,17 @@ class Run(Setup):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(renewing(tmp, "bx_aaaaaaaa"))   # no record: unknown
             (Path(tmp) / "guard").mkdir()
-            (Path(tmp) / "guard" / "renewed.json").write_text(json.dumps({"bx_aaaaaaaa": time.time() - 60,
-                                                                           "bx_bbbbbbbb": time.time() - 5000}))
-            self.assertTrue(renewing(tmp, "bx_aaaaaaaa"))
+            now = time.time()
+            (Path(tmp) / "guard" / "renewed.json").write_text(json.dumps({
+                "bx_aaaaaaaa": {"ok": now - 60},                                  # renewed, no refusal
+                "bx_bbbbbbbb": {"ok": now - 5000, "refused": now - 30},           # refused, last ok long ago
+                "bx_cccccccc": {"ok": now - 5000},                                # no pass since: unknown
+                "bx_dddddddd": {"ok": now - 60, "refused": now - 30}}))           # recent ok: still renewed
+            self.assertTrue(renewing(tmp, "bx_aaaaaaaa") is None)
             self.assertFalse(renewing(tmp, "bx_bbbbbbbb"))
             self.assertIsNone(renewing(tmp, "bx_cccccccc"))
+            self.assertTrue(renewing(tmp, "bx_dddddddd"))
+            self.assertIsNone(renewing(tmp, "bx_eeeeeeee"))
 
     def test_a_result_landing_at_the_limit_beats_deleting_the_worker(self):
         si = self.si(deadline=600.0)
