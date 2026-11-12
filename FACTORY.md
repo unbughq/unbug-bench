@@ -81,7 +81,8 @@ with cumulative spending and the latest stress findings retained; it never passe
 **FOUNDER DECISION 2026-11-10:** a case is attacked at most twice (`ATTACK_ROUNDS`,
 `factory/durable/engine.py`). A stress round covers all four categories before it reports,
 so the writer gets every finding in one list; a finding ends its own category, never the
-round. The findings of the first round are fixed and the case is attacked once more. The
+round; the same holds for an unfinished one (a spent round-wide diagnostic or a category with no further
+progress stays `unfinished_validation`, never covered, and the other categories still run). The findings of the first round are fixed and the case is attacked once more. The
 findings of the second round get one final writer fix, whose own checks replay every saved
 cheat, and the case then goes to the gates whatever round, extension or writer-round count
 it has reached. A gate repair after that is not attacked again. This restores the 16 October
