@@ -24,8 +24,8 @@ import sys
 import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from durable.contract import (ArtifactKind, BenchRelease, BoundRaised, FounderReply, PlumbingRelease,
-                              Ref, Topic, to_record, BATCH_ID, CASE_ID)
+from durable.contract import (ArtifactKind, BenchRelease, BoundRaised, ContractError, FounderReply, PlumbingRelease,
+                              Ref, Topic, check_roles, to_record, BATCH_ID, CASE_ID)
 from durable.runtime import Runtime, RuntimeErrorCode, load_config, private_bytes
 
 
@@ -45,7 +45,7 @@ def dispatch(runtime, request):
         return to_record(runtime.prepare(request["scope"], kind, base64.b64decode(request["content"], validate=True)))
     if op == "start":
         return runtime.start(request["spec"], request["registry"], request.get("import"), request.get("resume"),
-                             request.get("override_reason"))
+                             request.get("override_reason"), request.get("roles"))
     if op == "install":
         digest = runtime.releases.put_bundle(base64.b64decode(request["content"], validate=True))
         runtime.releases.register_bench(request["bench_version"], request["image"])
@@ -104,6 +104,20 @@ class Handler(socketserver.StreamRequestHandler):
             code = "batch_already_finished" if isinstance(error, RuntimeErrorCode) and str(error) == "batch_already_finished" else "operator_request_failed"
             response = {"ok": False, "error": code}
         self.wfile.write(json.dumps(response).encode() + b"\n")
+
+
+def parse_roles(text):
+    """`--roles stress_tester=<model>[,strong_calibrator=<model>]` as {role: model}."""
+    roles = {}
+    for item in text.split(","):
+        role, sep, model = item.partition("=")
+        if not sep or role in roles:
+            raise RuntimeErrorCode("roles_invalid")
+        roles[role] = model
+    try:
+        return check_roles(roles)
+    except ContractError:
+        raise RuntimeErrorCode("roles_invalid") from None
 
 
 def stop_on_signal(drain, cleanup=lambda: None):
@@ -178,6 +192,10 @@ def main(argv=None):
                        "more where the normal rules refuse it (a factory_bug hold whose stops are not all rerunnable "
                        "or that used its resumes, or a case whose last attempt was not an infra stop); never a "
                        "scientific stop or a sealed case. Recorded on the case card and the board")
+    start.add_argument("--roles", help="founder 2026-11-12: resume --resume-case with another model for "
+                       "stress_tester and/or strong_calibrator, as role=model[,role=model]; later resumes of "
+                       "the lineage keep it. The worker refuses a swap that breaks the family rules, has no "
+                       "bounded route, or changes the strong calibrator after G10 ran")
     install = commands.add_parser("install")
     install.add_argument("content_file", help="existing worker release bundle")
     install.add_argument("bench_version")
@@ -215,6 +233,12 @@ def main(argv=None):
         else:
             if args.get("override_reason") is not None and args.get("resume_case") is None:
                 raise RuntimeErrorCode("override_needs_resume_case")
+            if args.get("roles") is not None:
+                if args.get("resume_case") is None:
+                    raise RuntimeErrorCode("roles_need_resume_case")
+                args["roles"] = parse_roles(args["roles"])
+            elif "roles" in args:
+                args.pop("roles")
             for field in ("spec", "registry", "payload", "import"):
                 if args.get(field + "_file") is not None:
                     args[field] = json.loads(private_bytes(args.pop(field + "_file")))

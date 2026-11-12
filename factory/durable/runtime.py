@@ -258,11 +258,11 @@ class Runtime:
         self.store.put_sealed(scope, ref, ciphertext)
         return ref
 
-    def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None):
+    def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None, roles=None):
         spec = batch_spec_from_record(spec_record)
         # An operator override (founder 2026-11-11) resumes a case once where engine.resume_point's
         # rules refuse it; the engine checks the reason and that the lineage has not used one.
-        if override is not None and resume_of is None:
+        if (override is not None or roles is not None) and resume_of is None:
             raise RuntimeErrorCode("resume_invalid")
         extra = {} if override is None else {"override": override}
         registry = Ref(**registry_record)
@@ -335,7 +335,8 @@ class Runtime:
         if hold is not None and hold + 1 > min(spec.money_bound_usd_micros, spec.case_money_usd_micros):
             raise RuntimeErrorCode("bound_below_call_hold")
         self.releases.bundle(spec.plumbing_version)
-        self.engine.start_batch(spec, registry, imported, resume_of, **extra)
+        swap = {} if roles is None else {"roles": roles}
+        self.engine.start_batch(spec, registry, imported, resume_of, **extra, **swap)
         return {"batch_id": spec.batch_id}
 
     def drain(self):

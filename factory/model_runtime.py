@@ -124,14 +124,7 @@ def select_models(c, *, log):
     if getattr(c, "engine", None) is None:
         from free_models import apply as apply_free_models
         roles = apply_free_models(c, roles)
-    families = [family(roles[r]['model']) for r in flags]
-    if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
-    if a.reviewer2 and family(a.reviewer2) in (family(roles['writer']['model']), family(roles['stress_tester']['model'])):
-        raise ValueError('Every reviewer must be independent from the writer and stress tester')
-    if not roles['strong_calibrator']['model'].startswith(('claude/', 'codex/')):
-        raise ValueError('Strong calibrator must use the Claude or Codex subscription')
-    if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
-        raise ValueError('Easy calibrator must not be a contestant family')
+    check_role_families(roles)
     for data in roles.values(): data['family'] = family(data['model'])
     c.card['roles'], c.card['rotation_slot'] = roles, a.rotation_slot
     m = {"builder": [roles['writer']['model']], "attacker": [roles['stress_tester']['model']],
@@ -141,6 +134,19 @@ def select_models(c, *, log):
         raise ValueError("Select one requested model per role; the router owns approved fallbacks")
     log(c, "models", json.dumps(m))
     return m
+
+
+def check_role_families(roles):
+    """The separation rules of a whole role selection ({role: {'model': ...}}): select_models, and a
+    resume's role swap (run.swap_roles), which checks the set after every swapped role is in place."""
+    families = [family(roles[r]['model']) for r in ('writer', 'stress_tester', 'reviewer', 'strong_calibrator')]
+    if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
+    if 'reviewer2' in roles and family(roles['reviewer2']['model']) in (family(roles['writer']['model']), family(roles['stress_tester']['model'])):
+        raise ValueError('Every reviewer must be independent from the writer and stress tester')
+    if not roles['strong_calibrator']['model'].startswith(('claude/', 'codex/')):
+        raise ValueError('Strong calibrator must use the Claude or Codex subscription')
+    if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
+        raise ValueError('Easy calibrator must not be a contestant family')
 
 
 def model_effort(model):

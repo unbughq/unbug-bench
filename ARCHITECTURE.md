@@ -427,6 +427,17 @@ reason rides in the resume record, so a second override of the lineage is refuse
 retires at its next `factory_bug` diagnosis. The override's case card and the board show the reason;
 the published scorecard does not.
 
+Founder 2026-11-12: a resume may also give the case another stress tester or strong calibrator,
+since a snapshot card pins its models: `start --resume-case <case> --roles
+stress_tester=<model>[,strong_calibrator=<model>]`. No other role may change. The swap rides in the
+resume record, and later resumes of the lineage keep it, a role named again replaced. Every step of
+the resumed workflow carries it in the one optional contract field `StepInput.roles`, which the
+record leaves out when absent, so older records and workers are unchanged. The worker
+(`run.swap_roles`, from `context_for_step`) rewrites the card's models and roles, then checks the
+whole swapped selection against `select_models`' rules (`model_runtime.check_role_families`) and
+`require_bounded_models`; it refuses a strong calibrator change once G10 has run. A refused swap
+fails the attempt (`infra:context_failed`) with the reason in the worker log.
+
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch
 whose batch or case money cannot hold one request on its dearest gated route (`bound_below_call_hold`;
