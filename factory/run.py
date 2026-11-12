@@ -2334,8 +2334,12 @@ def early_probe(c):
             r = calibrate(child, "strong_calibrator", tries=1, name="early_probe")
         r["label"] = "solvable" if r["solved"] else "likely_hard"
     except Exception as error:  # Provider waits are plumbing, even for this optional probe.
-        if str(error) in ("provider_wait", "model_call_cap"): raise
-        r = {"skipped": type(error).__name__}  # Command diagnostics stay in encrypted logs.
+        if str(error) == "provider_wait": raise
+        # A per-call cap is skipped like any other probe failure: the probe is a label, and G10's own
+        # strong tester still meets any real money limit. 2abb0a (11 November) had its probe leased the
+        # $0.29 left beside a reviewer's $12.50 hold; the re-raised model_call_cap ended gates:9 with
+        # G1-G5 passed and $13.43 of the case unspent.
+        r = {"skipped": "model_call_cap" if str(error) == "model_call_cap" else type(error).__name__}
     finally:
         home = pilot_home("pilot")
         if home.exists():  # G10 creates the pilot user afresh

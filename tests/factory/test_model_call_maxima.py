@@ -628,8 +628,9 @@ class MaximaTests(unittest.TestCase):
         with patch.object(run,'g10_overlap_reason',return_value=None),patch.object(run,'make_pilots'), \
              patch.object(calibration,'isolated_attempt_context',return_value=nullcontext(c)), \
              patch.object(run,'calibrate',side_effect=budget.BudgetError('model_call_cap')), \
-             patch.object(run,'pilot_home',return_value=self.root/'not-created'):
-            with self.assertRaisesRegex(budget.BudgetError,'^model_call_cap$'):run.early_probe(c)
+             patch.object(run,'pilot_home',return_value=self.root/'not-created'),patch.object(run,'log'):
+            # The probe is a label only: its cap stop is skipped, not raised (2abb0a, 11 November).
+            run.early_probe(c);self.assertEqual(c.card['early_probe']['skipped'],'model_call_cap')
         self.assertEqual(calibration.interruption_label(budget.BudgetError('model_call_cap')),'model_call_cap')
         runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
         with self.assertRaises(router.ProviderWait):
