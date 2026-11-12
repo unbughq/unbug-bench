@@ -64,12 +64,30 @@ def machine_class() -> dict:
     return {"cpus": os.cpu_count(), "mem_gib": gib}
 
 
-def make_job(*, case, guard, scenarios, bench, release, runs, seed, label, machine=None, workers=1) -> dict:
-    """Everything that decides what the checkpoint measures. Digests are of trees, not paths."""
-    return {"version": JOB_VERSION, "kind": "checkpoint", "case": case, "guard": digest_of(guard),
-            "scenarios": [digest_of(s) for s in scenarios], "bench": bench, "release": release,
-            "runs": runs, "seed": seed, "label": label,
-            "machine": machine_class() if machine is None else machine, "workers": workers}
+def fits(mine: dict, need: dict | None) -> bool:
+    """A helper's class against a job's. Exact by default (stress timing depends on the machine);
+    {"min": True, ...} asks for at least that many cpus and GiB, for an experiment with other sizes."""
+    if need is None: return True
+    if not need.get("min"): return mine == need
+    return all(type(mine.get(k)) is int and mine[k] >= need[k] for k in ("cpus", "mem_gib"))
+
+
+def need_for(per_copy: dict | None, workers: int, own=None) -> dict:
+    """The class a job asks of its helper: the case worker's own, or per_copy {cpus, mem_gib} for each of
+    `workers` bench copies at least."""
+    if not per_copy: return machine_class() if own is None else own
+    return {"min": True, "cpus": per_copy["cpus"] * workers, "mem_gib": per_copy["mem_gib"] * workers}
+
+
+def make_job(*, case, guard, scenarios, bench, release, runs, seed, label, machine=None, workers=1, guard_at=None) -> dict:
+    """Everything that decides what the checkpoint measures. Digests are of trees, not paths.
+    guard_at is where a helper finds the guard: ["case"|"bench", relative path]."""
+    job = {"version": JOB_VERSION, "kind": "checkpoint", "case": case, "guard": digest_of(guard),
+           "scenarios": [digest_of(s) for s in scenarios], "bench": bench, "release": release,
+           "runs": runs, "seed": seed, "label": label,
+           "machine": machine_class() if machine is None else machine, "workers": workers}
+    if guard_at is not None: job["guard_at"] = guard_at   # absent keeps old jobs' identity
+    return job
 
 
 def collect(directory) -> dict:
@@ -91,7 +109,7 @@ def open_sealed(key: bytes, job: dict, sealed) -> dict:
         raise ValueError("helper result seal does not verify")
     if body.get("job") != job:
         raise ValueError("helper result answers a different job")
-    if job.get("machine") is not None and body.get("machine") != job["machine"]:
+    if not isinstance(body.get("machine"), dict) or not fits(body["machine"], job.get("machine")):
         raise ValueError("helper machine class differs from the job's")
     files = body.get("files")
     if not isinstance(files, dict) or any(type(t) is not str for t in files.values()):
@@ -107,7 +125,7 @@ def execute(job: dict, key: bytes, *, check, run, machine=machine_class) -> dict
     refuses, and the seal records the class it ran on."""
     check(job)
     mine = machine()
-    if job.get("machine") is not None and mine != job["machine"]:
+    if not fits(mine, job.get("machine")):
         raise HelperRefused(f"machine class {mine} differs from job's {job['machine']}")
     return seal(key, job, collect(run(job)), mine)
 
@@ -171,9 +189,11 @@ def checkpoint_shards(c, guards, runs, seed, label, *, case, scenarios, bench, b
     import types
     import checkpoint_evidence
     from durable.checkpoints import verdict_code
+    workers = getattr(c.args, "bench_workers", 1)
+    need = need_for(getattr(c.args, "helper_min_per_copy", None), workers)
     jobs = {str(g): make_job(case=case, guard=_tree(g), scenarios=scenarios, bench=bench, release=verdict_code(),
-                             runs=runs, seed=seed, label=label,
-                             workers=getattr(c.args, "bench_workers", 1)) for g in guards}
+                             runs=runs, seed=seed, label=label, machine=need, workers=workers,
+                             guard_at=_guard_at(c, g)) for g in guards}
     root = c.work / "helper-results"
 
     def accept(job, files):
@@ -195,6 +215,14 @@ def checkpoint_shards(c, guards, runs, seed, label, *, case, scenarios, bench, b
 
 
 _LEDGER_LOCK = threading.Lock()
+
+
+def _guard_at(c, guard):
+    """Where a helper finds this guard: in the case tree, or in its own bench copy (refuse-all)."""
+    try: return ["case", Path(guard).relative_to(c.case).as_posix()]
+    except ValueError: pass
+    import run
+    return ["bench", Path(guard).relative_to(run.BENCH).as_posix()]
 
 
 def _tree(path):

@@ -530,11 +530,22 @@ of another size refuses and the seal echoes. `durable/helpers.py` is in `VERDICT
 bench dependencies, so editing it re-binds cached verdicts. Same runs, seeds, guards and pass rules; only where they execute
 changes.
 
-Not built (needs a control-VM transport, since a case worker holds no Boat credentials): the
-`HelperPool` implementation over `BoatPool` (a derived `case-<id>-h<k>` lease per helper, case tree
-and bench version delivered, helper-side `helpers.execute` called from a `worker_step`-style
-command, engine wiring that sets `c.helper_pool`, and a DBOS step-sequence patch if the dispatch
-becomes its own step). G10 tries: one job per strong try behind the same pilot wall, with the
+Transport (`factory/durable/helper_link.py`, off unless runtime config has `"helpers": {per_case, total,
+vm_type, min_per_copy, job_timeout_s}`): the case worker holds no Boat credentials, so `SpoolPool` turns
+lease/run/release into request files under `~/durable/helpers/<attempt>/req` and waits for answers in
+`res`; the control VM's `Broker`, started from `BoatChannel` for GATES attempts only (spool written at
+start, relay kept alive by each poll, no new engine step, so recorded workflows replay unchanged), reads
+the requests over `boat ssh`, leases each helper through `BoatPool` under case id `<case>-h<k>` (same
+release install and verify; `vm_type` may differ), pushes the case tree, runs `helper_link.py run` on it
+(the real input check: release, bench, case, guard and scenario digests; then `bin/checkpoint`) and writes
+back the sealed result. Helpers are deleted on `release`, when the attempt ends or is cancelled, when
+polls stop for `idle_s`, and for every leftover helper record at controller start. A claim by an earlier
+controller process is answered as lost, so the case worker requeues. `per_case` and `total` cap helpers;
+a refused lease just leaves that work to run on the case worker. Lease and release seconds per helper go
+to `<state>/helper-leases/<case>.jsonl` (seconds, not money: no helper price is modelled). The machine
+rule stays "same cpus and RAM as the case worker" unless `min_per_copy` {cpus, mem_gib} asks for at least
+that per bench copy. Not built:
+G10 tries: one job per strong try behind the same pilot wall, with the
 authority for all tries sized up front (founder-approved 2026-11-12) and each helper's lease seconds
 and model spend booked to the case line; the result is the AttemptSeries receipt, authenticated the
 same way. G5/G15 writing-round checks: same job shape, `plain_and_reference` and the key checks as
