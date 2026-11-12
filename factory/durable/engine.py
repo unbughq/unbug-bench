@@ -331,9 +331,14 @@ RESUMABLE_OUTCOMES = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.value)
 # and 22e434-3 (writer:4) spent their case money on Go plan calls booked at list price, and their
 # diagnoses said factory_bug. Their resume books that step's money as waste (factory_bug_waste_keys)
 # and then needs case money left within the ceiling (runtime's resume_money check), so a resume
-# never grants the case more than its ceiling.
+# never grants the case more than its ceiling. A GATES step that ran out of the case's money
+# ("engine:money": GATES reports under the engine stage, classify._STEP_STAGE) gave no failing verdict
+# either, since a failing gate ends the step gate_failed. On 11 November 86b100-r9 passed G1-G5 and its
+# G16 calibrator call was refused grant_insufficient with $41 of the case unspent (an uncapped Codex
+# window), and 2abb0a stopped the same way; both diagnoses said factory_bug. Rerunning that step
+# re-rolls no failure (founder 2026-11-12).
 FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair", "writer:output_capped", "writer:money"),
-                         "stress": ("stress:money",)}
+                         "stress": ("stress:money",), "gates": ("engine:money",)}
 # A GATES step whose every attempt ended on our own infrastructure reached no gate verdict, so
 # running it again is one more infra retry, not a re-roll. On 9 November 18681d's recertify G16
 # failed three times in calibrator setup (the pilot-home teardown fixed by #61), then a diagnosis
