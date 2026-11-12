@@ -315,10 +315,15 @@ class GatePipeline:
         def side_first():
             """Record the lane's first gate now (waiting for it). True when the loop must stop."""
             lane["first"].wait()
-            if lane["future"].done(): return side_finish()  # raised, or every lane gate is already in
+            if lane["future"].done() and lane["future"].exception(): return side_finish()  # raised: surface it now
             if not lane["results"]: return False
             lane["taken"] = True
             return record(*lane["results"][0], quiet())
+
+        def lane_failed():
+            # A reviewer verdict that failed: G16 (and G5) precede G8/G9 in gate order, so record it at the
+            # join (or after the loop's earliest-failure fix-up), not at the next boundary.
+            return any(not o.ok and not o.crashed for _, o, _, _ in lane["results"])
 
         def side_start():
             lane["hash"] = self.case_hash(c)
@@ -356,7 +361,7 @@ class GatePipeline:
             if side and side_after is None: side_start()
             for gate in order:
                 if gate in side: continue
-                if lane["future"] is not None and (lane["future"].done() or gate == side_join):
+                if lane["future"] is not None and ((lane["future"].done() and not lane_failed()) or gate == side_join):
                     if side_finish(): break
                 self.budget_boundary(c)
                 if a.dry_run and gate in self.dry_skip:

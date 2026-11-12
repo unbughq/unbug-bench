@@ -346,6 +346,18 @@ class SideLane(unittest.TestCase):
         self.assertEqual(c.card["failed_gate"], "G4")
         self.assertEqual(c.card["failed_detail"], ["bug not real"])
 
+    def test_a_finished_lane_does_not_record_g8_ahead_of_a_failing_g5(self):
+        c = exercise(self, {"G8": lambda c: (False, {"approve": "0/2"}),
+                            "G5": lambda c: (time.sleep(0.3), (False, {"problems": ["g5"]}))[1]})
+        self.assertEqual(c.card["failed_gate"], "G5")
+        self.assertIn("G5", c.card["gates"])
+
+    def test_a_reviewer_failure_does_not_skip_a_failing_g16(self):
+        c = exercise(self, {"G8": lambda c: (False, {"approve": "0/2"}),
+                            "G5": lambda c: (time.sleep(0.3), (True, {}))[1],
+                            "G16": lambda c: (False, {"problems": ["g16"]})})
+        self.assertEqual(c.card["failed_gate"], "G16")
+
     def test_a_case_edited_beside_the_bench_gates_is_an_infrastructure_retry(self):
         c = exercise(self, {}, change_case=True)
         self.assertEqual(c.card["failed_gate"], "G2")
