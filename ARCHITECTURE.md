@@ -506,3 +506,5 @@ checks and a disposable PostgreSQL restore exercise. Model-free live checks cove
 Boat/R2, Docker, control restart, worker replacement and authenticated checkpoint
 reuse. Model access, routing and provider spending ceilings still require live
 qualification before production cutover. The practice fixture is not a scientific case.
+
+G8 and G9 always run two reviewers of distinct families (`model_runtime.second_reviewer`, rotation `reviewer2`); `run.review` refuses fewer, and both must approve. Their gate identities bind the reviewer set; other gates keep the first reviewer only, so adopting the second reviewer reruns nothing else.

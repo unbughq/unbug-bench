@@ -173,14 +173,22 @@ def inputs(c, gate, bench):
         import run
         prompt_roles = ("pilot", "reviewer") if gate in {"G10", "G16", "G17"} else ("reviewer",)
         identity["prompts"] = {role: hashlib.sha256(run.prompt(role, "").encode()).hexdigest() for role in prompt_roles}
+        if gate in {"G8", "G9"}:  # the key cross-check text is part of the panel's instruction
+            identity["prompts"]["reviewer-keys"] = hashlib.sha256((run.PROMPTS / "reviewer-keys.md").read_bytes()).hexdigest()
         names = (("builder", "strong_calibrator", "easy_calibrator", "reviewers") if gate == "G10" else
                  ("builder", "strong_calibrator", "reviewers") if gate in {"G16", "G17", "G11"} else
                  ("builder", "attacker", "reviewers") if gate == "G2" else ("reviewers",))
         identity["models"] = {key: getattr(c, "models", {}).get(key) for key in names}
+        if gate not in {"G8", "G9"} and identity["models"].get("reviewers"):
+            # Only the G8/G9 panel uses the second reviewer (founder 2026-11-12); the other gates keep their
+            # one-reviewer identity, so adopting it does not rerun them.
+            identity["models"]["reviewers"] = identity["models"]["reviewers"][:1]
         role_names = {"builder": ("writer",), "attacker": ("stress_tester",),
                       "reviewers": ("reviewer", "reviewer2")}
         identity["roles"] = {key: c.card.get("roles", {}).get(key)
                              for name in names for key in role_names.get(name, (name,))}
+        if gate not in {"G8", "G9"} and "reviewer2" in identity["roles"]:
+            identity["roles"]["reviewer2"] = None
         identity["model_science"] = model_science()
     return identity
 

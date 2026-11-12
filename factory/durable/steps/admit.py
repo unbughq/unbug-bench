@@ -573,6 +573,8 @@ def _pin_models(c, runner, inputs):
         if role:
             setattr(c.args, flag + "_effort", role["effort"])
     selected = runner.pick_models(c)
+    if len(reviewers) == 1 and selected["reviewers"][:1] == reviewers:
+        requested = {**requested, "reviewers": selected["reviewers"]}  # the rotation adds the second reviewer
     if selected != requested:
         raise _Invalid("models")
     c.models = c.card["models"] = selected
