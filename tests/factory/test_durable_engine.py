@@ -164,7 +164,9 @@ class StepSequence(unittest.TestCase):
                 self.assertNotIn("inputs", x["opened"])
         self.assertEqual(start(r, f"{C1}/2/writer:1/1")["opened"]["snapshot"], f"snapshot {C1}/1/admit/1")
         # The grant is the ceiling: what the case's own money has left (each attempt pays 1000).
-        self.assertEqual([x["ceiling"] for x in r.starts(1)], [50 * M - 1000 * i for i in range(5)])
+        # The GATES step (4th) is also funded for the G10 strong tries (policy.gates_money_extension).
+        self.assertEqual([x["ceiling"] for x in r.starts(1)],
+                         [50 * M - 1000 * i + (150 * M if i == 3 else 0) for i in range(5)])
         # GATES gets its own deadline.
         self.assertEqual(start(r, f"{C1}/4/gates:1/1")["deadline_s"], 43_200.0)
         self.assertEqual(start(r, f"{C1}/2/writer:1/1")["deadline_s"], 14_400.0)
