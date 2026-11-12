@@ -870,6 +870,14 @@ class HookTests(unittest.TestCase):
             out = run.run_step(c, si)
         self.assertEqual((out["outcome"], out["reason"], out["gate"]), (Outcome.GATE_FAILED, "g5:failed", "G5"))
         self.assertIsNone(out["stop"])
+        def crash_then_money(c):   # a lane crash set the infra stop beside a recorded failure
+            c.card["gates"]["G5"] = "fail"; c.card.update(failed_gate="G5", failed_detail={"problems": ["x"]})
+            c.stopped = True; c.card["infrastructure_gate"] = {"gate": "G8", "exhausted": True}
+            raise run.BudgetError("budget_exhausted")
+        with patch.object(run, "run_gates", side_effect=crash_then_money):
+            out = run.run_step(c, si)
+        self.assertEqual((out["outcome"], out["gate"]), (Outcome.GATE_FAILED, "G5"))
+        c.stopped = False
         def money_only(c):   # no gate failed: the money stop stands
             c.card["gates"]["G1"] = "pass"
             raise run.BudgetError("budget_exhausted")

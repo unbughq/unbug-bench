@@ -3030,7 +3030,7 @@ def engine_gates(c):
     return gates_result(c)
 
 
-def gates_result(c):
+def gates_result(c, prefer_failed=False):
     """The GATES step's result from the card. run_step also asks it when the step stopped after a gate
     failed: a parallel side lane or overlapping calibrator can raise budget_exhausted once the
     foreground recorded failed_gate, and the stop must not hide that verdict (an engine:money stop is
@@ -3041,9 +3041,9 @@ def gates_result(c):
         "gates", "gate_results", "gate_minutes", "failed_gate", "failed_detail", "early_gates", "infrastructure_gate",
         "reviewers_fairness", "reviewers_realism", "calibrators", "difficulty")}, sort_keys=True, default=str).encode()
     base = {"passed": passed, "receipt": receipt}
-    if c.stopped or c.card.get("infrastructure_gate"):
-        return {**base, "stop": c.card.get("terminal_stop") or "infrastructure_exhausted"}
     failed = c.card.get("failed_gate")
+    if (c.stopped or c.card.get("infrastructure_gate")) and not (prefer_failed and failed):
+        return {**base, "stop": c.card.get("terminal_stop") or "infrastructure_exhausted"}
     if not failed: return {**base, "outcome": Outcome.OK, "reason": "engine:gates_passed"}
     detail = c.card.get("failed_detail")
     stage = failed.lower()
@@ -3118,8 +3118,8 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
         log(c, "ENGINE STOPPED", stop)
         result = {"stop": stop, "traceback": traceback.format_exc()}
         if kind is StepKind.GATES and isinstance(error, BudgetError) and c.card.get("failed_gate"):
-            verdict = gates_result(c)
-            if verdict.get("outcome") is not None:   # an infrastructure stop keeps its own stop
+            verdict = gates_result(c, prefer_failed=True)   # a recorded failure wins over any stop
+            if verdict.get("outcome") is not None:
                 log(c, "ENGINE GATE VERDICT KEPT", c.card["failed_gate"])
                 result = {**verdict, "stop": None}
     except Exception as error:
