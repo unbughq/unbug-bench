@@ -84,9 +84,18 @@ PREPARE_IMAGE_SCRIPT = ("set -eu; p=~/bench-source/prepare.py; "
                         "[ ! -e ~/factory-release/RELEASE.json ] && [ ! -L ~/factory-release/RELEASE.json ] || exit 3; "
                         "[ ! -e ~/durable/attempts ] && [ ! -L ~/durable/attempts ] || exit 3; "
                         "[ -f \"$p\" ] && [ ! -L \"$p\" ] || exit 3; python3 -B \"$p\"; fi")
-IMAGE_SCRIPT = ("cd ~/unbug-bench; docker image inspect unbug-bench-medusa:latest >/dev/null 2>&1 || "
-                "{ docker compose -f projects/medusa/compose.yaml pull postgres redis && "
-                "docker compose -f projects/medusa/compose.yaml build medusa; }")
+# Boat restores the baked image tars lazily after a worker starts, so the image can be absent for a
+# while although it is baked in (12 Nov: 165 s rebuild of unbug-bench-medusa, and G3 then saw another
+# image id). Wait up to 300 s for it, polling every 3 s, before building.
+def image_script(wait_s: int, poll_s: int) -> str:
+    return ("cd ~/unbug-bench; i=0; until docker image inspect unbug-bench-medusa:latest >/dev/null 2>&1; do "
+            f"i=$((i+1)); [ \"$i\" -le {wait_s // poll_s} ] || break; sleep {poll_s}; done; "
+            "docker image inspect unbug-bench-medusa:latest >/dev/null 2>&1 || "
+            "{ docker compose -f projects/medusa/compose.yaml pull postgres redis && "
+            "docker compose -f projects/medusa/compose.yaml build medusa; }")
+
+
+IMAGE_SCRIPT = image_script(300, 3)
 # launch.sh's read-only qualification, on the factory-only manifest (the bench is checked whole below).
 QUALIFY_SCRIPT = ("OPENCODE_DISABLE_AUTOUPDATE=1 python3 -B ~/{release}/factory/worker_release.py "
                   "--manifest ~/{release}/" + FACTORY_MANIFEST_NAME + " --root ~/unbug-bench "

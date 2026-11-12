@@ -191,7 +191,7 @@ _SNAKE_LABEL = re.compile(r"[a-z][a-z_]*")
 _CLASS_LABEL = re.compile(r"_*[A-Z][A-Za-z]*")
 
 # run.provider_preflight's roles and the CLI's own stop, in short fixed forms (REASON allows 32).
-PREFLIGHT_ROLES = {"stress_tester": "stress", "strong_tester": "strong", "easy_tester": "easy",
+PREFLIGHT_ROLES = {"writer": "writer", "stress_tester": "stress", "strong_tester": "strong", "easy_tester": "easy",
                    "reviewer": "review", "reviewer2": "second"}
 PREFLIGHT_STOPS = {"process_error": "process", "claude_error": "claude", "codex_error": "codex",
                    "opencode_error": "opencode", "refusal": "refusal", "zero_tokens": "zero_tokens",

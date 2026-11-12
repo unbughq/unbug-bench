@@ -429,7 +429,8 @@ PREFLIGHT_REUSE_S = 1800     # a passed check is reused by a retry of the same s
 
 
 def provider_preflight(c, step=None):
-    """Check non-writer routes before spending on construction; availability is not a gate pass.
+    """Check every role's route, the writer's too (a silent writer route hung 11 admissions), before
+    spending on construction; availability is not a gate pass.
     With `step` (the engine step's identity), a role that passed in this step within
     PREFLIGHT_REUSE_S is not asked again: a retried ADMIT re-ran every "Reply OK" call and queued
     for the same routes it needed. An older pass (a retry after a long wait) is checked again."""
@@ -447,7 +448,11 @@ def provider_preflight(c, step=None):
             ("stress_tester", c.models["attacker"], "attacker-provider-preflight"),
             ("strong_tester", c.models["strong_calibrator"], "strong-calibrator-provider-preflight"),
             ("easy_tester", c.models["easy_calibrator"], "easy-calibrator-provider-preflight")]
-    checks[1:1] = [('reviewer' if i == 0 else 'reviewer2', chain,
+    # The writer's first call is candidate selection: only a case with no statement yet will make it.
+    if not (pathlib.Path(c.case) / "statement.md").is_file():
+        checks.insert(0, ("writer", c.models["builder"], "builder-provider-preflight"))
+    at = 2 if checks[0][0] == "writer" else 1
+    checks[at:at] = [('reviewer' if i == 0 else 'reviewer2', chain,
                     'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
     for role, chain, name in checks:
@@ -537,6 +542,7 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
             reverify_timeout = min(1200, max(300, 60 * sum(
                 search_evidence_error(row) is not None for row in freshness_lines(c))))
         deadline = time.monotonic() + min(reverify_timeout, getattr(c.args, 'agent_timeout', 1200))
+    plans = []
     for who, model_key in (("builder", "builder"), ("attacker", "attacker")):
         if who in completed_roles: continue
         n = freshness_counts(c)
@@ -545,54 +551,114 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
                   and (reason := ('runner_retrieval_unavailable: append an alternative result as a NEW row'
                                   if row.get('url') in getattr(c, 'freshness_unfetched', set())
                                   else search_evidence_error(row))) is not None]
-        need = (f"at least {max(0, 3 - n['builder_web'])} more web and {max(0, 3 - n['builder_github'])} more GitHub"
-                if who == "builder" else f"at least {max(0, 2 - n['attacker'])} more web or GitHub")
+        missing = ((max(0, 3 - n['builder_web']), max(0, 3 - n['builder_github'])) if who == "builder"
+                   else (max(0, 2 - n['attacker']),))
+        need = (f"at least {missing[0]} more web and {missing[1]} more GitHub"
+                if who == "builder" else f"at least {missing[0]} more web or GitHub")
         short = bool(errors) or (n["builder_web"] < 3 or n["builder_github"] < 3 if who == "builder" else n["attacker"] < 2)
         if not short:
             if role_completed is not None: role_completed(who)
             continue
-        before = freshness_lines(c)
-        # Stable identities let a row's malformed fields be repaired without losing its history.
-        seen = set()
-        for i, row in enumerate(before):
-            key = row.get('_search_id')
-            if not isinstance(key, str) or not re.fullmatch(r'[0-9a-f]{64}', key) or key in seen:
-                key = hashlib.sha256(f'{i}:{json.dumps(row, sort_keys=True)}'.encode()).hexdigest()
-                row['_search_id'] = key
-            seen.add(key)
-        searches = c.case / 'freshness.jsonl'
-        searches.write_text(''.join(json.dumps(row) + '\n' for row in before))
-        statement = c.case / 'statement.md'
-        original = statement.read_bytes() if statement.is_file() else None
-        atomic_json(c.work / 'freshness-inflight.json',
-                    {'rows': before, 'statement_hex': original.hex() if original is not None else None})
-        text = (f"Freshness check only; change nothing else. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
-                f"case_dir to learn the bug and pinned app version. Then make {need} searches for this bug, its fix or workarounds in this app, and "
-                f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
-                f'{{"who": "{who}", "kind": "web" | "github", "query": "...", "url": "...", "at": "<UTC ISO time>", '
-                f'"hit": false | true, "retrieved": true, "note": "evidence/result summary", "app_version": "pinned version", "version_scope": "why the result applies or does not"}}. `hit` is true if the result discusses this bug, its fix or a workaround '
-                f"in this app. Use distinct queries and real result/search URLs; log every search, hit or not. "
-                f"Flag ambiguous public matches for independent confirmation; no retrieval is not a no-hit. "
-                f"Revisit every historical {who} row missing these evidence fields, older than 24 hours or marked retrieval failed: rerun the query, "
-                f"then amend its evidence fields truthfully, retaining its query/result and all hits. Do not drop failed searches "
-                f"or invent evidence; an unresolved search blocks admission. Repair evidence for this SAME idea; never select a replacement. "
-                 f"Retain every existing `_search_id` on its own row when repairing it; never delete, reassign or duplicate those IDs. "
-                 f"Retain valid who/kind/query/url fields exactly; append a different query or result as a NEW row. "
-                f"Current UTC: {datetime.datetime.now(datetime.timezone.utc).isoformat()}. Use the actual retrieval time and an exact x.y.z app version. "
-                f"Validation failures (1-based JSONL rows): {json.dumps(errors)}. "
-                f"Do not construct or expand the case.\n\n## This run\n\n" + run_context(c))
+        plans.append((who, model_key, need, errors, sum(missing)))
+    if plans:
+        _freshness_searches(c, plans, deadline, role_completed)
+    c.card["freshness_topup"] = {"before": counts_before, "after": freshness_counts(c)}
+
+
+FRESHNESS_EXTRA_SEARCHES = 2   # beyond the missing minimum: a search that finds nothing new is still a row
+
+
+def _freshness_searches(c, plans, deadline, role_completed):
+    """Run the roles' searches at the same time. Each works in its own copy of the case's search inputs, so
+    the two cannot write the same file; its rows are merged back by owner (builder rows and rows without a
+    role, attacker rows), and evidence validation reads the merged file exactly as before."""
+    from registry import atomic_json
+    before = freshness_lines(c)
+    # Stable identities let a row's malformed fields be repaired without losing its history.
+    seen = set()
+    for i, row in enumerate(before):
+        key = row.get('_search_id')
+        if not isinstance(key, str) or not re.fullmatch(r'[0-9a-f]{64}', key) or key in seen:
+            key = hashlib.sha256(f'{i}:{json.dumps(row, sort_keys=True)}'.encode()).hexdigest()
+            row['_search_id'] = key
+        seen.add(key)
+    searches = c.case / 'freshness.jsonl'
+    searches.write_text(''.join(json.dumps(row) + '\n' for row in before))
+    statement = c.case / 'statement.md'
+    original = statement.read_bytes() if statement.is_file() else None
+    atomic_json(c.work / 'freshness-inflight.json',
+                {'rows': before, 'statement_hex': original.hex() if original is not None else None})
+    owner = lambda row: "attacker" if row.get("who") == "attacker" else "builder"
+    lock, merged, failures = threading.Lock(), set(), {}
+
+    def merge(who, scratch):
+        with lock:
+            if who in merged: return
+            merged.add(who)
+            mine = {r['_search_id'] for r in before if owner(r) == who}
+            known = {r['_search_id'] for r in before}
+            theirs = []
+            for line in (scratch / 'freshness.jsonl').read_text().splitlines() if (scratch / 'freshness.jsonl').is_file() else []:
+                try: row = json.loads(line)
+                except ValueError: row = {"invalid_record": True}
+                theirs.append(row if isinstance(row, dict) else {"invalid_record": True})
+            by_id = {r['_search_id']: r for r in theirs if isinstance(r.get('_search_id'), str)}
+            # An owned row the role deleted is dropped here; finish_freshness_repair restores it from history.
+            rows = [by_id.get(r.get('_search_id'), r) if r.get('_search_id') in mine else r
+                    for r in freshness_lines(c) if r.get('_search_id') not in mine or r['_search_id'] in by_id]
+            rows += [r for r in theirs if r.get('_search_id') not in known]
+            searches.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+
+    # Copied before any role starts: a finished role's merge rewrites the case's file.
+    scratches = {}
+    for who, *_ in plans:
+        scratches[who] = pathlib.Path(tempfile.mkdtemp(prefix=f'freshness-{who}-'))
+        for name in ('statement.md', 'disclosure.md', 'provenance.json', 'promise.md', 'freshness.jsonl'):
+            if (c.case / name).is_file(): shutil.copy2(c.case / name, scratches[who] / name)
+
+    def search(who, model_key, need, errors, missing):
+        scratch = scratches[who]
         try:
-            # Repair/re-search shares one wall-clock ceiling across both roles.
+            text = (f"Freshness check only; change nothing else. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
+                    f"case_dir to learn the bug and pinned app version. Then make {need} searches for this bug, its fix or workarounds in this app, and "
+                    f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
+                    f'{{"who": "{who}", "kind": "web" | "github", "query": "...", "url": "...", "at": "<UTC ISO time>", '
+                    f'"hit": false | true, "retrieved": true, "note": "evidence/result summary", "app_version": "pinned version", "version_scope": "why the result applies or does not"}}. `hit` is true if the result discusses this bug, its fix or a workaround '
+                    f"in this app. Use distinct queries and real result/search URLs; log every search, hit or not. "
+                    f"Make at most {missing + FRESHNESS_EXTRA_SEARCHES} new searches in total, and stop as soon as the evidence is complete. "
+                    f"Flag ambiguous public matches for independent confirmation; no retrieval is not a no-hit. "
+                    f"Revisit every historical {who} row missing these evidence fields, older than 24 hours or marked retrieval failed: rerun the query, "
+                    f"then amend its evidence fields truthfully, retaining its query/result and all hits. Do not drop failed searches "
+                    f"or invent evidence; an unresolved search blocks admission. Repair evidence for this SAME idea; never select a replacement. "
+                    f"Retain every existing `_search_id` on its own row when repairing it; never delete, reassign or duplicate those IDs. "
+                    f"Retain valid who/kind/query/url fields exactly; append a different query or result as a NEW row. "
+                    f"Current UTC: {datetime.datetime.now(datetime.timezone.utc).isoformat()}. Use the actual retrieval time and an exact x.y.z app version. "
+                    f"Validation failures (1-based JSONL rows): {json.dumps(errors)}. "
+                    f"Do not construct or expand the case.\n\n## This run\n\n"
+                    + run_context(c).replace(str(c.case), str(scratch)))
             timeout = deadline - time.monotonic()
             if timeout <= 0: raise BudgetError('timeout')
             case_budget_boundary(c, c.models[model_key][0])
-            opencode(c, c.models[model_key], text, c.case, f"{who}-freshness",
-                     timeout=timeout, deadline=deadline,
-                     on_complete=(lambda: role_completed(who)) if role_completed is not None else None)
+            def done():
+                merge(who, scratch)   # the rows land before the role is marked complete
+                if role_completed is not None: role_completed(who)
+            opencode(c, c.models[model_key], text, scratch, f"{who}-freshness",
+                     timeout=timeout, deadline=deadline, on_complete=done)
+        except BaseException as error:
+            failures[who] = error
         finally:
-            finish_freshness_repair(c)
-    c.card["freshness_topup"] = {"before": counts_before, "after": freshness_counts(c)}
+            merge(who, scratch)
+            shutil.rmtree(scratch, ignore_errors=True)
 
+    threads = [threading.Thread(target=search, args=plan) for plan in plans]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join()
+    finish_freshness_repair(c)
+    if under_engine(c) and callable(getattr(c, 'engine_checkpoint', None)):
+        from durable.checkpoints import checkpoint
+        checkpoint(c)
+    for who in ("builder", "attacker"):
+        if who in failures: raise failures[who]
 
 def ensure_freshness(c):
     """Refresh the admitted idea; Engine attempts retain completed roles and judgments."""

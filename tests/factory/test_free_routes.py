@@ -229,7 +229,7 @@ class FreeRoutes(unittest.TestCase):
         # calibrator needs the paid route, so its preflight must run on its own.
         import run
         names = []
-        c = SimpleNamespace(card={}, case='/', models={'attacker': [FREE], 'strong_calibrator': ['claude/claude-opus-5-5'],
+        c = SimpleNamespace(card={}, case='/', models={'builder': ['claude/claude-opus-5-5'], 'attacker': [FREE], 'strong_calibrator': ['claude/claude-opus-5-5'],
                                                       'easy_calibrator': [FREE], 'reviewers': [['opencode/glm-5.3-flash-free']]})
         saved = run.opencode
         run.opencode = lambda c, chain, text, cwd, name, **kw: names.append(name) or 0

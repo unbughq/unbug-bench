@@ -248,11 +248,11 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertGreater(kwargs['timeout'], 300)
         self.assertLessEqual(kwargs['timeout'], 1200)
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        rows = run.freshness_lines(c)
+        rows = [json.loads(line) for line in (pathlib.Path(cwd) / 'freshness.jsonl').read_text().splitlines()]
         who = 'builder' if name.startswith('builder') else 'attacker'
         for row in rows:
             if row['who'] == who: row['at'] = now
-        (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        (pathlib.Path(cwd) / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
         return 0
 
     def test_restore_expiry_research_does_not_consume_defect_allowance(self):
@@ -270,7 +270,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         with patch.object(run, 'opencode', side_effect=run.BudgetError('timeout')) as call:
             with self.assertRaisesRegex(run.BudgetError, '^timeout$'): run.ensure_freshness(self.c)
             with self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'): run.ensure_freshness(self.c)
-        self.assertEqual(call.call_count, 1)
+        self.assertEqual(call.call_count, 2)   # both roles search at once, so both were asked before the stop
         self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
         resumed = types.SimpleNamespace(**{k: v for k, v in vars(self.c).items() if k != 'freshness_reverify_statement'})
         with patch.object(run, 'opencode', self.refresh): self.assertTrue(run.ensure_freshness(resumed)[0])
@@ -287,11 +287,12 @@ class FreshnessRestoreTests(unittest.TestCase):
     def test_expiry_roles_share_twenty_minute_wall_budget(self):
         self.addCleanup(offline_router()[0].close)
         self.expire()
-        with patch.object(run.time, 'monotonic', side_effect=[1000, 1000, 1900]), \
+        with patch.object(run.time, 'monotonic', return_value=1000), \
              patch.object(run, 'opencode', return_value=0) as call, \
              self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
             run.ensure_freshness(self.c)
-        self.assertEqual([item.kwargs['timeout'] for item in call.call_args_list], [1200, 300])
+        # Both roles start together under the one deadline.
+        self.assertEqual([item.kwargs['timeout'] for item in call.call_args_list], [1200, 1200])
 
     def test_expiry_does_not_reset_defects_or_changed_statement(self):
         self.addCleanup(offline_router()[0].close)
