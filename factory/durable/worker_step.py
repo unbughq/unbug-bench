@@ -285,6 +285,7 @@ class Worker:
         config = helper_link.read_config(root)
         if config is not None:
             c.args.helper_workers, c.args.helper_min_per_copy = config["cap"], config["min_per_copy"]
+            c.args.helper_usd_per_hour = config.get("usd_per_hour")
             c.helper_pool = helper_link.SpoolPool(root, c.case, job_timeout_s=config["job_timeout_s"])
 
     def publish_checkpoint(self, step_input, c, sealer, case_key, runner):

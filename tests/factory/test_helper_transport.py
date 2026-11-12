@@ -6,7 +6,7 @@ import sys
 from pathlib import Path as _P
 _ROOT = _P(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "tests/factory"), str(_ROOT / "factory"), str(_ROOT / "bin"), str(_ROOT / "tests/bench")]
-import json, os, tempfile, threading, time, types, unittest
+import json, os, subprocess, tempfile, threading, time, types, unittest
 from pathlib import Path
 from unittest.mock import patch
 os.environ.setdefault("BENCH", str(_ROOT))
@@ -33,7 +33,11 @@ def fake(job):
     die = Path({{DIE!r}})
     if name == "b" and die.exists():
         die.unlink(); os._exit(9)   # the helper is lost mid-job, once
-    return write_checkpoint(Path.home() / "ckpt" / name, job["runs"], name == "b")
+    out = write_checkpoint(Path.home() / "ckpt" / name, job["runs"], name == "b")
+    if name == "a" and Path({{INVALID!r}}).exists():   # a batch that ran but is not a valid measurement
+        r = json.loads((out / "01.json").read_text()); r["checker"] = {{"valid": False}}
+        (out / "01.json").write_text(json.dumps(r))
+    return out
 print(json.dumps(helper_link.serve(frame, run=fake)))
 '''
 
@@ -58,7 +62,8 @@ class TransportTests(unittest.TestCase):
         self.home = self.h.home(self.worker)
         self.die = self.h.tmp / "die"
         self.script = self.h.tmp / "standin_helper.py"
-        self.script.write_text(STANDIN.replace("{DIE!r}", repr(str(self.die))))
+        self.invalid = self.h.tmp / "invalid"
+        self.script.write_text(STANDIN.replace("{DIE!r}", repr(str(self.die))).replace("{INVALID!r}", repr(str(self.invalid))))
         self.si = StepInput(batch_id="b-wp2-test", case_id=self.case_id, seq=1, step=Step(StepKind.GATES, 1), attempt=1,
                             plumbing_version=self.h.plumbing, bench_version=self.bench, inputs=Ref(format(1, "064x"), K.INPUTS),
                             snapshot=Ref(format(2, "064x"), K.CASE_SNAPSHOT), deadline_s=60.0, money_ceiling_usd_micros=1)
@@ -244,6 +249,98 @@ class TransportTests(unittest.TestCase):
         writer = StepInput(**{**self.si.__dict__, "step": Step(StepKind.WRITER, 1)})
         channel.start(self.lease, writer, {self.case_id: b"k" * 32}, {})
         self.assertEqual(len(calls), 1)
+
+    # ---- review findings
+
+    def test_lease_seconds_are_booked_on_the_case_card_and_stop_at_the_budget(self):
+        b = self.broker(); self.attach(b)
+        self.c.args.helper_usd_per_hour = 10.0
+        self.cheats()
+        card = self.c.card["helper_lease"]
+        self.assertGreaterEqual(card["leases"], 1)
+        self.assertEqual(card["usd"], round(card["seconds"] / 3600 * 10, 6))
+        self.assertEqual(self.c.card["case_budget"]["helper_lease_usd"], card["usd"])
+        for e in self.ledger():
+            if e["event"] == "release": self.assertEqual(e["seconds"] >= 0, True)
+        mine = [json.loads(l) for l in (self.work / "helper-ledger.jsonl").read_text().splitlines()]
+        self.assertTrue(all(e["machine"]["cpus"] for e in mine if e["event"] == "job" and e["ok"]))   # class beside each result
+        (self.work / "helper-ledger.jsonl").write_text(json.dumps({"event": "release", "seconds": 3600 * 6}) + "\n")   # $60 > $50
+        from budget import BudgetError
+        with self.assertRaises(BudgetError): helpers.book_lease(self.c)
+        self.c.args.helper_usd_per_hour = None   # unpriced: seconds only, never a stop
+        helpers.book_lease(self.c)
+        self.assertEqual(self.c.card["helper_lease"], {"leases": 1, "seconds": 21600.0})
+
+    def test_helper_code_is_part_of_the_verdict_identity(self):
+        from durable.checkpoints import VERDICT_CODE
+        import gate_state
+        self.assertIn("durable/helper_link.py", VERDICT_CODE)
+        for gate in ("G6", "G7"): self.assertIn("factory/durable/helper_link.py", gate_state.STAGE_DEPENDENCIES[gate])
+
+    def test_invalid_helper_batch_is_charged_to_the_serial_retry_budget_not_retried_on_helpers(self):
+        self.invalid.write_text("")
+        b = self.broker(); self.attach(b)
+        (got, total), local, _ = self.cheats()
+        self.assertEqual((got, total, local), (1, 3, 1))   # only the invalid guard ran locally
+        mine = [json.loads(l) for l in (self.work / "helper-ledger.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(e["event"] == "job" and not e["ok"] for e in mine), 1)   # no second helper attempt
+        rows = json.loads((self.work / "infra-attempts.json").read_text()).values()
+        self.assertEqual([r["invalid_attempts"] for r in rows], [1])
+        self.assertEqual(self.helper_boats(), [])
+
+    def test_a_recreated_watch_does_not_rerun_a_request_this_controller_already_handled(self):
+        b = self.broker(); self.attach(b)
+        self.c.helper_pool.lease()
+        b.finish(self.si)
+        (self.root / "req/L1.json").write_text(json.dumps({"op": "lease"}))   # consumed by the case worker; files left behind
+        (self.root / "req/L1.claim").write_text(b.instance)
+        (self.root / "res/L1.json").unlink(missing_ok=True)
+        b.watch(self.worker, self.si)
+        time.sleep(1.5)
+        self.assertFalse((self.root / "res/L1.json").exists())
+        self.assertEqual(sum(e["event"] == "lease" for e in self.ledger()), 1)
+        self.assertEqual(self.helper_boats(), [])
+
+    def test_the_real_helper_command_runs_checkpoint_with_the_job_env_and_prepares_once(self):
+        bench = self.tmp / "bench"; (bench / "bin").mkdir(parents=True)
+        seen = self.tmp / "seen.json"
+        script = bench / "bin/checkpoint"
+        script.write_text(f"#!{sys.executable}\n" + """
+import json, os, sys, time
+from pathlib import Path
+if os.environ.get("SLOW"): time.sleep(5)
+a = sys.argv[1:]
+out = Path.home() / "ck"; out.mkdir(exist_ok=True)
+for i in range(1, int(a[a.index("--runs") + 1]) + 1): (out / f"{i:02}.json").write_text("{}")
+(out / "checkpoint.json").write_text("{}")
+Path(%r).write_text(json.dumps({"argv": a, "judge": os.environ.get("UNBUG_JUDGE"), "slot": os.environ.get("UNBUG_FACTORY_SLOT")}))
+print("UNBUG_CHECKPOINT=" + json.dumps({"version": 1, "path": str(out / "checkpoint.json")}))
+""" % str(seen))
+        script.chmod(0o755)
+        home = self.tmp / "home"; home.mkdir()
+        job = helpers.make_job(case="c", guard={}, scenarios=[], bench=None, release="r", runs=3, seed=7, label="lbl",
+                               guard_at=["case", "guards/cheats/a"], env={"UNBUG_JUDGE": None, "UNBUG_FACTORY_SLOT": "3"}, timeout_s=60)
+        import factory_pool
+        with patch.object(run, "BENCH", bench), patch.object(factory_pool, "prepare", return_value=True) as prep, \
+                patch.dict(os.environ, {"HOME": str(home), "UNBUG_JUDGE": "leaked"}):
+            out = helper_link._run(job, self.case)
+            helper_link._run(job, self.case)
+            self.assertEqual(sorted(p.name for p in out.glob("*.json")), ["01.json", "02.json", "03.json", "checkpoint.json"])
+            got = json.loads(seen.read_text())
+            self.assertEqual((got["judge"], got["slot"]), (None, "3"))   # exactly the case worker's, no default
+            self.assertEqual(got["argv"][got["argv"].index("--seed") + 1], "7")
+            self.assertIn("--stress", got["argv"])
+            self.assertEqual(prep.call_count, 1)
+            with patch.dict(os.environ, {"SLOW": "1"}), self.assertRaises(subprocess.TimeoutExpired):
+                helper_link._run({**job, "timeout_s": 0.5}, self.case)
+
+    def test_the_real_helper_command_starts_and_refuses_stale_inputs(self):
+        job = helpers.make_job(case="c", guard={}, scenarios=[], bench=None, release="stale", runs=1, seed=1, label="l",
+                               guard_at=["case", "guards/cheats/a"])
+        frame = json.dumps({"job": job, "key": "00" * 32, "lease": "L1"})
+        p = subprocess.run([sys.executable, "-B", "factory/durable/helper_link.py", "run"], input=frame, text=True, cwd=_ROOT,
+                           capture_output=True, env={**os.environ, "BENCH": str(_ROOT), "HOME": str(self.tmp)})
+        self.assertEqual((p.returncode, p.stderr.strip()), (1, "HelperRefused"))   # imports and sys.path resolve; the check ran
 
 
 if __name__ == "__main__":

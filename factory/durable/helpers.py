@@ -45,6 +45,11 @@ class HelperUnavailable(Exception):
     """No helper can be leased now."""
 
 
+class HelperInvalid(Exception):
+    """The helper's batch ran but is not a valid result. Not retried on another helper: the case
+    worker's own infra-retry allowance (infra-attempts.json) decides, as on the serial path."""
+
+
 class HelperRefused(Exception):
     """The helper's own copy of the inputs differs from the job (stale case, bench or release)."""
 
@@ -79,7 +84,8 @@ def need_for(per_copy: dict | None, workers: int, own=None) -> dict:
     return {"min": True, "cpus": per_copy["cpus"] * workers, "mem_gib": per_copy["mem_gib"] * workers}
 
 
-def make_job(*, case, guard, scenarios, bench, release, runs, seed, label, machine=None, workers=1, guard_at=None) -> dict:
+def make_job(*, case, guard, scenarios, bench, release, runs, seed, label, machine=None, workers=1, guard_at=None,
+             env=None, timeout_s=None) -> dict:
     """Everything that decides what the checkpoint measures. Digests are of trees, not paths.
     guard_at is where a helper finds the guard: ["case"|"bench", relative path]."""
     job = {"version": JOB_VERSION, "kind": "checkpoint", "case": case, "guard": digest_of(guard),
@@ -87,6 +93,8 @@ def make_job(*, case, guard, scenarios, bench, release, runs, seed, label, machi
            "runs": runs, "seed": seed, "label": label,
            "machine": machine_class() if machine is None else machine, "workers": workers}
     if guard_at is not None: job["guard_at"] = guard_at   # absent keeps old jobs' identity
+    if env is not None: job["env"] = env             # the case worker's UNBUG_* values, applied exactly
+    if timeout_s is not None: job["timeout_s"] = timeout_s
     return job
 
 
@@ -156,10 +164,15 @@ def run_jobs(pool, jobs: dict, *, cap: int, key: bytes, accept, boundary=lambda:
                         leases[0] += 1
                     handle, began = pool.lease(), time.monotonic()
                     note({"event": "lease", "helper": str(handle)})
-                done[name] = accept(jobs[name], open_sealed(key, jobs[name], pool.run(handle, jobs[name], key)))
-                note({"event": "job", "helper": str(handle), "job": name, "ok": True})
+                sealed = pool.run(handle, jobs[name], key)
+                done[name] = accept(jobs[name], open_sealed(key, jobs[name], sealed))
+                note({"event": "job", "helper": str(handle), "job": name, "ok": True, "machine": sealed["body"]["machine"]})
             except HelperUnavailable:
                 todo.put((name, attempt)); break
+            except HelperInvalid as error:   # measured, not lost: no second helper, the local retry budget applies
+                note({"event": "job", "helper": str(handle), "job": name, "ok": False, "error": str(error)})
+                _release(pool, handle, True, began, note)
+                handle = None
             except Exception as error:   # helper fault of any kind: this job only goes round again
                 note({"event": "job", "helper": str(handle), "job": name, "ok": False, "error": type(error).__name__})
                 if attempt < MAX_ATTEMPTS: todo.put((name, attempt + 1))
@@ -191,9 +204,15 @@ def checkpoint_shards(c, guards, runs, seed, label, *, case, scenarios, bench, b
     from durable.checkpoints import verdict_code
     workers = getattr(c.args, "bench_workers", 1)
     need = need_for(getattr(c.args, "helper_min_per_copy", None), workers)
-    jobs = {str(g): make_job(case=case, guard=_tree(g), scenarios=scenarios, bench=bench, release=verdict_code(),
+    trees = {str(g): _tree(g) for g in guards}
+    # what bin/checkpoint sees from the case worker's process, applied exactly on the helper (sh() inherits it)
+    env = {"UNBUG_JUDGE": os.environ.get("UNBUG_JUDGE"),
+           "UNBUG_FACTORY_SLOT": str(c.factory_slot) if hasattr(c, "factory_slot") else os.environ.get("UNBUG_FACTORY_SLOT")}
+    jobs = {str(g): make_job(case=case, guard=trees[str(g)], scenarios=scenarios, bench=bench, release=verdict_code(),
                              runs=runs, seed=seed, label=label, machine=need, workers=workers,
-                             guard_at=_guard_at(c, g)) for g in guards}
+                             guard_at=_guard_at(c, g), env=env, timeout_s=getattr(c.args, "agent_timeout", 14400))
+            for g in guards}
+    raw = {job["guard"]: trees[name] for name, job in jobs.items()}
     root = c.work / "helper-results"
 
     def accept(job, files):
@@ -202,16 +221,70 @@ def checkpoint_shards(c, guards, runs, seed, label, *, case, scenarios, bench, b
         for name, text in files.items(): (out / name).write_text(text)
         receipt = checkpoint_evidence.RECEIPT_PREFIX + json.dumps(
             {"version": 1, "path": str(out / "checkpoint.json"), "requested_runs": runs})
-        summary, records, _ = checkpoint_evidence.read_completed(
-            types.SimpleNamespace(returncode=0, stdout=receipt, stderr=""), runs, label, require_valid=True)
+        try:
+            summary, records, _ = checkpoint_evidence.read_completed(
+                types.SimpleNamespace(returncode=0, stdout=receipt, stderr=""), runs, label, require_valid=True)
+        except Exception as error:
+            _charge_invalid(c, {"operation": "checkpoint", "case": case, "guard": raw[job["guard"]], "scenarios": scenarios,
+                                "runs": runs, "seed": seed, "slot": None, "label": label, "bench": bench, "workers": workers}, error)
+            raise HelperInvalid(type(error).__name__) from error
         return summary, records
 
     def ledger(event):
         with _LEDGER_LOCK, (c.work / "helper-ledger.jsonl").open("a") as f:
             f.write(json.dumps({**event, "label": label, "at": round(time.time())}) + "\n")
 
-    return run_jobs(c.helper_pool, jobs, cap=max(1, c.args.helper_workers), key=secrets.token_bytes(32),
-                    accept=accept, boundary=boundary, ledger=ledger)
+    def lease_boundary():
+        boundary()
+        book_lease(c)
+
+    try:
+        return run_jobs(c.helper_pool, jobs, cap=max(1, c.args.helper_workers), key=secrets.token_bytes(32),
+                        accept=accept, boundary=lease_boundary, ledger=ledger)
+    finally:
+        book_lease(c, enforce=False)
+
+
+class _Stop(BaseException):
+    pass
+
+
+def _charge_invalid(c, identity, error):
+    """An invalid helper batch costs one attempt of the same infra-attempts.json row the serial
+    run.checkpoint would charge (same identity), so helpers cannot add attempts."""
+    from run_validity import retry
+    calls = []
+    def invoke():
+        calls.append(1)
+        if len(calls) > 1: raise _Stop   # not an invalid attempt: leaves exactly one charged
+        raise error
+    try: retry(c.work / "infra-attempts.json", identity, invoke)
+    except (_Stop, Exception): pass   # exhausted: the local rerun raises it from the same row
+
+
+def book_lease(c, enforce=True):
+    """Helper lease seconds (and money, when args.helper_usd_per_hour is set) onto the case card, from
+    helper-ledger.jsonl; with a rate, spend plus lease money at the case limit stops dispatch like model spend.
+    ponytail: counts released leases only; a lease the case worker never released shows up once its
+    controller deletes it and the case worker's next release."""
+    seconds = leases = 0
+    try:
+        for line in (c.work / "helper-ledger.jsonl").read_text().splitlines():
+            event = json.loads(line)
+            if event.get("event") == "release": seconds += event.get("seconds", 0); leases += 1
+    except (OSError, ValueError): pass
+    entry = c.card["helper_lease"] = {"leases": leases, "seconds": round(seconds, 1)}
+    rate = getattr(c.args, "helper_usd_per_hour", None)
+    if not rate: return
+    from decimal import Decimal
+    from budget import BudgetError
+    from model_runtime import update_case_budget
+    usd = Decimal(str(seconds)) / 3600 * Decimal(str(rate))
+    entry["usd"] = float(round(usd, 6))
+    _, summary = update_case_budget(c)
+    summary["helper_lease_usd"] = entry["usd"]
+    spent = summary.get("spent_usd")
+    if enforce and (spent is None or Decimal(str(spent)) + usd >= Decimal(str(summary["limit_usd"]))): raise BudgetError("budget_exhausted")
 
 
 _LEDGER_LOCK = threading.Lock()

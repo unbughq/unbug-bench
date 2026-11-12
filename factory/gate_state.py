@@ -26,7 +26,7 @@ MEASURE = ("factory/case_permissions.py", "bin/bench.py", "bin/bench_judging.py"
 STRATEGY = ("bin/strategy", "bin/strategy_resume.py", "bin/silent_window.py", "bin/exposure.py", "bin/live_shop.py",
             "bin/live_traffic.py", "bin/shoppers", "factory/calibration.py")
 MODEL = ("factory/calibration.py",)
-DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/run_validity.py",), "G6": MEASURE + ("bin/run_validity.py",) + ("bin/verify-negative", "factory/durable/helpers.py"),
+DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/run_validity.py",), "G6": MEASURE + ("bin/run_validity.py",) + ("bin/verify-negative", "factory/durable/helpers.py", "factory/durable/helper_link.py"),
                 "G8": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G9": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G13": MEASURE + STRATEGY + ("bin/run_validity.py",),
@@ -43,7 +43,7 @@ STAGE_DEPENDENCIES = {**DEPENDENCIES,
     "G1": ("factory/calibration.py", "bin/claims.py", "bin/exposure.py", "projects/**"),
     "G2": ("factory/admission.py", "factory/freshness_retrieval.py", "factory/independent_review.py"),
     "G3": MEASURE + ("bin/setup", "compose*.y*ml", "Dockerfile*"),
-    "G7": MEASURE + ("bin/run_validity.py", "factory/durable/helpers.py"),
+    "G7": MEASURE + ("bin/run_validity.py", "factory/durable/helpers.py", "factory/durable/helper_link.py"),
     "G10": MEASURE + STRATEGY + MODEL + ("bin/run_validity.py", "factory/exam_responder.py", "harbor/**"),
     "G11": MEASURE + ("bin/run_validity.py", "bin/fake-pass-check", "factory/independent_review.py"),
     "G17": DEPENDENCIES["G16"]}

@@ -542,7 +542,13 @@ back the sealed result. Helpers are deleted on `release`, when the attempt ends 
 polls stop for `idle_s`, and for every leftover helper record at controller start. A claim by an earlier
 controller process is answered as lost, so the case worker requeues. `per_case` and `total` cap helpers;
 a refused lease just leaves that work to run on the case worker. Lease and release seconds per helper go
-to `<state>/helper-leases/<case>.jsonl` (seconds, not money: no helper price is modelled). The machine
+to `<state>/helper-leases/<case>.jsonl`; the case worker also books released lease seconds on the case card
+(`helper_lease`), and with `usd_per_hour` in the helpers config, as `helper_lease_usd` beside the model spend,
+and a dispatch that would take spend plus lease money to the case limit stops like a model-budget stop. A
+helper runs `bin/checkpoint` with the case worker's own `UNBUG_*` env and `agent_timeout` (carried in the
+job), and an invalid helper batch is charged to the same `infra-attempts.json` row serial would charge and
+runs locally, never on a second helper. `helper_link.py` is in `VERDICT_CODE`. The seal records the
+machine class that ran each job (in `helper-ledger.jsonl`). The machine
 rule stays "same cpus and RAM as the case worker" unless `min_per_copy` {cpus, mem_gib} asks for at least
 that per bench copy. Not built:
 G10 tries: one job per strong try behind the same pilot wall, with the

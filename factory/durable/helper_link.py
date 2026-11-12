@@ -58,11 +58,12 @@ def helper_case_id(case_id: str, name: str) -> str:
 # ---- case worker -------------------------------------------------------------------------------
 
 def read_config(root):
-    """{cap, min_per_copy, job_timeout_s} the control side wrote for this attempt, or None (off)."""
+    """{cap, min_per_copy, job_timeout_s, usd_per_hour?} the control side wrote for this attempt, or None (off)."""
     try:
         value = json.loads((Path(root) / "config.json").read_text())
         ok = (isinstance(value, dict) and type(value["cap"]) is int and value["cap"] > 0
               and type(value["job_timeout_s"]) in (int, float) and value["job_timeout_s"] > 0
+              and (value.get("usd_per_hour") is None or (type(value["usd_per_hour"]) in (int, float) and value["usd_per_hour"] >= 0))
               and (value["min_per_copy"] is None or (set(value["min_per_copy"]) == {"cpus", "mem_gib"}
                                                      and all(type(v) is int and v > 0 for v in value["min_per_copy"].values()))))
     except (OSError, ValueError, KeyError, TypeError):
@@ -95,6 +96,7 @@ class SpoolPool:
             try:
                 answer = json.loads(path.read_text())
                 path.unlink(missing_ok=True)
+                for suffix in (".json", ".claim"): (self.root / "req" / f"{name}{suffix}").unlink(missing_ok=True)
                 return answer if isinstance(answer, dict) else {}
             except (OSError, ValueError):
                 pass
@@ -155,7 +157,9 @@ def _run(job, case):
     args = [str(run.BENCH / "bin/checkpoint"), "--scenario", str(case / "base")]
     if job["workers"] > 1: args += ["--factory-workers", str(job["workers"])]
     args += ["--guard", str(guard), "--runs", str(job["runs"]), "--stress", "--seed", str(job["seed"]), "--label", job["label"]]
-    p = subprocess.run(args, capture_output=True, text=True, env={**os.environ, "UNBUG_JUDGE": os.environ.get("UNBUG_JUDGE", "1")})
+    env = {k: v for k, v in os.environ.items() if k not in job.get("env", {})}   # the case worker's UNBUG_* values, exactly
+    env.update({k: v for k, v in job.get("env", {}).items() if v is not None})
+    p = subprocess.run(args, capture_output=True, text=True, env=env, timeout=job.get("timeout_s"))
     receipts = [l[len(checkpoint_evidence.RECEIPT_PREFIX):] for l in p.stdout.splitlines() if l.startswith(checkpoint_evidence.RECEIPT_PREFIX)]
     if p.returncode or len(receipts) != 1: raise RuntimeError("checkpoint failed")
     return Path(json.loads(receipts[0])["path"]).parent
@@ -193,11 +197,11 @@ class Broker:
     """Control side. pool: BoatPool. boat: BoatCli. A helper is a BoatPool worker under case id <case>-h<k>."""
 
     def __init__(self, pool, boat, *, per_case=4, total=12, vm_type=None, min_per_copy=None, job_timeout_s=7200.0,
-                 tick_s=2.0, idle_s=180.0, command=HELPER_COMMAND, ledger_dir=None, command_timeout=120.0, blob_timeout=900.0):
+                 tick_s=2.0, idle_s=180.0, command=HELPER_COMMAND, ledger_dir=None, usd_per_hour=None, command_timeout=120.0, blob_timeout=900.0):
         self.pool, self.boat, self.per_case, self.total = pool, boat, per_case, total
         self.vm_type, self.min_per_copy, self.job_timeout_s = vm_type, min_per_copy, job_timeout_s
         self.tick_s, self.idle_s, self.command = tick_s, idle_s, tuple(command)
-        self.ledger_dir = Path(ledger_dir) if ledger_dir else None
+        self.ledger_dir, self.usd_per_hour = (Path(ledger_dir) if ledger_dir else None), usd_per_hour
         self.command_timeout, self.blob_timeout = command_timeout, blob_timeout
         self.instance, self._lock, self._watches, self._count = uuid.uuid4().hex, threading.Lock(), {}, 0
 
@@ -206,7 +210,8 @@ class Broker:
     def prepare(self, worker, si):
         """Before the attempt starts: the spool and its config. Failure leaves helpers off for this attempt."""
         w = _Watch(worker, si)
-        config = json.dumps({"cap": self.per_case, "min_per_copy": self.min_per_copy, "job_timeout_s": self.job_timeout_s})
+        config = json.dumps({"cap": self.per_case, "min_per_copy": self.min_per_copy, "job_timeout_s": self.job_timeout_s,
+                             "usd_per_hour": self.usd_per_hour})
         code, _ = self.boat.ssh(worker, f"set -eu; umask 077; d={w.spool}; mkdir -p $d/req $d/res; cat > $d/config.json",
                                 stdin=config.encode(), timeout=self.command_timeout)
         return code == 0
@@ -257,8 +262,13 @@ class Broker:
         requests, claims = json.loads(out)
         for name, request in requests.items():
             if name in w.claimed or not NAME.fullmatch(name) or not isinstance(request, dict): continue
-            if claims.get(name) not in (None, self.instance):   # claimed by a controller that is gone
+            if claims.get(name) == self.instance:   # already handled by this process (an earlier watch of the attempt)
+                w.claimed.add(name)
+                continue
+            if claims.get(name) is not None:   # claimed by a controller that is gone
                 self._answer(w, name, {"ok": False, "error": "relay_lost"})
+                self._ssh_ok(w, f"printf %s {self.instance} > {w.spool}/req/{name}.claim")   # answered once, whatever the reader does
+                w.claimed.add(name)
                 continue
             self._ssh_ok(w, f"printf %s {self.instance} > {w.spool}/req/{name}.claim")
             w.claimed.add(name)
