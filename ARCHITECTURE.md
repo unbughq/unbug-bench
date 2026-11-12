@@ -507,7 +507,7 @@ Boat/R2, Docker, control restart, worker replacement and authenticated checkpoin
 reuse. Model access, routing and provider spending ceilings still require live
 qualification before production cutover. The practice fixture is not a scientific case.
 
-## Helper machines (G6/G7, G5 and G10 job side built; transport and G15 not)
+## Helper machines (G5, G6/G7 and G10 built with transport; G15 not)
 
 Job side added on top, same flag and seal: G5's reference and key checkpoints (`run.g5_shards`,
 full G5 only, dispatched together, read by the same `read_completed`) and each G10 calibrator try
@@ -520,8 +520,7 @@ release or calibration identity differs from its own; the case worker checks a s
 checkpoint job (`read_completed`: run count, order, validity, summary against records). Money: the
 worst case of every dispatched try (one call window, plus the owner window for the exam) is sized
 against available funding up front (`run.helper_try_authority`, recorded in
-`card["helper_try_authority"]`); tries beyond it stay serial here. Helper-side model spend is booked
-by the transport, not yet built. A finished try is saved when accepted (`helper-tries/`) and reused
+`card["helper_try_authority"]`); tries beyond it stay serial here. Helper-side model spend is booked by the transport (below). A finished try is saved when accepted (`helper-tries/`) and reused
 when the identical job is dispatched again after a stop or crash. A model or money stop on a helper
 is returned as a result (never requeued, never paid twice) and re-raised at that try's turn with its
 interruption label; a capped try sets `force_budget_resume` as the serial handler does. A try no
@@ -551,13 +550,32 @@ of another size refuses and the seal echoes. `durable/helpers.py` is in `VERDICT
 bench dependencies, so editing it re-binds cached verdicts. Same runs, seeds, guards and pass rules; only where they execute
 changes.
 
-Not built (needs a control-VM transport, since a case worker holds no Boat credentials): the
-`HelperPool` implementation over `BoatPool` (a derived `case-<id>-h<k>` lease per helper, case tree
-and bench version delivered, helper-side `helpers.execute` called from a `worker_step`-style
-command, engine wiring that sets `c.helper_pool`, and a DBOS step-sequence patch if the dispatch
-becomes its own step). G10 tries: one job per strong try behind the same pilot wall, with the
-authority for all tries sized up front (founder-approved 2026-11-12) and each helper's lease seconds
-and model spend booked to the case line; the result is the AttemptSeries receipt, authenticated the
-same way. G5/G15 writing-round checks: same job shape, `plain_and_reference` and the key checks as
-jobs. Releasing the first G6/G7 change re-binds G6's gate cache once (`run.cheat_runs` is in G6's
+Transport (`factory/durable/helper_link.py`, off unless runtime config has `"helpers": {per_case, total,
+vm_type, min_per_copy, job_timeout_s}`): the case worker holds no Boat credentials, so `SpoolPool` turns
+lease/run/release into request files under `~/durable/helpers/<attempt>/req` and waits for answers in
+`res`; the control VM's `Broker`, started from `BoatChannel` for GATES attempts only (spool written at
+start, relay kept alive by each poll, no new engine step, so recorded workflows replay unchanged), reads
+the requests over `boat ssh`, leases each helper through `BoatPool` under case id `<case>-h<k>` (same
+release install and verify; `vm_type` may differ), pushes the case tree, runs `helper_link.py run` on it
+(the real input check: release, bench, case, guard and scenario digests; then `bin/checkpoint`) and writes
+back the sealed result. Helpers are deleted on `release`, when the attempt ends or is cancelled, when
+polls stop for `idle_s`, and for every leftover helper record at controller start. A claim by an earlier
+controller process is answered as lost, so the case worker requeues. `per_case` and `total` cap helpers;
+a refused lease just leaves that work to run on the case worker. Lease and release seconds per helper go
+to `<state>/helper-leases/<case>.jsonl`; the case worker also books released lease seconds on the case card
+(`helper_lease`), and with `usd_per_hour` in the helpers config, as `helper_lease_usd` beside the model spend,
+and a dispatch that would take spend plus lease money to the case limit stops like a model-budget stop. A
+helper runs `bin/checkpoint` with the case worker's own `UNBUG_*` env and `agent_timeout` (carried in the
+job), and an invalid helper batch is charged to the same `infra-attempts.json` row serial would charge and
+runs locally, never on a second helper. `helper_link.py` is in `VERDICT_CODE`. The seal records the
+machine class that ran each job (in `helper-ledger.jsonl`). The machine
+rule stays "same cpus and RAM as the case worker" unless `min_per_copy` {cpus, mem_gib} asks for at least
+that per bench copy. All three job kinds go over it: the helper resolves a checkpoint's scenarios by
+digest in its own case tree (base first, then G5's key scenario) and runs `bin/checkpoint`; a G10 `try` job
+carries the case worker's args, roles, router batch and deadline (no credentials: helpers get the same
+RAM-only router bundle as every pool worker), and the helper runs `run.hosted_try` behind a fresh `pilot`
+user and wall from `make_pilots`, with its own budget ledger capped at the try's up-front authority. Its
+settled reservations and events come back sealed (`spend.json`, also on a stop or a failed try) and
+`helpers.book_spend` merges them once into the case's `c.ledger`, so `case_spending` and the engine's
+`usage_since` charge them exactly as a local try's calls. Releasing the first G6/G7 change re-binds G6's gate cache once (`run.cheat_runs` is in G6's
 traced source).

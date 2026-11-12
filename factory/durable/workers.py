@@ -429,7 +429,7 @@ class BoatPool:
 
     # -- WorkerPool
 
-    def acquire(self, case_id: str, plumbing_version: str, bench_version: str) -> WorkerLease:
+    def acquire(self, case_id: str, plumbing_version: str, bench_version: str, *, vm_type: str | None = None) -> WorkerLease:
         _id(case_id, CASE_ID, "case_id")
         _id(plumbing_version, DIGEST, "plumbing_version")
         _id(bench_version, DIGEST, "bench_version")
@@ -467,7 +467,7 @@ class BoatPool:
             prepare_image = worker is None or installed is None
             fresh = worker is None
             if fresh:
-                worker = self._create(case_id, bench_version)
+                worker = self._create(case_id, bench_version, vm_type)
             try:
                 if fresh:
                     self._wait_ready(worker)
@@ -625,14 +625,14 @@ class BoatPool:
 
     # -- creation
 
-    def _create(self, case_id: str, bench_version: str) -> str:
+    def _create(self, case_id: str, bench_version: str, vm_type: str | None = None) -> str:
         nonce = uuid.uuid4().hex
         # Write uncertainty before the provider can see a request.
         self._write(case_id, {"intent": nonce, "worker": None, "deleting": None})
         args = ["new", "--from", self.store.image_for(bench_version, self.image), "--no-env", "--no-monitoring",
                 "--no-snapshots", "--ttl", str(self.ttl)]
-        if self.vm_type:
-            args += ["--type", self.vm_type]
+        if vm_type or self.vm_type:
+            args += ["--type", vm_type or self.vm_type]
         args += ["--name", ownership_name(self.pool_id, case_id, nonce)]
         code, out = self.boat.run(args + ["--json"], timeout=self.new_timeout)
         worker = None

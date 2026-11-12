@@ -2234,7 +2234,10 @@ def hosted_tries(c, series, role, name, exposure, runs):
     jobs = {i: helpers.make_try_job(case=case_hash(c), role=role, name=name, exposure=exposure, number=i, seed=c.seed + i,
                                     runs=runs, minutes=a.calibrator_minutes, model=list(c.models[role]),
                                     identity=identity_digest, bench=getattr(c, "manifest0", None), release=verdict_code(),
-                                    workers=getattr(a, "bench_workers", 1), authority_usd=str(per_try))
+                                    workers=getattr(a, "bench_workers", 1), authority_usd=str(per_try),
+                                    machine=helpers.need_for(getattr(a, "helper_min_per_copy", None), getattr(a, "bench_workers", 1)),
+                                    env=helpers._job_env(c), timeout_s=getattr(a, "agent_timeout", 14400),
+                                    context=helpers.try_context(c))
             for i in numbers}
     def boundary():
         if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")

@@ -89,7 +89,7 @@ def directory(c):
 # own binding (gate_state traces only the gate's functions in run.py and its listed science files):
 # the gate pipeline and attempt classification, the reuse rules, this module, the ordinary-retry
 # answers and the model harness. A plumbing release that changes any of them starts afresh.
-VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'durable/checkpoints.py', 'durable/helpers.py',
+VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'durable/checkpoints.py', 'durable/helpers.py', 'durable/helper_link.py',
                 'ordinary_retry.py', 'model_runtime.py', 'model_router.py', 'model_call_gate.py')
 _VERDICT_DIGEST = None
 

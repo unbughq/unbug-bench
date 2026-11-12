@@ -20,7 +20,7 @@ from typing import Mapping
 from durable.artifacts import ArtifactError
 
 from durable.contract import (BATCH_SCOPED, RELEASE_ROOT, WORKER_COMMAND, ArtifactKind, ArtifactStore, Outcome, Poll,
-                              PollState, Ref, StepInput, StepResult, WorkerLease, _check, attempt_paths, key_frame,
+                              PollState, Ref, StepInput, StepKind, StepResult, WorkerLease, _check, attempt_paths, key_frame,
                               poll_from_record, start_frame)
 from durable.workers import BoatCli, boat_id
 
@@ -54,8 +54,9 @@ class BoatChannel:
 
     def __init__(self, store: ArtifactStore, *, keys, sealer, boat: BoatCli | None = None,
                  command_timeout: float = 120.0, blob_timeout: float = 600.0,
-                 output_retry_s: float = 60.0, clock=time.monotonic):
+                 output_retry_s: float = 60.0, clock=time.monotonic, helpers=None):
         self.store, self.boat = store, boat or BoatCli()
+        self.helpers = helpers   # helper_link.Broker, or None: GATES attempts get no helper machines
         self.keys, self.sealer = keys, sealer
         self.command_timeout, self.blob_timeout = command_timeout, blob_timeout
         self.output_retry_s, self.clock = output_retry_s, clock
@@ -76,6 +77,8 @@ class BoatChannel:
             for name in sorted(blobs):
                 if not self._push(worker, blob_dir, name, blobs[name]):
                     return   # no frame: the next poll is ABSENT and the engine retries
+            if self.helpers is not None and step_input.step.kind is StepKind.GATES:
+                self.helpers.prepare(worker, step_input)   # a failure only leaves this attempt without helpers
             self.boat.ssh(worker, worker_command("start"), stdin=frame, timeout=self.command_timeout)
         except Exception:   # noqa: BLE001 - never raise on worker errors
             return
@@ -95,6 +98,9 @@ class BoatChannel:
             if len(lines) != 1:
                 return RUNNING
             poll = poll_from_record(json.loads(lines[0]))
+            if self.helpers is not None and step_input.step.kind is StepKind.GATES:
+                if poll.state is PollState.RUNNING: self.helpers.watch(worker, step_input)
+                elif poll.state is PollState.DONE: self.helpers.finish(step_input)
             out_dir = attempt_paths(key)["out"]
             if poll.state is PollState.DONE:
                 for ref in output_refs(poll.result):
@@ -117,6 +123,8 @@ class BoatChannel:
 
     def cancel(self, lease: WorkerLease, step_input: StepInput) -> None:
         _check(isinstance(lease, WorkerLease) and lease.case_id == step_input.case_id, "lease is for another case")
+        if self.helpers is not None:
+            self.helpers.finish(step_input)
         try:
             self.boat.ssh(boat_id(lease.worker_id), worker_command("cancel"),
                           stdin=json.dumps(key_frame(step_input.idempotency_key)).encode(),
