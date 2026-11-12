@@ -644,6 +644,24 @@ def router_spend(path) -> tuple:
     return spent / 1e9, ceiling, credit
 
 
+def router_clear(path, now: Optional[float] = None) -> bool:
+    """Whether the router's books show no pool blocked by a provider limit, a credit refusal or an
+    expiring credential, read-only (the same file as router_spend). A held case that stopped on a
+    provider limit resumes on this (engine.auto_resume_kind). Unreadable books mean not clear.
+    ponytail: every pool counts, not only the stopped step's; a per-pool read when that blocks resumes."""
+    now = time.time() if now is None else now
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            rows = [json.loads(v) for (v,) in db.execute("SELECT value FROM health")]
+        finally:
+            db.close()
+    except (sqlite3.Error, ValueError):
+        return False
+    return not any(isinstance(r, dict) and (r.get("reason") in ("credit", "credential_expiring")
+                                            or r.get("blocked_until", 0) > now) for r in rows)
+
+
 def webhook(url: str) -> Callable:
     """One JSON POST per alert, to any endpoint that accepts {"text": ...}."""
     def send(message: str) -> None:

@@ -22,6 +22,7 @@ from dataclasses import dataclass, replace
 import functools
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
@@ -37,11 +38,12 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               wait_seconds)
 from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
-from durable.policy import (DEADLINE_REASON, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+from durable.policy import (DEADLINE_REASON, MIN_GRANT_USD_MICROS, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
                             progressed, request_usd_micros, starts_replacement)
 from durable.report import verified_seal
 
+LOG = logging.getLogger("durable.engine")
 APP_NAME = "unbug-factory-engine"
 APP_VERSION = "factory-engine-1"   # pinned for the life of the database: DBOS recovers only matching versions
 CASE_EVENT = "case_event"          # internal topic: case -> batch
@@ -78,6 +80,7 @@ class _Runtime:
     executor: Optional[Executor] = None
     timing: Timing = Timing()
     admission_paused = staticmethod(lambda: False)
+    router_clear = staticmethod(lambda: False)   # no router wired: a quota hold never resumes by itself
     draining = threading.Event()
     lock = threading.Lock()
     busy = 0     # attempt workflows running in this process
@@ -285,6 +288,20 @@ def book_waste_step(keys: list) -> None:
 
 
 @DBOS.step()
+def hold_clear_step(kind: str, batch_id: str, case_id: str, case_limit: int) -> bool:
+    """Whether a hold of this kind may resume without a release (auto_resume_kind): a provider
+    limit once the router reports no blocked pool, a money stop once the case and the batch have
+    money for another call as booked now: a poll never rebooks anything, so a case that really spent
+    its money stays held (the resume itself books the diagnosed attempts as waste)."""
+    try:   # an unreadable router or ledger is "not yet": the hold keeps waiting and the next poll asks again
+        if kind == "quota":
+            return bool(_RT.router_clear())
+        return _ex().money_allows(batch_id, case_id, case_limit, MIN_GRANT_USD_MICROS)
+    except Exception:
+        return False
+
+
+@DBOS.step()
 def latest_registry_step(batch_id: str, initial: dict) -> dict:
     """The newest successful ADMIT output of this batch. ADMIT attempts run one at a time on
     the batch's admit queue (recovery re-enqueues a pending one onto the same queue), so the
@@ -357,6 +374,20 @@ FACTORY_BUG_INFRA_STOPS = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.val
 # last attack get one writer fix and the case then goes to GATES, which alone certify quality.
 ATTACK_ROUNDS = 2
 MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many in a lineage
+
+
+def auto_resume_kind(stops: list) -> Optional[str]:
+    """What a factory_bug hold may wait on besides a release, from the diagnosed step's stops
+    (oldest first): "money" when the last one ran out of money ("<stage>:money", resumes once the
+    case and the batch have money for another call), else "quota" when the last one was a provider
+    limit (resumes once the router reports no blocked pool); a limit followed by an infra stop is a
+    real failure, and policy.decide today never ends a step on a limit, so this fires only for such stops. Anything else, a gate verdict, an
+    exhausted round limit, a founder decision, or an infra-only hold, never resumes without a
+    release or an operator; factory_bug_rerunnable has already refused the scientific ones."""
+    last = stops[-1]
+    if last.get("outcome") == Outcome.EXHAUSTED.value and str(last.get("reason")).endswith(":money"):
+        return "money"
+    return "quota" if last.get("outcome") == Outcome.PROVIDER_LIMIT.value else None
 
 
 def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
@@ -1359,11 +1390,12 @@ class _Case:
             return None
         diagnosis = Step(StepKind.DIAGNOSIS).name
         diagnosis_attempt = max(h["attempt"] for h in self.history if h["seq"] == self.seq and h["step"] == diagnosis)
-        if not self.wait_for_fix(ran_on, f"{self.seq}/{diagnosis_attempt}"):
+        keys = [f"{self.case_id}/{self.seq - 1}/{step.name}/{h['attempt']}" for h in diagnosed]
+        if not self.wait_for_fix(ran_on, f"{self.seq}/{diagnosis_attempt}", auto_resume_kind(diagnosed)):
             return None
         self.renumber.setdefault(self.seq, {})[diagnosis] = diagnosis_attempt
         self.renumber.setdefault(self.seq - 1, {})[step.name] = max(h["attempt"] for h in diagnosed)
-        book_waste_step([f"{self.case_id}/{self.seq - 1}/{step.name}/{h['attempt']}" for h in diagnosed])
+        book_waste_step(keys)
         # The diagnosis seq of every resume on this workflow's path, replayed ones included: a later
         # --resume-case counts those it will not replay (_resume_point), so the cap holds across batches.
         self.rerun_seqs.append(self.seq)
@@ -1375,16 +1407,20 @@ class _Case:
         self.seq -= 2                        # run_seq numbers the rerun at the diagnosed seq
         return step.kind.value, feedback
 
-    def wait_for_fix(self, failed: tuple, hold: str) -> bool:
+    def wait_for_fix(self, failed: tuple, hold: str, auto: Optional[str] = None) -> bool:
         """Park without a worker until the batch's (plumbing, bench) differs from `failed`, the
         releases the diagnosed step ran on, or an operator sends Engine.resume_held for this hold
         (`hold`: diagnosis seq/attempt; a resume left over from an earlier hold is ignored). Never
         on the same releases by itself, so it cannot loop on the same bug. Either release counts,
         whatever the step: a writer or stress step runs on the bench image too (86b100's writer
         crashed on its old bench on 11 November), so a release that fixes nothing costs one of the
-        lineage's resumes. False: the batch deadline passed first."""
+        lineage's resumes. `auto` (auto_resume_kind) also ends the wait, with no release, once the
+        cause of a provider-limit or money stop has cleared (hold_clear_step); it is polled, logged,
+        and counts as one of the lineage's resumes like any other, so the cap still ends the loop.
+        False: the batch deadline passed first."""
         if self.replaying:
             return True   # the recorded workflow went on past this hold: it resumed here
+        auto = auto if DBOS.patch("auto_resume_safe_holds") else None
         self.release_worker()
         self.status = "held_for_release"
         DBOS.set_event("release_hold", hold)
@@ -1395,6 +1431,11 @@ class _Case:
                 DBOS.set_event("release_hold", None)
                 return False
             if (self.current("plumbing"), self.current("bench")) != failed:
+                LOG.info("auto-resume %s: %s, a new release", self.case_id, hold)
+                break
+            if auto and hold_clear_step(auto, self.batch_id, self.case_id, self.spec.case_money_usd_micros):
+                LOG.info("auto-resume %s: %s, %s cleared", self.case_id, hold, auto)
+                DBOS.set_event("auto_resume", {"hold": hold, "kind": auto})
                 break
             self.tell("waiting")
             msg = DBOS.recv(WAKE, timeout_seconds=max(0.001, min(_RT.timing.wake_poll_s,
@@ -1935,9 +1976,9 @@ class Engine:
 
     def __init__(self, *, system_database_url: str, executor: Executor, timing: Timing = Timing(),
                  environ: Optional[Mapping[str, str]] = None, pool_size: int = 40,
-                 admission_paused=lambda: False):
+                 admission_paused=lambda: False, router_clear=lambda: False):
         self.url, self.executor, self.timing = system_database_url, executor, timing
-        self.admission_paused = admission_paused
+        self.admission_paused, self.router_clear = admission_paused, router_clear
         self.environ = os.environ if environ is None else environ
         self.pool_size = pool_size
         self.dbos = None
@@ -1953,6 +1994,7 @@ class Engine:
         self.dbos = DBOS(config=config)
         check_instance(self.dbos)
         _RT.executor, _RT.timing, _RT.admission_paused = self.executor, self.timing, self.admission_paused
+        _RT.router_clear = self.router_clear
         _RT.draining.clear()
         DBOS.launch()
         # Rule 6: register the queues of every unfinished batch before anything is started or

@@ -27,7 +27,7 @@ import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
 from durable.contract import ArtifactKind, BatchSpec, CASE_ID, ContractError, Ref, assert_no_conductor, batch_spec_from_record
-from durable.guard import degraded as guard_degraded
+from durable.guard import degraded as guard_degraded, router_clear
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
 from durable.workers import BoatPool, PoolError, ReleaseStore, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
@@ -85,6 +85,12 @@ def database_lock(config):
                 conn.execute(sa.text("SELECT pg_advisory_unlock(719235184003)"))
     finally:
         engine.dispose()
+
+
+def _router_db():
+    """The router's books, where the production router keeps them (an error counts as not clear)."""
+    from model_router import production_database
+    return production_database({})
 
 
 def load_config(path):
@@ -188,7 +194,8 @@ class Runtime:
             self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys,
                                      sleep=draining_sleep, pause=hold_if_draining)
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
-                                 admission_paused=lambda: guard_degraded(self.state))
+                                 admission_paused=lambda: guard_degraded(self.state),
+                                 router_clear=lambda: router_clear(config.get("router_db") or _router_db()))
         except Exception:
             self.close()
             raise

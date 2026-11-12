@@ -279,6 +279,13 @@ class Executor:
     def book_waste(self, idempotency_key: str, reason: str) -> None:
         _call("engine:ledger_failed", self.ledger.book_waste, idempotency_key, reason)
 
+    def money_allows(self, batch_id: str, case_id: str, case_limit: int, minimum: int) -> bool:
+        """Whether a case held after a money stop has money for another call as booked now: the
+        case's own money under its limit and the batch bound both hold at least `minimum`. Read-only."""
+        case = _call("engine:ledger_failed", self.ledger.case_balance, batch_id, case_id, case_limit)
+        batch = _call("engine:ledger_failed", self.ledger.balance, batch_id)
+        return case["remaining"] >= minimum and batch["remaining"] >= minimum
+
     def open_batch(self, batch_id: str, bound: int) -> None:
         _call("engine:ledger_failed", self.ledger.open, batch_id, bound)
 

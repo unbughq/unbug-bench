@@ -345,7 +345,10 @@ before, since a refusal or crash would repeat on the paid twin. Chains never cro
 (`model_router.routes` refuses one that would).
 When every seat of a lane is leased to our own calls the router answers `capacity`, not `rate`, to clients
 that send `capacity_protocol: 1` (older ones still get `rate`): no provider refused anything, so no health is
-published. The call waits in its worker, in FIFO order, for up to `model_router.CAPACITY_WAIT_SECONDS`
+published. The call waits in its worker, in FIFO order within a priority (the acquire's optional `priority`, from
+the engine step: GATES/diagnosis/seal 3 > stress 2 > writer 1 > admit 0, `model_router.STAGE_PRIORITY`: a call is
+not queued behind older lower-priority ones, and yields to newer higher-priority ones; the builder-account rule
+is unchanged), for up to `model_router.CAPACITY_WAIT_SECONDS`
 (30 min, within the step deadline and the call's own timeout); only past that does the attempt end, as
 `router:capacity`, a provider-limit sleep of at most one lease that keeps its worker. Seats are the router
 config's per-pool `capacities` (default 1, at least 1); size each pool at least concurrent cases x
@@ -411,7 +414,13 @@ uncounted and `factory_bug_resumes` grows, so the policy's cap still ends a loop
 the failed one never resumes it; any other plumbing or bench release does, whatever the step (writer
 and stress steps run on the bench image too), so an unrelated release costs one of the lineage's
 resumes. Plumbing and bench releases both wake it (patch `bench_release_wakes`). The operator's go-ahead
-names the hold (diagnosis seq/attempt), so a leftover one never frees a later hold. At the batch
+names the hold (diagnosis seq/attempt), so a leftover one never frees a later hold. Two causes also end the wait with no release and no operator (patch
+`auto_resume_safe_holds`, `engine.auto_resume_kind`), polled every `wake_poll_s` and logged as `auto-resume`
+(event `auto_resume`): a hold whose last stop was a provider limit (a limit followed by an infra stop is a real failure) once the router's books (`router_db` in the
+controller config, default the production router's `factory.sqlite3`; `guard.router_clear`) show no blocked pool, and a hold whose last stop was a money stop
+once the case (as booked now: a poll never rebooks, so a case that really spent its money stays held) and the batch each have `MIN_GRANT` left
+(`Executor.money_allows`). They count against `factory_bug_resumes` like any resume; an infra-only hold, a
+gate verdict, an exhausted ceiling or a founder decision never resume this way. At the batch
 deadline it is held as before, for `--resume-case`, which counts the resumes made in place that it
 will not replay (event `factory_bug_rerun_seqs`), so the cap holds across batches; a workflow that
 held before the patch stays held. Escalations (`NEEDS_FOUNDER`) never take this path.

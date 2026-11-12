@@ -235,6 +235,16 @@ class FakeLedger:
             self.f.append("ledger.log", {"op": "book_waste", "key": idempotency_key, "reason": reason})
             return True
 
+    def balance(self, batch_id):
+        """SqlLedger.balance: the batch's remaining bound."""
+        b = self.snapshot()["batches"][batch_id]
+        return {"remaining": max(0, b["bound"] - b["spent"] - b["held"])}
+
+    def case_balance(self, batch_id, case_id, case_limit_usd_micros):
+        """SqlLedger.case_balance: the case's own money left under its limit."""
+        c = self.snapshot()["cases"].get(case_id, {"spent": 0, "held": 0})
+        return {"remaining": max(0, case_limit_usd_micros - c["spent"] - c["held"])}
+
     def snapshot(self):
         with self.f.locked():
             return self._state()
@@ -642,7 +652,8 @@ def engine_main(workdir):
     timing = Timing(**{"batch_poll_s": 0.5, "wake_poll_s": 5.0, "founder_poll_s": 2.0, "queue_poll_s": 0.05,
                        "listener_poll_s": 0.05, **scenario.get("timing", {})})
     engine = Engine(system_database_url=scenario.get("database_url", f"sqlite:///{work}/sys.sqlite"), executor=ex,
-                    timing=timing, admission_paused=lambda: degraded(work / "state"))
+                    timing=timing, admission_paused=lambda: degraded(work / "state"),
+                    router_clear=lambda: (work / "router-clear").exists())
     engine.launch()
     if "drain_s" in scenario:
         stop_on_signal(lambda: engine.drain(scenario["drain_s"]))
@@ -716,6 +727,8 @@ def engine_main(workdir):
                 if "bench" in act:
                     engine.send(spec.batch_id, Topic.BENCH_RELEASE, BenchRelease(act["bench"]))
                 observed = {"i": i, "held": held}
+                if act.get("router_clear"):
+                    (work / "router-clear").touch()   # the router reports its pools healthy
                 if "resume_held" in act:
                     observed["resume_sent"] = engine.resume_held(f"case-{spec.batch_id[2:]}-{act['resume_held']}")
                 if "case" in when:
