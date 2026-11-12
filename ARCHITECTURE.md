@@ -510,3 +510,37 @@ checks and a disposable PostgreSQL restore exercise. Model-free live checks cove
 Boat/R2, Docker, control restart, worker replacement and authenticated checkpoint
 reuse. Model access, routing and provider spending ceilings still require live
 qualification before production cutover. The practice fixture is not a scientific case.
+
+## Helper machines (G6/G7 built; the rest designed)
+
+Independent seeded gate work can run on short-lived helper workers instead of serially on the case
+worker. Built: G6/G7 cheat checkpoints (`run.cheat_runs`, full G6/G7 only, never the advisory early
+check), behind `--helper-workers N` (default 0 = today's serial path, untouched) and a
+`c.helper_pool`. `factory/durable/helpers.py`: the case worker sends one job per checkpoint (case,
+guard and scenario tree digests, bench version, `verdict_code()` release hash, runs, seed, label); a
+helper runs `bin/checkpoint` on its own bench copy and returns the checkpoint directory's files
+sealed with an HMAC (per-dispatch key) over the exact job. The case worker verifies the seal and the
+job echo, rebuilds the directory and reads it with `checkpoint_evidence.read_completed`, the serial
+reader, so `verdicts()` and the gate verdict see identical inputs. Any helper fault (death, refused
+inputs, bad seal, invalid batch) requeues that job only, once; a job no helper completes runs on the
+case worker as today (with its normal infra-retry allowance). At most N helpers at once and N +
+jobs leases per dispatch; `case_budget_boundary` runs before each dispatch; each lease, job and
+release (with seconds) goes to `helper-ledger.jsonl`. Cheat checkpoints are no-model runs, so no
+per-helper money is booked yet. Trust: the seal authenticates the transport (the helper holds the
+per-dispatch key), not that `bin/checkpoint` really ran, so helpers are our own workers; the case
+worker also requires exactly one `runs`-run batch, `read_completed` cross-checks summary against
+records, and the job carries the machine class (vCPU, RAM) and bench worker count, which a helper
+of another size refuses and the seal echoes. `durable/helpers.py` is in `VERDICT_CODE` and in G6/G7's
+bench dependencies, so editing it re-binds cached verdicts. Same runs, seeds, guards and pass rules; only where they execute
+changes.
+
+Not built (needs a control-VM transport, since a case worker holds no Boat credentials): the
+`HelperPool` implementation over `BoatPool` (a derived `case-<id>-h<k>` lease per helper, case tree
+and bench version delivered, helper-side `helpers.execute` called from a `worker_step`-style
+command, engine wiring that sets `c.helper_pool`, and a DBOS step-sequence patch if the dispatch
+becomes its own step). G10 tries: one job per strong try behind the same pilot wall, with the
+authority for all tries sized up front (founder-approved 2026-11-12) and each helper's lease seconds
+and model spend booked to the case line; the result is the AttemptSeries receipt, authenticated the
+same way. G5/G15 writing-round checks: same job shape, `plain_and_reference` and the key checks as
+jobs. Releasing the first G6/G7 change re-binds G6's gate cache once (`run.cheat_runs` is in G6's
+traced source).

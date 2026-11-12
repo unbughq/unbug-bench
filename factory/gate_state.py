@@ -27,8 +27,8 @@ MEASURE = ("factory/case_permissions.py", "bin/bench.py", "bin/bench_judging.py"
 STRATEGY = ("bin/strategy", "bin/strategy_resume.py", "bin/silent_window.py", "bin/exposure.py", "bin/live_shop.py",
             "bin/live_traffic.py", "bin/shoppers", "factory/calibration.py")
 MODEL = ("factory/calibration.py",)
-DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/run_validity.py",), "G6": MEASURE + ("bin/run_validity.py",) + ("bin/verify-negative",),
-                "G7": MEASURE + ("bin/run_validity.py",),
+DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/run_validity.py",), "G6": MEASURE + ("bin/run_validity.py",) + ("bin/verify-negative", "factory/durable/helpers.py"),
+                "G7": MEASURE + ("bin/run_validity.py", "factory/durable/helpers.py"),
                 "G8": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G9": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G13": MEASURE + STRATEGY + ("bin/run_validity.py",),
