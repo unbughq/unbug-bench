@@ -353,11 +353,15 @@ class Runtime:
 
     def drain(self):
         self._sweep_stop.set()
+        if getattr(self, "pool", None) is not None:
+            self.pool.stopping.set()
         if self.launched:
             self.engine.drain(DRAIN_S)
 
     def close(self):
         self._sweep_stop.set()
+        if getattr(self, "pool", None) is not None:
+            self.pool.stopping.set()
         try:
             if self.launched:
                 self.engine.shutdown()

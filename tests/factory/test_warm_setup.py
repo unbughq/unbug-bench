@@ -38,6 +38,14 @@ class WarmTests(unittest.TestCase):
     def slots(self):
         return sorted(p.stem for p in self.pool.state.glob(W.WARM_PREFIX + "*.json"))
 
+    def age(self, plumbing):
+        path = self.pool.state / "warm-releases.json"
+        rows = json.loads(path.read_text())
+        for row in rows:
+            if row["plumbing_version"] == plumbing:
+                row["at"] -= self.pool.warm_idle + 1
+        path.write_text(json.dumps(rows))
+
     def remember(self):
         """A first step ran: the pool now knows the release a warm worker must carry."""
         self.pool.release(self.pool.acquire(CASE, self.h.plumbing, self.bench))
@@ -88,17 +96,77 @@ class WarmTests(unittest.TestCase):
         self.assertEqual(self.deletes()[deleted:], [warm])
         self.assertIsNone(self.pool._read(OTHER))
 
-    def test_a_warm_worker_of_another_release_is_not_leased_and_is_replaced(self):
+    def test_a_warm_worker_of_another_release_is_not_leased(self):
+        self.remember()
+        self.pool.refill()
+        warm = self.pool._read(self.slots()[0])["worker"]
+        lease = self.pool.acquire(OTHER, self.h.second_plumbing(), self.bench)
+        self.assertNotEqual(lease.worker_id, W.lease_worker_id(warm))   # built fresh, not the stale one
+
+    def test_two_releases_in_flight_do_not_make_the_pool_thrash(self):
+        self.remember()
+        self.pool.refill()
+        warm = self.pool._read(self.slots()[0])["worker"]
+        second = self.h.second_plumbing()
+        self.pool.release(self.pool.acquire(OTHER, second, self.bench))   # B asked last
+        news = len(self.news())
+        self.pool.refill()
+        self.assertEqual((len(self.news()), self.pool._read(self.slots()[0])["worker"]), (news, warm))
+        self.assertNotIn(warm, self.deletes())
+
+    def test_a_release_nobody_asks_for_any_more_is_replaced_and_an_idle_pool_drains(self):
         self.remember()
         self.pool.refill()
         stale = self.pool._read(self.slots()[0])["worker"]
         second = self.h.second_plumbing()
-        lease = self.pool.acquire(OTHER, second, self.bench)
-        self.assertNotEqual(lease.worker_id, W.lease_worker_id(stale))   # built fresh, not the stale one
+        self.age(self.h.plumbing)   # nobody has asked for A in an hour
+        self.pool.release(self.pool.acquire(OTHER, second, self.bench))   # only B is recent now
         self.pool.refill()
         self.assertIn(stale, self.deletes())
         fresh = self.pool._read(self.slots()[0])["worker"]
         self.assertEqual(json.loads((self.h.home(fresh) / "factory-release/RELEASE.json").read_text())["plumbing_version"], second)
+        self.age(second)   # nobody asks any more: no idle worker is kept or made
+        self.pool.refill()
+        self.assertEqual(self.slots(), [])
+        self.assertIn(fresh, self.deletes())
+        news = len(self.news())
+        self.pool.refill()
+        self.assertEqual(len(self.news()), news)
+
+    def test_a_release_whose_bundle_is_gone_is_not_built(self):
+        self.remember()
+        self.pool.store._bundle_path(self.h.plumbing).unlink()
+        self.pool.refill()
+        self.assertEqual((self.slots(), len(self.news())), ([], 1))
+
+    def test_no_warm_worker_is_made_once_the_runtime_stops(self):
+        self.remember()
+        self.pool.stopping.set()
+        self.pool.refill()
+        self.assertEqual((self.slots(), len(self.news())), ([], 1))
+
+    def test_a_worker_finished_after_the_stop_is_deleted_not_left_orphaned(self):
+        self.remember()
+        install = self.pool._install
+        def late(*a, **k):
+            install(*a, **k)
+            self.pool.stopping.set()
+        with mock.patch.object(self.pool, "_install", late):
+            self.pool.refill()
+        self.assertEqual(self.slots(), [])
+        self.assertEqual(len(self.deletes()), 2)
+
+    def test_the_warm_count_is_capped(self):
+        with self.assertRaises(Exception):
+            self.h.pool(warm_target=W.WARM_MAX + 1)
+
+    def test_a_leased_case_record_keeps_the_old_three_key_shape(self):
+        self.remember()
+        self.pool.refill()
+        self.pool.acquire(OTHER, self.h.plumbing, self.bench)
+        raw = json.loads(self.pool._record_path(OTHER).read_text())
+        self.assertEqual(set(raw), {"intent", "worker", "deleting"})   # a rolled-back controller still reads it
+        self.assertTrue(self.pool._read(OTHER)["slot"].startswith(W.WARM_PREFIX))
 
     def test_surplus_warm_workers_are_released(self):
         self.remember()
