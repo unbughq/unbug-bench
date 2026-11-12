@@ -388,9 +388,23 @@ class RetryTests(unittest.TestCase):
             value.update(category_complete=False, completed_subchecks=[], unfinished_validation=['authored diagnostic needed'])
         self.stress_setup(emit)
         with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
-        self.assertEqual(len(self.calls),2)
+        self.assertEqual(len(self.calls),1+len(stress_progress.CATEGORIES)) # every category still gets its turn
         self.c.card.update(terminal_stop='stress_validation_exhausted',status='stopped',gates={})
         self.assertTrue(diagnosis.exhaustion(self.c.card))
+
+    def test_resume_retries_exhausted_category(self):
+        # A resumed stress step must call the attacker again for a category the first run left exhausted.
+        stuck = [True]
+        def emit(config, value):
+            if stuck[0]: value.update(category_complete=False, completed_subchecks=[], unfinished_validation=['stuck'])
+        self.stress_setup(emit)
+        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
+        first = len(self.calls)
+        stuck[0] = False
+        self.fresh_context()
+        self.stress_round(self.c, copy.deepcopy(self.c.card))
+        self.assertGreater(len(self.calls), first)
+        self.assertTrue(run.jload(self.work/'attacks/round-1.json')['complete'])
 
     def test_publication_retries_before_next_dispatch(self):
         uploaded, failures = [], [0]
@@ -521,16 +535,36 @@ class RetryTests(unittest.TestCase):
                          unfinished_validation=['authored unexecuted check'])
         self.stress_setup(emit)
         with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
-        self.assertEqual(count[0],len(stress_progress.CATEGORIES['wrong_fixes']))
+        self.assertEqual(count[0],len(stress_progress.CATEGORIES['wrong_fixes'])+len(stress_progress.CATEGORIES)-1)
         self.assertEqual(self.c.card['builder_rounds'],1)
 
-    def test_interrupted_diagnostic_exhausts_before_more_category_work(self):
+    def test_interrupted_diagnostic_still_reports_other_categories_findings(self):
+        # 1110b: the round's one diagnostic timed out; that must not end the round before the attacker
+        # looked at any category, and a finding anywhere reaches the writer.
+        def emit(config,value):
+            if config['category'] == 'wrong_fixes':
+                value.update(category_complete=False,completed_subchecks=[],unfinished_validation=['diagnostic timed out'])
+            if config['category'] == 'fairness': value['blocking'] = ['a real defect']
+        self.stress_setup(emit)
+        claimed = self.work/'diagnostic-budgets/attacker-1/claimed'
+        claimed.mkdir(parents=True)
+        atomic_json(claimed.parent/'status.json',{'status':'timeout'})
+        result = self.stress_round(self.c,{})
+        self.assertEqual(result['reason'],'stress:findings')
+        self.assertEqual(len(self.calls),1+len(stress_progress.CATEGORIES))
+        report = run.jload(self.work/'attacks/round-1.json')
+        self.assertEqual(report['blocking'],['a real defect'])
+        self.assertIn('diagnostic timed out',report['unfinished_validation'])
+        self.assertFalse(report['coverage']['wrong_fixes']['complete'])
+        self.assertFalse(report['complete'])
+
+    def test_interrupted_diagnostic_without_findings_is_not_clean(self):
         self.stress_setup(lambda *a:None)
         claimed = self.work/'diagnostic-budgets/attacker-1/claimed'
         claimed.mkdir(parents=True)
         atomic_json(claimed.parent/'status.json',{'status':'timeout'})
         with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
-        self.assertEqual(len(self.calls),1) # writer only; no impossible stress retry
+        self.assertEqual(len(self.calls),1+len(stress_progress.CATEGORIES))
 
     def test_broad_outage_retries_without_buying_topup(self):
         self.searches()

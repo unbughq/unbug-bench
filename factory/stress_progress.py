@@ -99,13 +99,17 @@ def run(runner, c, number, report, receipt, completed):
     # One round covers every category (FACTORY.md 4, 2026-11-10): a finding ends its own category,
     # never the round, so the writer gets every category's findings in one fix. Stopping at the
     # first finding gave one category per round, and the next round found the next category's.
+    # `exhausted` is a per-run stop: a resumed round (factory_bug resume of a stress step that stopped
+    # stress_validation_exhausted) must retry unfinished categories, not skip them with zero attacker calls.
+    for row in state['categories'].values(): row['exhausted'] = False
     for category, subchecks in CATEGORIES.items():
         row = state['categories'].setdefault(category, {'complete': False, 'done': [], 'results': [], 'exhausted': False})
         if row['complete'] or row.get('found'): continue
         while not row['complete']:
-            if row['exhausted'] or runner.attack_diagnostic_unfinished(c, number):
-                if result['blocking']: break   # findings in hand: report them, this category stays uncovered
-                raise BudgetError('stress_validation_exhausted')
+            # An exhausted category stays unfinished_validation (never covered) and the round goes on.
+            # So does a spent one-shot diagnostic: the allowance is round-wide, and the attacker is told
+            # (attack_diagnostic_context) to do the remaining checks without it.
+            if row['exhausted']: break
             sequence = len(row['results'])
             output = directory / f'{category}-{sequence}.json'
             before = set(row['done'])
@@ -168,7 +172,7 @@ def run(runner, c, number, report, receipt, completed):
             result = aggregate()
             publish(c)
             if row['found']: break
-            if row['exhausted']:
-                if result['blocking']: break
-                raise BudgetError('stress_validation_exhausted')
+    # Every category has had its turn. Findings go to the writer; with none, unfinished is not clean.
+    if not result['blocking'] and any(r.get('exhausted') and not r['complete'] for r in state['categories'].values()):
+        raise BudgetError('stress_validation_exhausted')
     finish(result)
