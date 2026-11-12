@@ -6,6 +6,7 @@ from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
 import argparse
+import hashlib
 import json
 import pathlib
 import tempfile
@@ -71,6 +72,15 @@ class FamilyRuleTests(unittest.TestCase):
         self.assertEqual(c.card["roles"]["reviewer2"]["family"], family(two["reviewers"][1][0]))
         self.assertFalse(model_runtime.with_second_reviewer(c, "rotation-3writers.json"))
 
+    def test_in_flight_adoption_keeps_imported_idea_families_out(self):
+        base = types.SimpleNamespace(args=args(), card={}, engine=object())
+        two = model_runtime.select_models(base, log=lambda *a: None)
+        default = family(two["reviewers"][1][0])
+        c = types.SimpleNamespace(card={"models": {**two, "reviewers": two["reviewers"][:1]}, "roles": {},
+                                        "imported_from": {"idea_families": [default]}})
+        model_runtime.with_second_reviewer(c, "rotation-3writers.json")
+        self.assertNotEqual(family(c.card["models"]["reviewers"][1][0]), default)
+
 
 class PanelTests(unittest.TestCase):
     def test_one_reviewer_is_not_a_panel(self):
@@ -102,6 +112,41 @@ class PanelTests(unittest.TestCase):
                 self.assertIn("correct_responses", text)
                 self.assertIn("bin/claims.py", text)
 
+    def test_engine_path_calls_both_reviewers_and_g9_needs_both(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "case").mkdir()
+            idents, verdicts = [], iter([True, False])
+
+            def fake_answer(c, chain, text, d, name, out, identity, kind, schema, validate, **kw):
+                idents.append(identity)
+                ok = next(verdicts)
+                return {"fairness": {"approve": True, "findings": []}, "realism": {"approve": ok, "findings": []}}
+            c = types.SimpleNamespace(models={"reviewers": [["opencode/a"], ["opencode-go/b"]]}, card={}, work=root,
+                                      case=root / "case", args=types.SimpleNamespace(source=None, runs=1, scenario_runs=1))
+            with patch.object(run, "retained_answer", fake_answer), patch.object(run, "under_engine", lambda c: True):
+                ok, info = run.g9(c)
+            self.assertFalse(ok)
+            self.assertEqual(info["approve"], "1/2")
+            self.assertEqual([i["index"] for i in idents], [1, 2])
+            self.assertTrue(all("bin/claims.py" in i["keys"] for i in idents))
+
+
+class ContextHookTests(unittest.TestCase):
+    def adopted(self, **card_more):
+        from test_durable_worker_step import practice_card, practice_tree, PLUMBING, BENCH_V, BATCH, CASE
+        from durable.contract import ArtifactKind, Ref, Step, StepInput, StepKind
+        with tempfile.TemporaryDirectory() as tmp, patch.object(run, "BENCH", _TEST_ROOT):
+            work = practice_tree(pathlib.Path(tmp), CASE, card=practice_card(CASE, **card_more))
+            si = StepInput(BATCH, CASE, 1, Step(StepKind.WRITER, 1), 1, PLUMBING, BENCH_V, Ref("1" * 64, ArtifactKind.INPUTS),
+                           Ref("2" * 64, ArtifactKind.CASE_SNAPSHOT), 600.0, 5_000_000)
+            return run.context_for_step(si, work).models["reviewers"]
+
+    def test_next_step_of_a_single_reviewer_case_pins_a_second_reviewer(self):
+        reviewers = self.adopted()
+        self.assertEqual(len(reviewers), 2)
+        self.assertNotEqual(family(reviewers[0][0]), family(reviewers[1][0]))
+
 
 class CacheIdentityTests(unittest.TestCase):
     def identity(self, gate, reviewers, root):
@@ -120,6 +165,18 @@ class CacheIdentityTests(unittest.TestCase):
                 one = self.identity(gate, [["a/x"]], root)
                 two = self.identity(gate, [["a/x"], ["b/y"]], root)
                 self.assertNotEqual(one, two, gate)
+            # And load() refuses a record saved under one reviewer when two are now pinned.
+            c = types.SimpleNamespace(work=root / "work", seed=7, manifest0="m", case=root / "work/case",
+                args=types.SimpleNamespace(runs=10, scenario_runs=3, dry_run=False, resume=True, max_repairs=2, bench_workers=1),
+                card={"gates": {}, "roles": {"reviewer": {"model": "a/x"}}}, models={"reviewers": [["a/x"]]})
+            (c.work / "gate-cache").mkdir(parents=True, exist_ok=True)
+            (c.work / "review-1").mkdir()
+            (c.work / "review-1/verdict.json").write_text("{}")
+            signature = hashlib.sha256(json.dumps(gate_state.inputs(c, "G8", root), sort_keys=True).encode()).hexdigest()
+            gate_state.save(c, "G8", {"approve": "1/1"}, signature, {}, root)
+            self.assertEqual(gate_state.load(c, "G8", root), {"approve": "1/1"})
+            c.models = {"reviewers": [["a/x"], ["b/y"]]}
+            self.assertIsNone(gate_state.load(c, "G8", root))
             # Gates that never use the second reviewer keep their identity, so they are not rerun.
             for gate in ("G10", "G11"):
                 self.assertEqual(self.identity(gate, [["a/x"]], root)["models"]["reviewers"],

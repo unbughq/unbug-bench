@@ -850,7 +850,7 @@ def with_second_reviewer(c, table_name=None):
     models, roles = c.card['models'], c.card.setdefault('roles', {})
     if len(models['reviewers']) >= 2: return False
     row = second_reviewer({family(models[k][0]) for k in ('builder', 'attacker', 'strong_calibrator')}
-                          | {family(models['reviewers'][0][0])}, table_name)
+                          | {family(models['reviewers'][0][0])} | set((c.card.get('imported_from') or {}).get('idea_families') or ()), table_name)
     models['reviewers'] = [*models['reviewers'], [row['model']]]
     roles['reviewer2'] = {**row, 'family': family(row['model'])}
     return True
