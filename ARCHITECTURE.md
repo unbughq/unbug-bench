@@ -100,6 +100,7 @@ persisted cards via DBOSClient and show service liveness separately from workflo
 Plumbing bundles include their authenticated `bin/processes.py` runtime helper;
 factory imports and qualification use that release copy. Scientific bench files
 remain on the separately pinned worker image.
+The worker's image step waits up to 5 minutes for Boat's lazy restore of the baked Medusa image before it would build one.
 Images may supply `~/bench-source/prepare.py` to verify their bound public source
 and prune obsolete files restored by a snapshot overlay. This runs before release
 qualification and key delivery; changed source fails preparation.
@@ -121,7 +122,7 @@ batch; `switch` checks drained and prints the root commands (source-current syml
 running them. Every Boat call goes through `bin/boat-call` with `BOAT_NO_UPDATE=1`.
 The control units and setup script live under `control/`. ADMIT reuses the existing
 selector, registry, freshness and idea-realism screens. A retried ADMIT keeps the provider
-preflight checks that passed in the same step within 30 minutes and re-asks the rest; an unresolved G2
+preflight checks that passed in the same step within 30 minutes and re-asks the rest (the writer's route is checked too while no statement exists; its selection and preflight calls give up after 10 minutes without output and move to the chain's next route, which the role keeps for later calls); an unresolved G2
 freshness review is asked again up to twice within the attempt, re-fetching flagged pages not read
 live (the hit still blocks until cleared)
 before the admit fails `infra:freshness_review_unavailable`. Unless INPUTS pins `rotation_slot`
@@ -261,7 +262,7 @@ to another model of the same family (the October GLM easy calibrator ran on a fr
 walled calibrator can no longer lease); reviewers stay, since the exam's owner contract binds
 the reviewer. Every role still needs a bounded route: the admission screens and GATES rerun the
 freshness check, and expired October search evidence is topped up by the writer and stress
-tester. ADMIT then answers `admit:imported_sealed`, and the engine skips WRITER
+tester (the two searches run at the same time, each in its own copy of the case's search inputs, and merge back by row owner). ADMIT then answers `admit:imported_sealed`, and the engine skips WRITER
 and STRESS: GATES keeps the October verdicts for `run.RECERTIFY_KEPT` and runs only G2 (today's
 freshness), G3 (to prepare the worker's runtime), G16, G10, G17 and G11, then SEAL writes the owner contract and
 delivery receipts as usual. G10 reruns because G17 and the receipts need this run's calibrator
@@ -337,7 +338,7 @@ When every seat of a lane is leased to our own calls the router answers `capacit
 that send `capacity_protocol: 1` (older ones still get `rate`): no provider refused anything, so no health is
 published. The call waits in its worker, in FIFO order, for up to `model_router.CAPACITY_WAIT_SECONDS`
 (30 min, within the step deadline and the call's own timeout); only past that does the attempt end, as
-`router:capacity`, a provider-limit sleep of at most one lease that keeps its worker. Seats are the router
+`router:capacity`, a provider-limit sleep of at most one lease that keeps its worker (a batch that leaves `release_worker_after_sleep_s` at its 30-minute default keeps it for waits up to 6 hours; an explicit value is honored). Seats are the router
 config's per-pool `capacities` (default 1, at least 1); size each pool at least concurrent cases x
 concurrent model calls per case on it, counting an exam owner question (asked while its calibrator still
 holds a seat) as one more call.

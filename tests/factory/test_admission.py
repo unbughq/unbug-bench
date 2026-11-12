@@ -28,6 +28,16 @@ def evidence(who, kind, i, **more):
             "note": "Unrelated result", **more}
 
 
+def scratch_rows(cwd):
+    """The search rows of a freshness call's own working copy (each role searches in its own directory)."""
+    path = pathlib.Path(cwd) / 'freshness.jsonl'
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+
+
+def scratch_write(cwd, rows):
+    (pathlib.Path(cwd) / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+
+
 class AdmissionTests(unittest.TestCase):
     def setUp(self):
         from freshness_test_transport import start
@@ -126,8 +136,7 @@ class AdmissionTests(unittest.TestCase):
             self.assertIn("retrieval_failed", text)
             self.assertGreater(kwargs["timeout"], 300)
             self.assertLessEqual(kwargs["timeout"], 1200)
-            repaired = [{**row, 'retrieved': True} for row in run.freshness_lines(c)]
-            (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, repaired)))
+            scratch_write(cwd, [{**row, 'retrieved': True} for row in scratch_rows(cwd)])
             return 0
         with patch.object(run, "prior_statements", return_value={}), patch.object(run, "opencode", repair), \
              patch.object(run, "idea_realism", return_value=True):
@@ -136,7 +145,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(c.card["candidate_attempts"], 1)
         self.assertNotIn("rejected_candidates", c.card)
         self.assertEqual(c.card["admission_freshness"]["outcome"], "clear")
-        self.assertEqual(calls, ["builder-freshness"])
+        self.assertEqual(sorted(calls), ["attacker-freshness", "builder-freshness"])   # each role repairs its own rows
         self.assertEqual(len(run.freshness_lines(c)), 20)
         self.assertTrue(all(type(v) is int for counts in c.card['freshness_topup'].values() for v in counts.values()))
 
@@ -248,23 +257,22 @@ class AdmissionTests(unittest.TestCase):
         calls = []
         def repair(ctx, models, text, cwd, name, **kwargs):
             calls.append(name)
-            current = run.freshness_lines(c)
+            current = scratch_rows(cwd)
             if name == 'builder-freshness':
                 for row in current: row['retrieved'] = True
                 current[0]['hit'] = True
             else:
                 # A later role must not silently erase the first role's discovery.
                 current = [{**row, 'hit': False} for row in current] + self.rows[6:]
-            (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, current)))
+            scratch_write(cwd, current)
             return 0
         with patch.object(run, 'opencode', repair): run.freshness_topup(c)
-        self.assertEqual(calls, ['builder-freshness', 'attacker-freshness'])
+        self.assertEqual(sorted(calls), ['attacker-freshness', 'builder-freshness'])   # the roles search together
         self.assertTrue(any(row.get('hit') is True for row in run.freshness_lines(c)))
         failed = evidence('builder', 'web', 99, retrieved=False)
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, self.rows + [failed])))
-        def delete_failed(*args, **kwargs):
-            kept = [row for row in run.freshness_lines(c) if row['retrieved']]
-            (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, kept)))
+        def delete_failed(ctx, models, text, cwd, name, **kwargs):
+            scratch_write(cwd, [row for row in scratch_rows(cwd) if row['retrieved']])
             return 0
         with patch.object(run, 'opencode', delete_failed):
             with self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
@@ -279,9 +287,9 @@ class AdmissionTests(unittest.TestCase):
         def repair_then_review(ctx, models, text, cwd, name, **kwargs):
             calls.append(name)
             if name.endswith('-freshness'):
-                repaired = run.freshness_lines(c)
+                repaired = scratch_rows(cwd)
                 repaired[0].update(retrieved=True, app_version='2.19.0')
-                (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, repaired)))
+                scratch_write(cwd, repaired)
             else:
                 (pathlib.Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': [{
                     'same_bug': False, 'resolved': True, 'retrieved': True, 'url': rows[0]['url'],
@@ -307,9 +315,9 @@ class AdmissionTests(unittest.TestCase):
         rows[0].update(hit=True, retrieved=False)
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
         def replace(ctx, models, text, cwd, name, **kwargs):
-            changed = run.freshness_lines(c)
+            changed = scratch_rows(cwd)
             changed[0].update(retrieved=True, query='Different search', url='https://github.com/other/app/issues/123', hit=False)
-            (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, changed)))
+            scratch_write(cwd, changed)
             return 0
         with patch.object(run, 'opencode', replace): run.freshness_topup(c)
         kept = run.freshness_lines(c)
@@ -332,10 +340,10 @@ class AdmissionTests(unittest.TestCase):
         c = self.c; rows = [dict(r) for r in self.rows]
         rows[0].update(url='http://[malformed', who='writer', kind='WEB', query='')
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
-        def repair(*args, **kwargs):
-            changed = run.freshness_lines(c)
+        def repair(ctx, models, text, cwd, name, **kwargs):
+            changed = scratch_rows(cwd)
             changed[0].update({k: self.rows[0][k] for k in ('url', 'who', 'kind', 'query')})
-            (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, changed)))
+            scratch_write(cwd, changed)
             return 0
         with patch.object(run, 'opencode', repair): self.assertTrue(run.ensure_freshness(c)[0])
         self.assertEqual(len(run.freshness_lines(c)), len(rows))

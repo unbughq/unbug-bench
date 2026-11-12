@@ -3,6 +3,7 @@
 Model answers, failures, archive bodies and time shifts are authored inputs.
 The HTTP 200 body is captured; no model CLI, cloud case or live web request runs.
 """
+import inspect
 import copy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -77,7 +78,8 @@ class RetryTests(unittest.TestCase):
         def invoke(runtime, c, models, text, cwd, name, **kwargs):
             c.model_process_state['started'] = True
             calls.append((name, c.model_lease.route, text))
-            emit(c, text, name)
+            # The freshness roles search in their own working copies, so they need the call's directory.
+            emit(c, text, name, **({'cwd': cwd} if 'cwd' in inspect.signature(emit).parameters else {}))
             return 0
         self.patch(model_runtime.ModelRuntime, '_invoke', invoke)
 
@@ -262,12 +264,12 @@ class RetryTests(unittest.TestCase):
     def test_expiry_refresh_repeats_without_defect_charge(self):
         self.searches(True)
         self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
-        def emit(c, text, name):
+        def emit(c, text, name, cwd):
             who = name.split('-')[0]
-            rows = run.freshness_lines(c)
+            rows = [json.loads(line) for line in (Path(cwd) / 'freshness.jsonl').read_text().splitlines()]
             for row in rows:
                 if row['who'] == who: row['at'] = datetime.now(timezone.utc).isoformat()
-            (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+            (Path(cwd) / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
         self.cli(emit)
         self.assertTrue(run.g2(self.c)[0])
         self.searches(True)
@@ -499,19 +501,20 @@ class RetryTests(unittest.TestCase):
         self.searches(True)
         self.patch(retrieval,'fetch',lambda url,**kw:({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
         killed = [False]
-        def emit(c,text,name):
+        def emit(c,text,name,cwd):
             who = name.split('-')[0]
             if who == 'attacker' and not killed[0]: killed[0]=True; raise runtime_fixture.Killed()
-            rows = run.freshness_lines(c)
+            rows = [json.loads(line) for line in (Path(cwd)/'freshness.jsonl').read_text().splitlines()]
             for row in rows:
                 if row['who']==who: row['at']=datetime.now(timezone.utc).isoformat()
-            (self.case/'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+            (Path(cwd)/'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
         self.cli(emit)
         with self.assertRaises(runtime_fixture.Killed): run.g2(self.c)
         self.assertEqual(run.jload(self.work/'freshness-repair.json')['completed_defects'],0)
         self.fresh_context()
         self.assertTrue(run.g2(self.c)[0])
-        self.assertEqual([name for name,_,_ in self.calls],['builder-freshness','attacker-freshness','attacker-freshness'])
+        # The roles search together, so the first round's order is not fixed; the finished builder is not repeated.
+        self.assertEqual(sorted(name for name,_,_ in self.calls),['attacker-freshness','attacker-freshness','builder-freshness'])
 
     def test_progress_bound_exhausts_at_last_subcheck(self):
         count = [0]
