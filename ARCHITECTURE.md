@@ -63,6 +63,11 @@ automatically recoverable. Unit tests do not qualify a live worker release.
 references and package interfaces. Its reviewed change permits restoring ADMIT
 checkpoints; the wire fields remain the same. The candidate integrates the DBOS engine, executor,
 Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
+The pool times each setup phase (`setup-timings.jsonl`). With `warm_workers` set it keeps that many idle
+workers prepared on the last requested release (journalled as `case-warm-*` slots, never used by a case,
+credentials delivered only at lease); a lease takes one only after reading its RELEASE.json hashes back,
+and the runtime refills the pool. The channel skips pushing a large blob that the worker already holds
+with the same sha256.
 `guard.py` is the campaign's minute-by-minute check, for one batch (`batch_id`) or several started side
 by side (`batch_ids`: each keeps its own bound, the campaign finishes when all are terminal, and one live
 worker per watched batch is allowed): failures pause new attempts. A stall (a case waiting for credentials or
