@@ -1891,5 +1891,25 @@ class Conductor(unittest.TestCase):
             GlobalParams.dbos_cloud = False
 
 
+class GatesMoneyUpFront(unittest.TestCase):
+    """The GATES step's request and case limit carry the G10 strong-try funding; old workflows do not."""
+
+    def test_gates_reserve_is_extended_only_under_the_patch(self):
+        from durable.policy import gates_money_extension
+        from durable.contract import Step, StepKind
+        extension = gates_money_extension(Step(StepKind.GATES, 1))
+        granted = {}
+        for patched in (True, False):
+            r, out = run({"spec": {"max_cases_started": 1},
+                          "disabled_patches": [] if patched else ["gates_money_up_front"]})
+            self.addCleanup(r.close)
+            amounts = {x["key"]: x["amount"] for x in r.ledger_log() if x["op"] == "reserve"}
+            granted[patched] = (amounts[f"{C1}/4/gates:1/1"], amounts[f"{C1}/1/admit/1"])
+            self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        # The step that is not GATES is untouched; GATES grows by exactly the extension.
+        self.assertEqual(granted[True][1], granted[False][1])
+        self.assertEqual(granted[True][0] - granted[False][0], extension)
+
+
 if __name__ == "__main__":
     unittest.main()
