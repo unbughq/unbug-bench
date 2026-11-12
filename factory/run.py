@@ -3118,8 +3118,10 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
         log(c, "ENGINE STOPPED", stop)
         result = {"stop": stop, "traceback": traceback.format_exc()}
         if kind is StepKind.GATES and isinstance(error, BudgetError) and c.card.get("failed_gate"):
-            log(c, "ENGINE GATE VERDICT KEPT", c.card["failed_gate"])
-            result = {**gates_result(c), "stop": None}
+            verdict = gates_result(c)
+            if verdict.get("outcome") is not None:   # an infrastructure stop keeps its own stop
+                log(c, "ENGINE GATE VERDICT KEPT", c.card["failed_gate"])
+                result = {**verdict, "stop": None}
     except Exception as error:
         log(c, traceback.format_exc())
         result = {"stop": type(error).__name__, "traceback": traceback.format_exc()}

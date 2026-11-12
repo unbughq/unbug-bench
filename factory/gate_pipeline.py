@@ -397,6 +397,11 @@ class GatePipeline:
                         outcome = future.result()
                         if outcome.crashed and not c.card.get('failed_gate'):
                             stop_infrastructure('G10', outcome)
+                        elif error is not None and not outcome.crashed and not outcome.ok and not cancelling \
+                                and not c.card.get('failed_gate'):
+                            # An exception ended the loop before G10 was joined: its failure stays on
+                            # the card, so a money stop cannot hide a verdict (run.run_step).
+                            record('G10', outcome, g10_started or time.time(), time.time(), quiet('G10'))
                     except BudgetError as error:
                         if not (cancelling and str(error) == "cancelled"): raise
                 else:
@@ -404,9 +409,14 @@ class GatePipeline:
             finally:
                 if lane["future"] is not None:
                     # An exception left the lane running: let it finish (reviewer calls have no
-                    # cancellation), then leave its section so the deferred snapshot publishes.
-                    try: lane["future"].result()
+                    # cancellation) and record its gates, so a money stop cannot hide a G8/G9 verdict
+                    # (run.run_step); the earliest recorded failure in gate order still wins.
+                    failed, detail = c.card.get("failed_gate"), c.card.get("failed_detail")
+                    try: side_finish()
                     except BaseException: pass
+                    later = c.card.get("failed_gate")
+                    if failed and later and later != failed and later in order and order.index(failed) < order.index(later):
+                        c.card["failed_gate"], c.card["failed_detail"] = failed, detail
                     lane["future"] = None
                 if lane["section"] is not None:
                     lane["section"].__exit__(None, None, None); lane["section"] = None
