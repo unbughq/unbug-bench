@@ -338,7 +338,7 @@ When every seat of a lane is leased to our own calls the router answers `capacit
 that send `capacity_protocol: 1` (older ones still get `rate`): no provider refused anything, so no health is
 published. The call waits in its worker, in FIFO order, for up to `model_router.CAPACITY_WAIT_SECONDS`
 (30 min, within the step deadline and the call's own timeout); only past that does the attempt end, as
-`router:capacity`, a provider-limit sleep of at most one lease that keeps its worker (a batch that leaves `release_worker_after_sleep_s` at its 30-minute default keeps it for waits up to 6 hours; an explicit value is honored). Seats are the router
+`router:capacity`, a provider-limit sleep of at most one lease that keeps its worker (a batch that leaves `release_worker_after_sleep_s` at its 30-minute default keeps it for waits up to 6 hours, including a money stop in `wait_for_bound` (released after 6 hours); an explicit value is honored). Seats are the router
 config's per-pool `capacities` (default 1, at least 1); size each pool at least concurrent cases x
 concurrent model calls per case on it, counting an exam owner question (asked while its calibrator still
 holds a seat) as one more call.

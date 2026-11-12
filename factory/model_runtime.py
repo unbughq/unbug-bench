@@ -343,7 +343,7 @@ OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.AC
 
 # A silent route (12 Nov: opencode/deepseek-v4.1-flash-free hung every writer admission call, 11 attempts of
 # 45 min each) must cost minutes, not an attempt. These short writer calls give up after 10 minutes without
-# output, and a stall or timeout moves them to the chain's next route, which later calls of the role also skip.
+# output, and a stall moves them to the chain's next route, which later calls of the role also skip.
 SHORT_CALL_PREFIXES = ('builder-selection', 'builder-provider-preflight')
 SHORT_CALL_NO_PROGRESS_MINUTES = 10
 
@@ -355,7 +355,7 @@ def short_call(name):
 def call_failure_reason(label, route, name=''):
     """A per-call failure that moves this call to its chain's next route, or None (the step fails).
     A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
-    if short_call(name) and label in ('stalled', 'timeout'): return 'outage'
+    if short_call(name) and label == 'stalled': return 'outage'
     if label.startswith('provider_limit'): return 'quota'
     if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
     if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
@@ -540,7 +540,7 @@ class ModelRuntime:
                     if 'source_stop' not in failure and stop in FAILURE_STOPS:
                         failure = {**failure, 'source_stop': stop}
                     context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.pool + '/' + lease.route)
-                    if short_call(name) and str(error) in ('stalled', 'timeout'):
+                    if short_call(name) and str(error) == 'stalled':
                         # Later calls of this role skip the silent route too (not other roles' routes).
                         c.__dict__.setdefault('stalled_routes', {}).setdefault(role, set()).add(lease.pool + '/' + lease.route)
                 context.router_condition_since = time.monotonic()

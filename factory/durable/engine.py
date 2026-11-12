@@ -1091,7 +1091,7 @@ class _Case:
                 self.status = ("waiting_for_credentials" if result.reason in (
                     "router:credential_expiring", "infra:credentials_unavailable") else "waiting_for_router")
                 self.card()
-                self.release_worker()
+                self.release_worker()   # fresh credentials are read when a worker is leased: this wait releases
                 if not self.replaying:
                     DBOS.sleep(max(0.001, _RT.timing.credential_retry_s))
                 self.status = "running"
@@ -1180,14 +1180,22 @@ class _Case:
         """Block until the batch wakes this case (a settle that freed money, a bound raise or a
         release). False: the admission deadline passed first. A poll timeout alone never retries:
         with nothing left, each retry's own settle used to wake the case again, and it spun."""
-        self.release_worker()
+        keeps = DBOS.patch("keep_worker_through_waits")
+        if not keeps:
+            self.release_worker()
         self.status = "waiting_for_bound"
         self.card()
         self.tell("waiting")
         blocks = DBOS.patch("bound_wait_blocks")
+        started = now_step() if keeps and not self.replaying else None
         while DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s) is None and blocks:
-            if deadline is not None and now_step() >= deadline:
+            now = now_step()
+            if deadline is not None and now >= deadline:
+                self.release_worker()
                 return False
+            # A money stop keeps its worker for the next attempt; a wait past the limit gives it up.
+            if keeps and self.worker_id is not None and started is not None and now - started > KEEP_WORKER_WAIT_S:
+                self.release_worker()
         self.status = "running"
         return True
 

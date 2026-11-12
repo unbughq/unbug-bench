@@ -15,9 +15,13 @@ FREE = 'opencode/deepseek-v4.1-flash-free'
 
 class SilentWriterRoute(unittest.TestCase):
     def test_a_stalled_selection_call_moves_to_the_next_route(self):
-        for label in ('stalled', 'timeout'):
-            self.assertEqual(model_runtime.call_failure_reason(label, FREE, 'builder-selection-1'), 'outage')
-            self.assertEqual(model_runtime.call_failure_reason(label, FREE, 'builder-provider-preflight'), 'outage')
+        self.assertEqual(model_runtime.call_failure_reason('stalled', FREE, 'builder-selection-1'), 'outage')
+        self.assertEqual(model_runtime.call_failure_reason('stalled', FREE, 'builder-provider-preflight'), 'outage')
+
+    def test_a_deadline_timeout_is_not_a_route_outage(self):
+        # 'timeout' is the attempt/step deadline running out, not a silent route: the route stays.
+        for name in ('builder-selection-1', 'builder-provider-preflight'):
+            self.assertIsNone(model_runtime.call_failure_reason('timeout', FREE, name))
 
     def test_other_calls_keep_stopping_on_a_stall(self):
         # A tester's stall is a scored result (calibration no_progress_limit), a writer round is long work.
