@@ -583,3 +583,5 @@ and model spend booked to the case line; the result is the AttemptSeries receipt
 same way. G5/G15 writing-round checks: same job shape, `plain_and_reference` and the key checks as
 jobs. Releasing the first G6/G7 change re-binds G6's gate cache once (`run.cheat_runs` is in G6's
 traced source).
+
+G8 and G9 always run two reviewers of distinct families (`model_runtime.second_reviewer`, rotation `reviewer2`); `run.review` refuses fewer, and both must approve. Their gate identities bind the reviewer set; other gates keep the first reviewer only, so adopting the second reviewer reruns nothing else.

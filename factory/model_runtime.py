@@ -120,14 +120,21 @@ def select_models(c, *, log):
         if getattr(a, flag): roles[role] = {'model': getattr(a, flag), 'effort': getattr(a, flag + '_effort') or model_effort(getattr(a, flag))}
         elif getattr(a, flag + '_effort'): roles[role]['effort'] = getattr(a, flag + '_effort')
     roles['easy_calibrator'] = {'model': a.easy_calibrator, 'effort': a.easy_calibrator_effort or model_effort(a.easy_calibrator)}
-    if a.reviewer2: roles['reviewer2'] = {'model': a.reviewer2, 'effort': a.reviewer2_effort or model_effort(a.reviewer2)}
     if getattr(c, "engine", None) is None:
         from free_models import apply as apply_free_models
         roles = apply_free_models(c, roles)
     families = [family(roles[r]['model']) for r in flags]
+    if a.reviewer2: roles['reviewer2'] = {'model': a.reviewer2, 'effort': a.reviewer2_effort or model_effort(a.reviewer2)}
+    else:
+        # An imported idea's author families stay out of every judge role (admit.py), the second reviewer included.
+        roles['reviewer2'] = second_reviewer({*families, *((c.card.get('imported_from') or {}).get('idea_families') or ())},
+                                             getattr(a, 'rotation_table', None))
+        if getattr(a, 'reviewer2_effort', None): roles['reviewer2']['effort'] = a.reviewer2_effort
     if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
-    if a.reviewer2 and family(a.reviewer2) in (family(roles['writer']['model']), family(roles['stress_tester']['model'])):
-        raise ValueError('Every reviewer must be independent from the writer and stress tester')
+    # Founder 2026-11-12: G8/G9 always have two reviewers, each of its own family, neither the writer's,
+    # stress tester's nor (for reviewer2) the strong calibrator's: five distinct families in all.
+    if len({*families, family(roles['reviewer2']['model'])}) != 5:
+        raise ValueError('Every reviewer must be independent: the second reviewer must be a fifth family, not the writer, stress tester, strong calibrator or first reviewer')
     if not roles['strong_calibrator']['model'].startswith(('claude/', 'codex/')):
         raise ValueError('Strong calibrator must use the Claude or Codex subscription')
     if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
@@ -135,7 +142,7 @@ def select_models(c, *, log):
     for data in roles.values(): data['family'] = family(data['model'])
     c.card['roles'], c.card['rotation_slot'] = roles, a.rotation_slot
     m = {"builder": [roles['writer']['model']], "attacker": [roles['stress_tester']['model']],
-         "reviewers": [[roles['reviewer']['model']]] + ([[a.reviewer2]] if a.reviewer2 else []),
+         "reviewers": [[roles['reviewer']['model']], [roles['reviewer2']['model']]],
          "strong_calibrator": [roles['strong_calibrator']['model']], "easy_calibrator": [a.easy_calibrator]}
     if any(len(chain) != 1 or ',' in chain[0] for chain in [m['builder'], m['attacker'], *m['reviewers'], m['strong_calibrator'], m['easy_calibrator']]):
         raise ValueError("Select one requested model per role; the router owns approved fallbacks")
@@ -173,6 +180,15 @@ def rotation(slot, table_name=None):
     for fam, roles in (table.get('refused') or {}).items():
         if any(row.get(r) == fam for r in roles): raise ValueError(f'{fam} is refused as {"/".join(roles)}: {table.get("refused_why", "")}')
     return {role: dict(table['families'][fam]) for role, fam in row.items()}
+
+
+def second_reviewer(taken, table_name=None):
+    """The rotation's first second-reviewer family that none of writer, stress tester, strong calibrator or
+    first reviewer (`taken`: their families) uses. Founder 2026-11-12: G8/G9 always have two reviewers."""
+    table = _read_json(PROMPTS.parent / (table_name or os.environ.get('FACTORY_ROTATION', 'rotation-3writers.json')))
+    for fam in table['reviewer2']:
+        if fam not in taken and family(table['families'][fam]['model']) not in taken: return dict(table['families'][fam])
+    raise ValueError('No second reviewer family is independent from writer, stress tester, strong calibrator and reviewer')
 
 
 def opencode_config(model=None, case=None, *, diagnosis=False):
@@ -844,3 +860,15 @@ class ModelRuntime:
                 raise BudgetError('cleanup_failed') from cleanup_error
         return result.returncode
 
+
+
+def with_second_reviewer(c, table_name=None):
+    """An in-flight case pinned with one reviewer takes the rotation's second reviewer at its next
+    round (founder 2026-11-12). Returns True when it changed the pinned models."""
+    models, roles = c.card['models'], c.card.setdefault('roles', {})
+    if len(models['reviewers']) >= 2: return False
+    row = second_reviewer({family(models[k][0]) for k in ('builder', 'attacker', 'strong_calibrator')}
+                          | {family(models['reviewers'][0][0])} | set((c.card.get('imported_from') or {}).get('idea_families') or ()), table_name)
+    models['reviewers'] = [*models['reviewers'], [row['model']]]
+    roles['reviewer2'] = {**row, 'family': family(row['model'])}
+    return True

@@ -2234,6 +2234,8 @@ def g7(c):
 def review(c):
     """One panel pass per reviewer model (cached for G8 and G9 while the case is unchanged)."""
     if hasattr(c, "votes") and getattr(c, "votes_hash", None) == case_hash(c): return c.votes
+    if len(c.models["reviewers"]) < 2:  # founder 2026-11-12: one reviewer is not a panel
+        raise ValueError("G8/G9 need two independent reviewers")
     c.votes = []
     for i, chain in enumerate(c.models["reviewers"], 1):
         d = c.work / f"review-{i}"
@@ -2241,10 +2243,11 @@ def review(c):
         shutil.copytree(c.case, d / "case")  # a copy: reviewers cannot change the case
         out = d / "verdict.json"
         text = prompt('reviewer', run_context(c, case_dir=str(d / 'case'), mode='case', verdict_path=str(out)))
-        text += engine_review_ruling(c)
+        keys = (PROMPTS / 'reviewer-keys.md').read_text()
+        text += "\n" + keys + engine_review_ruling(c)
         if under_engine(c):
             vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out,
-                {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', '')},
+                {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', ''), 'keys': keys},
                 'panel', '{fairness: {approve: boolean, findings: array}, realism: {approve: boolean, findings: array}}',
                 lambda v: isinstance(v, dict) and all(isinstance(v.get(k), dict) and
                     type(v[k].get('approve')) is bool for k in ('fairness', 'realism')))
@@ -3050,6 +3053,9 @@ def context_for_step(step_input, work):
     c.stopped = False
     if card.get("models"):
         c.models = card["models"]
+        # An in-flight single-reviewer case adopts the second reviewer at its next round (founder 2026-11-12).
+        if len(c.models.get("reviewers") or []) == 1:
+            model_runtime.with_second_reviewer(c, getattr(c.args, "rotation_table", None))
     else:
         c.models = card["models"] = pick_models(c)
     prepared = card.get("factory_slots_prepared", 1)

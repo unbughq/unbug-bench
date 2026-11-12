@@ -283,7 +283,7 @@ class AdmitTests(unittest.TestCase):
         result, outputs = self.run_admit(si)
         self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
         self.assertEqual(self.calls, ["builder-provider-preflight", "attacker-provider-preflight", "reviewer-provider-preflight",
-            "strong-calibrator-provider-preflight", "easy-calibrator-provider-preflight",
+            "reviewer2-provider-preflight", "strong-calibrator-provider-preflight", "easy-calibrator-provider-preflight",
             "builder-selection", "reviewer-idea-realism"])
         self.freshness.assert_called_once()
         work, c = self.restore(si, result, outputs)
@@ -359,19 +359,20 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual((done.outcome, done.reason), (Outcome.OK, 'admit:selected'))
         preflights = [n for n in self.calls if n.endswith('provider-preflight')]
         self.assertEqual(preflights, ['builder-provider-preflight', 'attacker-provider-preflight', 'reviewer-provider-preflight',
+            'reviewer2-provider-preflight',
             'strong-calibrator-provider-preflight', 'strong-calibrator-provider-preflight',
             'easy-calibrator-provider-preflight'])
         _, c = self.restore(retry, done, outputs)
-        self.assertEqual([r.get('reused', False) for r in c.card['provider_preflight']], [True, True, True, False, False])
+        self.assertEqual([r.get('reused', False) for r in c.card['provider_preflight']], [True, True, True, True, False, False])
         # A pass older than PREFLIGHT_REUSE_S (a retry after a long wait) is checked again.
         self.calls.clear()
         for row in c.card['provider_preflight']: row['checked_at'] -= run.PREFLIGHT_REUSE_S
         run.provider_preflight(c, step=f'{BATCH}:1')
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 5)
         # Another step checks every route again.
         self.calls.clear()
         run.provider_preflight(c, step=f'{BATCH}:2')
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 5)
 
     def test_malformed_dedup_retries_on_fresh_worker_without_reselecting_or_erasing_spend(self):
         from dataclasses import replace
@@ -940,7 +941,8 @@ class AdmitTests(unittest.TestCase):
         value = self.real_inputs("unused", import_spent_usd_micros=2_500_000, import_mode="idea_only")
         value.pop("candidate")
         # The default reviewer is MiMo, an idea author's family, which no judge may share; GLM may.
-        value["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"]]
+        # With the writer, stress tester and strong calibrator that leaves OpenAI for the second reviewer.
+        value["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"], ["codex/gpt-6.1-sol"]]
         return value
 
     def idea_inputs(self, value=None):
@@ -987,9 +989,9 @@ class AdmitTests(unittest.TestCase):
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
         archive = self.legacy_archive(old, text, writer=None, card_extra=self.OCTOBER_5813BE)
         mimo_reviewer = self.idea_value()
-        mimo_reviewer["models"]["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"]]
+        mimo_reviewer["models"]["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"], ["codex/gpt-6.1-sol"]]
         mimo_dedup = self.idea_value()
-        mimo_dedup["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"]]
+        mimo_dedup["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"], ["codex/gpt-6.1-sol"]]
         mimo_dedup["models"]["easy_calibrator"] = ["openrouter/xiaomi/mimo-v2.6-pro"]
         for value in (mimo_reviewer, mimo_dedup):
             result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
@@ -1135,8 +1137,10 @@ class AdmitTests(unittest.TestCase):
         import model_runtime
         value = self.real_inputs("# Candidate\n\nA bug.")
         models = value['models']
+        models['reviewers'].append(['opencode-go/glm-5.3-flash'])  # the rotation would add a second reviewer
         roles = {'writer': models['builder'][0], 'stress_tester': models['attacker'][0],
-                 'reviewer': models['reviewers'][0][0], 'strong_calibrator': models['strong_calibrator'][0],
+                 'reviewer': models['reviewers'][0][0], 'reviewer2': models['reviewers'][1][0],
+                 'strong_calibrator': models['strong_calibrator'][0],
                  'easy_calibrator': models['easy_calibrator'][0]}
         value['roles'] = {role: {'model': model, 'effort': model_runtime.model_effort(model),
                                 'family': model_runtime.family(model)} for role, model in roles.items()}

@@ -489,6 +489,7 @@ class RetryTests(unittest.TestCase):
 
     def test_dedup_and_panel_callers_use_retained_schema_repair(self):
         self.c.models['easy_calibrator'] = self.c.models['reviewers'][0]
+        self.c.models['reviewers'] = [*self.c.models['reviewers'], self.c.models['builder']]  # G8/G9: two reviewers
         self.c.card['roles']['easy_calibrator'] = {'model':self.c.models['easy_calibrator'][0]}
         prior = self.work/'earlier.md'; prior.write_bytes((self.case/'statement.md').read_bytes())
         self.patch(run,'prior_statements',return_value={'case-earlier':str(prior)})
@@ -505,11 +506,11 @@ class RetryTests(unittest.TestCase):
         self.assertTrue(run.statement_precheck(self.c))
         self.assertEqual(len(self.calls),2)
         self.assertTrue(run.g8(self.c)[0]); self.assertTrue(run.g9(self.c)[0])
-        self.assertEqual(len(self.calls),3)
+        self.assertEqual(len(self.calls),4)  # one panel call per reviewer, shared by G8 and G9
         # Semantic prior content, rather than the same path, invalidates dedup reuse.
         prior.write_text(prior.read_text()+' changed prior statement')
         self.assertTrue(run.statement_precheck(self.c))
-        self.assertEqual(len(self.calls),5)
+        self.assertEqual(len(self.calls),6)
 
     def test_freshness_wait_does_not_repeat_completed_role(self):
         self.searches(True)
