@@ -53,7 +53,9 @@ MODEL_STAGES = {"G2", "G8", "G9", "G10", "G11", "G16", "G17"}
 # External model/checker code remains conservatively pinned as whole modules.
 SIDE_EFFECTS = {"checked_gate", "_gate_pipeline", "_gate_completed", "seal", "wipe", "_run_artifacts",
                 "log", "public_progress", "update_case_budget", "case_budget_boundary", "bench_manifest",
-                "sh", "opencode", "_opencode", "model_call", "resume_provider_wait", "shred_tree"}
+                "sh", "opencode", "_opencode", "model_call", "resume_provider_wait", "shred_tree",
+                # Retry/allowance plumbing around bench calls: never selects samples or reads a verdict.
+                "_checkpoint_call", "AllowanceSpent", "early_cheat_check"}
 
 
 def source_inputs(*roots, path=None):
@@ -278,38 +280,70 @@ def save(c, gate, info, signature, before, bench):
     atomic_json(directory / f"{gate}.json", record)
 
 
+def changed_fields(saved, current):
+    """Names (never values, never case file names) of the identity fields that differ."""
+    names = []
+    for key in sorted(saved.keys() | current.keys()):
+        old, new = saved.get(key), current.get(key)
+        if old == new: continue
+        if key != "case" and isinstance(old, dict) and isinstance(new, dict):
+            names += [f"{key}.{sub}" for sub in sorted(old.keys() | new.keys()) if old.get(sub) != new.get(sub)]
+        else:
+            names.append(key)
+    return names
+
+
+def miss(c, gate, reason, saved=None, current=None):
+    """Record why a gate cache entry was not reused; key names only. Always returns None."""
+    if saved is not None and current is not None:
+        names = changed_fields(saved, current)
+        reason += ": " + ", ".join(names[:12]) + (f" (+{len(names) - 12} more)" if len(names) > 12 else "")
+    try:
+        import run
+        run.log(c, f"gate cache miss {gate}: {reason}")
+    except (OSError, ImportError, AttributeError):
+        pass
+    return None
+
+
 def load(c, gate, bench):
     if gate not in REUSABLE:
         return None
     try:
-        record = json.loads((c.work / "gate-cache" / f"{gate}.json").read_text())
+        path = c.work / "gate-cache" / f"{gate}.json"
+        if not path.is_file(): return miss(c, gate, "no saved record")
+        record = json.loads(path.read_text())
         # V1 contains only an opaque hash, not the old per-input digests.
         # It cannot prove scoped equivalence after a source change.
         if not isinstance(record, dict) or record.get("fingerprint_version") != VERSION:
-            return None
-        if ("scientific_version" in record and
-                record["scientific_version"] != scientific_version(c, gate, bench)): return None
-        if gate == "G16" and record.get("calibration_identity") != calibration_binding(c):
-            return None
+            return miss(c, gate, "fingerprint_version")
         current = inputs(c, gate, bench)
-        from calibration import compatible_panel
         expected = json.loads(json.dumps(current))
+        if ("scientific_version" in record and
+                record["scientific_version"] != scientific_version(c, gate, bench)):
+            return miss(c, gate, "scientific_version; inputs changed", record['inputs'], expected)
+        if gate == "G16" and record.get("calibration_identity") != calibration_binding(c):
+            return miss(c, gate, "calibration_identity")
+        from calibration import compatible_panel
         matching = record['inputs'] == expected
         if gate in ('G8', 'G9') and not matching:
             matching = compatible_panel(record['inputs'], expected)
-        if (record["signature"] != hashlib.sha256(json.dumps(record['inputs'], sort_keys=True).encode()).hexdigest()
-                or not matching or not record["evidence"]):
-            return None
+        if not matching:
+            return miss(c, gate, "inputs changed", record['inputs'], expected)
+        if record["signature"] != hashlib.sha256(json.dumps(record['inputs'], sort_keys=True).encode()).hexdigest():
+            return miss(c, gate, "signature")
+        if not record["evidence"]:
+            return miss(c, gate, "no evidence")
         for e in record["evidence"]:
             relative = pathlib.PurePosixPath(e["path"])
             if relative.is_absolute() or ".." in relative.parts:
-                return None
+                return miss(c, gate, "evidence path")
             paths = ([bench / "results" / relative, c.work / "bench-results" / relative]
                      if e["kind"] == "bench" else [c.work / relative])
             if not any(p.is_file() and digest(p) == e["sha256"] for p in paths):
-                return None
+                return miss(c, gate, "evidence file missing or changed")
         if not hasattr(c, "gate_fingerprint_versions"): c.gate_fingerprint_versions = {}
         c.gate_fingerprint_versions[gate] = VERSION
         return record["info"]
     except (OSError, ValueError, KeyError, TypeError):
-        return None
+        return miss(c, gate, "unreadable record")

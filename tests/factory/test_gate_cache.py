@@ -102,6 +102,17 @@ class EvidenceCacheTests(unittest.TestCase):
         record.pop('fingerprint_version'); record.pop('inputs'); path.write_text(json.dumps(record))
         self.assertIsNone(gate_state.load(self.c, 'G4', self.root))
 
+    def test_a_cache_miss_logs_the_changed_field_names_only(self):
+        self.save()
+        (self.c.case / 'base/secret-name.py').write_text('x')
+        self.assertIsNone(gate_state.load(self.c, 'G4', self.root))
+        log = (self.c.work / 'logs/runner.log').read_text()
+        self.assertIn('gate cache miss G4: inputs changed: case', log)
+        self.assertNotIn('secret-name', log)
+        with patch.dict(os.environ, {'UNBUG_JUDGE': 'zz'}):
+            self.assertIsNone(gate_state.load(self.c, 'G4', self.root))
+        self.assertIn('environment.UNBUG_JUDGE', (self.c.work / 'logs/runner.log').read_text())
+
     def test_checked_gate_records_matched_version(self):
         self.save()
         with patch.object(run, 'BENCH', self.root), patch.object(run, 'g4') as gate:

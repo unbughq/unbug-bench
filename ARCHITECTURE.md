@@ -167,7 +167,11 @@ joining before G6. In a writer step's early checks under the same G10 overlap co
 while G4, G5 and the saved-cheat sample run in order on the first reserved tester instance; both
 finish and every failure goes to the writer in serial order. The lane is fingerprinted as the
 foreground case (`gate_state.inputs`; instance and worker count are not scientific), so GATES
-reuses its G4/G5, and each gate's evidence is scoped to its own lane's files. Otherwise the serial order G15, G3,
+reuses its G4/G5, and each gate's evidence is scoped to its own lane's files. Gate fingerprints hash verdict code only: retry/allowance
+plumbing (`run._checkpoint_call`, `AllowanceSpent`, the early saved-cheat loop) is in
+`gate_state.SIDE_EFFECTS`, and bench-gate step receipts (`durable.checkpoints.directory(model=False)`)
+leave out the router, runtime, call gate and ordinary-retry files that only model stages and model
+effects key on. Every gate-cache miss logs the changed identity field names (never case file names). Otherwise the serial order G15, G3,
 G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. The writer step records fixed

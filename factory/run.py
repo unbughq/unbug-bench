@@ -1159,7 +1159,9 @@ class AllowanceSpent(TimeoutError):
 
 def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=None):
     """bin/checkpoint on the case's base scenario (+ more); returns (summary, per-run records).
-    slot=k runs it whole on bench instance k (its own ports, database and lock) instead of spreading runs."""
+    slot=k runs it whole on bench instance k (its own ports, database and lock) instead of spreading runs.
+    Arguments, identity and the completed-record check are verdict code; the retry/allowance
+    plumbing (_checkpoint_call) is not hashed by gate_state."""
     args = [BENCH / "bin/checkpoint"] + [x for s in scenarios for x in ("--scenario", s)]
     env = None
     if slot is not None:
@@ -1168,22 +1170,30 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
     elif getattr(c.args, "bench_workers", 1) > 1:
         args += ["--factory-workers", c.args.bench_workers]
     from checkpoint_evidence import read_completed
-    from run_validity import retry
     identity = {"operation": "checkpoint", "case": case_hash(c), "guard": tree_digest(guard),
                 "scenarios": [tree_digest(s) for s in scenarios], "runs": runs, "seed": seed,
                 "slot": slot, "label": label, "bench": getattr(c, 'manifest0', None),
                 "workers": getattr(c.args, 'bench_workers', 1)}
+    command = args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label]
+    return _checkpoint_call(c, identity, command, env, timeout,
+                            lambda p: read_completed(p, runs, label, require_valid=True))
+
+
+def _checkpoint_call(c, identity, command, env, timeout, read):
+    """Plumbing only (gate_state.SIDE_EFFECTS): run, time-box and retry one bench call. It never
+    picks samples; `read` (verdict code, built by checkpoint) decides what a completed run is."""
+    from run_validity import retry
     deadline = time.monotonic() + timeout if timeout is not None else None
     def invoke():
         case_budget_boundary(c)
         remaining = deadline - time.monotonic() if deadline is not None else None
         if remaining is not None and remaining <= 0: raise AllowanceSpent('checkpoint allowance exhausted')
         try:
-            p = sh(c, args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label], capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
+            p = sh(c, command, capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
         except subprocess.TimeoutExpired:
             if deadline is None: raise
             raise AllowanceSpent('checkpoint allowance exhausted') from None  # the caller's time, not a fault
-        summary, records, _ = read_completed(p, runs, label, require_valid=True)
+        summary, records, _ = read(p)
         return summary, records
     # A spent caller allowance is neither retried nor counted as an invalid attempt.
     return retry(c.work / "infra-attempts.json", identity, invoke, interruption=(BudgetError, AllowanceSpent))
@@ -1234,53 +1244,47 @@ def plain_and_reference(c, seed, tag):
     return verdicts(c, none), verdicts(c, ref), s
 
 
-def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=None, unchecked=None):
-    """(guards that solved, guards). With a deadline (the advisory early check only), guards left when
-    it passes go to `unchecked` and do not run; full G6 and G7 pass no deadline."""
+def cheat_runs(c, seed, tag, *, guards=None, runs=None):
+    """(guards that solved, guards). Full G6 and G7: every cheat, no allowance."""
     guards = cheats(c) if guards is None else guards
     passed = 0
-    for i, g in enumerate(guards):
-        options = {}
-        if deadline is not None:
-            case_budget_boundary(c)
-            options['timeout'] = deadline - time.monotonic()
-        try:
-            if options.get('timeout', 1) <= 0: raise AllowanceSpent("saved-cheat validation time allowance exhausted")
-            _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
-                                 seed, f"{tag}-cheat", **options)
-        except AllowanceSpent:
-            if unchecked is None: raise
-            unchecked.extend(str(x) for x in guards[i:])
-            break
-        except InfrastructureExhausted:
-            # Advisory early check only: a cheat whose bench run stays invalid is left unchecked here
-            # (full G6 at GATES still runs it) instead of discarding the whole writer round.
-            if unchecked is None: raise
-            unchecked.append(str(g))
-            continue
-        values = verdicts(c, recs)
-        solved = any(v["solved"] for v in values)
-        passed += solved
-        if solved and failures is not None: failures.append(str(g))
+    for g in guards:
+        _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs, seed, f"{tag}-cheat")
+        passed += any(v["solved"] for v in verdicts(c, recs))
     return passed, len(guards)
 
 
 def early_cheat_check(c):
-    """One run per retained case cheat; no models, retries, or full-G6 receipt."""
+    """One run per retained case cheat; no models, retries, or full-G6 receipt.
+    Its own loop (not cheat_runs) so allowance handling never enters G6/G7's verdict hash."""
     from case_contract import CaseProblem
     guards = sorted(p for p in (c.case / "guards/cheats").glob("*") if p.is_dir())
     if not guards: return None
     reopened, unchecked = [], []
+    deadline = time.monotonic() + 1800
     try:
-        passed, total = cheat_runs(c, c.seed, "early-g6", guards=guards, runs=1,
-            deadline=time.monotonic() + 1800, failures=reopened, unchecked=unchecked)
+        for i, g in enumerate(guards):
+            case_budget_boundary(c)
+            remaining = deadline - time.monotonic()
+            try:
+                if remaining <= 0: raise AllowanceSpent("saved-cheat validation time allowance exhausted")
+                _, recs = checkpoint(c, [c.case / "base"], g, 1, c.seed, "early-g6-cheat", timeout=remaining)
+            except AllowanceSpent:
+                unchecked.extend(str(x) for x in guards[i:])
+                break
+            except InfrastructureExhausted:
+                # A cheat whose bench run stays invalid is left unchecked here (full G6 at GATES
+                # still runs it) instead of discarding the whole writer round.
+                unchecked.append(str(g))
+                continue
+            if any(v["solved"] for v in verdicts(c, recs)): reopened.append(str(g))
     except CaseProblem as error:
         return [str(error)]
     except (RuntimeError, TimeoutError, subprocess.TimeoutExpired) as error:
         _gate_pipeline().record_crash(c, "saved-cheats", error)
         raise
     # Advisory: cheats the allowance did not reach are recorded unchecked; full G6 still runs them all.
-    c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': passed == 0, 'checked': total - len(unchecked),
+    c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': not reopened, 'checked': len(guards) - len(unchecked),
                                                            'unchecked': len(unchecked), 'runs_each': 1}
     # Private feedback only. This sample must never populate c.early['G6'] or its cache.
     return ["Retained cheat passed after repair: " + name for name in reopened] or None
