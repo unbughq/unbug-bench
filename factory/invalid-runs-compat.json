@@ -35,5 +35,11 @@
     "time": "bc410c956ad11f0ebf7d146eea41434b96f4c18aa222b404391264c2345cd100",
     "tree_digest": "c3a31b45855538bb7e8d53906afdf25611f13f3d00648e8b62ea003627e569b0",
     "verdicts": "c996ea5ecdc61f03af807a136eee6e25b1b09b6e237bb46d4d6645580cae97b5"
+  },
+  "release_pins": {
+    "factory/calibration.py": {
+      "from": "ec49b199a445bb13f059129a01e8f8bc3617ac98abc5100ae4d57e779e382767",
+      "to": "257d4eff97a1c142cbb386e7dfdaada6f3f087543d5773c293080c8ffb8e888a"
+    }
   }
 }

@@ -104,6 +104,19 @@ def source_paths(root, pattern):
         yield from sorted(root.glob(pattern))
 
 
+def release_pins():
+    """Source files whose release edit is proven not to change any verdict: {name: {"from", "to"}}.
+    A stored identity or gate cache made under the "from" hash stays valid under the "to" hash; any
+    other edit of the file (a stale pin included) changes the hash and invalidates as before."""
+    try: return json.loads(pathlib.Path(__file__).with_name("invalid-runs-compat.json").read_text()).get("release_pins", {})
+    except (OSError, ValueError): return {}
+
+
+def pinned(name, value):
+    pin = release_pins().get(name)
+    return pin["from"] if isinstance(pin, dict) and value == pin.get("to") else value
+
+
 def dependency_files(c, patterns, bench, *, include_pool=False):
     dependencies = {}
     for pattern in patterns:
@@ -120,7 +133,8 @@ def dependency_files(c, patterns, bench, *, include_pool=False):
             rel = p.relative_to(root).as_posix()
             if not p.is_file() or any(part in {"node_modules", ".medusa", "__pycache__", ".git"} for part in p.relative_to(root).parts): continue
             if rel == "projects/medusa/seed-ids.json": continue
-            dependencies["factory/" + rel if factory else rel] = digest(p)
+            key = "factory/" + rel if factory else rel
+            dependencies[key] = pinned(key, digest(p))
             found = True
         if not found: dependencies[pattern] = None  # additions/removals are inputs too
     return dependencies
