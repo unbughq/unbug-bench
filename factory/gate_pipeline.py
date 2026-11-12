@@ -65,6 +65,7 @@ class GatePipeline:
             if cached is not None:
                 if gate in ("G8", "G9"):
                     c.card["reviewers_fairness" if gate == "G8" else "reviewers_realism"] = cached.get("approve")
+                if gate == "G7": c.card["flakiness_rerun"] = {k: v for k, v in cached.items() if k != "reused_verified_evidence"}
                 return True, {**cached, "reused_verified_evidence": True,
                               "fingerprint_version": c.gate_fingerprint_versions[gate]}
             signature = gate_state.fingerprint(c, gate, self.bench)

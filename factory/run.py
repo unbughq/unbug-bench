@@ -932,9 +932,19 @@ def case_hash(c):
     return h.hexdigest()
 
 
+def strong_attempts_exist(c):
+    """Finished strong tries for the current calibration identity (any tester slot) are already on disk."""
+    from calibration import completed_attempts
+    if not (c.work / "strong_calibrator" / "results.json").exists(): return False
+    identity = calibration_identity(c, "strong_calibrator", "exam", runs=c.args.pilot_runs)
+    return bool(completed_attempts(c.work / "strong_calibrator" / "results.json", identity, c.work))
+
+
 def _gate_completed(c, gate, ok, quiescent):
     if gate == "G5" and ok and not c.args.dry_run and not getattr(c.args, "no_early_probe", False):
-        early_probe(c)
+        # On resume, G10's own finished strong tries already label the case; the probe would buy a duplicate.
+        if strong_attempts_exist(c): log(c, "EARLY_PROBE", "skipped: strong attempts already completed")
+        else: early_probe(c)
     update_case_budget(c)
     if under_engine(c) and quiescent:
         from durable.checkpoints import checkpoint as engine_checkpoint
