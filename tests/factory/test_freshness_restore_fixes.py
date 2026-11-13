@@ -124,6 +124,9 @@ class FreshnessRestoreTests(unittest.TestCase):
     def test_unknown_version_stops_before_review(self):
         self.addCleanup(offline_router()[0].close)
         (self.c.case / 'case.json').write_text(json.dumps({'app': {'commit': '87d77fa1b5'}}))
+        # A SHA pin may take its release from the search rows, but only when they record one.
+        for row in self.rows: row['app_version'] = ''
+        self.save()
         with patch.object(run, 'opencode') as call, self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
             run.loop_freshness(self.c, self.result, self.report)
         call.assert_not_called()

@@ -368,6 +368,33 @@ class LoopFreshnessTests(unittest.TestCase):
         self.assertIn('version-specific cancellation semantics', self.reviewed_rows[0]['note'])
         self.assertIn(self.match['note'], self.reviewed_rows[0]['note'])
 
+    def pin_by_sha(self):
+        # 1110b: the port stage pins the app by commit SHA with no version field.
+        (self.c.case / "case.json").write_text(json.dumps({"app": {
+            "repo": "https://github.com/medusajs/medusa", "commit": "0123456789abcdef" * 2 + "01234567",
+            "lockfile_sha256": "0" * 64, "image": "synthetic"}}))
+        self.log_match = False
+        self.extra = ['Wrong fix cap-thirteen passes; vary the stock and customer data']
+        self.report_blocking = ['[freshness-review] independent verdict required', *self.extra]
+
+    def test_sha_pinned_case_takes_the_version_its_search_rows_agree_on(self):
+        self.pin_by_sha()
+        self.rows.append(evidence('attacker', 'web', 98, app_version='v2.19.0'))
+        self.save_rows()
+        self.loop()
+        self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm'])
+        self.assertEqual(self.reviewed_rows[0]['app_version'], '2.19.0')
+        self.assert_feedback(self.extra)
+
+    def test_sha_pinned_case_with_disagreeing_rows_stays_unresolved(self):
+        self.pin_by_sha()
+        self.rows.append(evidence('builder', 'web', 99, app_version='2.18.0'))
+        self.save_rows()
+        with self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
+            self.loop()
+        self.assertEqual(self.calls, ['attacker-1'])
+        self.assertEqual(self.c.card['loop_freshness']['reason'], 'pinned_version_unknown')
+
 
 if __name__ == "__main__":
     unittest.main()
