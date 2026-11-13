@@ -156,6 +156,10 @@ class ContextHookTests(unittest.TestCase):
         c = types.SimpleNamespace(models={"reviewers": reviewers}, card=self.card)
         out = run.engine_gates(c)
         self.assertEqual((out["outcome"], out["reason"], out["gate"]), (Outcome.NEEDS_FOUNDER, "g8:no_eligible_reviewer", "G8"))
+        # A recertified case keeps no one-reviewer exemption: its G8/G9 need the panel too.
+        c.card["recertify"] = {"case": "old", "gate_results": {}}
+        out = run.engine_gates(c)
+        self.assertEqual((out["outcome"], out["reason"]), (Outcome.NEEDS_FOUNDER, "g8:no_eligible_reviewer"))
 
     def test_a_recovered_case_drops_the_old_reviewer_failure(self):
         reviewers = self.adopted(reviewer2_unavailable="no family was free")   # a family is free now
