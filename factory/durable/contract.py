@@ -237,6 +237,9 @@ class StepInput:
     # A resume's role swap (check_roles). Left out of the record when None, so older records and
     # workers read every other step input unchanged.
     roles: Optional[dict] = field(default=None, metadata={"omit_none": True})
+    # The G10 authority (policy.gates_money_extension) the engine added to this GATES attempt's grant;
+    # only G10's strong tries may spend it (budget.call_limit). Left out when None, as roles is.
+    g10_usd_micros: Optional[int] = field(default=None, metadata={"omit_none": True})
 
     def __post_init__(self):
         _id(self.batch_id, BATCH_ID, "batch_id")
@@ -265,6 +268,9 @@ class StepInput:
             _ref(r, EVIDENCE_KINDS, f"evidence[{i}]")
         if self.roles is not None:
             check_roles(self.roles)
+        if self.g10_usd_micros is not None:
+            _nonneg_int(self.g10_usd_micros, "g10_usd_micros")
+            _check(k is StepKind.GATES, "g10_usd_micros goes only to gates")
 
     @property
     def idempotency_key(self) -> str:

@@ -2105,9 +2105,16 @@ class GatesMoneyUpFront(unittest.TestCase):
             amounts = {x["key"]: x["amount"] for x in r.ledger_log() if x["op"] == "reserve"}
             granted[patched] = (amounts[f"{C1}/4/gates:1/1"], amounts[f"{C1}/1/admit/1"])
             self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+            # The worker is told the authority it carries, so it reserves it for G10 alone (budget.call_limit).
+            self.assertEqual(start(r, f"{C1}/4/gates:1/1").get("g10"), extension if patched else None)
         # The step that is not GATES is untouched; GATES grows by exactly the extension.
         self.assertEqual(granted[True][1], granted[False][1])
         self.assertEqual(granted[True][0] - granted[False][0], extension)
+        # A workflow recorded with the extension but before the worker was told of it reserves nothing.
+        r, out = run({"spec": {"max_cases_started": 1}, "disabled_patches": ["gates_g10_in_step_input"]})
+        self.addCleanup(r.close)
+        self.assertNotIn("g10", start(r, f"{C1}/4/gates:1/1"))
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_a_batch_only_money_retry_doubles_the_old_request_and_adds_the_extension_once(self):
         from durable.policy import gates_money_extension

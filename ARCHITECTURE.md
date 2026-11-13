@@ -498,6 +498,8 @@ A GATES request also covers every strong-calibrator try (`policy.gates_money_ext
 reservations; spend is unchanged), and before G6 `run.g10_money_headroom` raises the money stop if those calls cannot be
 funded, so it waits for the bound before any bench gate runs. Only G10's strong tries (folders `strong_calibrator` and `early_probe`) and the exam owner they ask may
 spend that authority (`budget.call_limit`, `budget.G10_CALLS`; G16/G17 use the same role under other folders); every other GATES call keeps the old cap plus what of it G10 already used.
+The engine tells the worker the authority it added (optional contract field `StepInput.g10_usd_micros`, patch
+`gates_g10_in_step_input`; a workflow recorded without it reserves nothing), and what G10 spent before the attempt is no longer reserved.
 A batch-only money retry doubles the request without it and adds it once; a lost GATES attempt keeps its whole grant
 charged, authority included, since its spend is unknown; the SEAL after GATES and a GATES money hold's auto-resume use the case limit plus it. While a
 GATES attempt runs it holds up to the case's remaining money plus the authority ($50 + $150 = $200 per case) of the batch bound. A G10 provider or money stop is parked: the bench gates

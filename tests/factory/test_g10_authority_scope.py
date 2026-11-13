@@ -68,6 +68,35 @@ class G10Authority(unittest.TestCase):
         self.reserve("strong-calibrator-judge_breadth-1", 50)
         self.assertEqual(self.headroom("strong-calibrator-early_probe-1"), 150)   # G10 keeps its $150
 
+    def test_a_later_attempt_reserves_only_the_authority_left(self):
+        # An earlier GATES attempt spent $20 on strong tries and $10 on other calls; this one is granted
+        # the $170 left of the $200 case limit. $130 of authority remains, so $40 is left for the rest.
+        self.attempt = SimpleNamespace(key="b/c/4/gates:1/1", baseline_spent_usd=0, ceiling_usd=200.0, g10_reserve_usd=150.0)
+        for name, usd in (("strong-calibrator-strong_calibrator-1", 20), ("reviewer-2-g8", 10)):
+            row = self.reserve(name, usd)
+            with budget.ledger_transaction(self.ledger) as ledger:   # it spent all it held
+                ledger.setdefault("events", []).append({"id": name, "cost": usd, "lease_id": row["lease_id"],
+                                                        "invocation_id": row["invocation_id"]})
+                ledger["cost"] = ledger.get("cost", 0) + usd
+                ledger["invocation_reservations"][row["lease_id"]].update(state="settled", event_ids=[name])
+        self.attempt = SimpleNamespace(key="b/c/4/gates:1/2", baseline_spent_usd=30, ceiling_usd=170.0, g10_reserve_usd=150.0)
+        self.assertEqual(self.headroom("reviewer-g11"), 40)
+        self.assertEqual(self.headroom("strong-calibrator-strong_calibrator-2"), 170)
+
+    def test_a_grant_without_the_authority_reserves_nothing(self):
+        # A GATES attempt of a workflow recorded before the engine told the worker of the authority.
+        import os
+        os.environ.setdefault("BENCH", str(ROOT))
+        import run
+        from durable.contract import ArtifactKind, Ref, Step, StepInput, StepKind
+        si = StepInput("b-t", "case-x", 4, Step(StepKind.GATES, 1), 1, "1" * 64, "2" * 64, Ref("1" * 64, ArtifactKind.INPUTS),
+                       Ref("2" * 64, ArtifactKind.CASE_SNAPSHOT), 600.0, 50_000_000)
+        self.attempt = run.EngineStep(si, 0)
+        self.assertEqual(self.headroom("reviewer-2-g8"), 50)
+        import dataclasses
+        self.assertEqual(run.EngineStep(dataclasses.replace(si, money_ceiling_usd_micros=200_000_000,
+                                                            g10_usd_micros=150_000_000), 0).g10_reserve_usd, 150)
+
     def test_g10_use_is_valued_as_case_spending_values_it(self):
         # A settled Go-plan strong try costs the case $0 (its $10 list value only bounds its own call);
         # an estimated one adds its $5 gap to case spending. G10's use counts both the same way.
