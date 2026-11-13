@@ -1943,6 +1943,50 @@ class ResumeRoleSwap(unittest.TestCase):
                 resume_point(C1, None, roles)
 
 
+class ResumeCaseMoneyExtra(unittest.TestCase):
+    """Founder 2026-11-13: `start --resume-case <case> --extra-case-money <usd_micros>
+    --case-money-reason <text>` raises one lineage's case-money ceiling (runtime's resume_money
+    check). The grant rides in the resume record and on the card; later resumes keep it, a further
+    grant adds to it. A case without one records nothing new."""
+
+    WHY = "founder 2026-11-13: let it finish"
+
+    def resume(self, r, batch, script=None, extra=None):
+        scenario = {"spec": {"batch_id": batch, "max_cases_started": 1, "max_infra_retries_per_step": 2},
+                    "resume_of": C1, "script": script or {}}
+        if extra is not None:
+            scenario["case_money_extra"] = extra
+        return EngineRun(manual_holds(scenario), workdir=r.work).run()
+
+    def test_the_lineage_keeps_a_grant_and_a_further_one_adds_to_it(self):
+        again = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",
+                                 "checkpoint": True},
+                 "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = run(manual_holds(Resume.GATES_INFRA))
+        self.addCleanup(r.close)
+        self.assertNotIn("case_money_extra", card(out, C1))   # no grant: the card is as today
+        out = self.resume(r, "b-v", again, {"usd_micros": 45 * M, "reason": self.WHY})
+        self.assertEqual(out["result"]["cases"], {f"{C1}@b-v": "held"})
+        self.assertEqual(card(out, C1)["case_money_extra"], {"usd_micros": 45 * M, "reason": self.WHY})
+        out = self.resume(r, "b-w", again)   # inherited
+        self.assertEqual(card(out, C1)["case_money_extra"], {"usd_micros": 45 * M, "reason": self.WHY})
+        self.assertEqual(self.resume(r, "b-x", None, {"usd_micros": 155 * M + 1, "reason": "more"}),
+                         {"refused": "resume:bad_case_money_extra"})   # past $200 in all
+        out = self.resume(r, "b-y", None, {"usd_micros": 5 * M, "reason": "more"})
+        self.assertEqual(out["result"]["cases"], {f"{C1}@b-y": "sealed"})
+        self.assertEqual(card(out, C1)["case_money_extra"], {"usd_micros": 50 * M, "reason": "more"})
+
+    def test_a_bad_grant_is_refused(self):
+        from durable.contract import ContractError
+        from durable.engine import resume_point
+        for extra in ({"usd_micros": 0, "reason": self.WHY}, {"usd_micros": True, "reason": self.WHY},
+                      {"usd_micros": 200 * M + 1, "reason": self.WHY}, {"usd_micros": M, "reason": ""},
+                      {"usd_micros": M, "reason": "a\nb"}, {"usd_micros": M}, {"usd_micros": M, "reason": "x", "y": 1},
+                      [M, self.WHY]):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ContractError, "resume:bad_case_money_extra"):
+                resume_point(C1, None, None, extra)
+
+
 class ReleaseHolds(unittest.TestCase):
     """A factory_bug hold of a step that may run again waits in its own workflow for a factory
     release, then reruns that step on it, as a `--resume-case` batch would (86b100, 11 November)."""

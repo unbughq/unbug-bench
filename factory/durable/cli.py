@@ -45,7 +45,8 @@ def dispatch(runtime, request):
         return to_record(runtime.prepare(request["scope"], kind, base64.b64decode(request["content"], validate=True)))
     if op == "start":
         return runtime.start(request["spec"], request["registry"], request.get("import"), request.get("resume"),
-                             request.get("override_reason"), request.get("roles"))
+                             request.get("override_reason"), request.get("roles"),
+                             request.get("extra_case_money"), request.get("case_money_reason"))
     if op == "install":
         digest = runtime.releases.put_bundle(base64.b64decode(request["content"], validate=True))
         runtime.releases.register_bench(request["bench_version"], request["image"])
@@ -194,6 +195,11 @@ def main(argv=None):
                        "stress_tester and/or strong_calibrator, as role=model[,role=model]; later resumes of "
                        "the lineage keep it; undo one by naming the role's earlier model. The worker refuses a swap "
                        "that breaks the family rules or changes the strong calibrator once a GATES step ran")
+    start.add_argument("--extra-case-money", type=int, help="founder 2026-11-13: raise --resume-case's lineage "
+                       "case-money ceiling (the $50 default its earlier spend plus this batch's case_money_usd_micros "
+                       "must fit) by this many micro-USD; later resumes of the lineage keep it, a further "
+                       "grant adds to it, $200 in all. Needs --case-money-reason. Recorded on the case card and the board")
+    start.add_argument("--case-money-reason", help="why --extra-case-money was granted (printable, at most 200 characters)")
     install = commands.add_parser("install")
     install.add_argument("content_file", help="existing worker release bundle")
     install.add_argument("bench_version")
@@ -231,6 +237,13 @@ def main(argv=None):
         else:
             if args.get("override_reason") is not None and args.get("resume_case") is None:
                 raise RuntimeErrorCode("override_needs_resume_case")
+            money = [args.pop(k, None) for k in ("extra_case_money", "case_money_reason")]
+            if money != [None, None]:
+                if args.get("resume_case") is None:
+                    raise RuntimeErrorCode("case_money_needs_resume_case")
+                if None in money:
+                    raise RuntimeErrorCode("case_money_extra_invalid")
+                args["extra_case_money"], args["case_money_reason"] = money
             if args.get("roles") is not None:
                 if args.get("resume_case") is None:
                     raise RuntimeErrorCode("roles_need_resume_case")
