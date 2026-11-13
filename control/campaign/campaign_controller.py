@@ -65,7 +65,7 @@ class BoundedRuntime(Runtime):
     return len(live)+held
    except PoolError:raise
    except Exception:raise PoolError('infra:inventory_unavailable') from None
-  def bounded_create(case,bench):
+  def bounded_create(case,bench,vm_type=None):
    # Held until the create request is on record, so the next start counts this one.
    with open(self.state/'campaign-create.lock','a') as lock:
     fcntl.flock(lock,fcntl.LOCK_EX)
@@ -74,13 +74,16 @@ class BoundedRuntime(Runtime):
     # The request's Boat type (default "default"); only a type whose rate it approves is created.
     try:worker_rate(request)
     except CheckFailed:raise PoolError('infra:compute_approval_unverified') from None
+    # Only the approved type: a helper's own size is not covered by the request's rate.
+    # Refused before reserve_start, so a refused helper books no start against the rate.
+    if vm_type not in (None,request.get('vm_type','default')):raise PoolError('infra:compute_approval_unverified')
     # Timed after the inventory lookup inside reserve_start, right before the create request.
     now=reserve_start(self.state/'campaign-starts.json',request,running)
     remaining=request['deadline_epoch']-now
     if remaining<1:raise PoolError('infra:campaign_deadline')
     self.pool.ttl=min(7200,int(remaining+grace()))
     self.pool.vm_type=request.get('vm_type','default')
-    worker=create(case,bench)
+    worker=create(case,bench,vm_type)
    assess(worker)
    return worker
   deliver=self.pool._deliver_credentials

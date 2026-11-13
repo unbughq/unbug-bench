@@ -28,7 +28,7 @@ class FakePool:
     def run(self, args, timeout):
         return 0, USAGE
 
-    def _create(self, case, bench):
+    def _create(self, case, bench, vm_type=None):   # BoatPool._create's signature
         worker = f"bx_{len(self.created):08d}"
         self.created.append((worker, self.ttl))
         self.live.append(worker)
