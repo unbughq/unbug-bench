@@ -692,6 +692,15 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
             first -= 1
         return first
 
+    # A diverged workflow kept in the lineage must have its own attempts in the history the latest
+    # one replays, or be the diagnosis a factory_bug resume dropped: one that overlapped another
+    # workflow of the case can have run work no later history holds.
+    for wid in diverged & owners:
+        for k, w in by_id.items():
+            run = (int(k.split("/")[1]), k.split("/")[2], int(k.split("/")[3]))
+            if w.parent_workflow_id == wid and run not in place and not dropped(*run):
+                raise ContractError("resume:diverged_not_replayed")
+
     if "restore" in last:
         restore = {(k, nm, f): n for k, nm, f, n in last["restore"]}
     else:   # a resume made before `restore`: its skip restored, at its seq, the attempts up to it of

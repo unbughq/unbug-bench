@@ -2189,6 +2189,13 @@ class ReleaseHolds(unittest.TestCase):
         self.assertEqual(r.keys(1)[before:], [("4", "writer:2", "3"), ("5", "stress:2", "1"), ("5", "stress:2", "2"),
                                               ("6", "diagnosis", "1"), ("5", "stress:2", "3"), ("5", "stress:2", "4"),
                                               ("6", "diagnosis", "2")])
+        # The diverged workflow stays in the lineage; its diagnosis, dropped by b-v's rewind, does
+        # not stop a later resume (here an override past the cap).
+        before = len(r.starts(1))
+        r4 = EngineRun({"spec": {"batch_id": "b-w", **spec}, "resume_of": C1, "override": "founder: past the cap"},
+                       workdir=r.work)
+        self.assertEqual(r4.run()["result"]["cases"], {C1 + "@b-w": "sealed"})
+        self.assertEqual(r.keys(1)[before:], [("5", "stress:2", "5"), ("6", "gates:2", "1"), ("7", "seal", "1")])
 
     def test_a_resume_after_one_that_diverged_past_other_live_work_is_refused(self):
         # The rerun ran, then the step after it diverged: what it did live is not a hold to resume.
