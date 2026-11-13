@@ -266,6 +266,8 @@ def read_board(config, *, client=None, live_only: bool = False, now: Optional[fl
                 # the published scorecard carries codes only.
                 overrides = {c['case_id']: c['override'] for c in cards
                              if isinstance(c, dict) and isinstance(c.get('override'), str)}
+                grants = {c['case_id']: c['case_money_extra'] for c in cards   # engine lineage_case_money_extra
+                          if isinstance(c, dict) and isinstance(c.get('case_money_extra'), dict)}
                 seen = observe(config, card, client=client, controller=board['controller'], guard=board['guard'] or {})
             except Exception:
                 board['unavailable'].append(batch)
@@ -279,6 +281,8 @@ def read_board(config, *, client=None, live_only: bool = False, now: Optional[fl
                 board['cases'].append(_row(batch, workflow, case, money, at))
                 if case['case'] in overrides:
                     board['cases'][-1]['override'] = overrides[case['case']]
+                if case['case'] in grants:
+                    board['cases'][-1]['case_money_extra'] = grants[case['case']]
         spans = {}
         for case_id in dict.fromkeys(r['case'] for r in board['cases']):
             try:
@@ -378,6 +382,9 @@ def render_board(board: dict) -> str:
         status = HELD_LABELS.get(r['status'], r['status']) + (f" ({r['reason']})" if r['reason'] else '') + note
         if r.get('override'):
             status += f" [operator override: {r['override']}]"
+        if r.get('case_money_extra'):
+            g = r['case_money_extra']
+            status += f" [case money ceiling +{money(g['usd_micros'])}: {g['reason']}]"
         table.append((r['case'], status, r['stage'], str(r['writer_round']), gates,
                       money(r['spend_usd_micros']['spent']), stamp(r['last_event_at']), ago(r['quiet_for_s']),
                       *clock(r.get('time_to_seal'))))

@@ -488,18 +488,60 @@ def _retired_only_by_deadline(latest, attempts: dict, last: tuple, earlier: list
         return False
 
 
-def resume_point(case_id: str, override: Optional[str] = None, roles: Optional[dict] = None) -> dict:
+# Founder 2026-11-13: a resume may raise its lineage's case-money ceiling (runtime's resume_money
+# check, BatchSpec's default) by `start --resume-case <case> --extra-case-money <usd_micros>
+# --case-money-reason <text>`, up to CASE_MONEY_EXTRA_MAX in all. Only the ceiling grows: each batch
+# still spends at most its own case money, which runtime keeps within it.
+CASE_MONEY_EXTRA_MAX = 200_000_000
+
+
+def check_case_money_extra(extra) -> None:
+    """One grant: {"usd_micros": positive int up to CASE_MONEY_EXTRA_MAX, "reason": text like an override's}."""
+    if not (isinstance(extra, dict) and set(extra) == {"usd_micros", "reason"}
+            and type(extra["usd_micros"]) is int and 0 < extra["usd_micros"] <= CASE_MONEY_EXTRA_MAX
+            and type(extra["reason"]) is str and extra["reason"].strip()
+            and len(extra["reason"]) <= OVERRIDE_REASON_MAX and extra["reason"].isprintable()):
+        raise ContractError("resume:bad_case_money_extra")
+
+
+def lineage_case_money_extra(case_id: str, extra: Optional[dict] = None, exclude: Optional[str] = None) -> Optional[dict]:
+    """The lineage's raised ceiling after this resume: the latest resume record's grant (its
+    usd_micros is the lineage's total), plus `extra`, whose reason then names it. None: no grant.
+    `exclude` names a workflow of the lineage not to read (runtime: the batch being started's own)."""
+    if extra is not None:
+        check_case_money_extra(extra)
+    latest = None
+    for w in sorted(DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__),
+                    key=lambda w: (w.created_at or 0, w.workflow_id)):
+        if w.workflow_id != exclude:
+            latest = (w.input["args"][0].get("resume") or {}).get("case_money_extra") or latest
+    if extra is None:
+        return latest
+    total = (latest or {}).get("usd_micros", 0) + extra["usd_micros"]
+    if total > CASE_MONEY_EXTRA_MAX:
+        raise ContractError("resume:bad_case_money_extra")
+    return {"usd_micros": total, "reason": extra["reason"]}
+
+
+def resume_point(case_id: str, override: Optional[str] = None, roles: Optional[dict] = None,
+                 case_money_extra: Optional[dict] = None) -> dict:
     """Where a case stopped by an infrastructure failure continues (_resume_point).
 
     Founder 2026-11-12: roles ({role: model}, contract.check_roles) gives the resumed case another
     stress tester or strong calibrator. The lineage keeps a swap: each resume carries the roles of
-    the earlier ones, those named again replaced. The worker checks the models (run.context_for_step)."""
+    the earlier ones, those named again replaced. The worker checks the models (run.context_for_step).
+    Founder 2026-11-13: case_money_extra raises the lineage's ceiling (lineage_case_money_extra)."""
     if roles is not None:
         try:
             check_roles(roles)
         except ContractError:
             raise ContractError("resume:bad_roles") from None
+    if case_money_extra is not None:
+        check_case_money_extra(case_money_extra)
     point = _resume_point(case_id, override)[0]
+    extra = lineage_case_money_extra(case_id, case_money_extra)
+    if extra is not None:   # absent otherwise: older jobs replay unchanged
+        point["case_money_extra"] = extra
     swap = {}
     for w in sorted(DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__),
                     key=lambda w: (w.created_at or 0, w.workflow_id)):
@@ -990,6 +1032,7 @@ class _Case:
         self.gates_g10 = 0   # the G10 authority (gates_money_up_front) the case's GATES attempts carried
         self.override: Optional[str] = None   # the operator's reason, when an override resumed this case
         self.roles: Optional[dict] = None     # a resume's role swap (resume_point), sent with every step
+        self.case_money_extra: Optional[dict] = None   # the lineage's raised case-money ceiling, for the card
 
     @property
     def replaying(self) -> bool:
@@ -1033,6 +1076,8 @@ class _Case:
             "hard": None if self.sealed is None else self.sealed["hard"]}
         if self.override is not None:   # only an override's own workflow: other cards are unchanged
             card["override"] = self.override
+        if self.case_money_extra is not None:   # only a lineage with a grant: other cards are unchanged
+            card["case_money_extra"] = self.case_money_extra
         DBOS.set_event("card", card)
 
     def tell(self, kind: str, *, _idempotency_key: Optional[str] = None, **fields) -> None:
@@ -1655,6 +1700,7 @@ def case_workflow(job: dict) -> dict:
             DBOS.set_event("attack_cap_from", case.attack_cap_from)
         case.override = resume.get("override")
         case.roles = resume.get("roles")
+        case.case_money_extra = resume.get("case_money_extra")
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
@@ -1749,6 +1795,8 @@ class _Batch:
                 job["resume"]["override"] = self.resume["override"]
             if self.resume.get("roles") is not None:   # absent otherwise: older jobs replay unchanged
                 job["resume"]["roles"] = self.resume["roles"]
+            if self.resume.get("case_money_extra") is not None:   # absent otherwise: older jobs replay unchanged
+                job["resume"]["case_money_extra"] = self.resume["case_money_extra"]
             self.case_ids[workflow_id] = case_id
         with SetWorkflowID(workflow_id):
             DBOS.start_workflow(case_workflow, job)
@@ -2194,14 +2242,15 @@ class Engine:
 
     def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None,
                     resume_of: Optional[str] = None, override: Optional[str] = None,
-                    roles: Optional[dict] = None):
+                    roles: Optional[dict] = None, case_money_extra: Optional[dict] = None):
         """Attach to the batch if it exists (rule 3); start it otherwise. initial_registry is the
         batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2). import_snapshot,
         a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case.
         resume_of, a case stopped by an infrastructure failure, continues it as the batch's first
         case where it stopped (resume_point). override, the operator's reason, resumes it once where
         resume_point's rules refuse it (founder 2026-11-11). roles swaps its stress tester or strong
-        calibrator model (resume_point, founder 2026-11-12)."""
+        calibrator model (resume_point, founder 2026-11-12). case_money_extra raises its lineage's
+        case-money ceiling (lineage_case_money_extra, founder 2026-11-13)."""
         if not isinstance(initial_registry, Ref) or initial_registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise ContractError("initial_registry must be a registry Ref")
         if import_snapshot is not None and (not isinstance(import_snapshot, Ref)
@@ -2216,7 +2265,10 @@ class Engine:
             raise ContractError("an override only resumes a case")
         if roles is not None and resume_of is None:
             raise ContractError("a role swap only resumes a case")
-        resume = None if resume_of is None else {"case": resume_of, **resume_point(resume_of, override, roles)}
+        if case_money_extra is not None and resume_of is None:
+            raise ContractError("extra case money only resumes a case")
+        resume = None if resume_of is None else {"case": resume_of,
+                                                 **resume_point(resume_of, override, roles, case_money_extra)}
         with SetWorkflowID(spec.batch_id):
             job = {"spec": to_record(spec), "initial_registry": to_record(initial_registry), "queue_v2": False}
             if import_snapshot is not None:

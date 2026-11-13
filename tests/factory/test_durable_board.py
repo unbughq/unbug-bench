@@ -137,6 +137,18 @@ class BoardTests(unittest.TestCase):
         from durable.report import case_entry
         self.assertNotIn('override', case_entry(self.cards['case-alpha']))
 
+    def test_a_raised_case_money_ceiling_and_its_reason_show_on_the_board(self):
+        # Founder 2026-11-13: `--extra-case-money` (engine lineage_case_money_extra) is visible later,
+        # on the operator board only.
+        grant = {'usd_micros': 45 * M, 'reason': 'founder 2026-11-13: let it finish'}
+        self.cards['case-alpha']['case_money_extra'] = grant
+        board = self.read()
+        alpha, beta = board['cases']
+        self.assertEqual((alpha['case_money_extra'], 'case_money_extra' in beta), (grant, False))
+        self.assertIn('[case money ceiling +$45.00: founder 2026-11-13: let it finish]', render_board(board))
+        from durable.report import case_entry
+        self.assertNotIn('case_money_extra', case_entry(self.cards['case-alpha']))
+
     def test_live_filter_and_text_board(self):
         board = self.read(live_only=True)
         self.assertEqual([r['case'] for r in board['cases']], ['case-alpha'])
