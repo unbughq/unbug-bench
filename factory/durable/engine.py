@@ -2247,8 +2247,8 @@ class Engine:
         batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2). import_snapshot,
         a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case.
         resume_of, a case stopped by an infrastructure failure, continues it as the batch's first
-        case where it stopped (resume_point). override, the operator's reason, resumes it once where
-        resume_point's rules refuse it (founder 2026-11-11). roles swaps its stress tester or strong
+        case where it stopped (resume_point). override, the operator's reason, resumes it where
+        resume_point's rules refuse it, at most OVERRIDE_MAX times per lineage (founder 2026-11-11, 2026-11-13). roles swaps its stress tester or strong
         calibrator model (resume_point, founder 2026-11-12). case_money_extra raises its lineage's
         case-money ceiling (lineage_case_money_extra, founder 2026-11-13)."""
         if not isinstance(initial_registry, Ref) or initial_registry.kind is not ArtifactKind.STATEMENT_REGISTRY:

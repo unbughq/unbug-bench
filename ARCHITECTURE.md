@@ -444,7 +444,7 @@ held before the patch stays held. Escalations (`NEEDS_FOUNDER`) never take this 
 The board shows `held: waiting for a factory release` apart from `held: needs your decision`, and
 the guard neither alerts on it nor counts it as a stall.
 
-Founder 2026-11-11: an operator override resumes, once per lineage, a case these rules refuse:
+Founder 2026-11-11: an operator override resumes, at most twice per lineage (founder 2026-11-13; was once), a case these rules refuse:
 `start --resume-case <case> --override-reason <text>`. It drops only the rerunnable-stops and
 held-only requirements of a `factory_bug` diagnosis, `MAX_FACTORY_BUG_RESUMES`, and the
 infra-last-attempt requirement for a held or retired case whose last attempt reached no result
