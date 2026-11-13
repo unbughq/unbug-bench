@@ -565,7 +565,7 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     The case keeps its ID, so its key, artifacts, snapshot card and admission binding stay valid;
     only the new workflow ("<case>@<batch>") is new. Its seqs before `seq` replay the recorded
     attempts, and `seq` restarts after them with a fresh retry allowance. A case is resumable only
-    when every workflow of it has finished as held or retired and its last attempt ended in an
+    when every workflow of it has finished as held or retired (or with resume:diverged, see below) and its last attempt ended in an
     infrastructure or provider failure: never after a verdict, a gate, an exhausted limit or a
     founder's decision. One exception is a recertified case retired because a gate asked for a
     repair (see gates_repair below). The other is a case held by a factory_bug diagnosis of a factory
@@ -581,11 +581,11 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
             + DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__))
     if not runs:
         raise ContractError("resume:unknown_case")
-    if any(w.status != "SUCCESS" for w in runs):
+    # A workflow that failed with resume:diverged stopped where its replay broke; nothing it did
+    # after that exists (1bb2ad-2r3, 86b100-r10 and 22e434-3r5, 13 November).
+    diverged = {w.workflow_id for w in runs if w.status == "ERROR" and "resume:diverged" in str(w.error)}
+    if any(w.status != "SUCCESS" and w.workflow_id not in diverged for w in runs):
         raise ContractError("resume:case_not_finished")
-    latest = max(runs, key=lambda w: (w.created_at or 0, w.workflow_id))
-    if not isinstance(latest.output, dict) or latest.output.get("status") not in RESUMABLE_STATUSES:
-        raise ContractError("resume:not_stopped_by_infra")
     attempts, by_id = {}, {}
     for w in DBOS.list_workflows(workflow_id_prefix=case_id + "/", name=slot_workflow.__qualname__,
                                  load_input=False):
@@ -600,6 +600,15 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
             attempts[key] = w
     if not attempts:
         raise ContractError("resume:no_attempts")
+    # One that started no attempt of its own changed nothing: the case continues as if it never ran.
+    # One that did holds the case where it broke, as a hold of its last attempt would.
+    owners = {w.parent_workflow_id for w in by_id.values()}
+    runs = [w for w in runs if w.workflow_id not in diverged or w.workflow_id in owners]
+    latest = max(runs, key=lambda w: (w.created_at or 0, w.workflow_id))
+    stopped = "held" if latest.workflow_id in diverged else (
+        latest.output.get("status") if isinstance(latest.output, dict) else None)
+    if stopped not in RESUMABLE_STATUSES:
+        raise ContractError("resume:not_stopped_by_infra")
 
     def result_of(w):
         out = w.output
@@ -651,6 +660,9 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         seq, _, attempt = path[-1]
         last_w = by_id["%s/%d/%s/%d" % (case_id, *path[-1])]
     result = result_of(last_w)
+    if (latest.workflow_id in diverged and reruns and reruns[-1] == seq and isinstance(result, dict)
+            and result.get("verdict") == Verdict.FACTORY_BUG.value):
+        reruns = reruns[:-1]   # the in-place rerun it broke at never ran: this resume is that rerun
 
     def dropped(s, nm, a):   # a diagnosis a factory_bug resume no longer replays (renumber)
         return nm == StepKind.DIAGNOSIS.value and a <= renumber.get(s, {}).get(nm, 0)
@@ -684,7 +696,7 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
                        and i < start and not any(lo < i < hi for lo, hi in spans))
         return max(0, len(reruns) - replayed)
     waste_keys = []
-    gates_repair = (latest.output.get("status") == "retired" and isinstance(result, dict)
+    gates_repair = (stopped == "retired" and isinstance(result, dict)
                     and last_w.workflow_id.split("/")[2].split(":")[0] == StepKind.GATES.value
                     and result.get("outcome") == Outcome.GATE_FAILED.value and result.get("repairable") is True
                     and result.get("feedback") is not None)
@@ -717,7 +729,7 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         if override is None:
             raise ContractError("resume:not_stopped_by_infra")
         if diagnosis_ok:
-            if not (result.get("verdict") == Verdict.CLOSE_TO_PASSING.value and latest.output.get("status") == "retired"
+            if not (result.get("verdict") == Verdict.CLOSE_TO_PASSING.value and stopped == "retired"
                     and _retired_only_by_deadline(latest, attempts, (seq, attempt), earlier, result_of)):
                 raise ContractError("resume:scientific_stop")
         elif _override_refusal(last_step.split(":")[0], result):
@@ -732,7 +744,7 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         name = next((nm for s, nm, _ in reversed(path) if s == seq - 1), name)   # times can tie
         diagnosed = sorted(a for (s, a), w in attempts.items() if s == seq - 1 and w.workflow_id.split("/")[2] == name)
         stops = [result_of(attempts[(seq - 1, a)]) for a in diagnosed]
-        if not (latest.output.get("status") == "held" and factory_bug_rerunnable(name, stops)):
+        if not (stopped == "held" and factory_bug_rerunnable(name, stops)):
             # The override reruns the diagnosed step whatever its stops, but never a scientific one.
             if override is None:
                 raise ContractError("resume:not_stopped_by_infra")

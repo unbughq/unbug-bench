@@ -2151,6 +2151,45 @@ class ReleaseHolds(unittest.TestCase):
         self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
         self.assertEqual(r.keys(1)[before:], [("5", "stress:2", "3"), ("6", "gates:2", "1"), ("7", "seal", "1")])
 
+    # 86b100-r10 and 22e434-3r5 on 13 November: resume:diverged while replaying, before any attempt
+    # of their own. The next resume continues as if they had never run.
+    def test_a_resume_after_one_that_diverged_in_replay_continues_without_it(self):
+        r = self.held_at_a_diagnosis()
+        r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1,
+                        "bad_restore": [[5, "diagnosis", 1, 3]]}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "engine_error"})
+        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "2"))
+        r3 = EngineRun({"spec": {"batch_id": "b-v", **self.SPEC}, "resume_of": C1,
+                        "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {}},
+                        "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]},
+                       workdir=r.work)
+        self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
+        self.assertEqual(r.keys(1)[-5:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"),
+                                          ("5", "stress:2", "1"), ("6", "gates:2", "1"), ("7", "seal", "1")])
+
+    # 1bb2ad-2r3 on 13 November: its diagnosis said factory_bug, then the in-place rerun diverged.
+    # The next resume keeps that verdict and is the rerun, counted once.
+    def test_a_resume_after_a_rerun_that_diverged_reruns_the_diagnosed_step(self):
+        r = self.held_at_a_diagnosis()
+        r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1,
+                        "bad_restore": [[4, "writer:2", 3, 3]],
+                        "script": {"1/diagnosis/*": {"verdict": "factory_bug"}},
+                        "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]}, workdir=r.work)
+        o2 = r2.run()
+        self.assertEqual(o2.get("result", o2)["cases"], {C1 + "@b-u": "engine_error"})
+        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "3"))
+        before = len(r.starts(1))
+        # A cap of 2: counting the broken rerun as well as this resume would refuse the next one.
+        spec = {**self.SPEC, "max_factory_bug_resumes": 2}
+        r3 = EngineRun({"spec": {"batch_id": "b-v", **spec}, "resume_of": C1,
+                        "script": {"1/stress:2/*": self.INFRA, "1/diagnosis/*": {"verdict": "factory_bug"}},
+                        "actions": [{"when": {"ran": f"{C1}/6/diagnosis/1"}, "plumbing": "4" * 64}]},
+                       workdir=r.work)
+        self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "retired"})
+        self.assertEqual(r.keys(1)[before:], [("4", "writer:2", "3"), ("5", "stress:2", "1"), ("5", "stress:2", "2"),
+                                              ("6", "diagnosis", "1"), ("5", "stress:2", "3"), ("5", "stress:2", "4"),
+                                              ("6", "diagnosis", "2")])
+
     def test_a_resume_case_batch_counts_the_resumes_made_in_place(self):
         # max 2: one release resume in b-t, then held at its deadline; the --resume-case batch is the
         # second resume, so its next factory_bug retires instead of holding a third time.
