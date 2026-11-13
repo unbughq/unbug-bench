@@ -2026,30 +2026,6 @@ class ReleaseHolds(unittest.TestCase):
                          [("5", "diagnosis", str(n)) for n in range(1, 4)])
         self.assertEqual([k[2] for k in r.keys(1) if k[1] == "writer:2"], ["1", "2", "3", "4"])
 
-    def test_a_resumed_diagnosis_that_reruns_in_place_drops_its_skip(self):
-        # The --resume-case batch restored the diagnosis attempts at seq 5; its factory_bug reran
-        # writer:2 in place, and stress:2 now takes seq 5 with no attempts of its own to restore.
-        spec = {"max_cases_started": 1, "max_infra_retries_per_step": 1}
-        r, out = run(manual_holds({"spec": spec,
-                                   "script": {"1/stress:1/1": {"feedback": True},
-                                              "1/writer:2/*": {"outcome": "infra_error", "reason": "infra:stalled"},
-                                              "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled"}}}))
-        self.addCleanup(r.close)
-        self.assertEqual((out["result"]["cases"], r.keys(1)[-1][:2]), ({C1: "held"}, ("5", "diagnosis")))
-        r2 = EngineRun({"spec": {"batch_id": "b-u", **spec}, "resume_of": C1,
-                        "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {},
-                                   "1/gates:2/*": {"outcome": "infra_error", "reason": "infra:stalled"}},
-                        "deadline_in": 40, "timing": {"wake_poll_s": 0.3},
-                        "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]}, workdir=r.work)
-        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
-        self.assertEqual(r.keys(1)[-6:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"), ("5", "stress:2", "1"),
-                                          ("6", "gates:2", "1"), ("6", "gates:2", "2"), ("7", "diagnosis", "1")])
-        # Held at its deadline after the second factory_bug: the next resume restores only gates:2.
-        before = len(r.starts(1))
-        r3 = EngineRun({"spec": {"batch_id": "b-v", **spec}, "resume_of": C1}, workdir=r.work)
-        self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
-        self.assertEqual(r.keys(1)[before:], [("6", "gates:2", "3"), ("7", "seal", "1")])
-
     def test_a_resume_case_batch_counts_the_resumes_made_in_place(self):
         # max 2: one release resume in b-t, then held at its deadline; the --resume-case batch is the
         # second resume, so its next factory_bug retires instead of holding a third time.

@@ -581,7 +581,6 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     # Each resume's skip already carries the earlier ones', less what its own rewind dropped, so only
     # the latest counts: merging them all brought back a dropped seq (86b100-r10, 13 November: the
     # diagnosis seq 4 skip of r7, dropped by r8's rewind, made r10 restore gates:2/3 at seq 4).
-    # (A diagnosis seq rerun in place keeps its skip: the replay restores the diagnosis, then drops it.)
     last = (latest.input["args"][0].get("resume") or {}) if latest.workflow_id != case_id else {}
     skip = {int(k): v for k, v in last.get("skip", {}).items()}
     renumber = {}
@@ -1475,12 +1474,6 @@ class _Case:
         self.diagnoses_used -= 1
         self.factory_bug_resumes += 1
         self.bench = self.current("bench")   # GATES adopts it anyway; writer and stress steps too
-        # The step after the rerun takes the diagnosis's seq: a resume's restore of the diagnosis's
-        # attempts there is not its own (it would restore attempts that step never made). A resume
-        # at that diagnosis also makes the rerun below it new work, not replayed history.
-        self.skip.pop(self.seq, None)
-        if not self.replaying and self.seq == self.resume_seq:
-            self.resume_seq = self.seq - 1
         self.seq -= 2                        # run_seq numbers the rerun at the diagnosed seq
         return step.kind.value, feedback
 
