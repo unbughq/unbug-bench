@@ -19,7 +19,7 @@ from typing import Optional
 from durable.artifacts import ArtifactError, open_from, scope_for
 from durable.contract import (ArtifactKind, ArtifactStore, Grant, KeyService, Ledger, Outcome, Poll,
                               PollState, Ref, Sealer, StepInput, StepKind, StepResult, WorkerChannel, WorkerLease,
-                              WorkerPool, UNANSWERED)
+                              WorkerPool, UNANSWERED, Usage)
 from durable.policy import POLL_GRACE_S, SILENT_WORKER_LIMIT_S, UNCONFIRMED_WORKER_LIMIT_S, settles_as_waste, settles_lost
 
 OUTPUT_REFS = ("snapshot", "receipt", "feedback", "report", "registry", "archive", "diagnostic")
@@ -285,9 +285,15 @@ class Executor:
         from durable.contract import Usage
         _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, Usage(), waste=False)
 
-    def settle(self, si: StepInput, result: StepResult) -> str:
+    def settle(self, si: StepInput, result: StepResult, g10_usd_micros: int = 0) -> str:
         if settles_lost(result):
-            _call("engine:ledger_failed", self.ledger.settle_lost, si.idempotency_key)
+            if g10_usd_micros:
+                # A lost GATES attempt books what the old rule held: its grant without the G10
+                # authority (engine gates_money_up_front), not the whole enlarged grant.
+                held = max(0, si.money_ceiling_usd_micros - g10_usd_micros)
+                _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, Usage(paid_usd_micros=held), waste=True)
+            else:
+                _call("engine:ledger_failed", self.ledger.settle_lost, si.idempotency_key)
             return "lost"
         waste = settles_as_waste(result)
         _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, result.usage, waste=waste)

@@ -456,7 +456,7 @@ class ModelRuntime:
                 if getattr(c, 'engine', None) is not None:
                     from budget import available_invocation_funding
                     from decimal import Decimal
-                    funding = Decimal(available_invocation_funding(c.ledger, c.engine))
+                    funding = Decimal(available_invocation_funding(c.ledger, c.engine, name))
                     owner_models = getattr(c, 'exam_owner_models', None)
                     if owner_models and role in ('strong_calibrator', 'easy_calibrator'):
                         choices = model_router._bounded_routes(owner_models[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))

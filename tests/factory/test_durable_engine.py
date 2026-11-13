@@ -2051,6 +2051,38 @@ class GatesMoneyUpFront(unittest.TestCase):
         self.assertEqual(granted[True][1], granted[False][1])
         self.assertEqual(granted[True][0] - granted[False][0], extension)
 
+    def test_a_batch_only_money_retry_doubles_the_old_request_and_adds_the_extension_once(self):
+        from durable.policy import gates_money_extension
+        from durable.contract import Step, StepKind
+        ext = gates_money_extension(Step(StepKind.GATES, 1))
+        rep = {"outcome": "gate_failed", "gate": "G5", "repairable": True}
+        r, out = run({"spec": {"max_writer_rounds": 1, "max_cases_started": 1},
+                      "script": {"1/gates:1/1": {**rep, "passed": ["G1"]},
+                                 "1/diagnosis/*": {"verdict": "close_to_passing"},
+                                 "1/gates:2/1": {"outcome": "exhausted", "reason": "engine:money"}}})
+        self.addCleanup(r.close)
+        amounts = {x["key"].split("/", 1)[1]: x["amount"] for x in r.ledger_log() if x["op"] == "reserve"}
+        first = amounts["8/gates:2/1"]   # an extension's GATES step draws on the batch only
+        self.assertEqual(amounts["8/gates:2/2"], (first - ext) * 2 + ext)
+
+    def test_a_lost_gates_attempt_books_its_grant_without_the_extension(self):
+        from durable.policy import gates_money_extension
+        from durable.contract import Step, StepKind
+        ext = gates_money_extension(Step(StepKind.GATES, 1))
+        for patched in (True, False):
+            with self.subTest(patched=patched):
+                r, out = run({"spec": {"max_cases_started": 1},
+                              "script": {"1/gates:1/1": {"outcome": "infra_error", "reason": "infra:worker_lost"}},
+                              "disabled_patches": [] if patched else ["gates_money_up_front"]})
+                self.addCleanup(r.close)
+                key = f"{C1}/4/gates:1/1"
+                granted = next(x["amount"] for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == key)
+                closed = next(x for x in r.ledger_log() if x["key"] == key and x["op"] != "reserve")
+                if patched:
+                    self.assertEqual((closed["op"], closed["paid"], closed["waste"]), ("settle", granted - ext, True))
+                else:   # a job recorded before the patch books its whole grant, as before
+                    self.assertEqual(closed["op"], "settle_lost")
+
 
 if __name__ == "__main__":
     unittest.main()

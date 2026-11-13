@@ -283,8 +283,8 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
 
 
 @DBOS.step(**SEAM)
-def settle_step(si: dict, result: dict) -> str:
-    return _ex().settle(step_input_from_record(si), step_result_from_record(result))
+def settle_step(si: dict, result: dict, g10_usd_micros: int = 0) -> str:
+    return _ex().settle(step_input_from_record(si), step_result_from_record(result), g10_usd_micros)
 
 
 @DBOS.step(**SEAM)
@@ -708,7 +708,7 @@ def attempt_workflow(job: dict) -> dict:
                 "started_at": None, "worker_id": None}
     started_at = now_step()
     result = attempt_step(to_record(si), started_at, worker_id)
-    settle_step(to_record(si), result)
+    settle_step(to_record(si), result, job.get("g10_usd_micros", 0))
     DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id}, topic=CASE_EVENT)   # wakes the other waiting cases
     return {"started": True, "grant": to_record(grant), "input": to_record(si), "result": result,
             "started_at": started_at, "worker_id": worker_id}
@@ -1030,6 +1030,7 @@ class _Case:
             if extension and DBOS.patch("gates_money_up_front"):
                 job["request"] += extension
                 job["case_limit"] += extension
+                job["g10_usd_micros"] = extension   # settle books a lost attempt without it
             if admit and not admission_started:
                 job["admission_deadline"] = self.spec.deadline_epoch
             restoring = attempt <= recorded
@@ -1126,7 +1127,8 @@ class _Case:
                     and grant.limited_by is LimitedBy.NOTHING and not job["draws"]):
                 # A later call may not fit even after earlier calls spent money.
                 # Grow only until the ledger applies the batch bound.
-                requested_minimum = min(2**63 - 1, max(job["request"] * 2, 1))
+                # The G10 authority is added once per attempt, never doubled.
+                requested_minimum = min(2**63 - 1, max((job["request"] - job.get("g10_usd_micros", 0)) * 2, 1))
             op_waits = op_waits if is_operational_wait(result) else 0
             if is_operational_wait(result):
                 self.status = ("waiting_for_credentials" if result.reason in (

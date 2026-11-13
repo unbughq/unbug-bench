@@ -2988,6 +2988,11 @@ class EngineStep:
             "feedback": step_input.feedback.digest if step_input.feedback else None,
             "ruling": step_input.ruling.digest if step_input.ruling else None}
         self.ceiling_usd = step_input.money_ceiling_usd_micros / 1_000_000
+        # The part of a GATES grant only G10's strong tries may spend (budget.call_limit).
+        # ponytail: assumes the engine applied gates_money_up_front; a GATES job queued before it
+        # gets less for its other calls, and g10_money_headroom refuses such a grant before G6 anyway.
+        from durable.policy import gates_money_extension
+        self.g10_reserve_usd = min(gates_money_extension(step_input.step), step_input.money_ceiling_usd_micros) / 1_000_000
         self.baseline_spent_usd = baseline_spent_usd
         # The attempt's own deadline (the supervisor kills the attempt at the same instant).
         now = time.time()
