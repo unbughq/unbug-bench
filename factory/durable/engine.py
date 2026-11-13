@@ -1052,8 +1052,6 @@ class _Case:
                 job["case_limit"] += extension
                 job["g10_usd_micros"] = extension   # a bound retry adds it once
                 self.gates_g10 = extension
-                if DBOS.patch("gates_g10_in_step_input"):   # the worker reserves it for G10 alone
-                    job["input"] = to_record(replace(si, g10_usd_micros=extension))
             if step.kind is StepKind.SEAL:
                 # GATES may have spent its G10 authority from the case's money: SEAL keeps the same limit.
                 job["case_limit"] += self.gates_g10

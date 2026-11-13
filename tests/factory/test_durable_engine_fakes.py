@@ -479,8 +479,7 @@ class FakeWorker:
                                          "pv": si.plumbing_version[:4], "bv": si.bench_version[:4],
                                          "ceiling": si.money_ceiling_usd_micros, "deadline_s": si.deadline_s,
                                          "opened": opened, "evidence": [r.kind.value for r in si.evidence],
-                                         "t": now, **({} if si.roles is None else {"roles": si.roles}),
-                                         **({} if si.g10_usd_micros is None else {"g10": si.g10_usd_micros})})
+                                         "t": now, **({} if si.roles is None else {"roles": si.roles})})
 
     def _drop(self, what, key):
         n = self.flaky.get(what, {}).get(key, 0)

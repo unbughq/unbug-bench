@@ -244,14 +244,12 @@ def _g10_used(ledger):
 def call_limit(ledger, attempt, call_name=None):
     """attempt_limit as one call sees it. A GATES attempt's G10 authority (attempt.g10_reserve_usd,
     founder 2026-11-12: approved for the strong tries only) funds G10_CALLS alone: any other call keeps
-    the old cap, plus whatever of the authority G10 has already used. What G10 used before this attempt
-    (g10_baseline) is no longer reserved, and the reserve never exceeds the grant. None: the whole limit."""
+    the old cap, plus whatever of the authority G10 has already used in this attempt. None: the whole limit."""
     limit = attempt_limit(ledger, attempt)
-    authority = usd(getattr(attempt, 'g10_reserve_usd', 0) or 0)
-    if not authority or call_name is None or str(call_name).startswith(G10_CALLS): return limit
-    before = usd(ledger['attempt_budget']['g10_baseline'])
-    reserve = min(usd(attempt.ceiling_usd), max(Decimal(0), authority - before))
-    return limit - reserve + min(reserve, max(Decimal(0), _g10_used(ledger) - before))
+    reserve = usd(getattr(attempt, 'g10_reserve_usd', 0) or 0)
+    if not reserve or call_name is None or str(call_name).startswith(G10_CALLS): return limit
+    used = _g10_used(ledger) - usd(ledger['attempt_budget']['g10_baseline'])
+    return limit - reserve + min(reserve, max(Decimal(0), used))
 
 
 def reservation_booked(ledger, lease_id, row, events=None, charge=None):

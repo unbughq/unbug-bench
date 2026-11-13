@@ -3000,9 +3000,14 @@ class EngineStep:
             "feedback": step_input.feedback.digest if step_input.feedback else None,
             "ruling": step_input.ruling.digest if step_input.ruling else None}
         self.ceiling_usd = step_input.money_ceiling_usd_micros / 1_000_000
-        # The G10 authority the engine added to this GATES grant (none on a workflow recorded before
-        # it carried it): only G10's strong tries may spend it (budget.call_limit).
-        self.g10_reserve_usd = (getattr(step_input, "g10_usd_micros", None) or 0) / 1_000_000
+        # The part of a GATES grant only G10's strong tries may spend (budget.call_limit): what the grant
+        # holds beyond an ordinary step's request (the case's money, at most BatchSpec's default), up to
+        # the G10 authority. Ordinary calls keep min(grant, that request), so a GATES grant of a workflow
+        # recorded before the authority, or a partial grant, never leaves them $0.
+        from durable.contract import BatchSpec
+        from durable.policy import gates_money_extension
+        self.g10_reserve_usd = min(gates_money_extension(step_input.step), max(
+            0, step_input.money_ceiling_usd_micros - BatchSpec.case_money_usd_micros)) / 1_000_000
         self.baseline_spent_usd = baseline_spent_usd
         # The attempt's own deadline (the supervisor kills the attempt at the same instant).
         now = time.time()
