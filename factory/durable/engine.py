@@ -587,13 +587,11 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     if not isinstance(latest.output, dict) or latest.output.get("status") not in RESUMABLE_STATUSES:
         raise ContractError("resume:not_stopped_by_infra")
     attempts = {}
-    rows = []   # (created_at, seq, step name, attempt) of every recorded attempt
     for w in DBOS.list_workflows(workflow_id_prefix=case_id + "/", name=slot_workflow.__qualname__,
                                  load_input=False):
         parts = w.workflow_id.split("/")
         if len(parts) != 4 or parts[0] != case_id or not (parts[1].isdigit() and parts[3].isdigit()):
             continue
-        rows.append((w.created_at or 0, int(parts[1]), parts[2], int(parts[3])))
         # After a factory_bug resume the diagnosis seq is reused by the next step: the later one counts.
         key = (int(parts[1]), int(parts[3]))
         if key not in attempts or (w.created_at or 0, w.workflow_id) > (attempts[key].created_at or 0,
@@ -634,54 +632,57 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     # An in-place rerun (rerun_after_release) runs the diagnosed step again below the diagnosis's seq
     # and gives that seq to the next step, so the replay's seqs are not in order and one seq can hold
     # several runs of steps (1bb2ad-2r3, 13 November: its rerun below the seq it resumed at was taken
-    # for replayed history). A run is (seq, step, first attempt), placed in the history by when that
-    # attempt was recorded. `restore` maps each run a resume continued to the attempts it restores,
-    # and `at` names the run the new workflow continues: the history replays until it starts.
-    when = {(s, nm, a): t for t, s, nm, a in rows}
-    history = sorted(rows)
+    # for replayed history). A run is (seq, step, first attempt). Its place in the history is where the
+    # latest workflow started that attempt: that workflow's own steps record its whole path, replayed
+    # and live, in order (recorded times can tie). `restore` maps each run a resume continued to the
+    # attempts it restores, and `at` names the run the new workflow continues: the history replays
+    # until it starts.
+    path = []
+    for step in DBOS.list_workflow_steps(latest.workflow_id, load_output=False):
+        parts = (step["child_workflow_id"] or "").split("/")
+        if len(parts) == 4 and parts[0] == case_id and parts[1].isdigit() and parts[3].isdigit():
+            key = (int(parts[1]), parts[2], int(parts[3]))
+            if not path or path[-1] != key:   # its enqueue, then its result
+                path.append(key)
+    place = {key: i for i, key in reversed(list(enumerate(path)))}
 
     def dropped(s, nm, a):   # a diagnosis a factory_bug resume no longer replays (renumber)
         return nm == StepKind.DIAGNOSIS.value and a <= renumber.get(s, {}).get(nm, 0)
 
-    def first_attempt(k, name, n, before=float("inf")):
-        """The first attempt of the run of `name` at seq k that ends at attempt n: a step the replay
-        runs between two of its attempts (an in-place rerun) ends a run."""
-        mine = {a: t for t, s, nm, a in rows if (s, nm) == (k, name) and t < before}
-        between = [t for t, s, nm, a in rows if (s, nm) != (k, name) and t < before and not dropped(s, nm, a)]
+    def first_attempt(k, name, n):
+        """The first attempt of the run of `name` at seq k that ends at attempt n: attempts the path
+        holds one after the other. Anything between two of them (an in-place rerun) ends a run."""
         first, floor = n, renumber.get(k, {}).get(name, 0) + 1
-        while (first - 1 >= floor and first - 1 in mine and first in mine
-               and not any(mine[first - 1] < t < mine[first] for t in between)):
+        while (first - 1 >= floor and (k, name, first - 1) in place and (k, name, first) in place
+               and place[(k, name, first - 1)] + 1 == place[(k, name, first)]):
             first -= 1
         return first
 
     if "restore" in last:
         restore = {(k, nm, f): n for k, nm, f, n in last["restore"]}
-    else:   # a resume made before `restore`: each skip restored the step whose last attempt it was
-        restore, made = {}, sorted(((w.created_at or 0, w.input["args"][0].get("resume") or {})
-                                    for w in runs if w.workflow_id != case_id), key=lambda x: x[0])
+    else:   # a resume made before `restore`: each skip restored the step that resumed there, the
+        # first one in the path whose attempt after it follows at once (a later step that took the seq
+        # comes after it; a diagnosis a rewind dropped is not in the path at all)
+        restore = {}
         for k, n in skip.items():
-            since = None   # the resume that set this value: a rewind may have dropped an older one
-            for t, r in reversed(made):
-                if r.get("skip", {}).get(str(k)) != n:
-                    break
-                since = t
-            owners = [(t, nm) for t, s, nm, a in rows if (s, a) == (k, n) and t < since]
+            owners = sorted((place[(k, nm, a)], nm) for (s, nm, a) in place if (s, a) == (k, n)
+                            and place.get((k, nm, n + 1)) == place[(k, nm, n)] + 1)
+            owners = owners or sorted((place[(k, nm, a)], nm) for (s, nm, a) in place if (s, a) == (k, n))[-1:]
             if owners:
-                nm = max(owners)[1]
-                restore[(k, nm, first_attempt(k, nm, n, since))] = n
+                nm = owners[0][1]
+                restore[(k, nm, first_attempt(k, nm, n))] = n
 
     def kept(until):
-        """The restores of runs the replay still reaches before `until`."""
-        return {run: n for run, n in restore.items() if when.get(run, until) < until and not dropped(*run)}
+        """The restores of runs the replay still reaches before the path's position `until`."""
+        return {run: n for run, n in restore.items() if place.get(run, until) < until and not dropped(*run)}
 
-    def unreplayed(at, restores):
+    def unreplayed(start, restores):
         """In-place reruns of the latest workflow's path that the new one does not replay: all but
-        those whose diagnosis comes before the run `at` starts, outside any restored run."""
-        start = when[at] if at in when else at
-        spans = [(when[run], when.get(run[:2] + (n,), when[run])) for run, n in restores.items()]
-        replayed = sum(1 for (t, s, nm, a), nxt in zip(history, history[1:])
-                       if nm == StepKind.DIAGNOSIS.value and nxt[1] == s - 1 and not dropped(s, nm, a)
-                       and t < start and not any(lo < t < hi for lo, hi in spans))
+        those whose diagnosis comes before position `start`, outside any restored run."""
+        spans = [(place[run], place.get(run[:2] + (n,), place[run])) for run, n in restores.items() if run in place]
+        replayed = sum(1 for i, ((s, nm, a), nxt) in enumerate(zip(path, path[1:]))
+                       if nm == StepKind.DIAGNOSIS.value and nxt[0] == s - 1 and not dropped(s, nm, a)
+                       and i < start and not any(lo < i < hi for lo, hi in spans))
         return max(0, len(reruns) - replayed)
     waste_keys = []
     gates_repair = (latest.output.get("status") == "retired" and isinstance(result, dict)
@@ -697,11 +698,12 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         # Seqs above the repaired GATES belong to steps that no longer follow it (an older diagnosis).
         skip = {k: v for k, v in skip.items() if k <= seq}
         gates = attempts[(seq, attempt)]
-        restore = kept((gates.created_at or 0) + 1)
+        until = place[(seq, gates.workflow_id.split("/")[2], attempt)] + 1
+        restore = kept(until)
         repair = [seq + 1, "writer:%d" % (int(gates.workflow_id.split("/")[2].split(":")[1]) + 1), 1]
         return ({"seq": seq + 1, "skip": {str(k): v for k, v in sorted(skip.items())},
                  "restore": [[*run, n] for run, n in sorted(restore.items())], "at": repair,
-                 "factory_bug_resumes": factory_bug_resumes + unreplayed((gates.created_at or 0) + 1, restore),
+                 "factory_bug_resumes": factory_bug_resumes + unreplayed(until, restore),
                  "recertify_repair": True, "recertify_repair_seq": seq,
                  "renumber": {str(k): v for k, v in sorted(renumber.items())}}, waste_keys)
     last_step, first, bump = attempts[(seq, attempt)].workflow_id.split("/")[2], None, 0
@@ -751,10 +753,10 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     at = (seq, last_step, first)
     # Runs after the continued one belong to steps that no longer follow it; so does a restore the
     # continued run now covers (its earlier runs, when a factory_bug resume restores them all).
-    restore = {run: n for run, n in kept(when[(seq, last_step, attempt)]).items()
+    restore = {run: n for run, n in kept(place[(seq, last_step, attempt)] + 1).items()
                if not (run[:2] == at[:2] and run[2] >= first)}
     restore[at] = attempt
-    factory_bug_resumes += unreplayed(at, restore)
+    factory_bug_resumes += unreplayed(place[at], restore)
     if bump:
         if factory_bug_resumes >= MAX_FACTORY_BUG_RESUMES:   # defensive: the policy retires first
             if override is None:
