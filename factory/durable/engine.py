@@ -1065,7 +1065,10 @@ class _Case:
                         step_deadline_stops=late,
                         writer_rounds_used=self.writer_rounds_used,
                         extensions_used=self.extensions_used, diagnoses_used=self.diagnoses_used,
-                        factory_bug_resumes=self.factory_bug_resumes + self.lineage_factory_bug_resumes,
+                        # A replayed diagnosis decided under the cap (one at it ended its workflow);
+                        # the lineage's count, this resume included, binds once the case is live.
+                        factory_bug_resumes=self.factory_bug_resumes
+                        + (0 if self.replaying else self.lineage_factory_bug_resumes),
                         in_extension=self.in_extension)
 
     def card(self) -> None:

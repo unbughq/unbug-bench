@@ -46,7 +46,7 @@ PROGRAM = textwrap.dedent('''
     def case_object():
         # The case tells its own workflow ("waiting" goes to the batch in the engine).
         me = types.SimpleNamespace(case_id="case-t-1", batch_id=WID, workflow_id=WID, worker_id="w-1",
-                                   seq=3, resume_seq=0, status="running")
+                                   seq=3, resume_seq=0, resume_at=None, live=False, status="running")
         for name in ("release_worker", "tell", "replaying"):
             attr = getattr(_Case, name)
             setattr(me, name, attr.fget(me) if isinstance(attr, property) else types.MethodType(attr, me))

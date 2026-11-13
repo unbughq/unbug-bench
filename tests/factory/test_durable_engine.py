@@ -2133,6 +2133,24 @@ class ReleaseHolds(unittest.TestCase):
         self.assertEqual(r.keys(1)[before:], [("5", "diagnosis", "6"), ("4", "writer:2", "5"), ("5", "stress:2", "1"),
                                               ("6", "gates:2", "1"), ("7", "seal", "1")])
 
+    def test_an_override_past_the_cap_replays_the_in_place_rerun_before_it(self):
+        # Under a cap of 1 the in-place rerun is the lineage's only factory_bug resume, so the next
+        # factory_bug retires. The override that continues the case counts itself, but not while the
+        # rerun's diagnosis replays: that diagnosis would retire instead and diverge.
+        r = self.held_at_a_diagnosis()
+        spec = {**self.SPEC, "max_factory_bug_resumes": 1}
+        r2 = EngineRun({"spec": {"batch_id": "b-u", **spec}, "resume_of": C1,
+                        "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {},
+                                   "1/stress:2/*": self.INFRA},
+                        "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "retired"})
+        self.assertEqual(r.keys(1)[-3:], [("5", "stress:2", "1"), ("5", "stress:2", "2"), ("6", "diagnosis", "1")])
+        before = len(r.starts(1))
+        r3 = EngineRun({"spec": {"batch_id": "b-v", **spec}, "resume_of": C1, "override": "founder: rerun stress"},
+                       workdir=r.work)
+        self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
+        self.assertEqual(r.keys(1)[before:], [("5", "stress:2", "3"), ("6", "gates:2", "1"), ("7", "seal", "1")])
+
     def test_a_resume_case_batch_counts_the_resumes_made_in_place(self):
         # max 2: one release resume in b-t, then held at its deadline; the --resume-case batch is the
         # second resume, so its next factory_bug retires instead of holding a third time.
