@@ -680,6 +680,13 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     if latest.workflow_id in diverged:   # its in-place rerun broke: this resume is that rerun
         reruns = reruns[:-1]
 
+    def position(run):
+        """Where the latest workflow ran `run`. An attempt it never saw (workflows of one case that
+        overlapped, each running work the other did not) leaves no history to continue: refuse."""
+        if run not in place:
+            raise ContractError("resume:history_not_in_latest")
+        return place[run]
+
     def dropped(s, nm, a):   # a diagnosis a factory_bug resume no longer replays (renumber)
         return nm == StepKind.DIAGNOSIS.value and a <= renumber.get(s, {}).get(nm, 0)
 
@@ -734,7 +741,7 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         # Seqs above the repaired GATES belong to steps that no longer follow it (an older diagnosis).
         skip = {k: v for k, v in skip.items() if k <= seq}
         gates = last_w
-        until = place[(seq, gates.workflow_id.split("/")[2], attempt)] + 1
+        until = position((seq, gates.workflow_id.split("/")[2], attempt)) + 1
         restore = kept(until)
         repair = [seq + 1, "writer:%d" % (int(gates.workflow_id.split("/")[2].split(":")[1]) + 1), 1]
         return ({"seq": seq + 1, "skip": {str(k): v for k, v in sorted(skip.items())},
@@ -790,10 +797,10 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     at = (seq, last_step, first)
     # Runs after the continued one belong to steps that no longer follow it; so does a restore the
     # continued run now covers (its earlier runs, when a factory_bug resume restores them all).
-    restore = {run: n for run, n in kept(place[(seq, last_step, attempt)] + 1).items()
+    restore = {run: n for run, n in kept(position((seq, last_step, attempt)) + 1).items()
                if not (run[:2] == at[:2] and run[2] >= first)}
     restore[at] = attempt
-    factory_bug_resumes += unreplayed(place[at], restore)
+    factory_bug_resumes += unreplayed(position(at), restore)
     if bump:
         if factory_bug_resumes >= MAX_FACTORY_BUG_RESUMES:   # defensive: the policy retires first
             if override is None:
