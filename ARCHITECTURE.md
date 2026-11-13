@@ -381,13 +381,17 @@ A durable case stopped by an infrastructure failure resumes instead: `start --re
 <case>` makes it the only case of a new batch. It keeps its case ID, so its key, artifacts,
 snapshot card and admission binding stay valid. Only its workflow is new (`<case>@<batch>`),
 and the batch maps it back for cards and seals. `engine.resume_point` allows this only when every
-workflow of the case finished held or retired and its last attempt (the newest by creation, not the
-highest seq: a `factory_bug` resume rewinds below an older diagnosis) ended `infra_error` or
+workflow of the case finished held or retired and its last attempt (the last one in the latest
+workflow's own steps, not the highest seq: a `factory_bug` resume rewinds below an older
+diagnosis) ended `infra_error` or
 `provider_limit`, never after a verdict, gate, limit or founder decision (one exception for a
 `factory_bug` hold follows below). The new workflow
-replays every earlier seq from the attempts recorded under the case's keys, with no worker,
+replays the history before the run it continues (the `at` of its resume point, in the order of
+the latest workflow's steps; an in-place rerun makes those seqs non-monotone) from the attempts
+recorded under the case's keys, with no worker,
 wait or message. If any attempt it needs is missing, it fails (`resume:diverged`) rather than
-starting new work in that history. The stopped seq first restores its recorded attempts
+starting new work in that history. The stopped run (and each earlier run a resume continued, listed in `restore` by seq, step
+and first attempt) first restores its recorded attempts
 (their snapshots, diagnostics and keys, so a changed step also diverges), then continues
 with a fresh infra retry allowance.
 Replayed seqs keep the bench their attempts recorded; the first live seq, unless it is GATES or SEAL

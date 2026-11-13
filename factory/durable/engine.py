@@ -586,12 +586,13 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     latest = max(runs, key=lambda w: (w.created_at or 0, w.workflow_id))
     if not isinstance(latest.output, dict) or latest.output.get("status") not in RESUMABLE_STATUSES:
         raise ContractError("resume:not_stopped_by_infra")
-    attempts = {}
+    attempts, by_id = {}, {}
     for w in DBOS.list_workflows(workflow_id_prefix=case_id + "/", name=slot_workflow.__qualname__,
                                  load_input=False):
         parts = w.workflow_id.split("/")
         if len(parts) != 4 or parts[0] != case_id or not (parts[1].isdigit() and parts[3].isdigit()):
             continue
+        by_id[w.workflow_id] = w
         # After a factory_bug resume the diagnosis seq is reused by the next step: the later one counts.
         key = (int(parts[1]), int(parts[3]))
         if key not in attempts or (w.created_at or 0, w.workflow_id) > (attempts[key].created_at or 0,
@@ -604,22 +605,15 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         out = w.output
         return out.get("result") if w.status == "SUCCESS" and isinstance(out, dict) else None
 
-    # The case's last attempt is the newest one, not the highest key: a factory_bug resume rewinds to
-    # seq - 1, so an older diagnosis can keep a higher seq (18681d, 11 November: its new 2/gates:1/7
-    # repair request was read as the old 3/diagnosis/5 and the gates_repair resume refused).
-    seq, attempt = max(attempts, key=lambda k: (attempts[k].created_at or 0, k))
-    result = result_of(attempts[(seq, attempt)])
     earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
     if override is not None and any(r.get("override") is not None for r in earlier):
         raise ContractError("resume:override_used")   # once per lineage
     overridden = False
     factory_bug_resumes = max([r.get("factory_bug_resumes", 0) for r in earlier], default=0)
     # Resumes the latest workflow made in place (rerun_after_release), by diagnosis seq. The new
-    # workflow replays, and so counts again, those below the seq it resumes at; the rest it is told of.
+    # workflow replays, and so counts again, those before the run it continues; the rest it is told of.
     reruns = DBOS.get_event(latest.workflow_id, "factory_bug_rerun_seqs", timeout_seconds=0) or []
 
-    def unreplayed(resume_seq):
-        return sum(1 for d in reruns if d >= resume_seq)
     # Each resume's skip already carries the earlier ones', less what its own rewind dropped, so only
     # the latest counts: merging them all brought back a dropped seq (86b100-r10, 13 November: the
     # diagnosis seq 4 skip of r7, dropped by r8's rewind, made r10 restore gates:2/3 at seq 4).
@@ -630,9 +624,68 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         for k, steps in r.get("renumber", {}).items():
             for name, n in steps.items():
                 renumber.setdefault(int(k), {})[name] = max(renumber.get(int(k), {}).get(name, 0), n)
+
+    # An in-place rerun (rerun_after_release) runs the diagnosed step again below the diagnosis's seq
+    # and gives that seq to the next step, so the replay's seqs are not in order and one seq can hold
+    # several runs of steps (1bb2ad-2r3, 13 November: its rerun below the seq it resumed at was taken
+    # for replayed history). A run is (seq, step, first attempt). Its place in the history is where the
+    # latest workflow started that attempt: that workflow's own steps record its whole path, replayed
+    # and live, in order (recorded times can tie). `restore` maps each run a resume continued to the
+    # attempts it restores, and `at` names the run the new workflow continues: the history replays
+    # until it starts.
+    path = []
+    for step in DBOS.list_workflow_steps(latest.workflow_id, load_output=False):
+        parts = (step["child_workflow_id"] or "").split("/")
+        if len(parts) == 4 and parts[0] == case_id and parts[1].isdigit() and parts[3].isdigit():
+            key = (int(parts[1]), parts[2], int(parts[3]))
+            if not path or path[-1] != key:   # its enqueue, then its result
+                path.append(key)
+    place = {key: i for i, key in reversed(list(enumerate(path)))}
+
+    # The case's last attempt is the last one on that path, not the highest key: a factory_bug resume
+    # rewinds to seq - 1, so an older diagnosis can keep a higher seq (18681d, 11 November: its new
+    # 2/gates:1/7 repair request was read as the old 3/diagnosis/5 and the gates_repair resume refused).
+    seq, attempt = max(attempts, key=lambda k: (attempts[k].created_at or 0, k))
+    last_w = attempts[(seq, attempt)]
+    if path and "%s/%d/%s/%d" % (case_id, *path[-1]) in by_id:
+        seq, _, attempt = path[-1]
+        last_w = by_id["%s/%d/%s/%d" % (case_id, *path[-1])]
+    result = result_of(last_w)
+
+    def dropped(s, nm, a):   # a diagnosis a factory_bug resume no longer replays (renumber)
+        return nm == StepKind.DIAGNOSIS.value and a <= renumber.get(s, {}).get(nm, 0)
+
+    def first_attempt(k, name, n):
+        """The first attempt of the run of `name` at seq k that ends at attempt n: attempts the path
+        holds one after the other. Anything between two of them (an in-place rerun) ends a run."""
+        first, floor = n, renumber.get(k, {}).get(name, 0) + 1
+        while (first - 1 >= floor and (k, name, first - 1) in place and (k, name, first) in place
+               and place[(k, name, first - 1)] + 1 == place[(k, name, first)]):
+            first -= 1
+        return first
+
+    if "restore" in last:
+        restore = {(k, nm, f): n for k, nm, f, n in last["restore"]}
+    else:   # a resume made before `restore`: its skip restored, at its seq, the attempts up to it of
+        # every run there (the old replay restored any step's attempts by seq alone)
+        restore = {(s, nm, a): skip[s] for (s, nm, a) in place
+                   if a <= skip.get(s, 0) and first_attempt(s, nm, a) == a}
+
+    def kept(until):
+        """The restores of runs the replay still reaches before the path's position `until`."""
+        return {run: n for run, n in restore.items() if place.get(run, until) < until and not dropped(*run)}
+
+    def unreplayed(start, restores):
+        """In-place reruns of the latest workflow's path that the new one does not replay: all but
+        those whose diagnosis comes before position `start`, outside any restored run."""
+        spans = [(place[run], place.get(run[:2] + (n,), place[run])) for run, n in restores.items() if run in place]
+        replayed = sum(1 for i, ((s, nm, a), nxt) in enumerate(zip(path, path[1:]))
+                       if nm == StepKind.DIAGNOSIS.value and nxt[0] == s - 1 and not dropped(s, nm, a)
+                       and i < start and not any(lo < i < hi for lo, hi in spans))
+        return max(0, len(reruns) - replayed)
     waste_keys = []
     gates_repair = (latest.output.get("status") == "retired" and isinstance(result, dict)
-                    and attempts[(seq, attempt)].workflow_id.split("/")[2].split(":")[0] == StepKind.GATES.value
+                    and last_w.workflow_id.split("/")[2].split(":")[0] == StepKind.GATES.value
                     and result.get("outcome") == Outcome.GATE_FAILED.value and result.get("repairable") is True
                     and result.get("feedback") is not None)
     if gates_repair:
@@ -643,11 +696,16 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         # retirement qualifies. Later resumes of the lineage carry the repaired GATES seq.
         # Seqs above the repaired GATES belong to steps that no longer follow it (an older diagnosis).
         skip = {k: v for k, v in skip.items() if k <= seq}
+        gates = last_w
+        until = place[(seq, gates.workflow_id.split("/")[2], attempt)] + 1
+        restore = kept(until)
+        repair = [seq + 1, "writer:%d" % (int(gates.workflow_id.split("/")[2].split(":")[1]) + 1), 1]
         return ({"seq": seq + 1, "skip": {str(k): v for k, v in sorted(skip.items())},
-                 "factory_bug_resumes": factory_bug_resumes + unreplayed(seq + 1), "recertify_repair": True,
-                 "recertify_repair_seq": seq,
+                 "restore": [[*run, n] for run, n in sorted(restore.items())], "at": repair,
+                 "factory_bug_resumes": factory_bug_resumes + unreplayed(until, restore),
+                 "recertify_repair": True, "recertify_repair_seq": seq,
                  "renumber": {str(k): v for k, v in sorted(renumber.items())}}, waste_keys)
-    last_step = attempts[(seq, attempt)].workflow_id.split("/")[2]
+    last_step, first, bump = last_w.workflow_id.split("/")[2], None, 0
     diagnosis_ok = (last_step == StepKind.DIAGNOSIS.value and isinstance(result, dict)
                     and result.get("outcome") == Outcome.OK.value)
     if not (diagnosis_ok and result.get("verdict") == Verdict.FACTORY_BUG.value) and not (
@@ -665,13 +723,13 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         elif _override_refusal(last_step.split(":")[0], result):
             raise ContractError(_override_refusal(last_step.split(":")[0], result))
         overridden = True
-        factory_bug_resumes += unreplayed(seq)
     elif not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
         # The diagnosed step is the one that ran last at seq - 1. A factory_bug resume can give that
         # seq to a new step while an older diagnosis there kept higher-numbered attempts; those belong
         # to another step and must not decide this one (they still count for skip and renumber).
         before = [w for (s, _), w in attempts.items() if s == seq - 1]
         name = max(before, key=lambda w: (w.created_at or 0, w.workflow_id)).workflow_id.split("/")[2] if before else None
+        name = next((nm for s, nm, _ in reversed(path) if s == seq - 1), name)   # times can tie
         diagnosed = sorted(a for (s, a), w in attempts.items() if s == seq - 1 and w.workflow_id.split("/")[2] == name)
         stops = [result_of(attempts[(seq - 1, a)]) for a in diagnosed]
         if not (latest.output.get("status") == "held" and factory_bug_rerunnable(name, stops)):
@@ -684,17 +742,27 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
             if refusal:
                 raise ContractError(refusal)
             overridden = True
-        factory_bug_resumes += unreplayed(seq - 1)
+        # A later diagnosis at that seq numbers its attempts after this one, so its key is new.
+        renumber[seq] = {StepKind.DIAGNOSIS.value: max(renumber.get(seq, {}).get(StepKind.DIAGNOSIS.value, 0), attempt)}
+        waste_keys = [attempts[(seq - 1, a)].workflow_id for a in diagnosed]
+        # Every recorded attempt of the diagnosed step restores, as its skip always did.
+        seq, attempt, last_step, bump = seq - 1, diagnosed[-1], name, 1
+        first = renumber.get(seq, {}).get(name, 0) + 1
+    if first is None:
+        first = first_attempt(seq, last_step, attempt)
+    at = (seq, last_step, first)
+    # Runs after the continued one belong to steps that no longer follow it; so does a restore the
+    # continued run now covers (its earlier runs, when a factory_bug resume restores them all).
+    restore = {run: n for run, n in kept(place[(seq, last_step, attempt)] + 1).items()
+               if not (run[:2] == at[:2] and run[2] >= first)}
+    restore[at] = attempt
+    factory_bug_resumes += unreplayed(place[at], restore)
+    if bump:
         if factory_bug_resumes >= MAX_FACTORY_BUG_RESUMES:   # defensive: the policy retires first
             if override is None:
                 raise ContractError("resume:factory_bug_resumes_exhausted")
             overridden = True
-        # A later diagnosis at that seq numbers its attempts after this one, so its key is new.
-        renumber[seq] = {StepKind.DIAGNOSIS.value: max(renumber.get(seq, {}).get(StepKind.DIAGNOSIS.value, 0), attempt)}
-        waste_keys = [attempts[(seq - 1, a)].workflow_id for a in diagnosed]
-        seq, attempt, factory_bug_resumes = seq - 1, diagnosed[-1], factory_bug_resumes + 1
-    else:
-        factory_bug_resumes += unreplayed(seq)
+        factory_bug_resumes += 1
     if seq < max(attempts)[0]:
         # A factory_bug resume rewinds below seqs an earlier resume may have skipped into (its
         # diagnosis after an infra stop): the steps that now take those seqs never ran there.
@@ -706,6 +774,7 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     caps += [c for c in (DBOS.get_event(w.workflow_id, "attack_cap_from", timeout_seconds=0) for w in runs)
              if c is not None]
     point = {"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())},
+             "restore": [[*run, n] for run, n in sorted(restore.items())], "at": list(at),
              "factory_bug_resumes": factory_bug_resumes, "attack_cap_from": min(caps, default=seq),
              "renumber": {str(k): v for k, v in sorted(renumber.items())}}
     repaired = [r["recertify_repair_seq"] for r in earlier if r.get("recertify_repair_seq") is not None]
@@ -939,6 +1008,12 @@ class _Case:
         self.workflow_id = case_id
         self.resume_seq = 0
         self.skip: dict = {}
+        # A resume made with `restore` (_resume_point): {(seq, step, first): last} replaces skip,
+        # and the history replays until the step `resume_at` (seq, step, first attempt) starts,
+        # whatever seqs the replay passes on the way. `live` is set once that has happened.
+        self.restore: Optional[dict] = None
+        self.resume_at: Optional[tuple] = None
+        self.live = False
         # After a factory_bug resume: {seq: {step name: attempts}} recorded there by a step that
         # is no longer replayed (its diagnosis). A step of that name at that seq numbers after them.
         self.renumber: dict = {}
@@ -963,7 +1038,9 @@ class _Case:
 
     @property
     def replaying(self) -> bool:
-        return self.seq < self.resume_seq
+        if self.live:
+            return False
+        return self.resume_at is not None or self.seq < self.resume_seq
 
     def attack_capped(self) -> bool:
         """After a step at self.seq: has this case used its attack rounds, so no further stress runs?"""
@@ -988,7 +1065,10 @@ class _Case:
                         step_deadline_stops=late,
                         writer_rounds_used=self.writer_rounds_used,
                         extensions_used=self.extensions_used, diagnoses_used=self.diagnoses_used,
-                        factory_bug_resumes=self.factory_bug_resumes + self.lineage_factory_bug_resumes,
+                        # A replayed diagnosis decided under the cap (one at it ended its workflow);
+                        # the lineage's count, this resume included, binds once the case is live.
+                        factory_bug_resumes=self.factory_bug_resumes
+                        + (0 if self.replaying else self.lineage_factory_bug_resumes),
                         in_extension=self.in_extension)
 
     def card(self) -> None:
@@ -1058,16 +1138,23 @@ class _Case:
         # bench instead. Nothing retained depends on the old one: SEAL runs only under the versions
         # its GATES passed, and every path from a writer, stress or diagnosis step reaches SEAL
         # through a GATES step, which adopts the current bench anyway.
-        if (self.resume_seq and self.seq == self.resume_seq
-                and step.kind not in (StepKind.GATES, StepKind.SEAL)
+        attempt, infra, limits, free, late, prev = self.renumber.get(self.seq, {}).get(step.name, 0), 0, 0, 0, 0, None
+        if self.resume_at is None:
+            resumes_here = bool(self.resume_seq) and self.seq == self.resume_seq and not self.live
+        else:
+            resumes_here = not self.live and (self.seq, step.name, attempt + 1) == self.resume_at
+            self.live = self.live or resumes_here
+        if (resumes_here and step.kind not in (StepKind.GATES, StepKind.SEAL)
                 and DBOS.patch("resume_adopts_bench")):
             self.bench = self.current("bench")
-        attempt, infra, limits, free, late, prev = self.renumber.get(self.seq, {}).get(step.name, 0), 0, 0, 0, 0, None
         handbacks = 0
         # A seq where a case stopped (this resume's or an earlier one's) first restores the attempts
         # recorded before that stop: their snapshots, diagnostics and history carry over, and their
         # keys prove the continuation is the same step. Only its infra retry allowance starts afresh.
-        recorded = self.skip.get(self.seq, 0)
+        if self.restore is None:
+            restored = (1, self.skip.get(self.seq, 0))
+        else:   # only this run's own attempts: another run may have taken this seq before it
+            restored = (attempt + 1, self.restore.get((self.seq, step.name, attempt + 1), 0))
         pool_since = None
         requested_minimum = 0
         failed_releases = []
@@ -1101,7 +1188,7 @@ class _Case:
                 job["case_limit"] += self.gates_g10
             if admit and not admission_started:
                 job["admission_deadline"] = self.spec.deadline_epoch
-            restoring = attempt <= recorded
+            restoring = restored[0] <= attempt <= restored[1]
             if (self.replaying or restoring) and not recorded_step(si.idempotency_key):
                 raise ContractError("resume:diverged")   # never start new work inside the replayed history
             queue = DBOS.retrieve_queue(steps_queue(self.batch_id))
@@ -1519,7 +1606,7 @@ class _Case:
         self.diagnoses_used -= 1
         self.factory_bug_resumes += 1
         self.bench = self.current("bench")   # GATES adopts it anyway; writer and stress steps too
-        self.seq -= 2                        # run_seq numbers the rerun at the diagnosed seq
+        self.seq -= 2                      # run_seq numbers the rerun at the diagnosed seq
         return step.kind.value, feedback
 
     def wait_for_fix(self, failed: tuple, hold: str, auto: Optional[str] = None,
@@ -1597,6 +1684,10 @@ def case_workflow(job: dict) -> dict:
         case.workflow_id = DBOS.workflow_id
         case.resume_seq = resume["seq"]
         case.skip = {int(seq): attempt for seq, attempt in resume["skip"].items()}
+        if resume.get("restore") is not None:   # absent in resumes made before it: they replay unchanged
+            case.restore = {(seq, name, first): last for seq, name, first, last in resume["restore"]}
+        if resume.get("at") is not None:
+            case.resume_at = tuple(resume["at"])
         # Earlier factory_bug resumes of this lineage: their diagnoses are no longer replayed.
         case.lineage_factory_bug_resumes = resume.get("factory_bug_resumes", 0)
         case.renumber = {int(seq): steps for seq, steps in resume.get("renumber", {}).items()}
@@ -1695,6 +1786,9 @@ class _Batch:
                                                                         self.resume["seq"] - 1)
             if self.resume.get("attack_cap_from") is not None:
                 job["resume"]["attack_cap_from"] = self.resume["attack_cap_from"]
+            for field in ("restore", "at"):   # absent otherwise: older jobs replay unchanged
+                if self.resume.get(field) is not None:
+                    job["resume"][field] = self.resume[field]
             if self.resume.get("override") is not None:   # absent otherwise: older jobs replay unchanged
                 job["resume"]["override"] = self.resume["override"]
             if self.resume.get("roles") is not None:   # absent otherwise: older jobs replay unchanged
