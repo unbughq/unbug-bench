@@ -213,6 +213,19 @@ class InvalidRunsTests(unittest.TestCase):
         self.assertEqual(info['unfetched_searches'], len(rows)); paid.assert_not_called()
         self.assertFalse((self.work / 'public-search.json').exists())
 
+    def test_a_swapped_stress_tester_counts_only_searches_made_after_it_took_over(self):
+        rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for row in rows: row.update(at=(now - datetime.timedelta(hours=1)).isoformat(), hit=False, ambiguous=False)
+        (self.c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        self.assertEqual(run.freshness_counts(self.c), {'builder_web':3, 'builder_github':3, 'attacker':2})
+        self.c.card['role_swaps'] = [{'role': 'stress_tester', 'from': 'a/x', 'to': 'b/y', 'at': now.isoformat()}]
+        self.assertEqual(run.freshness_counts(self.c), {'builder_web':3, 'builder_github':3, 'attacker':0})
+        mine = next(row for row in rows if row['who'] == 'attacker')
+        mine['at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()   # the new model's own search
+        (self.c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        self.assertEqual(run.freshness_counts(self.c)['attacker'], 1)
+
     def test_dead_flagged_result_clears_the_hit_but_never_fills_a_search_minimum(self):
         rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]
         for row in rows:

@@ -469,7 +469,7 @@ can check without the case card (`roles_invalid`): the role names, a model witho
 for its role, a strong calibrator off the Claude or Codex subscription; and its
 `bound_below_call_hold` check counts the swapped models. The worker (`run.swap_roles`, from
 `context_for_step`; ADMIT applies it after pinning its INPUTS models) rewrites the card's models and
-roles and appends each replaced model to the card's `role_swaps` (role, from, to, step, seq), then
+roles and appends each replaced model to the card's `role_swaps` (role, from, to, step, seq, at), then
 checks the whole swapped selection against `select_models`' family rules
 (`model_runtime.check_role_families`; like an explicit role flag, not the rotation's `refused` list) and
 each swapped model's bounded route on the case's router accounts. No role changes on a SEAL step, and
@@ -478,7 +478,9 @@ is the same on every attempt, so the worker reports `infra:roles_refused` and th
 (`policy.decide`): no retry, no diagnosis, the reason on the case card and the full message in the
 worker log. DIAGNOSIS never applies a swap. The hold is an infra stop, so the operator resumes again
 with other models; to undo a swap, name that role's earlier model (the card's `role_swaps` `from`):
-`--roles stress_tester=<earlier model>`.
+`--roles stress_tester=<earlier model>`. A swapped stress tester's G2 counts only the attacker
+searches logged after its swap (`run.own_search`), so it searches itself; and no family in
+`role_swaps` may become the second reviewer (`model_runtime.former_families`).
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch

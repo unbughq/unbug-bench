@@ -120,7 +120,7 @@ class Worker(unittest.TestCase):
 
     def test_the_card_keeps_every_replaced_model(self):
         c = self.context({"stress_tester": CLAUDE, "strong_calibrator": SOL})
-        self.assertEqual(c.card["role_swaps"], [
+        self.assertEqual([{k: v for k, v in s.items() if k != "at"} for s in c.card["role_swaps"]], [
             {"role": "stress_tester", "from": SOL, "to": CLAUDE, "step": "stress:1", "seq": 3},
             {"role": "strong_calibrator", "from": CLAUDE, "to": SOL, "step": "stress:1", "seq": 3}])
         # A later swap of the lineage adds to the history.

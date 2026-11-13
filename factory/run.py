@@ -1810,10 +1810,19 @@ def freshness_lines(c):
     return [x if isinstance(x, dict) else {"invalid_record": True} for x in lines]
 
 
-def freshness_counts(c):
+def own_search(c, row):
+    """search_evidence(row) unless it is an attacker row from before a resume swap's stress tester took
+    over (card role_swaps): the new stress tester owes its own searches."""
     from admission import search_evidence
+    key = search_evidence(row)
+    when = lambda at: datetime.datetime.fromisoformat(at.replace("Z", "+00:00"))
+    swapped = [when(s["at"]) for s in c.card.get("role_swaps") or () if s.get("role") == "stress_tester" and s.get("at")]
+    return None if key and swapped and key[0] == "attacker" and when(row["at"]) < max(swapped) else key
+
+
+def freshness_counts(c):
     evidence = {key for row in freshness_lines(c) if row.get('url') not in getattr(c, 'freshness_unfetched', set())
-                and (key := search_evidence(row)) is not None}
+                and (key := own_search(c, row)) is not None}
     n = lambda who, kind=None: sum(1 for w, k, q in evidence if w == who and (kind is None or k == kind))
     return {"builder_web": n("builder", "web"), "builder_github": n("builder", "github"), "attacker": n("attacker")}
 
@@ -3089,7 +3098,7 @@ def swap_roles(c, step_input):
     calibrator changes only before the case's first GATES step: never on a GATES step, nor once
     card["gates"] holds a result (each GATES step refills it). Its G10 identity names the roles
     (gate_state), so no try from another calibrator is ever reused; a swapped stress tester's G2 reruns
-    the same way. The card keeps every replaced model in role_swaps; the snapshot keeps the swap, so a
+    the same way, counting only its own searches (freshness_counts). The card keeps every replaced model in role_swaps; the snapshot keeps the swap, so a
     later step finds nothing left to change. ADMIT applies it after pinning its models; DIAGNOSIS
     never does. A refusal raises RoleSwapRefused."""
     roles = copy.deepcopy(c.card.get("roles"))
@@ -3107,7 +3116,8 @@ def swap_roles(c, step_input):
     history = []
     for role, model in changed.items():
         history.append({"role": role, "from": roles[role].get("model"), "to": model,
-                        "step": step_input.step.name, "seq": step_input.seq})
+                        "step": step_input.step.name, "seq": step_input.seq,
+                        "at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
         roles[role] = {"model": model, "effort": model_effort(model), "family": family(model)}
         models[SWAP_MODEL_KEYS[role]] = [model]
     try:
