@@ -6,6 +6,7 @@ import tempfile
 import threading
 import types
 import io
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -31,6 +32,7 @@ class FanoutTests(unittest.TestCase):
         self.scores = lambda listing: {}
         self.dive = None
         self.cwds, self.during = {}, None
+        self.per_query, self.rerun_finds_old = 2, True
         for target in (patch.object(run, 'opencode', self.model), patch.dict(freshness_fanout.SEARCH, {
                 'web': lambda q: self.search('web', q), 'github': lambda q: self.search('github', q)})):
             target.start(); self.addCleanup(target.stop)
@@ -38,8 +40,12 @@ class FanoutTests(unittest.TestCase):
     def search(self, kind, query):
         with self.lock: self.searches.append((kind, query))
         slug = query.replace(' ', '-')
-        return [{'url': f'https://github.com/stub/{slug}/{n}',
-                 'title': f'title {slug} {n}', 'snippet': 'body text of the result ' * 5} for n in range(2)]
+        found = [{'url': f'https://github.com/stub/{slug}/{n}',
+                  'title': f'title {slug} {n}', 'snippet': 'body text of the result ' * 5} for n in range(self.per_query)]
+        old = re.fullmatch(r'old \w+ \w+ (\d)', query)   # a re-run of an old row finds that row's URL again
+        if old and self.rerun_finds_old: found.append({'url': f'https://github.com/o/r/issues/{old[1]}', 'title': 'old',
+                                                       'snippet': 'body text of the result ' * 5})
+        return found
 
     def model(self, c, models, text, cwd, name, **kw):
         self.calls.append(name); self.prompts[name] = text
@@ -111,6 +117,59 @@ class FanoutTests(unittest.TestCase):
         self.assertTrue(all(r.get('_search_id') and r['at'] > old for r in after))   # kept identity, fresh timestamp
         self.assertEqual([r['query'] for r in after], [r['query'] for r in rows])   # identity and query retained
         self.assertTrue(all(admission.search_evidence_error(r) is None for r in after))
+
+    def expired_rows(self):
+        old = (NOW() - datetime.timedelta(days=3)).isoformat()
+        rows = [{'who': who, 'kind': kind, 'query': f'old {who} {kind} {i}', 'url': f'https://github.com/o/r/issues/{i}', 'at': old,
+                 'hit': False, 'retrieved': True, 'note': 'n', 'app_version': '2.19.0', 'version_scope': 's'}
+                for who in ('builder', 'attacker') for kind in ('web', 'github') for i in range(3)]
+        (self.c.case / 'freshness.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
+        return old
+
+    def test_a_rerun_that_does_not_retrieve_the_rows_url_leaves_it_for_the_agentic_repair(self):
+        self.rerun_finds_old = False
+        old = self.expired_rows()
+        run.freshness_topup(self.c, completed_roles=('attacker',))
+        mine = [r for r in self.rows() if r['who'] == 'builder' and r['query'].startswith('old ')]
+        self.assertTrue(mine and all(r['at'] == old and r['note'] == 'n' for r in mine))   # never claimed as retrieved
+        self.assertIn('builder-freshness', self.calls)
+
+    def test_an_amended_rows_note_counts_the_flagged_results(self):
+        self.expired_rows()
+        self.scores = lambda listing: {listing[0]['id']: 'unsure'}
+        self.dive = lambda leads: []
+        run.freshness_topup(self.c, completed_roles=('attacker',))
+        notes = [r['note'] for r in self.rows() if r.get('_search_id') and r['who'] == 'builder' and r['query'] == 'old builder web 0']
+        self.assertEqual(len(notes), 1)
+        self.assertIn('1 flagged', notes[0]); self.assertNotIn('none flagged', notes[0])
+
+    def test_every_flagged_result_is_logged_and_close_leads_are_read_first(self):
+        self.per_query = 5
+        # the fourth result of a query is the close one, after three unsure: all four are logged
+        urls = []
+        def scores(listing):
+            urls.extend(r['url'] for r in listing if r['id'].startswith('0.'))
+            return {r['id']: ('close' if r['id'].endswith('.3') else 'unsure')
+                    for r in listing if r['id'].startswith('0.') and r['id'] != '0.4'}
+        self.scores = scores
+        seen = []
+        self.dive = lambda leads: seen.extend(l['id'] for l in leads) or []
+        run.freshness_topup(self.c, completed_roles=('attacker',))
+        first = [r for r in self.rows() if r['url'] in urls and (r.get('hit') or r.get('ambiguous'))]
+        self.assertEqual(len(first), 4)
+        self.assertEqual(sum(r['hit'] for r in first), 1)
+        self.assertEqual(seen[0], '0.3')
+
+    def test_the_scorer_is_told_which_excerpts_were_cut_short(self):
+        self.assertEqual(freshness_fanout.excerpt('a  b'), {'snippet': 'a b'})
+        cut = freshness_fanout.excerpt('x' * (freshness_fanout.SNIPPET + 1))
+        self.assertTrue(cut['truncated']); self.assertEqual(len(cut['snippet']), freshness_fanout.SNIPPET)
+        long = lambda q: [{'url': 'https://github.com/x/y/1', 'title': 't', **cut}]
+        with patch.dict(freshness_fanout.SEARCH, {'web': long, 'github': long}):
+            run.freshness_topup(self.c, completed_roles=('attacker',))
+        listing = json.loads(self.prompts['builder-freshness-score'].split('```json\n')[1].split('\n```')[0])
+        self.assertTrue(all(r.get('truncated') is True for r in listing))
+        self.assertIn('"truncated" was cut short', self.prompts['builder-freshness-score'])
 
     def test_failed_backend_falls_back_to_the_agentic_search(self):
         def down(q): raise OSError('rate limited')

@@ -31,6 +31,12 @@ COPIED = ('statement.md', 'disclosure.md', 'provenance.json', 'promise.md', 'cas
 norm = lambda q: ' '.join(q.casefold().split())
 
 
+def excerpt(text):
+    """The scorer's excerpt of a result body, and whether it was cut short (the scorer is told)."""
+    text = re.sub(r'\s+', ' ', text).strip()
+    return {'snippet': text[:SNIPPET], **({'truncated': True} if len(text) > SNIPPET else {})}
+
+
 def _results(items):
     return [r for r in items if isinstance(r.get('url'), str) and r['url'].startswith(('http://', 'https://'))]
 
@@ -56,8 +62,7 @@ def web_search(query, limit=8):
         if url:
             title = re.match(r'Title: (.*)', chunk)
             body = re.sub(r'(?m)^(Title|URL|Published|Published Date|Author|Id|Image|Favicon): .*$', '', chunk)
-            out.append({'url': url[1], 'title': title[1].strip() if title else '',
-                        'snippet': re.sub(r'\s+', ' ', body).strip()[:SNIPPET]})
+            out.append({'url': url[1], 'title': title[1].strip() if title else '', **excerpt(body)})
     return _results(out)[:limit]
 
 
@@ -69,13 +74,12 @@ def github_search(query, limit=8):
         with urlopen(Request(f'https://api.github.com/search/{kind}?per_page={n}&q=' + quote(query), headers=headers),
                      timeout=30) as response:
             return json.loads(response.read())['items']
-    out = [{'url': i.get('html_url'), 'title': str(i.get('title') or ''),
-            'snippet': re.sub(r'\s+', ' ', str(i.get('body') or ''))[:SNIPPET]} for i in get('issues', limit)]
+    out = [{'url': i.get('html_url'), 'title': str(i.get('title') or ''), **excerpt(str(i.get('body') or ''))}
+           for i in get('issues', limit)]
     try:   # fix commits are public evidence too; a failed commit search leaves the issue results
         for i in get('commits', max(1, limit // 2)):
             message = str((i.get('commit') or {}).get('message') or '')
-            out.append({'url': i.get('html_url'), 'title': message.split('\n')[0][:200],
-                        'snippet': re.sub(r'\s+', ' ', message)[:SNIPPET]})
+            out.append({'url': i.get('html_url'), 'title': message.split('\n')[0][:200], **excerpt(message)})
     except Exception: pass
     return _results(out)[:limit + limit // 2]
 
@@ -135,8 +139,10 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
             fixed = {**row, 'at': stamp(), 'retrieved': True, 'note': 'x', 'app_version': version or '',
                      'version_scope': 'x', 'hit': row['hit'] if type(row.get('hit')) is bool else False}
             if reason is None: have.add((row['kind'], norm(row['query'])))
-            elif reason in REPAIRABLE and search_evidence_error(fixed) is None and row.get('_search_id'):
-                items.append({'kind': row['kind'], 'query': row['query'], 'amend': row['_search_id']})
+            # A hit row is never rewritten by a re-run search (its URL and verdict are the evidence).
+            elif (reason in REPAIRABLE and search_evidence_error(fixed) is None and row.get('_search_id')
+                  and row.get('hit') is not True):
+                items.append({'kind': row['kind'], 'query': row['query'], 'amend': row['_search_id'], 'url': row['url']})
                 have.add((row['kind'], norm(row['query'])))
     # 2. One planning call for the queries still missing against G2's minimums (plus one spare each).
     short = ({'web': max(0, 3 - counts['builder_web']), 'github': max(0, 3 - counts['builder_github'])} if who == 'builder'
@@ -171,7 +177,8 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
     items = [i for i in items if i['results'] is not None and (i['results'] or i['kind'] == 'github' or i['amend'])]
     if not items: return
     # 4. One call reads and scores every result.
-    listing = [{'id': f'{n}.{m}', 'url': r['url'], 'title': r['title'], 'snippet': r['snippet']}
+    listing = [{'id': f'{n}.{m}', 'url': r['url'], 'title': r['title'], 'snippet': r['snippet'],
+                **({'truncated': True} if r.get('truncated') else {})}
                for n, i in enumerate(items) for m, r in enumerate(i['results'])]
     verdict = {}
     if listing:
@@ -182,7 +189,7 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
                  f"Freshness scoring only; do not search or browse, and change nothing except writing `{out}` in the current directory. Read `statement.md` "
                  f"(and `disclosure.md`, `promise.md`, `case.json` if present) in the current directory to learn the bug and pinned app version"
                  f"{' ' + version if version else ''}. Do not read `freshness.jsonl`. For every search result below judge how close it is to "
-                 f"THIS bug in THIS app: \"miss\" (positively unrelated, other app, or only the generic pattern; never \"miss\" a result whose excerpt is too short or vague to tell), \"close\" (discusses this bug, its fix or "
+                 f"THIS bug in THIS app: \"miss\" (positively unrelated, other app, or only the generic pattern; never \"miss\" a result whose excerpt is too short or vague to tell; an excerpt marked \"truncated\" was cut short, so \"miss\" it only if the part shown already rules it out), \"close\" (discusses this bug, its fix or "
                  f"a workaround) or \"unsure\" (could be this bug; needs reading). Write JSON {{\"results\": [{{\"id\": \"...\", "
                  f"\"verdict\": \"miss\" | \"close\" | \"unsure\", \"reason\": \"one sentence on why, including version applicability\"}}]}} "
                  f"with one entry per id.\n\n## Results\n\n```json\n{json.dumps(listing, indent=1)}\n```\n\n## This run\n\n" + ctx,
@@ -200,6 +207,7 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
             if len(r['snippet']) < THIN and verdict[r['id']][0] == 'miss': verdict[r['id']] = ('unsure', 'excerpt too short to clear')
     # 5. Deep dive (today's agentic browsing) only on close/unsure leads; an unanswered lead stays flagged.
     leads = [r for r in listing if verdict.get(r['id'], ('unsure', ''))[0] != 'miss']
+    leads.sort(key=lambda r: verdict.get(r['id'], ('unsure',))[0] != 'close')   # the browsing cap reads close leads first
     final = {r['id']: ('close' if verdict.get(r['id'], ('unsure',))[0] == 'close' else 'unsure',
                        verdict.get(r['id'], ('', ''))[1]) for r in leads}
     if leads[:MAX_LEADS]:
@@ -226,20 +234,24 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
         base = {'who': who, 'kind': item['kind'], 'query': item['query'], 'at': stamp(), 'retrieved': True,
                 'app_version': version}
         flagged = [(r, final[f'{n}.{m}']) for m, r in enumerate(found) if f'{n}.{m}' in final and final[f'{n}.{m}'][0] != 'miss']
-        for r, (v, why) in flagged[:3]:
+        for r, (v, why) in flagged:   # every unresolved lead is logged for G2's review; only browsing is capped
             new.append({**base, 'url': r['url'], 'hit': v == 'close', **({} if v == 'close' else {'ambiguous': True}),
                         'note': (why or f"Fan-out lead: {r['title']}")[:600],
                         'version_scope': why[:300] or 'Needs independent same_bug and version review'})
         top = found[0] if found else None
         reason = verdict.get(f'{n}.0', ('', ''))[1] if found else ''
-        note = (f"Fan-out search returned {len(found)} results, none flagged. " + (f"Top: {top['title']}. {reason}" if top else
-                'No results.'))[:600]
+        note = (f"Fan-out search returned {len(found)} results, " + (f"{len(flagged)} flagged (logged as their own rows). "
+                if flagged else "none flagged. ") + (f"Top: {top['title']}. {reason}" if top else 'No results.'))[:600]
         scope = reason or 'No result describes this bug in the pinned app version'
+        url = top['url'] if top else 'https://github.com/search?type=issues&q=' + quote(item['query'])
         if item['amend']:
-            amended[item['amend']] = {'at': stamp(), 'retrieved': True, 'note': note, 'app_version': version, 'version_scope': scope}
+            # The row keeps its URL (history), so it is amended only if this search retrieved that URL
+            # again; otherwise it stays for the agentic repair, which must amend it truthfully.
+            if any(r['url'] == item['url'] for r in found):
+                amended[item['amend']] = {'at': stamp(), 'retrieved': True, 'note': note, 'app_version': version,
+                                          'version_scope': scope}
         elif not flagged:
-            new.append({**base, 'url': top['url'] if top else 'https://github.com/search?type=issues&q=' + quote(item['query']),
-                        'hit': False, 'note': note, 'version_scope': scope})
+            new.append({**base, 'url': url, 'hit': False, 'note': note, 'version_scope': scope})
     with lock:
         current = run.freshness_lines(c)
         for row in current:
