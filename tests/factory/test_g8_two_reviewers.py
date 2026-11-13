@@ -140,7 +140,9 @@ class ContextHookTests(unittest.TestCase):
             work = practice_tree(pathlib.Path(tmp), CASE, card=practice_card(CASE, **card_more))
             si = StepInput(BATCH, CASE, 1, Step(StepKind.WRITER, 1), 1, PLUMBING, BENCH_V, Ref("1" * 64, ArtifactKind.INPUTS),
                            Ref("2" * 64, ArtifactKind.CASE_SNAPSHOT), 600.0, 5_000_000)
-            return run.context_for_step(si, work).models["reviewers"]
+            c = run.context_for_step(si, work)
+            self.card = c.card
+            return c.models["reviewers"]
 
     def test_next_step_of_a_single_reviewer_case_pins_a_second_reviewer(self):
         reviewers = self.adopted()
@@ -151,7 +153,7 @@ class ContextHookTests(unittest.TestCase):
         from durable.contract import Outcome
         reviewers = self.adopted(imported_from={"idea_families": ["xiaomi", "z-ai"]})   # the step still starts
         self.assertEqual(len(reviewers), 1)
-        c = types.SimpleNamespace(models={"reviewers": reviewers}, card={})
+        c = types.SimpleNamespace(models={"reviewers": reviewers}, card=self.card)
         out = run.engine_gates(c)
         self.assertEqual((out["outcome"], out["reason"], out["gate"]), (Outcome.NEEDS_FOUNDER, "g8:no_eligible_reviewer", "G8"))
 

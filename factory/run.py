@@ -3448,8 +3448,8 @@ def _split_panel(c, gate):
 def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
-    if len(c.models["reviewers"]) < 2 and not c.card.get("recertify"):
-        # G8/G9 need two independent reviewers (founder 2026-11-12) and none is eligible for this case.
+    if c.card.get("reviewer2_unavailable") and not c.card.get("recertify"):
+        # G8/G9 need two independent reviewers (founder 2026-11-12) and none is eligible (context_for_step).
         return {"outcome": Outcome.NEEDS_FOUNDER, "reason": "g8:no_eligible_reviewer", "gate": "G8", "passed": ()}
     adopt_parallel_gates_at_entry(c)
     scale_bench_workers(c)
