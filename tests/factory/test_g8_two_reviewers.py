@@ -147,6 +147,14 @@ class ContextHookTests(unittest.TestCase):
         self.assertEqual(len(reviewers), 2)
         self.assertNotEqual(family(reviewers[0][0]), family(reviewers[1][0]))
 
+    def test_an_idea_covering_every_second_family_stops_gates_for_the_founder(self):
+        from durable.contract import Outcome
+        reviewers = self.adopted(imported_from={"idea_families": ["xiaomi", "z-ai"]})   # the step still starts
+        self.assertEqual(len(reviewers), 1)
+        c = types.SimpleNamespace(models={"reviewers": reviewers}, card={})
+        out = run.engine_gates(c)
+        self.assertEqual((out["outcome"], out["reason"], out["gate"]), (Outcome.NEEDS_FOUNDER, "g8:no_eligible_reviewer", "G8"))
+
 
 class CacheIdentityTests(unittest.TestCase):
     def identity(self, gate, reviewers, root):

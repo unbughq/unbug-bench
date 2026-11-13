@@ -3121,7 +3121,10 @@ def context_for_step(step_input, work):
         c.models = card["models"]
         # An in-flight single-reviewer case adopts the second reviewer at its next round (founder 2026-11-12).
         if len(c.models.get("reviewers") or []) == 1:
-            model_runtime.with_second_reviewer(c, getattr(c.args, "rotation_table", None))
+            try:
+                model_runtime.with_second_reviewer(c, getattr(c.args, "rotation_table", None))
+            except ValueError as error:   # no family is free (an imported idea's authors cover them): GATES stops for the founder
+                card["reviewer2_unavailable"] = str(error)
     else:
         c.models = card["models"] = pick_models(c)
     prepared = card.get("factory_slots_prepared", 1)
@@ -3444,6 +3447,9 @@ def _split_panel(c, gate):
 def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
+    if len(c.models["reviewers"]) < 2 and not c.card.get("recertify"):
+        # G8/G9 need two independent reviewers (founder 2026-11-12) and none is eligible for this case.
+        return {"outcome": Outcome.NEEDS_FOUNDER, "reason": "g8:no_eligible_reviewer", "gate": "G8", "passed": ()}
     adopt_parallel_gates_at_entry(c)
     scale_bench_workers(c)
     if not c.args.dry_run and not parallel_gates(c) and not g1(c)[1]["problems"]:
