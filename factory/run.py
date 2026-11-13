@@ -1186,6 +1186,12 @@ def loop_freshness(c, result, report):
     version = re.match(r'^v?(' + semver + r')(?=\s|$)', str(app.get('version', '')))
     tag = re.fullmatch(r'v?(' + semver + ')', str(app.get('commit', '')))
     pinned = (version or tag)[1] if version or tag else None
+    if pinned is None:
+        # A case pinned by commit SHA names its release only in its search evidence: use it
+        # when every recorded app_version agrees on one semver; otherwise it stays unknown.
+        found = {str(row.get('app_version') or '').strip() for row in lines} - {''}
+        only = re.fullmatch(r'v?(' + semver + ')', found.pop()) if len(found) == 1 else None
+        pinned = only[1] if only else None
     for url in requested:
         if any(row.get('url') == url for row in flagged): continue
         matches = [row for row in lines if row.get('url') == url]
