@@ -331,8 +331,16 @@ class Guard:
         for row in owned:
             ttl = min(7200, int(self.request["deadline_epoch"] + self.checkpoint_grace_s - self.clock()))
             if ttl >= 1:
-                ok, _ = self.check("boat_extend", lambda: self._boat(["extend", row["id"], "--ttl", str(ttl)], 30))
-                record.setdefault(row["id"], {})["ok" if ok else "refused"] = self.clock()
+                codes = []
+                def extend():
+                    try: return self._boat(["extend", row["id"], "--ttl", str(ttl)], 30)
+                    except CheckFailed as error:
+                        codes.append(error.code); raise
+                ok, _ = self.check("boat_extend", extend)
+                # Only Boat's own answer is a refusal. A timeout or a call that never reached Boat
+                # (transport_failure) leaves the renewal unknown, so a silent link never retires a worker.
+                if ok or (codes and not any(map(transport_failure, codes))):
+                    record.setdefault(row["id"], {})["ok" if ok else "refused"] = self.clock()
         self.save("renewed.json", record)
 
     # -- the pass --
@@ -685,6 +693,13 @@ def degraded(state_dir) -> bool:
         return type(until) in (int, float) and time.time() < until
     except (OSError, ValueError, KeyError, TypeError):
         return False
+
+
+def transport_failure(code: str) -> bool:
+    """A boat-call exit that says nothing of Boat's answer: timed out (124), capture failed (125),
+    could not run (126), or killed by a signal (128 and up)."""
+    number = code.removeprefix("exit_")
+    return number.isdigit() and int(number) >= 124
 
 
 RENEWAL_STALE_S = 900.0   # fifteen missed one-minute guard passes
