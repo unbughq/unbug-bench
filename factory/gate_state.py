@@ -41,9 +41,10 @@ DEPS_IMAGE_FILE = pathlib.Path("/opt/medusa-deps-image")
 
 
 def environment(*keys):
-    """The bench execution environment; the deps image as bin/bench.py resolves it when the variable is unset."""
+    """The bench execution environment; the deps image as bin/bench.py resolves it: the variable's value
+    when it is set (even empty), else DEPS_IMAGE_FILE."""
     result = {key: os.environ.get(key) for key in keys}
-    if "MEDUSA_DEPS_IMAGE" in result and not result["MEDUSA_DEPS_IMAGE"] and DEPS_IMAGE_FILE.is_file():
+    if "MEDUSA_DEPS_IMAGE" in result and "MEDUSA_DEPS_IMAGE" not in os.environ and DEPS_IMAGE_FILE.is_file():
         result["MEDUSA_DEPS_IMAGE"] = DEPS_IMAGE_FILE.read_text().strip()
     return result
 MEASURE = ("factory/case_permissions.py", "bin/bench.py", "bin/bench_judging.py", "bin/checkpoint", "bin/checkpoint_evidence.py", "bin/claims.py", "bin/refusal.py", "bin/factory_pool.py", "bin/diagnostic_budget.py",

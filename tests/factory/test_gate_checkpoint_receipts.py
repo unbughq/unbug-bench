@@ -91,6 +91,10 @@ class GateCheckpointReceipts(unittest.TestCase):
             second = gate_state.fingerprint(self.c, 'G5', ROOT), gate_state.scientific_version(self.c, 'G5', ROOT)
         self.assertNotEqual(first[0], second[0])
         self.assertNotEqual(first[1], second[1])
+        # Set but empty, bench.py passes the empty value to Docker and never reads the file.
+        with patch.object(gate_state, 'DEPS_IMAGE_FILE', deps), patch.dict('os.environ', {**env, 'MEDUSA_DEPS_IMAGE': ''}, clear=True):
+            self.assertEqual(gate_state.environment('MEDUSA_DEPS_IMAGE'), {'MEDUSA_DEPS_IMAGE': ''})
+            self.assertNotEqual(gate_state.fingerprint(self.c, 'G5', ROOT), second[0])
 
     def test_forget_receipts_survives_a_concurrent_note(self):
         mine = {}
