@@ -382,7 +382,9 @@ A durable case stopped by an infrastructure failure resumes instead: `start --re
 snapshot card and admission binding stay valid. Only its workflow is new (`<case>@<batch>`),
 and the batch maps it back for cards and seals. `engine.resume_point` allows this only when every
 workflow of the case finished held or retired (or failed with `resume:diverged`: one that started no
-attempt of its own is ignored, one that did counts as held where it broke) and its last attempt (the last one in the latest
+attempt of its own is ignored; one whose last attempt is its own factory_bug diagnosis, with
+the in-place rerun of it broken before it ran, counts as held at that diagnosis; any other,
+or one whose attempts lack a recorded parent, is refused for a founder to look at) and its last attempt (the last one in the latest
 workflow's own steps, not the highest seq: a `factory_bug` resume rewinds below an older
 diagnosis) ended `infra_error` or
 `provider_limit`, never after a verdict, gate, limit or founder decision (one exception for a
