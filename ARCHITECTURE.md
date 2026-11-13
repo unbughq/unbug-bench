@@ -629,7 +629,8 @@ lease/run/release into request files under `~/durable/helpers/<attempt>/req` and
 `res`; the control VM's `Broker`, started from `BoatChannel` for GATES attempts only (spool written at
 start, relay kept alive by each poll, no new engine step, so recorded workflows replay unchanged), reads
 the requests over `boat ssh`, leases each helper through `BoatPool` under case id `<case>-h<k>` (same
-release install and verify; `vm_type` may differ), pushes the case tree, runs `helper_link.py run` on it
+release install and verify; `vm_type` may differ, except under the bounded campaign controller, which refuses
+a helper `vm_type` other than the request's approved one with `infra:compute_approval_unverified`), pushes the case tree, runs `helper_link.py run` on it
 (the real input check: release, bench, case, guard and scenario digests; then `bin/checkpoint`) and writes
 back the sealed result. Helpers are deleted on `release`, when the attempt ends or is cancelled, when
 polls stop for `idle_s`, and for every leftover helper record at controller start. A claim by an earlier

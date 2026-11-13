@@ -87,6 +87,14 @@ class LauncherVmTypeTests(unittest.TestCase):
         self.pool.acquire("case-t-1", DIGEST, DIGEST, vm_type="default")
         self.assertEqual(len(self.news()), 1)
 
+    def test_an_approved_large_type_reaches_boat(self):
+        self.request.update(vm_type="large", worker_rates_usd_per_second={"large": 8e-05},
+                            approved_infrastructure_usd=30)
+        (self.root / "campaign-request.json").write_text(json.dumps(self.request))
+        self.pool.acquire("case-t-1", DIGEST, DIGEST, vm_type="large")
+        new = self.news()[0]
+        self.assertEqual(new[new.index("--type") + 1], "large")
+
     def test_a_helper_of_another_type_is_refused_before_any_start(self):
         with self.assertRaises(W.PoolError) as caught:
             self.pool.acquire("case-t-1", DIGEST, DIGEST, vm_type="large")
