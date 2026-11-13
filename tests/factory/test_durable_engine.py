@@ -2065,6 +2065,21 @@ class GatesMoneyUpFront(unittest.TestCase):
         first = amounts["8/gates:2/1"]   # an extension's GATES step draws on the batch only
         self.assertEqual(amounts["8/gates:2/2"], (first - ext) * 2 + ext)
 
+    def test_gates_that_spent_past_the_case_money_still_seal(self):
+        r, out = run({"spec": {"max_cases_started": 1}, "script": {"1/gates:1/1": {"paid": 60 * M}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_a_gates_money_stop_past_the_case_money_resumes_by_itself(self):
+        script = {"1/diagnosis/*": {"verdict": "factory_bug"},
+                  "1/gates:1/1": {"outcome": "exhausted", "reason": "engine:money", "paid": 80 * M}}
+        r, out = run({"spec": {"max_cases_started": 1}, "script": script,
+                      "deadline_in": 25, "timing": {"wake_poll_s": 0.3}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(steps(r, 1)[-4:], ["gates:1", "diagnosis", "gates:1", "seal"])
+
     def test_a_lost_gates_attempt_books_its_grant_without_the_extension(self):
         from durable.policy import gates_money_extension
         from durable.contract import Step, StepKind

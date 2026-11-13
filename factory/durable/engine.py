@@ -897,6 +897,7 @@ class _Case:
         self.ran: Optional[tuple] = None
         self.ran_on: Optional[tuple] = None
         self.rerun_seqs: list = []   # diagnosis seqs of factory_bug resumes in this workflow (rerun_after_release)
+        self.gates_g10 = 0   # the G10 authority (gates_money_up_front) the case's GATES attempts carried
         self.override: Optional[str] = None   # the operator's reason, when an override resumed this case
 
     @property
@@ -1031,6 +1032,10 @@ class _Case:
                 job["request"] += extension
                 job["case_limit"] += extension
                 job["g10_usd_micros"] = extension   # settle books a lost attempt without it
+                self.gates_g10 = extension
+            if step.kind is StepKind.SEAL:
+                # GATES may have spent its G10 authority from the case's money: SEAL keeps the same limit.
+                job["case_limit"] += self.gates_g10
             if admit and not admission_started:
                 job["admission_deadline"] = self.spec.deadline_epoch
             restoring = attempt <= recorded
@@ -1435,7 +1440,8 @@ class _Case:
         diagnosis = Step(StepKind.DIAGNOSIS).name
         diagnosis_attempt = max(h["attempt"] for h in self.history if h["seq"] == self.seq and h["step"] == diagnosis)
         keys = [f"{self.case_id}/{self.seq - 1}/{step.name}/{h['attempt']}" for h in diagnosed]
-        if not self.wait_for_fix(ran_on, f"{self.seq}/{diagnosis_attempt}", auto_resume_kind(diagnosed)):
+        if not self.wait_for_fix(ran_on, f"{self.seq}/{diagnosis_attempt}", auto_resume_kind(diagnosed),
+                                 self.spec.case_money_usd_micros + gates_money_extension(step)):
             return None
         self.renumber.setdefault(self.seq, {})[diagnosis] = diagnosis_attempt
         self.renumber.setdefault(self.seq - 1, {})[step.name] = max(h["attempt"] for h in diagnosed)
@@ -1451,7 +1457,8 @@ class _Case:
         self.seq -= 2                        # run_seq numbers the rerun at the diagnosed seq
         return step.kind.value, feedback
 
-    def wait_for_fix(self, failed: tuple, hold: str, auto: Optional[str] = None) -> bool:
+    def wait_for_fix(self, failed: tuple, hold: str, auto: Optional[str] = None,
+                     case_limit: Optional[int] = None) -> bool:
         """Park without a worker until the batch's (plumbing, bench) differs from `failed`, the
         releases the diagnosed step ran on, or an operator sends Engine.resume_held for this hold
         (`hold`: diagnosis seq/attempt; a resume left over from an earlier hold is ignored). Never
@@ -1477,7 +1484,9 @@ class _Case:
             if (self.current("plumbing"), self.current("bench")) != failed:
                 LOG.info("auto-resume %s: %s, a new release", self.case_id, hold)
                 break
-            if auto and hold_clear_step(auto, self.batch_id, self.case_id, self.spec.case_money_usd_micros):
+            # A GATES money stop is measured against the limit its rerun gets (case limit plus the G10 authority).
+            limit = self.spec.case_money_usd_micros if case_limit is None else case_limit
+            if auto and hold_clear_step(auto, self.batch_id, self.case_id, limit):
                 LOG.info("auto-resume %s: %s, %s cleared", self.case_id, hold, auto)
                 DBOS.set_event("auto_resume", {"hold": hold, "kind": auto})
                 break
