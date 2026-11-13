@@ -1189,9 +1189,9 @@ def loop_freshness(c, result, report):
     if pinned is None:
         # A case pinned by commit SHA names its release only in its search evidence: use it
         # when every recorded app_version agrees on one semver; otherwise it stays unknown.
-        found = {str(row.get('app_version') or '').strip() for row in lines} - {''}
-        only = re.fullmatch(r'v?(' + semver + ')', found.pop()) if len(found) == 1 else None
-        pinned = only[1] if only else None
+        found = {str(row.get('app_version') or '').strip().removeprefix('v') for row in lines} - {''}
+        only = re.fullmatch(semver, found.pop()) if len(found) == 1 else None
+        pinned = only[0] if only else None
     for url in requested:
         if any(row.get('url') == url for row in flagged): continue
         matches = [row for row in lines if row.get('url') == url]

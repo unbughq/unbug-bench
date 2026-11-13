@@ -379,6 +379,8 @@ class LoopFreshnessTests(unittest.TestCase):
 
     def test_sha_pinned_case_takes_the_version_its_search_rows_agree_on(self):
         self.pin_by_sha()
+        self.rows.append(evidence('attacker', 'web', 98, app_version='v2.19.0'))
+        self.save_rows()
         self.loop()
         self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm'])
         self.assertEqual(self.reviewed_rows[0]['app_version'], '2.19.0')
