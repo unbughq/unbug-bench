@@ -603,6 +603,8 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     # One that started no attempt of its own changed nothing: the case continues as if it never ran.
     # One that did holds the case where it broke, as a hold of its last attempt would.
     owners = {w.parent_workflow_id for w in by_id.values()}
+    if diverged and None in owners:   # recorded before DBOS kept a parent: who started what is unknown
+        raise ContractError("resume:diverged_unknown_owner")
     runs = [w for w in runs if w.workflow_id not in diverged or w.workflow_id in owners]
     latest = max(runs, key=lambda w: (w.created_at or 0, w.workflow_id))
     stopped = "held" if latest.workflow_id in diverged else (
@@ -660,9 +662,14 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         seq, _, attempt = path[-1]
         last_w = by_id["%s/%d/%s/%d" % (case_id, *path[-1])]
     result = result_of(last_w)
-    if (latest.workflow_id in diverged and reruns and reruns[-1] == seq and isinstance(result, dict)
-            and result.get("verdict") == Verdict.FACTORY_BUG.value):
-        reruns = reruns[:-1]   # the in-place rerun it broke at never ran: this resume is that rerun
+    if latest.workflow_id in diverged:
+        # Only the 1bb2ad shape continues: its last attempt is a factory_bug diagnosis whose in-place
+        # rerun broke before it started, and this resume is that rerun (so it is not counted twice).
+        # Anything else it did live could owe a diagnosis or have passed a gate: a founder looks.
+        if not (reruns and reruns[-1] == seq and isinstance(result, dict)
+                and result.get("verdict") == Verdict.FACTORY_BUG.value):
+            raise ContractError("resume:diverged_after_live_work")
+        reruns = reruns[:-1]
 
     def dropped(s, nm, a):   # a diagnosis a factory_bug resume no longer replays (renumber)
         return nm == StepKind.DIAGNOSIS.value and a <= renumber.get(s, {}).get(nm, 0)

@@ -2190,6 +2190,20 @@ class ReleaseHolds(unittest.TestCase):
                                               ("6", "diagnosis", "1"), ("5", "stress:2", "3"), ("5", "stress:2", "4"),
                                               ("6", "diagnosis", "2")])
 
+    def test_a_resume_after_one_that_diverged_past_other_live_work_is_refused(self):
+        # The rerun ran, then the step after it diverged: what it did live is not a hold to resume.
+        r = self.held_at_a_diagnosis()
+        r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1,
+                        "bad_restore": [[5, "stress:2", 1, 1]],
+                        "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {}},
+                        "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]}, workdir=r.work)
+        o2 = r2.run()
+        self.assertEqual(o2.get("result", o2)["cases"], {C1 + "@b-u": "engine_error"})
+        self.assertEqual(r.keys(1)[-1], ("4", "writer:2", "3"))
+        EngineRun({"spec": {"batch_id": "b-v", **self.SPEC}, "resume_of": C1}, workdir=r.work).run()
+        self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()),
+                         {"refused": "resume:diverged_after_live_work"})
+
     def test_a_resume_case_batch_counts_the_resumes_made_in_place(self):
         # max 2: one release resume in b-t, then held at its deadline; the --resume-case batch is the
         # second resume, so its next factory_bug retires instead of holding a third time.
