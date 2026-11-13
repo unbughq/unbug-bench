@@ -578,6 +578,12 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
 
     def unreplayed(resume_seq):
         return sum(1 for d in reruns if d >= resume_seq)
+    # Each resume's skip already carries the earlier ones', less what its own rewind dropped, so only
+    # the latest counts: merging them all brought back a dropped seq (86b100-r10, 13 November: the
+    # diagnosis seq 4 skip of r7, dropped by r8's rewind, made r10 restore gates:2/3 at seq 4).
+    # (A diagnosis seq rerun in place keeps its skip: the replay restores the diagnosis, then drops it.)
+    last = (latest.input["args"][0].get("resume") or {}) if latest.workflow_id != case_id else {}
+    skip = {int(k): v for k, v in last.get("skip", {}).items()}
     renumber = {}
     for r in earlier:
         for k, steps in r.get("renumber", {}).items():
@@ -594,9 +600,6 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         # feedback goes to a writer round, then every gate runs again (run.engine_writer_round drops
         # the kept October verdicts; the October case had its attack round then). Only that
         # retirement qualifies. Later resumes of the lineage carry the repaired GATES seq.
-        skip = {}
-        for r in earlier:
-            skip.update({int(k): v for k, v in r.get("skip", {}).items()})
         # Seqs above the repaired GATES belong to steps that no longer follow it (an older diagnosis).
         skip = {k: v for k, v in skip.items() if k <= seq}
         return ({"seq": seq + 1, "skip": {str(k): v for k, v in sorted(skip.items())},
@@ -651,9 +654,6 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         seq, attempt, factory_bug_resumes = seq - 1, diagnosed[-1], factory_bug_resumes + 1
     else:
         factory_bug_resumes += unreplayed(seq)
-    skip = {}
-    for r in earlier:
-        skip.update({int(k): v for k, v in r.get("skip", {}).items()})
     if seq < max(attempts)[0]:
         # A factory_bug resume rewinds below seqs an earlier resume may have skipped into (its
         # diagnosis after an infra stop): the steps that now take those seqs never ran there.
@@ -1475,6 +1475,12 @@ class _Case:
         self.diagnoses_used -= 1
         self.factory_bug_resumes += 1
         self.bench = self.current("bench")   # GATES adopts it anyway; writer and stress steps too
+        # The step after the rerun takes the diagnosis's seq: a resume's restore of the diagnosis's
+        # attempts there is not its own (it would restore attempts that step never made). A resume
+        # at that diagnosis also makes the rerun below it new work, not replayed history.
+        self.skip.pop(self.seq, None)
+        if not self.replaying and self.seq == self.resume_seq:
+            self.resume_seq = self.seq - 1
         self.seq -= 2                        # run_seq numbers the rerun at the diagnosed seq
         return step.kind.value, feedback
 

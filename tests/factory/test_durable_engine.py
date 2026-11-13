@@ -1278,6 +1278,32 @@ class Resume(unittest.TestCase):
         r3 = self.engine_run({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
         self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
 
+    def test_a_skip_dropped_by_a_rewind_stays_dropped_in_later_resumes(self):
+        # 86b100-r10 on 13 November: a resume skipped into its diagnosis seq (infra), a factory_bug
+        # rewound below it and that skip was dropped; the rewound run went on past it to a later
+        # factory_bug. The next resume took the old skip back from the earlier resume and replayed
+        # the step now at that seq as if it had the diagnosis's attempts: resume:diverged.
+        spec = {"max_cases_started": 1, "max_infra_retries_per_step": 1}
+        r, out = self.manual_run({"spec": spec,
+                                  "script": {"1/stress:1/1": {"feedback": True},
+                                             "1/writer:2/*": {"outcome": "infra_error", "reason": "infra:stalled"},
+                                             "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled"}}})
+        self.addCleanup(r.close)
+        self.assertEqual((out["result"]["cases"], r.keys(1)[-1][:2]), ({C1: "held"}, ("5", "diagnosis")))
+        r2 = self.engine_run({"spec": {"batch_id": "b-u", **spec}, "resume_of": C1,
+                              "script": {"1/diagnosis/*": {"verdict": "factory_bug"}}}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
+        r3 = self.engine_run({"spec": {"batch_id": "b-v", **spec}, "resume_of": C1,
+                              "script": {"1/gates:2/*": {"outcome": "exhausted", "reason": "engine:money"},
+                                         "1/diagnosis/*": {"verdict": "factory_bug"}}}, workdir=r.work)
+        self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "held"})
+        self.assertEqual([k[:2] for k in r.keys(1)[-4:]], [("4", "writer:2"), ("5", "stress:2"),
+                                                           ("6", "gates:2"), ("7", "diagnosis")])
+        before = len(r.starts(1))
+        r4 = self.engine_run({"spec": {"batch_id": "b-w", **spec}, "resume_of": C1}, workdir=r.work)
+        self.assertEqual(r4.run()["result"]["cases"], {C1 + "@b-w": "sealed"})
+        self.assertEqual(r.keys(1)[before:], [("6", "gates:2", "2"), ("7", "seal", "1")])
+
     def test_a_resume_batch_with_case_money_net_of_earlier_spend_replays(self):
         # An imported case's batch has $50 less its import spend. Its resume batch has that less what
         # the earlier batches used (runtime's resume_money check), so case money differs from the
@@ -1999,6 +2025,30 @@ class ReleaseHolds(unittest.TestCase):
         self.assertEqual([k for k in r.keys(1) if k[1] == "diagnosis"],
                          [("5", "diagnosis", str(n)) for n in range(1, 4)])
         self.assertEqual([k[2] for k in r.keys(1) if k[1] == "writer:2"], ["1", "2", "3", "4"])
+
+    def test_a_resumed_diagnosis_that_reruns_in_place_drops_its_skip(self):
+        # The --resume-case batch restored the diagnosis attempts at seq 5; its factory_bug reran
+        # writer:2 in place, and stress:2 now takes seq 5 with no attempts of its own to restore.
+        spec = {"max_cases_started": 1, "max_infra_retries_per_step": 1}
+        r, out = run(manual_holds({"spec": spec,
+                                   "script": {"1/stress:1/1": {"feedback": True},
+                                              "1/writer:2/*": {"outcome": "infra_error", "reason": "infra:stalled"},
+                                              "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled"}}}))
+        self.addCleanup(r.close)
+        self.assertEqual((out["result"]["cases"], r.keys(1)[-1][:2]), ({C1: "held"}, ("5", "diagnosis")))
+        r2 = EngineRun({"spec": {"batch_id": "b-u", **spec}, "resume_of": C1,
+                        "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {},
+                                   "1/gates:2/*": {"outcome": "infra_error", "reason": "infra:stalled"}},
+                        "deadline_in": 40, "timing": {"wake_poll_s": 0.3},
+                        "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
+        self.assertEqual(r.keys(1)[-6:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"), ("5", "stress:2", "1"),
+                                          ("6", "gates:2", "1"), ("6", "gates:2", "2"), ("7", "diagnosis", "1")])
+        # Held at its deadline after the second factory_bug: the next resume restores only gates:2.
+        before = len(r.starts(1))
+        r3 = EngineRun({"spec": {"batch_id": "b-v", **spec}, "resume_of": C1}, workdir=r.work)
+        self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
+        self.assertEqual(r.keys(1)[before:], [("6", "gates:2", "3"), ("7", "seal", "1")])
 
     def test_a_resume_case_batch_counts_the_resumes_made_in_place(self):
         # max 2: one release resume in b-t, then held at its deadline; the --resume-case batch is the
