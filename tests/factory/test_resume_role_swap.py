@@ -133,6 +133,19 @@ class Worker(unittest.TestCase):
         self.assertEqual(len(set(fams.values())), 5, fams)
         self.assertEqual(later.models["reviewers"][1], [later.card["roles"]["reviewer2"]["model"]])
 
+    def test_a_former_stress_tester_family_never_becomes_reviewer2(self):
+        # Slot 8 adopts Xiaomi as reviewer2. The stress tester moves to z-ai, then to Xiaomi: the
+        # re-pick may not land on z-ai, whose findings the case was repaired against, so it is refused.
+        glm, mimo = "opencode-go/glm-5.3-flash", "openrouter/xiaomi/mimo-v2.6-pro"
+        c = self.context({"stress_tester": glm})
+        self.assertEqual(c.card["roles"]["reviewer2"]["family"], "xiaomi")
+        with self.assertRaisesRegex(run.RoleSwapRefused, "No second reviewer family"):
+            self.context({"stress_tester": mimo}, c.card)
+        # Initial adoption skips a former role holder's family the same way.
+        card = slot8_card(role_swaps=[{"role": "stress_tester", "from": "opencode-go/mimo-v2.6-pro", "to": SOL,
+                                       "step": "stress:1", "seq": 2}])
+        self.assertEqual(self.context(None, card).card["roles"]["reviewer2"]["family"], "z-ai")
+
     def test_a_deepseek_flash_attacker_is_refused_where_deepseek_wrote_the_case(self):
         with self.assertRaisesRegex(ValueError, "four different families"):
             self.context({"stress_tester": FLASH})

@@ -885,13 +885,20 @@ class ModelRuntime:
 
 
 
+def former_families(card, swaps=()):
+    """Families that wrote the case's idea or ever held a role on it (card role_swaps, plus `swaps` not
+    yet recorded): none of them may become the second reviewer."""
+    return ({family(s['from']) for s in (*(card.get('role_swaps') or ()), *swaps) if s.get('from')}
+            | set((card.get('imported_from') or {}).get('idea_families') or ()))
+
+
 def with_second_reviewer(c, table_name=None):
     """An in-flight case pinned with one reviewer takes the rotation's second reviewer at its next
     round (founder 2026-11-12). Returns True when it changed the pinned models."""
     models, roles = c.card['models'], c.card.setdefault('roles', {})
     if len(models['reviewers']) >= 2: return False
     row = second_reviewer({family(models[k][0]) for k in ('builder', 'attacker', 'strong_calibrator')}
-                          | {family(models['reviewers'][0][0])} | set((c.card.get('imported_from') or {}).get('idea_families') or ()), table_name)
+                          | {family(models['reviewers'][0][0])} | former_families(c.card), table_name)
     models['reviewers'] = [*models['reviewers'], [row['model']]]
     roles['reviewer2'] = {**row, 'family': family(row['model'])}
     return True

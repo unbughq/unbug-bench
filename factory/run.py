@@ -3117,7 +3117,7 @@ def swap_roles(c, step_input):
         r2 = roles.get("reviewer2")
         if r2 and not getattr(c.args, "reviewer2", None) and family(r2["model"]) in {family(m) for m in changed.values()}:
             taken = {family(roles[r]["model"]) for r in ("writer", "stress_tester", "reviewer", "strong_calibrator")}
-            taken |= set((c.card.get("imported_from") or {}).get("idea_families") or ())
+            taken |= model_runtime.former_families(c.card, history)   # a former stress tester never reviews
             new = model_runtime.second_reviewer(taken, getattr(c.args, "rotation_table", None))
             history.append({"role": "reviewer2", "from": r2["model"], "to": new["model"],
                             "step": step_input.step.name, "seq": step_input.seq})
