@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "factory"))
 from durable.guard import CheckFailed, Guard, degraded, health, router_spend, scrub, webhook
@@ -32,6 +33,7 @@ class Fake:
         self.state_dir = Path(work)
         self.calls, self.stopped, self.sent = [], 0, []
         self.boat_failures = {}
+        self.boat_refusals = {}   # Boat itself answers with an error (not a timeout)
         self.rows = ["bx_aaaaaaaa"]
         self.types = {}   # Boat's type per sandbox, when the inventory says
         self.usage = USAGE
@@ -47,6 +49,10 @@ class Fake:
     def boat(self, args, timeout):
         self.calls.append(args)
         self.clock += 0.1
+        if self.boat_refusals.get(args[0], 0):
+            self.boat_refusals[args[0]] -= 1
+            return {"code": 1, "out": b'{"code":"not_found","error":"sandbox not found","event":"error","status":404}',
+                    "stderr": b"", "seconds": 0.1}
         left = self.boat_failures.get(args[0], 0)
         if left:
             self.boat_failures[args[0]] = left - 1
@@ -229,6 +235,53 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(out["phase"], "healthy")
         self.assertEqual(self.f.stopped, 0)
         self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "7200"], self.f.calls)
+
+    def renewed(self):
+        return json.loads((self.f.state_dir / "guard/renewed.json").read_text())
+
+    def test_a_renewal_and_a_refusal_are_recorded_for_the_executor(self):
+        self.tick()
+        self.assertEqual(self.renewed(), {"bx_aaaaaaaa": {"ok": self.f.clock}})
+        before = self.f.clock
+        self.f.boat_refusals["extend"] = 3
+        self.tick()
+        self.assertEqual(self.renewed(), {"bx_aaaaaaaa": {"ok": before, "refused": self.f.clock}})
+
+    def test_a_timed_out_renewal_is_unknown_and_never_retires_the_worker(self):
+        # A long SSH silence: every extend times out. That is no refusal, so the executor's
+        # renewing() stays unknown (None, never False) and the worker is kept.
+        from durable.guard import renewing
+        self.tick()
+        before = self.renewed()
+        self.f.boat_failures["extend"] = 3
+        self.tick()
+        self.assertEqual(self.renewed(), before)
+        # The executor reads this right after the silent pass, when the last good renewal is already stale.
+        stale = self.f.clock - before["bx_aaaaaaaa"]["ok"]
+        with patch("time.time", return_value=self.f.clock + 1):
+            self.assertIsNone(renewing(self.f.state_dir, "bx_aaaaaaaa", stale_s=stale))
+        self.assertEqual(self.f.deletes(), [])
+
+    def test_only_a_boat_api_refusal_of_the_sandbox_is_a_refusal(self):
+        from durable.guard import boat_refused
+        api = lambda status: {"code": 1, "out": ('{"event":"error","error":"x","status":%d}' % status).encode()}
+        self.assertTrue(boat_refused(api(404)))
+        unknown = [{"code": -9, "out": b""}, {"code": 124, "out": b""},            # killed, timed out
+                   {"code": 1, "out": b'{"event":"error","error":"could not reach the Boat API"}'},   # lost link
+                   {"code": 1, "out": b"boat-call: managed command refused"}, api(401), api(429), api(503)]
+        for done in unknown:
+            self.assertFalse(boat_refused(done), done)
+
+    def test_a_control_plane_outage_or_operator_stop_records_no_refusal(self):
+        self.tick()
+        before = self.renewed()
+        self.f.boat_failures["list"] = 3   # outage: no inventory, so no extend is attempted
+        self.tick()
+        self.f.active = "inactive"          # operator stop: no extend either
+        self.tick()
+        self.assertEqual(self.renewed(), before)
+        from durable.guard import renewing
+        self.assertIsNone(renewing(self.f.state_dir, "bx_aaaaaaaa", stale_s=0.0))
 
     def test_the_hung_usage_call_of_6_november_only_degrades(self):
         """All three tries hang: the batch degrades, nothing stops, and the worker stays."""

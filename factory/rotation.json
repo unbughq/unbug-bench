@@ -15,8 +15,18 @@
     "deepseek": {
       "model": "opencode/deepseek-v4.1-flash-free",
       "effort": "default"
+    },
+    "xiaomi": {
+      "model": "opencode-go/mimo-v2.6-pro",
+      "effort": "default"
+    },
+    "z-ai": {
+      "model": "opencode-go/glm-5.3-flash",
+      "effort": "default"
     }
   },
+  "reviewer2": ["xiaomi", "z-ai"],
+  "reviewer2_note": "2026-11-12 founder: every case gets a second, independent G8/G9 reviewer, the first listed family not already used by the case (never writer, stress tester, strong calibrator or the first reviewer); the router tries paid routes before free ones",
   "slots": [
     {
       "writer": "anthropic",

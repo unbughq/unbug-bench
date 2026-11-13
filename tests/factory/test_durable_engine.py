@@ -23,6 +23,8 @@ M = 1_000_000
 # The patch under which a factory_bug hold waits for a release (engine._Case.rerun_after_release).
 # Disabling it is the path of workflows recorded before it: the hold ends them for --resume-case.
 RELEASE_WAIT = "factory_bug_release_wait"
+# Workflows recorded before this patch release the worker at every router/credential wait.
+LEGACY_OP_WAIT = {"disabled_patches": ["operational_wait_keeps_worker"]}
 
 
 def manual_holds(scenario):
@@ -164,7 +166,10 @@ class StepSequence(unittest.TestCase):
                 self.assertNotIn("inputs", x["opened"])
         self.assertEqual(start(r, f"{C1}/2/writer:1/1")["opened"]["snapshot"], f"snapshot {C1}/1/admit/1")
         # The grant is the ceiling: what the case's own money has left (each attempt pays 1000).
-        self.assertEqual([x["ceiling"] for x in r.starts(1)], [50 * M - 1000 * i for i in range(5)])
+        # The GATES step (4th) is also funded for the G10 strong tries (policy.gates_money_extension);
+        # SEAL is cut against the same enlarged case limit, so its $50 request is granted whole.
+        self.assertEqual([x["ceiling"] for x in r.starts(1)],
+                         [50 * M - 1000 * i + (150 * M if i == 3 else 0) for i in range(4)] + [50 * M])
         # GATES gets its own deadline.
         self.assertEqual(start(r, f"{C1}/4/gates:1/1")["deadline_s"], 43_200.0)
         self.assertEqual(start(r, f"{C1}/2/writer:1/1")["deadline_s"], 14_400.0)
@@ -486,7 +491,7 @@ class Outcomes(unittest.TestCase):
 
     def test_credential_wait_is_visible_releases_worker_and_resumes(self):
         credential = {"outcome": "infra_error", "reason": "router:credential_expiring", "paid": 0}
-        r = EngineRun({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
+        r = EngineRun({**LEGACY_OP_WAIT, "spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
                        "script": {"1/writer:1/1": credential, "1/writer:1/2": {"dur": 0.6}},
                        "actions": [{"when": {"case": 1, "status": "waiting_for_credentials"}},
                                    {"when": {"case": 1, "status": "running", "started": f"{C1}/2/writer:1/2"}}]})
@@ -540,7 +545,7 @@ class Outcomes(unittest.TestCase):
     def test_credential_problem_retries_without_using_infra_allowance(self):
         reason = "router:credential_expiring"
         first, second = f"{C1}/2/writer:1/1", f"{C1}/2/writer:1/2"
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+        r, out = run({**LEGACY_OP_WAIT, "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                       "timing": {"credential_retry_s": 1.0},
                       "script": {"1/writer:1/1": {"outcome": "infra_error", "reason": reason},
                                  "1/writer:1/2": {"outcome": "infra_error", "reason": reason, "dur": 0.8},
@@ -567,6 +572,28 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(len(set(workers)), 3)
         self.assertTrue(set(workers[:2]) <= releases)
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 4 + ["stress:1", "gates:1", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_credential_wait_keeps_the_worker_then_releases_it_after_the_rechecks(self):
+        reason = "router:credential_expiring"
+        wait = {"outcome": "infra_error", "reason": reason, "paid": 0}
+        key = lambda n: f"{C1}/2/writer:1/{n}"
+        # One wait clears at the first recheck: the retry runs on the same worker, none is released.
+        r, out = run({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 1.0},
+                      "script": {"1/writer:1/1": wait}})
+        self.addCleanup(r.close)
+        self.assertEqual(start(r, key(1))["worker"], start(r, key(2))["worker"])
+        self.assertNotIn(start(r, key(1))["worker"],
+                         [x["worker"] for x in r.pool_log() if x["op"] == "release"][:-1])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        # A wait that outlasts the 2, 4 and 8 minute rechecks (the fourth in a row) releases the worker.
+        r, out = run({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 1.0},
+                      "script": {f"1/writer:1/{n}": wait for n in range(1, 5)}})
+        self.addCleanup(r.close)
+        workers = [start(r, key(n))["worker"] for n in range(1, 6)]
+        self.assertEqual(len(set(workers[:4])), 1)
+        self.assertNotEqual(workers[3], workers[4])
+        self.assertIn(workers[3], [x["worker"] for x in r.pool_log() if x["op"] == "release"])
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_long_sleep_releases_the_worker(self):
@@ -1718,6 +1745,178 @@ class ResumeOverride(unittest.TestCase):
         self.assertEqual(r.run(), {"refused": "resume:unknown_case"})
 
 
+class AutoResumeHolds(unittest.TestCase):
+    """A factory_bug hold whose cause is a provider limit or a money stop resumes with no release
+    once that cause has cleared (engine.auto_resume_kind); anything else waits for a release."""
+
+    HELD = {"case": 1, "status": "held_for_release"}
+    LOST = {"outcome": "infra_error", "reason": "infra:invalid_execution"}
+    BUG = {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/stress:1/1": {"feedback": True}}
+    MONEY = {"outcome": "exhausted", "reason": "writer:money"}
+    SPEC = {"max_cases_started": 1, "max_infra_retries_per_step": 1}
+    DEADLINE = {"deadline_in": 25, "timing": {"wake_poll_s": 0.3}}
+
+    def test_a_provider_limit_before_a_real_infra_stop_does_not_resume_on_a_healthy_router(self):
+        script = {**self.BUG, "1/writer:2/1": {"outcome": "provider_limit"},
+                  "1/writer:2/2": self.LOST, "1/writer:2/3": self.LOST}
+        r, out = run({"spec": self.SPEC, "script": script, **self.DEADLINE,
+                      "actions": [{"when": self.HELD, "router_clear": True}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})   # the last stop is a plumbing failure: a release first
+        self.assertEqual(r.keys(1)[-1][1], "diagnosis")
+
+    def test_an_infra_only_hold_does_not_resume_on_a_healthy_router(self):
+        script = {**self.BUG, "1/writer:2/1": self.LOST, "1/writer:2/2": self.LOST}
+        r, out = run({"spec": self.SPEC, "script": script, **self.DEADLINE,
+                      "actions": [{"when": self.HELD, "router_clear": True}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})   # only a release or an operator reruns it
+        self.assertEqual(r.keys(1)[-1][1], "diagnosis")
+
+    def test_a_money_hold_resumes_by_itself_when_money_is_left(self):
+        r, out = run({"spec": {"max_cases_started": 1}, "script": {**self.BUG, "1/writer:2/1": self.MONEY}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(r.keys(1)[-5:][1], ("4", "writer:2", "2"))
+        self.assertEqual([x["key"] for x in r.ledger_log() if x["op"] == "book_waste"], [f"{C1}/4/writer:2/1"])
+
+    def test_auto_resumes_count_against_the_factory_bug_cap(self):
+        script = {**self.BUG, "1/writer:2/*": self.MONEY}
+        r, out = run({"spec": {"max_cases_started": 1, "max_factory_bug_resumes": 2}, "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})   # two resumes, then the policy retires the third
+        self.assertEqual(len([k for k in r.keys(1) if k[1] == "diagnosis"]), 3)
+
+    def test_a_workflow_recorded_before_the_patch_keeps_waiting_for_a_release(self):
+        r, out = run({"spec": {"max_cases_started": 1}, "script": {**self.BUG, "1/writer:2/1": self.MONEY},
+                      "disabled_patches": ["auto_resume_safe_holds"], **self.DEADLINE})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+
+    def test_a_ceiling_or_a_gate_verdict_is_never_resumed_this_way(self):
+        for name, script in (("rounds", {"1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds_exhausted"}}),
+                             ("gate", {"1/gates:2/*": {"outcome": "gate_failed", "gate": "G5", "repairable": False}})):
+            with self.subTest(name):
+                r, out = run({"spec": {"max_cases_started": 1}, "script": {**self.BUG, **script}, **self.DEADLINE,
+                              "actions": [{"when": self.HELD, "router_clear": True}]})
+                self.addCleanup(r.close)
+                self.assertNotEqual(out["result"]["cases"], {C1: "sealed"})
+                self.assertEqual([x for x in r.actions() if x.get("status") == "held_for_release"], [])
+
+    def test_the_kinds_and_the_router_check(self):
+        import sqlite3
+        import tempfile
+        from durable.engine import auto_resume_kind
+        from durable.guard import router_clear
+        lim, lost, money = ({"outcome": "provider_limit", "reason": "router:quota"},
+                            {"outcome": "infra_error", "reason": "infra:x"},
+                            {"outcome": "exhausted", "reason": "engine:money"})
+        self.assertEqual([auto_resume_kind(x) for x in ([lost, lim], [lim, lost], [lost, money], [lim, money], [lost])],
+                         ["quota", None, "money", "money", None])
+
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "router.sqlite"
+            self.assertFalse(router_clear(path))   # unreadable books are not clear
+            with sqlite3.connect(path) as db:
+                db.execute("CREATE TABLE health (pool TEXT PRIMARY KEY, value TEXT)")
+                db.execute("INSERT INTO health VALUES ('claude-token', ?)", (json.dumps({"reason": "quota", "blocked_until": 200}),))
+            self.assertFalse(router_clear(path, now=100))
+            self.assertTrue(router_clear(path, now=300))   # its reset time has passed
+            with sqlite3.connect(path) as db:
+                db.execute("INSERT INTO health VALUES ('openrouter-key', ?)", (json.dumps({"reason": "credit", "blocked_until": 0}),))
+            self.assertFalse(router_clear(path, now=300))   # a credit refusal waits for a top-up
+
+    def test_money_allows_needs_money_in_the_case_and_the_batch_and_books_nothing(self):
+        from durable.executor import Executor
+        booked = []
+
+        class L:
+            def __init__(self, case, batch): self.c, self.b = case, batch
+            def book_waste(self, key, reason): booked.append((key, reason))
+            def case_balance(self, *a): return {"remaining": self.c}
+            def balance(self, *a): return {"remaining": self.b}
+        for case, batch, ok in ((5 * M, 5 * M, True), (M // 2, 5 * M, False), (5 * M, M // 2, False)):
+            ex = Executor(None, None, L(case, batch), None, None, None)
+            self.assertEqual(ex.money_allows("b-t", C1, 50 * M, M), ok)
+        self.assertEqual(booked, [])   # a poll that keeps waiting must not touch the ledger
+
+    def test_hold_clear_step_polls_the_router_for_a_quota_hold(self):
+        import durable.engine as eng
+        from unittest.mock import patch
+        clear = [False]
+        with patch.object(eng._RT, "router_clear", lambda: clear[0]):
+            f = eng.hold_clear_step.__wrapped__ if hasattr(eng.hold_clear_step, "__wrapped__") else eng.hold_clear_step
+            self.assertFalse(f("quota", "b-t", C1, 50 * M))
+            clear[0] = True
+            self.assertTrue(f("quota", "b-t", C1, 50 * M))
+
+    def test_the_runtime_reads_the_production_router_books_unless_configured(self):
+        import durable.runtime as rt
+        from unittest.mock import patch
+        seen = []
+        with patch.object(rt, "router_clear", lambda path: seen.append(str(path)) or True), \
+                patch("model_router.production_database", lambda c: "/prod/factory.sqlite3"):
+            self.assertEqual(rt._router_db(), "/prod/factory.sqlite3")
+        self.assertEqual(seen, [])
+
+
+class ResumeRoleSwap(unittest.TestCase):
+    """Founder 2026-11-12: `start --resume-case <case> --roles stress_tester=<model>` gives a resumed
+    case another stress tester or strong calibrator. Every step of the resumed workflow carries the
+    swap; later resumes of the lineage keep it, those roles named again replaced."""
+
+    FLASH, SOL = "opencode-go/deepseek-v4.1-flash", "codex/gpt-6.1-sol"
+
+    def resume(self, r, batch, script=None, roles=None):
+        scenario = {"spec": {"batch_id": batch, "max_cases_started": 1, "max_infra_retries_per_step": 2},
+                    "resume_of": C1, "script": script or {}}
+        if roles is not None:
+            scenario["roles"] = roles
+        return EngineRun(manual_holds(scenario), workdir=r.work).run()
+
+    def test_a_swap_reaches_every_step_and_the_lineage_keeps_it(self):
+        again = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",
+                                 "checkpoint": True},
+                 "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = run(manual_holds(Resume.GATES_INFRA))
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertFalse(any("roles" in s for s in r.starts(1)))   # an unswapped case sends none
+        swaps = []
+        for batch, roles in (("b-u", {"stress_tester": self.FLASH}), ("b-v", None),
+                             ("b-w", {"strong_calibrator": self.SOL})):
+            before = len(r.starts(1))
+            self.assertEqual(self.resume(r, batch, again, roles)["result"]["cases"],
+                             {f"{C1}@{batch}": "held" if batch != "b-w" else "retired"})
+            swaps.append([s.get("roles") for s in r.starts(1)[before:]])
+        self.assertEqual(swaps[0], [{"stress_tester": self.FLASH}] * len(swaps[0]))
+        self.assertEqual(swaps[1], [{"stress_tester": self.FLASH}] * len(swaps[1]))   # inherited
+        self.assertEqual(swaps[2], [{"stress_tester": self.FLASH, "strong_calibrator": self.SOL}] * len(swaps[2]))
+
+    def test_a_swap_the_worker_refuses_holds_at_once_and_a_later_resume_may_change_it(self):
+        # The card's refusal (run.RoleSwapRefused) never changes between attempts: no retry, no diagnosis.
+        r, out = run(manual_holds(Resume.GATES_INFRA))
+        self.addCleanup(r.close)
+        before = len(r.starts(1))
+        refused = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:roles_refused"}}
+        self.assertEqual(self.resume(r, "b-u", refused, {"stress_tester": self.FLASH})["result"]["cases"],
+                         {f"{C1}@b-u": "held"})
+        self.assertEqual([x["key"].split("/")[2] for x in r.starts(1)[before:]], ["gates:1"])
+        # The hold is an ordinary infra stop: the operator resumes it naming another model.
+        before = len(r.starts(1))
+        self.assertEqual(self.resume(r, "b-v", None, {"stress_tester": self.SOL})["result"]["cases"],
+                         {f"{C1}@b-v": "sealed"})
+        self.assertEqual(r.starts(1)[before]["roles"], {"stress_tester": self.SOL})
+
+    def test_a_swap_outside_the_two_roles_is_refused(self):
+        from durable.contract import ContractError
+        from durable.engine import resume_point
+        for roles in ({}, {"writer": self.FLASH}, {"stress_tester": ""}, {"stress_tester": "flash"},
+                      {"reviewer": self.FLASH, "stress_tester": self.FLASH}, ["stress_tester"]):
+            with self.assertRaisesRegex(ContractError, "resume:bad_roles"):
+                resume_point(C1, None, roles)
+
+
 class ReleaseHolds(unittest.TestCase):
     """A factory_bug hold of a step that may run again waits in its own workflow for a factory
     release, then reruns that step on it, as a `--resume-case` batch would (86b100, 11 November)."""
@@ -1889,6 +2088,72 @@ class Conductor(unittest.TestCase):
                 check_instance(dbos)
         finally:
             GlobalParams.dbos_cloud = False
+
+
+class GatesMoneyUpFront(unittest.TestCase):
+    """The GATES step's request and case limit carry the G10 strong-try funding; old workflows do not."""
+
+    def test_gates_reserve_is_extended_only_under_the_patch(self):
+        from durable.policy import gates_money_extension
+        from durable.contract import Step, StepKind
+        extension = gates_money_extension(Step(StepKind.GATES, 1))
+        granted = {}
+        for patched in (True, False):
+            r, out = run({"spec": {"max_cases_started": 1},
+                          "disabled_patches": [] if patched else ["gates_money_up_front"]})
+            self.addCleanup(r.close)
+            amounts = {x["key"]: x["amount"] for x in r.ledger_log() if x["op"] == "reserve"}
+            granted[patched] = (amounts[f"{C1}/4/gates:1/1"], amounts[f"{C1}/1/admit/1"])
+            self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        # The step that is not GATES is untouched; GATES grows by exactly the extension.
+        self.assertEqual(granted[True][1], granted[False][1])
+        self.assertEqual(granted[True][0] - granted[False][0], extension)
+
+    def test_a_batch_only_money_retry_doubles_the_old_request_and_adds_the_extension_once(self):
+        from durable.policy import gates_money_extension
+        from durable.contract import Step, StepKind
+        ext = gates_money_extension(Step(StepKind.GATES, 1))
+        rep = {"outcome": "gate_failed", "gate": "G5", "repairable": True}
+        r, out = run({"spec": {"max_writer_rounds": 1, "max_cases_started": 1},
+                      "script": {"1/gates:1/1": {**rep, "passed": ["G1"]},
+                                 "1/diagnosis/*": {"verdict": "close_to_passing"},
+                                 "1/gates:2/1": {"outcome": "exhausted", "reason": "engine:money"}}})
+        self.addCleanup(r.close)
+        amounts = {x["key"].split("/", 1)[1]: x["amount"] for x in r.ledger_log() if x["op"] == "reserve"}
+        first = amounts["8/gates:2/1"]   # an extension's GATES step draws on the batch only
+        self.assertEqual(amounts["8/gates:2/2"], (first - ext) * 2 + ext)
+
+    def test_gates_that_spent_past_the_case_money_still_seal(self):
+        r, out = run({"spec": {"max_cases_started": 1}, "script": {"1/gates:1/1": {"paid": 60 * M}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_a_gates_money_stop_past_the_case_money_resumes_by_itself(self):
+        script = {"1/diagnosis/*": {"verdict": "factory_bug"},
+                  "1/gates:1/1": {"outcome": "exhausted", "reason": "engine:money", "paid": 80 * M}}
+        r, out = run({"spec": {"max_cases_started": 1}, "script": script,
+                      "deadline_in": 25, "timing": {"wake_poll_s": 0.3}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(steps(r, 1)[-4:], ["gates:1", "diagnosis", "gates:1", "seal"])
+
+    def test_a_lost_gates_attempt_keeps_its_whole_grant_charged(self):
+        from durable.policy import gates_money_extension
+        from durable.contract import Step, StepKind
+        ext = gates_money_extension(Step(StepKind.GATES, 1))
+        for patched in (True, False):
+            with self.subTest(patched=patched):
+                r, out = run({"spec": {"max_cases_started": 1},
+                              "script": {"1/gates:1/1": {"outcome": "infra_error", "reason": "infra:worker_lost"}},
+                              "disabled_patches": [] if patched else ["gates_money_up_front"]})
+                self.addCleanup(r.close)
+                key = f"{C1}/4/gates:1/1"
+                granted = next(x["amount"] for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == key)
+                closed = next(x for x in r.ledger_log() if x["key"] == key and x["op"] != "reserve")
+                # Its spend is unknown, and G10 may have spent the authority: nothing is released.
+                self.assertEqual(closed["op"], "settle_lost")
+                self.assertEqual(granted > ext, patched)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,10 @@ GATE = re.compile(r"G(?:[1-9]|1[0-7])")
 # cannot hold a path, a file name, an identifier with digits or dots, or a sentence.
 REASON = re.compile(r"(admit|writer|stress|g(?:[1-9]|1[0-7])|seal|diagnosis|infra|router|engine|batch)"
                     r":[a-z][a-z_]{0,31}")
+# Founder 2026-11-12: the roles an operator may give a resumed case another model for
+# (`start --resume-case <case> --roles`), and a model name as model_router.routes accepts it.
+SWAPPABLE_ROLES = ("stress_tester", "strong_calibrator")
+MODEL = re.compile(r"[A-Za-z0-9_.:-]{1,80}/[A-Za-z0-9_.:/-]{1,119}")
 
 
 class ContractError(ValueError):
@@ -61,6 +65,15 @@ def _finite(value, name, positive=False):
 
 def _id(value, pattern, name):
     _check(type(value) is str and pattern.fullmatch(value) is not None, f"bad {name}")
+    return value
+
+
+def check_roles(value):
+    """A resume's role swap: {role: model} for one or both SWAPPABLE_ROLES. Families, routes and
+    the G10 rule are the worker's (run.context_for_step): they need the case card."""
+    _check(type(value) is dict and len(value) > 0 and all(r in SWAPPABLE_ROLES for r in value)
+           and all(type(m) is str and MODEL.fullmatch(m) is not None for m in value.values()),
+           "roles maps " + "/".join(SWAPPABLE_ROLES) + " to a model")
     return value
 
 
@@ -221,6 +234,9 @@ class StepInput:
     registry: Optional[Ref] = None   # STATEMENT_REGISTRY: exactly for ADMIT
     ruling: Optional[Ref] = None     # FOUNDER_RULING: STRESS or GATES after an escalation
     evidence: tuple = ()             # GATE_RECEIPT / DIAGNOSTIC / DIAGNOSIS_REPORT: DIAGNOSIS only
+    # A resume's role swap (check_roles). Left out of the record when None, so older records and
+    # workers read every other step input unchanged.
+    roles: Optional[dict] = field(default=None, metadata={"omit_none": True})
 
     def __post_init__(self):
         _id(self.batch_id, BATCH_ID, "batch_id")
@@ -247,6 +263,8 @@ class StepInput:
         _check(not self.evidence or k is StepKind.DIAGNOSIS, "evidence goes only to diagnosis")
         for i, r in enumerate(self.evidence):
             _ref(r, EVIDENCE_KINDS, f"evidence[{i}]")
+        if self.roles is not None:
+            check_roles(self.roles)
 
     @property
     def idempotency_key(self) -> str:
@@ -523,6 +541,11 @@ class Poll:
         _ref(self.checkpoint, ArtifactKind.CASE_SNAPSHOT, "checkpoint")
 
 
+# What a poll returns when the worker could not be reached. Compared by identity: a worker's own
+# "running" answer is a different object, so the executor can tell a silent worker from a busy one.
+UNANSWERED = Poll(PollState.RUNNING)
+
+
 # ---- seams the work packages implement -------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -698,7 +721,8 @@ def to_record(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
     if hasattr(value, "__dataclass_fields__"):
-        return {f.name: to_record(getattr(value, f.name)) for f in fields(value)}
+        return {f.name: to_record(getattr(value, f.name)) for f in fields(value)
+                if not (f.metadata.get("omit_none") and getattr(value, f.name) is None)}
     if isinstance(value, dict):
         return {k: to_record(v) for k, v in value.items()}
     if isinstance(value, tuple):
@@ -708,7 +732,11 @@ def to_record(value: Any) -> Any:
 
 def _exact(d, cls, name):
     _check(isinstance(d, dict), f"{name} record must be an object")
-    _check(set(d) == {f.name for f in fields(cls)}, f"unexpected {name} fields")
+    # A field to_record leaves out when None is absent, never null.
+    every = {f.name for f in fields(cls)}
+    optional = {f.name for f in fields(cls) if f.metadata.get("omit_none")}
+    _check(every - optional <= set(d) <= every and all(d[k] is not None for k in optional & set(d)),
+           f"unexpected {name} fields")
     return d
 
 

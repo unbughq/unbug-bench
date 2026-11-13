@@ -61,6 +61,9 @@ def exercise(mode, *, reason=None):
             run.run_gates(c)
         except run.BudgetError as error:
             assert mode == 'budget' and str(error) == 'provider_limit'
+            # Founder 2026-11-12: the stop is parked; every bench gate still ran and was recorded.
+            assert all(c.card['gates'].get(g) == 'pass' for g in ('G6', 'G13', 'G14', 'G15', 'G7')), c.card['gates']
+            assert 'G11' not in seen
         except run.PauseRequested:
             assert mode == 'pause'
         else:

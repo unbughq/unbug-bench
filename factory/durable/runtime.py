@@ -27,10 +27,10 @@ import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
 from durable.contract import ArtifactKind, BatchSpec, CASE_ID, ContractError, Ref, assert_no_conductor, batch_spec_from_record
-from durable.guard import degraded as guard_degraded
+from durable.guard import degraded as guard_degraded, renewing as guard_renewing, router_clear
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
-from durable.workers import BoatPool, PoolError, ReleaseStore, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
+from durable.workers import BoatPool, PoolError, boat_id, ReleaseStore, release_takes_roles, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
 
 
 LOG = logging.getLogger("durable.runtime")
@@ -87,6 +87,12 @@ def database_lock(config):
         engine.dispose()
 
 
+def _router_db():
+    """The router's books, where the production router keeps them (an error counts as not clear)."""
+    from model_router import production_database
+    return production_database({})
+
+
 def load_config(path):
     config = json.loads(private_bytes(path))
     config["database_url"] = os.environ.get("UNBUG_DURABLE_DSN") or private_bytes(config["database_url_file"]).decode().strip()
@@ -119,11 +125,25 @@ class PublishingStore(SealedStore):
         super().put_sealed(scope, ref, ciphertext)
 
 
-def largest_call_hold(inputs_plaintext):
+def check_role_swap(roles):
+    """A resume's role swap ({role: model}), as far as it can be checked before a worker reads
+    the case card: its shape (contract.check_roles) and model_runtime.check_swap_models."""
+    from durable.contract import check_roles
+    import model_runtime
+    try:
+        check_roles(roles)
+        model_runtime.check_swap_models(roles)
+    except ValueError:
+        raise RuntimeErrorCode("roles_invalid") from None
+    return roles
+
+
+def largest_call_hold(inputs_plaintext, swapped=()):
     """Micro-USD of the largest single-request hold among the batch's gated model routes.
 
     Explicit INPUTS models are used as given; without them every rotation family may be
-    chosen. None for an opaque, dry-run or ungated batch: nothing to compare.
+    chosen. A resume's swapped models (`swapped`) count too. None for an opaque, dry-run or
+    ungated batch: nothing to compare.
     """
     import math
     from model_call_gate import request_hold
@@ -141,7 +161,7 @@ def largest_call_hold(inputs_plaintext):
         import model_runtime
         table = json.loads((model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")).read_text())
         routes = [family["model"] for family in table["families"].values()]
-    holds = [h for h in map(request_hold, routes) if h is not None]
+    holds = [h for h in map(request_hold, [*routes, *swapped]) if h is not None]
     return math.ceil(max(holds) * 1_000_000) if holds else None
 
 
@@ -177,18 +197,24 @@ class Runtime:
             self.store = PublishingStore(objects_for(config), self.keys)
             self.releases = ReleaseStore(self.state / "releases")
             self.pool = BoatPool(self.state / "pool", self.releases, config["pool_id"], image=config.get("image", "bench-env"),
-                                 vm_type=config.get("vm_type"))
+                                 vm_type=config.get("vm_type"), warm_target=config.get("warm_workers", 0))
             if "worker_credentials" in config:
                 from model_router import ACCOUNTS
                 names = config["worker_credentials"]["accounts"]
                 if not isinstance(names, list) or not names or not set(names) <= set(ACCOUNTS):
                     raise RuntimeErrorCode("invalid_worker_accounts")
                 self.pool.credential_bundle = self.worker_credentials
-            self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, output_retry_s=retry)
+            self.helpers = None
+            if config.get("helpers"):   # off unless configured: {per_case, total, vm_type, min_per_copy, job_timeout_s}
+                from durable.helper_link import Broker
+                self.helpers = Broker(self.pool, self.pool.boat, ledger_dir=self.state / "helper-leases", **config["helpers"])
+            self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, output_retry_s=retry, helpers=self.helpers)
             self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys,
-                                     sleep=draining_sleep, pause=hold_if_draining)
+                                     sleep=draining_sleep, pause=hold_if_draining,
+                                     renewing=lambda lease: guard_renewing(self.state, boat_id(lease.worker_id)))
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
-                                 admission_paused=lambda: guard_degraded(self.state))
+                                 admission_paused=lambda: guard_degraded(self.state),
+                                 router_clear=lambda: router_clear(config.get("router_db") or _router_db()))
         except Exception:
             self.close()
             raise
@@ -215,7 +241,7 @@ class Runtime:
             # one refuses them until its first clean launch, because its source may still own them.
             restored = json.loads((self.state / "restored.json").read_text())
             records = self.pool._records()
-            ownership = {ownership_hash(case_id): record for case_id, record in records.items()}
+            ownership = {h: records[c] for h, c in self.pool._owners(records).items()}
             rows = self.pool._inventory()
             for row in rows:
                 labels = self.pool._ours(row)
@@ -232,7 +258,8 @@ class Runtime:
                         raise RuntimeErrorCode("restore_unclaimed_worker")
                     self.pool._delete_raw(row["id"])
             for case_id, record in records.items():
-                worker = self.pool._find(rows, case_id, worker=record["worker"], intent=record["intent"])
+                worker = self.pool._find(rows, case_id, worker=record["worker"], intent=record["intent"],
+                                         owner=record.get("slot"))
                 if worker is not None and record["worker"] != worker:
                     self.pool._write(case_id, {**record, "worker": worker})
             if restored.get("quarantined") and not restored.get("launched"):
@@ -241,9 +268,13 @@ class Runtime:
             # it holds the operator's reconcile attestation, and every start repeats this conservative check.
         else:
             self.pool.recover()
+        if self.helpers is not None:
+            self.helpers.release_orphans()   # a helper outlives no controller process
         self.launched = True  # destroy even if DBOS launch fails halfway through
         self.engine.launch()
         threading.Thread(target=self._sweep_pool, daemon=True).start()
+        if self.pool.warm_target:
+            threading.Thread(target=self._warm_pool, daemon=True).start()
 
     def _sweep_pool(self):
         while not self._sweep_stop.wait(SWEEP_INTERVAL_S):
@@ -252,18 +283,30 @@ class Runtime:
             except Exception as error:   # the next pass retries; log a fixed code, never the text
                 LOG.warning("pool sweep failed: %s", error.reason if isinstance(error, PoolError) else "infra:sweep_failed")
 
+    def _warm_pool(self):
+        """Keep the idle prepared workers topped up: now, after each lease that took one, and every sweep interval."""
+        while not self._sweep_stop.is_set():
+            try:
+                self.pool.refill()
+            except Exception as error:
+                LOG.warning("warm refill failed: %s", error.reason if isinstance(error, PoolError) else "infra:refill_failed")
+            self.pool.refill_wanted.wait(SWEEP_INTERVAL_S)
+            self.pool.refill_wanted.clear()
+
     def prepare(self, scope, kind, plaintext):
         check_scope(scope, Ref("0" * 64, ArtifactKind(kind)))
         ref, ciphertext = self.sealer.seal(self.keys.scope_key(scope), ArtifactKind(kind), plaintext)
         self.store.put_sealed(scope, ref, ciphertext)
         return ref
 
-    def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None):
+    def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None, roles=None):
         spec = batch_spec_from_record(spec_record)
         # An operator override (founder 2026-11-11) resumes a case once where engine.resume_point's
         # rules refuse it; the engine checks the reason and that the lineage has not used one.
-        if override is not None and resume_of is None:
+        if (override is not None or roles is not None) and resume_of is None:
             raise RuntimeErrorCode("resume_invalid")
+        if roles is not None:
+            check_role_swap(roles)
         extra = {} if override is None else {"override": override}
         registry = Ref(**registry_record)
         if registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
@@ -330,21 +373,28 @@ class Runtime:
                   for ref in (spec.inputs, registry)]
         # One request reserves its route's worst case before it is forwarded. Money that can't
         # cover the largest such hold can never run that role: refuse now, by name.
-        hold = largest_call_hold(opened[0])
+        hold = largest_call_hold(opened[0], (roles or {}).values())
         # The gate also keeps one micro-USD of headroom (model_call_gate.HEADROOM).
         if hold is not None and hold + 1 > min(spec.money_bound_usd_micros, spec.case_money_usd_micros):
             raise RuntimeErrorCode("bound_below_call_hold")
-        self.releases.bundle(spec.plumbing_version)
-        self.engine.start_batch(spec, registry, imported, resume_of, **extra)
+        bundle = self.releases.bundle(spec.plumbing_version)
+        if roles is not None and not release_takes_roles(bundle):
+            raise RuntimeErrorCode("roles_need_newer_release")   # its workers would refuse every step
+        swap = {} if roles is None else {"roles": roles}
+        self.engine.start_batch(spec, registry, imported, resume_of, **extra, **swap)
         return {"batch_id": spec.batch_id}
 
     def drain(self):
         self._sweep_stop.set()
+        if getattr(self, "pool", None) is not None:
+            self.pool.stopping.set()
         if self.launched:
             self.engine.drain(DRAIN_S)
 
     def close(self):
         self._sweep_stop.set()
+        if getattr(self, "pool", None) is not None:
+            self.pool.stopping.set()
         try:
             if self.launched:
                 self.engine.shutdown()

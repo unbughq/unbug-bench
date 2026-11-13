@@ -165,7 +165,7 @@ def reserve_invocation(path, lease, maximum_usd, *, attempt, operation_id, call_
     except (ValueError, TypeError, AttributeError):
         raise BudgetError('invalid_operation') from None
     with ledger_transaction(path) as ledger:
-        limit = attempt_limit(ledger, attempt)
+        limit = call_limit(ledger, attempt, call_name)
         reservations = ledger.setdefault('invocation_reservations', {})
         prior = reservations.get(lease.lease_id)
         if prior is not None:
@@ -213,19 +213,53 @@ def attempt_limit(ledger, attempt):
     ceiling = usd(attempt.ceiling_usd)
     row = ledger.get('attempt_budget')
     if row is None or row['key'] != attempt.key:
-        row = ledger['attempt_budget'] = dict(key=attempt.key, baseline=str(total), ceiling=str(ceiling))
+        row = ledger['attempt_budget'] = dict(key=attempt.key, baseline=str(total), ceiling=str(ceiling),
+                                              g10_baseline=str(_g10_used(ledger)))
     if usd(row['ceiling']) != ceiling: raise BudgetError('reservation_mismatch')
     return usd(row['baseline']) + ceiling
 
 
-def reservation_booked(ledger, lease_id, row, events=None):
-    """Spend booked against one reservation: its listed events plus those bound to it by lease
-    and invocation before settlement lists them (the same join as _settle_leaf)."""
+# G10's strong tries (calibrate names them strong-calibrator-<folder>-<i>, folder strong_calibrator or
+# early_probe) and the exam owner each try asks (exam_responder: reviewer-owner-<folder>-try-<i>-<n>).
+# G16/G17 run the same role under other folders, so the folder is part of the name.
+G10_TRIES = ('strong-calibrator-strong_calibrator-', 'strong-calibrator-early_probe-')
+G10_CALLS = G10_TRIES + ('reviewer-owner-strong_calibrator-', 'reviewer-owner-early_probe-')
+
+
+def _g10_used(ledger):
+    """What G10_CALLS reservations count against the case, valued as reserve_invocation values the case:
+    their spend as case_spending books it (event_charge, estimated gaps), plus the pending ones'
+    unspent holds as outstanding_reservations counts them."""
+    events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
+    used = Decimal(0)
+    for lease_id, row in ledger.get('invocation_reservations', {}).items():
+        if not str(row.get('call_name')).startswith(G10_CALLS): continue
+        bound = reservation_booked(ledger, lease_id, row, events)
+        if bound is None: raise BudgetError('usage_event_missing')
+        used += reservation_booked(ledger, lease_id, row, events, charge=event_charge) + usd(row.get('estimated_gap_usd', 0))
+        if row['state'] == 'pending': used += max(Decimal(0), usd(row['maximum_usd']) - bound)
+    return used
+
+
+def call_limit(ledger, attempt, call_name=None):
+    """attempt_limit as one call sees it. A GATES attempt's G10 authority (attempt.g10_reserve_usd,
+    founder 2026-11-12: approved for the strong tries only) funds G10_CALLS alone: any other call keeps
+    the old cap, plus whatever of the authority G10 has already used in this attempt. None: the whole limit."""
+    limit = attempt_limit(ledger, attempt)
+    reserve = usd(getattr(attempt, 'g10_reserve_usd', 0) or 0)
+    if not reserve or call_name is None or str(call_name).startswith(G10_CALLS): return limit
+    used = _g10_used(ledger) - usd(ledger['attempt_budget']['g10_baseline'])
+    return limit - reserve + min(reserve, max(Decimal(0), used))
+
+
+def reservation_booked(ledger, lease_id, row, events=None, charge=None):
+    """Spend booked against one reservation (event_bound_charge, or `charge`): its listed events plus
+    those bound to it by lease and invocation before settlement lists them (the same join as _settle_leaf)."""
     if events is None: events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
     ids = set(row['event_ids']) | {i for i, e in events.items()
                                    if e.get('lease_id') == lease_id and e.get('invocation_id') == row['invocation_id']}
     if not ids <= events.keys(): return None   # a listed event is missing: the ledger cannot be trusted
-    return sum((event_bound_charge(events[i]) for i in ids), Decimal(0))
+    return sum(((charge or event_bound_charge)(events[i]) for i in ids), Decimal(0))
 
 
 def check_reservation(ledger, lease_id):
@@ -255,15 +289,20 @@ def outstanding_reservations(ledger, exclude_lease=None, *, launched_only=False)
     return total
 
 
-def available_invocation_funding(path, attempt):
-    """Uncommitted funding only; reserve_invocation arbitrates concurrent callers."""
+def invocation_headroom(path, attempt, call_name=None):
+    """What reserve_invocation may still admit: the attempt's limit less spend and pending holds."""
     with ledger_transaction(path) as ledger:
-        limit = attempt_limit(ledger, attempt)
+        limit = call_limit(ledger, attempt, call_name)
         total = case_spending(ledger)['total_spent_usd']
         if total is None: raise BudgetError('usage_unknown')
-        available = limit - usd(total) - outstanding_reservations(ledger)
-        if available <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
-        return format(available, '.9f')
+        return limit - usd(total) - outstanding_reservations(ledger)
+
+
+def available_invocation_funding(path, attempt, call_name=None):
+    """Uncommitted funding only; reserve_invocation arbitrates concurrent callers."""
+    available = invocation_headroom(path, attempt, call_name)
+    if available <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
+    return format(available, '.9f')
 
 
 def _usage_leaves(work, relative, seen=None, depth=0):

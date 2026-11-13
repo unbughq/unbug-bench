@@ -11,6 +11,7 @@ import json
 import re
 from urllib.parse import urlparse
 from calibration import guard_submitted
+from gate_state import stress_swaps
 
 SEARCH_TTL = datetime.timedelta(hours=24)
 MAX_CANDIDATES = 3
@@ -26,7 +27,9 @@ def search_binding(c, rows):
             "context": {name: hashlib.sha256((c.case / name).read_bytes()).hexdigest()
                         for name in ("case.json", "promise.md", "disclosure.md", "provenance.json")
                         if (c.case / name).is_file()},
-            "evidence_sha256": hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()}
+            "evidence_sha256": hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest(),
+            # A stress-tester swap (even A->B->A) never reuses a verdict from before it.
+            **({"stress_swaps": n} if (n := stress_swaps(getattr(c, "card", None))) else {})}
 
 
 def reusable_search(receipt, binding, now=None):

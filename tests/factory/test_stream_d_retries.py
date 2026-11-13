@@ -3,6 +3,7 @@
 Model answers, failures, archive bodies and time shifts are authored inputs.
 The HTTP 200 body is captured; no model CLI, cloud case or live web request runs.
 """
+import inspect
 import copy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -52,6 +53,7 @@ class RetryTests(unittest.TestCase):
         quote = model_router.funded_maximum
         self.patch(model_router, 'funded_maximum', lambda route, funding:
                    quote(route, min(Decimal(str(funding)), Decimal('.1'))))
+        self.c.args.freshness_fanout = False   # these tests drive the agentic top-up's call sequence
         self.c.stress_checkpoint = lambda: True
         self.calls = []
         self.context_inputs = {key: copy.deepcopy(value) for key, value in vars(self.c).items()
@@ -77,7 +79,8 @@ class RetryTests(unittest.TestCase):
         def invoke(runtime, c, models, text, cwd, name, **kwargs):
             c.model_process_state['started'] = True
             calls.append((name, c.model_lease.route, text))
-            emit(c, text, name)
+            # The freshness roles search in their own working copies, so they need the call's directory.
+            emit(c, text, name, **({'cwd': cwd} if 'cwd' in inspect.signature(emit).parameters else {}))
             return 0
         self.patch(model_runtime.ModelRuntime, '_invoke', invoke)
 
@@ -262,12 +265,12 @@ class RetryTests(unittest.TestCase):
     def test_expiry_refresh_repeats_without_defect_charge(self):
         self.searches(True)
         self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
-        def emit(c, text, name):
+        def emit(c, text, name, cwd):
             who = name.split('-')[0]
-            rows = run.freshness_lines(c)
+            rows = [json.loads(line) for line in (Path(cwd) / 'freshness.jsonl').read_text().splitlines()]
             for row in rows:
                 if row['who'] == who: row['at'] = datetime.now(timezone.utc).isoformat()
-            (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+            (Path(cwd) / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
         self.cli(emit)
         self.assertTrue(run.g2(self.c)[0])
         self.searches(True)
@@ -388,9 +391,23 @@ class RetryTests(unittest.TestCase):
             value.update(category_complete=False, completed_subchecks=[], unfinished_validation=['authored diagnostic needed'])
         self.stress_setup(emit)
         with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
-        self.assertEqual(len(self.calls),2)
+        self.assertEqual(len(self.calls),1+len(stress_progress.CATEGORIES)) # every category still gets its turn
         self.c.card.update(terminal_stop='stress_validation_exhausted',status='stopped',gates={})
         self.assertTrue(diagnosis.exhaustion(self.c.card))
+
+    def test_resume_retries_exhausted_category(self):
+        # A resumed stress step must call the attacker again for a category the first run left exhausted.
+        stuck = [True]
+        def emit(config, value):
+            if stuck[0]: value.update(category_complete=False, completed_subchecks=[], unfinished_validation=['stuck'])
+        self.stress_setup(emit)
+        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
+        first = len(self.calls)
+        stuck[0] = False
+        self.fresh_context()
+        self.stress_round(self.c, copy.deepcopy(self.c.card))
+        self.assertGreater(len(self.calls), first)
+        self.assertTrue(run.jload(self.work/'attacks/round-1.json')['complete'])
 
     def test_publication_retries_before_next_dispatch(self):
         uploaded, failures = [], [0]
@@ -473,6 +490,7 @@ class RetryTests(unittest.TestCase):
 
     def test_dedup_and_panel_callers_use_retained_schema_repair(self):
         self.c.models['easy_calibrator'] = self.c.models['reviewers'][0]
+        self.c.models['reviewers'] = [*self.c.models['reviewers'], self.c.models['builder']]  # G8/G9: two reviewers
         self.c.card['roles']['easy_calibrator'] = {'model':self.c.models['easy_calibrator'][0]}
         prior = self.work/'earlier.md'; prior.write_bytes((self.case/'statement.md').read_bytes())
         self.patch(run,'prior_statements',return_value={'case-earlier':str(prior)})
@@ -489,29 +507,30 @@ class RetryTests(unittest.TestCase):
         self.assertTrue(run.statement_precheck(self.c))
         self.assertEqual(len(self.calls),2)
         self.assertTrue(run.g8(self.c)[0]); self.assertTrue(run.g9(self.c)[0])
-        self.assertEqual(len(self.calls),3)
+        self.assertEqual(len(self.calls),4)  # one panel call per reviewer, shared by G8 and G9
         # Semantic prior content, rather than the same path, invalidates dedup reuse.
         prior.write_text(prior.read_text()+' changed prior statement')
         self.assertTrue(run.statement_precheck(self.c))
-        self.assertEqual(len(self.calls),5)
+        self.assertEqual(len(self.calls),6)
 
     def test_freshness_wait_does_not_repeat_completed_role(self):
         self.searches(True)
         self.patch(retrieval,'fetch',lambda url,**kw:({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
         killed = [False]
-        def emit(c,text,name):
+        def emit(c,text,name,cwd):
             who = name.split('-')[0]
             if who == 'attacker' and not killed[0]: killed[0]=True; raise runtime_fixture.Killed()
-            rows = run.freshness_lines(c)
+            rows = [json.loads(line) for line in (Path(cwd)/'freshness.jsonl').read_text().splitlines()]
             for row in rows:
                 if row['who']==who: row['at']=datetime.now(timezone.utc).isoformat()
-            (self.case/'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+            (Path(cwd)/'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
         self.cli(emit)
         with self.assertRaises(runtime_fixture.Killed): run.g2(self.c)
         self.assertEqual(run.jload(self.work/'freshness-repair.json')['completed_defects'],0)
         self.fresh_context()
         self.assertTrue(run.g2(self.c)[0])
-        self.assertEqual([name for name,_,_ in self.calls],['builder-freshness','attacker-freshness','attacker-freshness'])
+        # The roles search together, so the first round's order is not fixed; the finished builder is not repeated.
+        self.assertEqual(sorted(name for name,_,_ in self.calls),['attacker-freshness','attacker-freshness','builder-freshness'])
 
     def test_progress_bound_exhausts_at_last_subcheck(self):
         count = [0]
@@ -521,16 +540,36 @@ class RetryTests(unittest.TestCase):
                          unfinished_validation=['authored unexecuted check'])
         self.stress_setup(emit)
         with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
-        self.assertEqual(count[0],len(stress_progress.CATEGORIES['wrong_fixes']))
+        self.assertEqual(count[0],len(stress_progress.CATEGORIES['wrong_fixes'])+len(stress_progress.CATEGORIES)-1)
         self.assertEqual(self.c.card['builder_rounds'],1)
 
-    def test_interrupted_diagnostic_exhausts_before_more_category_work(self):
+    def test_interrupted_diagnostic_still_reports_other_categories_findings(self):
+        # 1110b: the round's one diagnostic timed out; that must not end the round before the attacker
+        # looked at any category, and a finding anywhere reaches the writer.
+        def emit(config,value):
+            if config['category'] == 'wrong_fixes':
+                value.update(category_complete=False,completed_subchecks=[],unfinished_validation=['diagnostic timed out'])
+            if config['category'] == 'fairness': value['blocking'] = ['a real defect']
+        self.stress_setup(emit)
+        claimed = self.work/'diagnostic-budgets/attacker-1/claimed'
+        claimed.mkdir(parents=True)
+        atomic_json(claimed.parent/'status.json',{'status':'timeout'})
+        result = self.stress_round(self.c,{})
+        self.assertEqual(result['reason'],'stress:findings')
+        self.assertEqual(len(self.calls),1+len(stress_progress.CATEGORIES))
+        report = run.jload(self.work/'attacks/round-1.json')
+        self.assertEqual(report['blocking'],['a real defect'])
+        self.assertIn('diagnostic timed out',report['unfinished_validation'])
+        self.assertFalse(report['coverage']['wrong_fixes']['complete'])
+        self.assertFalse(report['complete'])
+
+    def test_interrupted_diagnostic_without_findings_is_not_clean(self):
         self.stress_setup(lambda *a:None)
         claimed = self.work/'diagnostic-budgets/attacker-1/claimed'
         claimed.mkdir(parents=True)
         atomic_json(claimed.parent/'status.json',{'status':'timeout'})
         with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
-        self.assertEqual(len(self.calls),1) # writer only; no impossible stress retry
+        self.assertEqual(len(self.calls),1+len(stress_progress.CATEGORIES))
 
     def test_broad_outage_retries_without_buying_topup(self):
         self.searches()

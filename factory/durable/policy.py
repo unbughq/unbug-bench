@@ -43,6 +43,9 @@ DEADLINE_REASON = "infra:deadline"
 # across attempts. The engine backstops at WRITER_HANDBACK_CEILING per seq; past it a handback counts
 # as an infra error.
 WRITER_HANDBACK = "writer:handback"
+# A resume's role swap the case card refuses (run.RoleSwapRefused): the same on every attempt, so the
+# case holds at once, never retried or diagnosed; the operator resumes it naming other models.
+ROLES_REFUSED = "infra:roles_refused"
 MAX_WRITER_HANDBACKS = 8   # the engine cap of workflows recorded before the writer_handback_ceiling patch
 WRITER_HANDBACK_CEILING = 32
 
@@ -57,6 +60,10 @@ USAGE_STOP_REASONS = frozenset({"infra:usage_unknown", "infra:missing_usage", "i
 # How long past its deadline an attempt may stay unconfirmed before its worker is deleted and the
 # attempt counts as lost, so a controller recovering an unanswering worker never waits forever.
 UNCONFIRMED_WORKER_LIMIT_S = 9000.0
+# A worker that has not answered a poll for this long, and whose lease renewal has also stopped, is deleted
+# without waiting out the deadline and UNCONFIRMED_WORKER_LIMIT_S (hours). Renewal still running means the
+# worker's host is alive: a control-side outage must never kill it.
+SILENT_WORKER_LIMIT_S = 1800.0
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
 LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})
@@ -131,6 +138,8 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         # bounds paid attempts and the batch waits when its bound is exhausted.
         return Action.SLEEP
     if o is Outcome.INFRA_ERROR:
+        if result.reason == ROLES_REFUSED:
+            return Action.HOLD
         if is_pause(result):
             return Action.RETRY                   # never scored, never counted, never diagnosed
         if is_batch_deadline_stop(result, spec, now):
@@ -175,6 +184,22 @@ def request_usd_micros(step: Step, counters: Counters, spec: BatchSpec) -> int:
     if draws_case_money(step, counters):
         return spec.case_money_usd_micros
     return max(spec.case_money_usd_micros, BATCH_ONLY_FLOOR_USD_MICROS)
+
+
+# Founder 2026-11-12: a GATES step is funded up front for every strong-calibrator try (G10 and its
+# early probe), each of which reserves one whole Claude call (token_prices.CLAUDE_CALL_USD) before it
+# runs. Without it the case's own $50 never covered a second reservation, and G10 money-stopped
+# mid-exam after hours of bench gates. Only the authority grows: spend is still what the calls use.
+G10_STRONG_TRIES = 3
+
+
+def gates_money_extension(step: Step) -> int:
+    """Micro-USD added to a GATES request (and to the case limit it is cut against, when it draws on
+    the case; a rerun after a diagnosis draws on the batch only and needs the same authority)."""
+    from token_prices import CLAUDE_CALL_USD
+    if step.kind is not StepKind.GATES:
+        return 0
+    return int(CLAUDE_CALL_USD * 1_000_000) * G10_STRONG_TRIES
 
 
 def decide_grant(step: Step, grant: Grant, *, minimum: int = MIN_GRANT_USD_MICROS) -> Optional[Action]:

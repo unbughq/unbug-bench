@@ -276,6 +276,18 @@ class Worker:
         c.engine_checkpoint = lambda: self.publish_checkpoint(step_input, c, sealer, case_key, runner)
         c.stress_checkpoint = lambda: checkpoint(c)
 
+    def bind_helpers(self, step_input, c):
+        """Helper machines for a GATES attempt, only if the control side set up a spool for it."""
+        if step_input.step.kind is not StepKind.GATES:
+            return
+        from durable import helper_link
+        root = self.home / helper_link.spool_rel(step_input.idempotency_key)
+        config = helper_link.read_config(root)
+        if config is not None:
+            c.args.helper_workers, c.args.helper_min_per_copy = config["cap"], config["min_per_copy"]
+            c.args.helper_usd_per_hour = config.get("usd_per_hour")
+            c.helper_pool = helper_link.SpoolPool(root, c.case, job_timeout_s=config["job_timeout_s"])
+
     def publish_checkpoint(self, step_input, c, sealer, case_key, runner):
         """Publish durable ciphertext before exposing its authenticated reference."""
         from registry import atomic_json
@@ -592,14 +604,16 @@ class Worker:
         runner = self.runner()
         try:
             c = runner.context_for_step(step_input, work)
-        except Exception:
+        except Exception as error:
             traceback.print_exc()
-            return fail("infra:context_failed")
+            refused = isinstance(error, getattr(runner, "RoleSwapRefused", ()))   # run.swap_roles
+            return fail("infra:roles_refused" if refused else "infra:context_failed")
         before = ledger_totals(c.ledger)
         self._save_baseline(step_input, c.ledger, before)
         if before["total"] is None:
             return fail("infra:usage_unknown")
         self.bind_checkpoint(step_input, c, sealer, case_key, runner)
+        self.bind_helpers(step_input, c)
         out = runner.run_step(c, step_input, feedback=feedback, ruling=ruling)
         usage = usage_since(before, c.ledger, step_input.money_ceiling_usd_micros)
         if ledger_totals(c.ledger)["total"] is None:

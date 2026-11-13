@@ -249,11 +249,11 @@ class Admission(unittest.TestCase):
 GATES = ["G1", "G2", "G3", "G4", "G5", "G16", "G8", "G9", "G6", "G13", "G7", "G11"]
 
 
-def exercise(test, gates, *, engine=False, change_case=False):
+def exercise(test, gates, *, engine=False, change_case=False, probe=False):
     """Run the pipeline with synthetic gates. gates: name -> callable(c) -> (ok, info)."""
     tmp = tempfile.TemporaryDirectory(); test.addCleanup(tmp.cleanup)
     work = pathlib.Path(tmp.name)
-    c = types.SimpleNamespace(args=types.SimpleNamespace(dry_run=False, resume=None, bench_workers=2, no_early_probe=True),
+    c = types.SimpleNamespace(args=types.SimpleNamespace(dry_run=False, resume=None, bench_workers=2, no_early_probe=not probe),
                               card={"gates": {}, "failed_gate": None}, prepared_factory_slots=1, work=work, case=work / "case")
     c.case.mkdir()
     (c.case / "statement.md").write_text("one")
@@ -317,6 +317,24 @@ class SideLane(unittest.TestCase):
         self.assertNotIn("G16", reached)
         self.assertNotIn("G8", c.card["gates"])
 
+    def test_g2_is_recorded_before_g5_spends_on_the_early_probe(self):
+        """G5 finishes first, but a G2 failure must stop the loop before G5's after_gate (the probe)."""
+        def g2(c):
+            time.sleep(0.3)
+            return False, {"outcome": "public_match"}
+        with mock.patch.object(run, "early_probe") as probe:
+            c = exercise(self, {"G2": g2}, probe=True)
+        probe.assert_not_called()
+        self.assertEqual(c.card["failed_gate"], "G2")
+        self.assertNotIn("G5", c.card["gates"])
+
+    def test_a_passing_g2_is_recorded_ahead_of_g5(self):
+        with mock.patch.object(run, "early_probe") as probe:
+            c = exercise(self, {"G2": lambda c: (time.sleep(0.2), (True, {}))[1]}, probe=True)
+        probe.assert_called_once()
+        self.assertLess(list(c.card["gate_minutes"]).index("G2"), list(c.card["gate_minutes"]).index("G5"))
+        self.assertIsNone(c.card["failed_gate"])
+
     def test_the_earliest_failure_in_gate_order_is_reported(self):
         def g2(c):
             time.sleep(0.3)
@@ -327,6 +345,18 @@ class SideLane(unittest.TestCase):
                             "G4": lambda c: (False, {"problems": ["bug not real"]})})
         self.assertEqual(c.card["failed_gate"], "G4")
         self.assertEqual(c.card["failed_detail"], ["bug not real"])
+
+    def test_a_finished_lane_does_not_record_g8_ahead_of_a_failing_g5(self):
+        c = exercise(self, {"G8": lambda c: (False, {"approve": "0/2"}),
+                            "G5": lambda c: (time.sleep(0.3), (False, {"problems": ["g5"]}))[1]})
+        self.assertEqual(c.card["failed_gate"], "G5")
+        self.assertIn("G5", c.card["gates"])
+
+    def test_a_reviewer_failure_does_not_skip_a_failing_g16(self):
+        c = exercise(self, {"G8": lambda c: (False, {"approve": "0/2"}),
+                            "G5": lambda c: (time.sleep(0.3), (True, {}))[1],
+                            "G16": lambda c: (False, {"problems": ["g16"]})})
+        self.assertEqual(c.card["failed_gate"], "G16")
 
     def test_a_case_edited_beside_the_bench_gates_is_an_infrastructure_retry(self):
         c = exercise(self, {}, change_case=True)

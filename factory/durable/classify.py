@@ -94,6 +94,7 @@ _FIXED = {
     'diagnosis_schema_wait': (_I, 'infra:diagnosis_schema_wait'),
     'extension_snapshot_invalid': (_I, 'infra:extension_snapshot_invalid'),
     'factory_bug_held': (_I, 'infra:factory_bug_held'),
+    'roles_refused': (_I, 'infra:roles_refused'),   # policy.ROLES_REFUSED: a resume's role swap the card refuses
     'malformed_output_exhausted': (_I, 'infra:malformed_output_exhausted'),
     'ordinary_retry_completion_missing': (_I, 'infra:retry_completion_missing'),
     'ordinary_retry_output_changed': (_I, 'infra:ordinary_retry_output_changed'),
@@ -191,7 +192,7 @@ _SNAKE_LABEL = re.compile(r"[a-z][a-z_]*")
 _CLASS_LABEL = re.compile(r"_*[A-Z][A-Za-z]*")
 
 # run.provider_preflight's roles and the CLI's own stop, in short fixed forms (REASON allows 32).
-PREFLIGHT_ROLES = {"stress_tester": "stress", "strong_tester": "strong", "easy_tester": "easy",
+PREFLIGHT_ROLES = {"writer": "writer", "stress_tester": "stress", "strong_tester": "strong", "easy_tester": "easy",
                    "reviewer": "review", "reviewer2": "second"}
 PREFLIGHT_STOPS = {"process_error": "process", "claude_error": "claude", "codex_error": "codex",
                    "opencode_error": "opencode", "refusal": "refusal", "zero_tokens": "zero_tokens",

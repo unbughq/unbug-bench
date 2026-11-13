@@ -22,6 +22,7 @@ from dataclasses import dataclass, replace
 import functools
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
@@ -33,15 +34,16 @@ from dbos import DBOS, SetWorkflowID
 from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised, ContractError, FounderAction,
                               CASE_ID, FounderReply, Grant, LimitedBy, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
                               StepResult, Topic, Verdict, WorkerLease, assert_no_conductor, batch_spec_from_record,
-                              guarded_run, step_input_from_record, step_result_from_record, to_record,
+                              check_roles, guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
 from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
-from durable.policy import (DEADLINE_REASON, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+from durable.policy import (DEADLINE_REASON, MIN_GRANT_USD_MICROS, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
-                            progressed, request_usd_micros, starts_replacement)
+                            progressed, request_usd_micros, starts_replacement, gates_money_extension)
 from durable.report import verified_seal
 
+LOG = logging.getLogger("durable.engine")
 APP_NAME = "unbug-factory-engine"
 APP_VERSION = "factory-engine-1"   # pinned for the life of the database: DBOS recovers only matching versions
 CASE_EVENT = "case_event"          # internal topic: case -> batch
@@ -74,10 +76,15 @@ class Timing:
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
 
 
+# Rechecks (seconds of waiting) of a router or credential wait while the case keeps its worker: at 2, 4 and 8 minutes.
+OPERATIONAL_RECHECK_S = (120.0, 120.0, 240.0)
+
+
 class _Runtime:
     executor: Optional[Executor] = None
     timing: Timing = Timing()
     admission_paused = staticmethod(lambda: False)
+    router_clear = staticmethod(lambda: False)   # no router wired: a quota hold never resumes by itself
     draining = threading.Event()
     lock = threading.Lock()
     busy = 0     # attempt workflows running in this process
@@ -178,6 +185,9 @@ def _new_attempt_gate() -> None:
             _RT.gated -= 1
 
 
+KEEP_WORKER_WAIT_S = 21_600.0   # an idle worker costs cents; a quota or money wait of hours still reuses it
+
+
 @DBOS.step()
 def now_step() -> float:
     return time.time()
@@ -273,7 +283,8 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
 
 
 @DBOS.step(**SEAM)
-def settle_step(si: dict, result: dict) -> str:
+def settle_step(si: dict, result: dict, g10_usd_micros: int = 0) -> str:
+    # g10_usd_micros is kept so recorded calls still match; a lost attempt books its whole grant.
     return _ex().settle(step_input_from_record(si), step_result_from_record(result))
 
 
@@ -282,6 +293,20 @@ def book_waste_step(keys: list) -> None:
     """A factory_bug diagnosis found these attempts lost to our own bug: their money is waste."""
     for key in keys:
         _ex().book_waste(key, "factory_bug")
+
+
+@DBOS.step()
+def hold_clear_step(kind: str, batch_id: str, case_id: str, case_limit: int) -> bool:
+    """Whether a hold of this kind may resume without a release (auto_resume_kind): a provider
+    limit once the router reports no blocked pool, a money stop once the case and the batch have
+    money for another call as booked now: a poll never rebooks anything, so a case that really spent
+    its money stays held (the resume itself books the diagnosed attempts as waste)."""
+    try:   # an unreadable router or ledger is "not yet": the hold keeps waiting and the next poll asks again
+        if kind == "quota":
+            return bool(_RT.router_clear())
+        return _ex().money_allows(batch_id, case_id, case_limit, MIN_GRANT_USD_MICROS)
+    except Exception:
+        return False
 
 
 @DBOS.step()
@@ -357,6 +382,20 @@ FACTORY_BUG_INFRA_STOPS = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.val
 # last attack get one writer fix and the case then goes to GATES, which alone certify quality.
 ATTACK_ROUNDS = 2
 MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many in a lineage
+
+
+def auto_resume_kind(stops: list) -> Optional[str]:
+    """What a factory_bug hold may wait on besides a release, from the diagnosed step's stops
+    (oldest first): "money" when the last one ran out of money ("<stage>:money", resumes once the
+    case and the batch have money for another call), else "quota" when the last one was a provider
+    limit (resumes once the router reports no blocked pool); a limit followed by an infra stop is a
+    real failure, and policy.decide today never ends a step on a limit, so this fires only for such stops. Anything else, a gate verdict, an
+    exhausted round limit, a founder decision, or an infra-only hold, never resumes without a
+    release or an operator; factory_bug_rerunnable has already refused the scientific ones."""
+    last = stops[-1]
+    if last.get("outcome") == Outcome.EXHAUSTED.value and str(last.get("reason")).endswith(":money"):
+        return "money"
+    return "quota" if last.get("outcome") == Outcome.PROVIDER_LIMIT.value else None
 
 
 def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
@@ -449,9 +488,26 @@ def _retired_only_by_deadline(latest, attempts: dict, last: tuple, earlier: list
         return False
 
 
-def resume_point(case_id: str, override: Optional[str] = None) -> dict:
-    """Where a case stopped by an infrastructure failure continues (_resume_point)."""
-    return _resume_point(case_id, override)[0]
+def resume_point(case_id: str, override: Optional[str] = None, roles: Optional[dict] = None) -> dict:
+    """Where a case stopped by an infrastructure failure continues (_resume_point).
+
+    Founder 2026-11-12: roles ({role: model}, contract.check_roles) gives the resumed case another
+    stress tester or strong calibrator. The lineage keeps a swap: each resume carries the roles of
+    the earlier ones, those named again replaced. The worker checks the models (run.context_for_step)."""
+    if roles is not None:
+        try:
+            check_roles(roles)
+        except ContractError:
+            raise ContractError("resume:bad_roles") from None
+    point = _resume_point(case_id, override)[0]
+    swap = {}
+    for w in sorted(DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__),
+                    key=lambda w: (w.created_at or 0, w.workflow_id)):
+        swap.update((w.input["args"][0].get("resume") or {}).get("roles") or {})
+    swap.update(roles or {})
+    if swap:   # absent otherwise: older jobs replay unchanged
+        point["roles"] = swap
+    return point
 
 
 def factory_bug_waste_keys(case_id: str, override: Optional[str] = None) -> list:
@@ -670,7 +726,7 @@ def attempt_workflow(job: dict) -> dict:
                 "started_at": None, "worker_id": None}
     started_at = now_step()
     result = attempt_step(to_record(si), started_at, worker_id)
-    settle_step(to_record(si), result)
+    settle_step(to_record(si), result, job.get("g10_usd_micros", 0))
     DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id}, topic=CASE_EVENT)   # wakes the other waiting cases
     return {"started": True, "grant": to_record(grant), "input": to_record(si), "result": result,
             "started_at": started_at, "worker_id": worker_id}
@@ -859,7 +915,9 @@ class _Case:
         self.ran: Optional[tuple] = None
         self.ran_on: Optional[tuple] = None
         self.rerun_seqs: list = []   # diagnosis seqs of factory_bug resumes in this workflow (rerun_after_release)
+        self.gates_g10 = 0   # the G10 authority (gates_money_up_front) the case's GATES attempts carried
         self.override: Optional[str] = None   # the operator's reason, when an override resumed this case
+        self.roles: Optional[dict] = None     # a resume's role swap (resume_point), sent with every step
 
     @property
     def replaying(self) -> bool:
@@ -924,6 +982,13 @@ class _Case:
         self.card()
         raise _Stop(status)
 
+    def keeps_worker_for(self, seconds: float, patched: bool = True) -> bool:
+        """A wait this short keeps the worker: a retry on the held one leases in 2-5 s, a new one in
+        37-350 s (12 Nov). Workflows recorded before 'keep_worker_through_waits' keep the spec's own limit."""
+        limit = self.spec.release_worker_after_sleep_s
+        # The contract default (1800) is the one a batch never set; an explicit value is honored.
+        return seconds <= (KEEP_WORKER_WAIT_S if patched and limit == 1_800.0 else limit)
+
     def release_worker(self) -> None:
         if self.replaying:
             self.worker_id = None   # a recorded worker; the original workflow released it
@@ -963,6 +1028,7 @@ class _Case:
         requested_minimum = 0
         failed_releases = []
         backoffs, admission_waste = 0, 0
+        op_waits = 0   # consecutive router/credential waits of this seq
         admit = step.kind is StepKind.ADMIT
         admission_started = False
         while True:
@@ -974,12 +1040,21 @@ class _Case:
                            snapshot=snapshot, deadline_s=deadline_s(step, self.spec),
                            money_ceiling_usd_micros=0, feedback=feedback,
                            registry=Ref(**self.initial_registry) if admit else None, ruling=ruling,
-                           evidence=tuple(evidence))
+                           evidence=tuple(evidence), roles=self.roles)
             counters = self.counters(infra, limits, free, late)
             job = {"input": to_record(si), "initial_registry": self.initial_registry,
                    "request": max(requested_minimum, request_usd_micros(step, counters, self.spec)),
                    "case_limit": self.spec.case_money_usd_micros, "draws": draws_case_money(step, counters),
                    "prev": prev}
+            extension = gates_money_extension(step)
+            if extension and DBOS.patch("gates_money_up_front"):
+                job["request"] += extension
+                job["case_limit"] += extension
+                job["g10_usd_micros"] = extension   # a bound retry adds it once
+                self.gates_g10 = extension
+            if step.kind is StepKind.SEAL:
+                # GATES may have spent its G10 authority from the case's money: SEAL keeps the same limit.
+                job["case_limit"] += self.gates_g10
             if admit and not admission_started:
                 job["admission_deadline"] = self.spec.deadline_epoch
             restoring = attempt <= recorded
@@ -1076,14 +1151,27 @@ class _Case:
                     and grant.limited_by is LimitedBy.NOTHING and not job["draws"]):
                 # A later call may not fit even after earlier calls spent money.
                 # Grow only until the ledger applies the batch bound.
-                requested_minimum = min(2**63 - 1, max(job["request"] * 2, 1))
+                # The G10 authority is added once per attempt, never doubled.
+                requested_minimum = min(2**63 - 1, max((job["request"] - job.get("g10_usd_micros", 0)) * 2, 1))
+            op_waits = op_waits if is_operational_wait(result) else 0
             if is_operational_wait(result):
                 self.status = ("waiting_for_credentials" if result.reason in (
                     "router:credential_expiring", "infra:credentials_unavailable") else "waiting_for_router")
                 self.card()
-                self.release_worker()
+                op_waits += 1
+                # A router or credential wait usually clears in minutes, and a released worker costs
+                # 5-10 min to replace. Keep it and recheck at 2, 4 and 8 minutes; only then release it
+                # and wait out the rest of the old credential_retry_s.
+                keep = DBOS.patch("operational_wait_keeps_worker")
+                step_s = OPERATIONAL_RECHECK_S[op_waits - 1] if keep and op_waits <= len(OPERATIONAL_RECHECK_S) else None
+                if step_s is None:
+                    self.release_worker()
                 if not self.replaying:
-                    DBOS.sleep(max(0.001, _RT.timing.credential_retry_s))
+                    if step_s is not None:
+                        DBOS.sleep(min(step_s, _RT.timing.credential_retry_s))
+                    else:
+                        waited = sum(OPERATIONAL_RECHECK_S) if keep else 0
+                        DBOS.sleep(max(0.001, _RT.timing.credential_retry_s - waited))
                 self.status = "running"
                 self.last_reason = None
                 self.card()
@@ -1093,7 +1181,8 @@ class _Case:
                 if self.replaying:
                     self.worker_id = None
                     continue
-                if _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
+                if (not self.keeps_worker_for(_RT.timing.pause_retry_s) if DBOS.patch('keep_worker_through_waits')
+                        else _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s) and self.worker_id is not None:
                     release_step(self.case_id, self.worker_id)
                     self.worker_id = None
                 DBOS.sleep(_RT.timing.pause_retry_s)
@@ -1106,7 +1195,7 @@ class _Case:
                 # and on 8 November the 15-minute rate waits of five cases spent the campaign's
                 # whole creation allowance. Only a wait past release_worker_after_sleep_s releases it.
                 if (not DBOS.patch('short_sleep_keeps_worker')
-                        or seconds > self.spec.release_worker_after_sleep_s):
+                        or not self.keeps_worker_for(seconds, patched=DBOS.patch('keep_worker_through_waits'))):
                     self.release_worker()
                 if not self.replaying:
                     DBOS.sleep(seconds)
@@ -1169,14 +1258,24 @@ class _Case:
         """Block until the batch wakes this case (a settle that freed money, a bound raise or a
         release). False: the admission deadline passed first. A poll timeout alone never retries:
         with nothing left, each retry's own settle used to wake the case again, and it spun."""
-        self.release_worker()
+        keeps = DBOS.patch("keep_worker_through_waits")
+        if not keeps:
+            self.release_worker()
         self.status = "waiting_for_bound"
         self.card()
         self.tell("waiting")
         blocks = DBOS.patch("bound_wait_blocks")
+        started = now_step() if keeps and not self.replaying else None
         while DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s) is None and blocks:
-            if deadline is not None and now_step() >= deadline:
+            # Read the clock only where the recorded loop did (a deadline) or under the keep patch:
+            # a workflow recorded before it holds recv, recv, ... and replays only that order.
+            now = now_step() if deadline is not None or started is not None else None
+            if deadline is not None and now >= deadline:
+                self.release_worker()
                 return False
+            # A money stop keeps its worker for the next attempt; a wait past the limit gives it up.
+            if keeps and self.worker_id is not None and started is not None and now - started > KEEP_WORKER_WAIT_S:
+                self.release_worker()
         self.status = "running"
         return True
 
@@ -1298,6 +1397,8 @@ class _Case:
         self.stop_line(action)
         if action is Action.RETIRE:
             self.finish("retired")
+        if action is Action.HOLD:   # policy.ROLES_REFUSED; no workflow recorded it before it existed
+            self.finish("held")
         if action is not Action.DIAGNOSE:
             raise AssertionError(action)
         return self.diagnose()
@@ -1359,11 +1460,13 @@ class _Case:
             return None
         diagnosis = Step(StepKind.DIAGNOSIS).name
         diagnosis_attempt = max(h["attempt"] for h in self.history if h["seq"] == self.seq and h["step"] == diagnosis)
-        if not self.wait_for_fix(ran_on, f"{self.seq}/{diagnosis_attempt}"):
+        keys = [f"{self.case_id}/{self.seq - 1}/{step.name}/{h['attempt']}" for h in diagnosed]
+        if not self.wait_for_fix(ran_on, f"{self.seq}/{diagnosis_attempt}", auto_resume_kind(diagnosed),
+                                 self.spec.case_money_usd_micros + gates_money_extension(step)):
             return None
         self.renumber.setdefault(self.seq, {})[diagnosis] = diagnosis_attempt
         self.renumber.setdefault(self.seq - 1, {})[step.name] = max(h["attempt"] for h in diagnosed)
-        book_waste_step([f"{self.case_id}/{self.seq - 1}/{step.name}/{h['attempt']}" for h in diagnosed])
+        book_waste_step(keys)
         # The diagnosis seq of every resume on this workflow's path, replayed ones included: a later
         # --resume-case counts those it will not replay (_resume_point), so the cap holds across batches.
         self.rerun_seqs.append(self.seq)
@@ -1375,16 +1478,21 @@ class _Case:
         self.seq -= 2                        # run_seq numbers the rerun at the diagnosed seq
         return step.kind.value, feedback
 
-    def wait_for_fix(self, failed: tuple, hold: str) -> bool:
+    def wait_for_fix(self, failed: tuple, hold: str, auto: Optional[str] = None,
+                     case_limit: Optional[int] = None) -> bool:
         """Park without a worker until the batch's (plumbing, bench) differs from `failed`, the
         releases the diagnosed step ran on, or an operator sends Engine.resume_held for this hold
         (`hold`: diagnosis seq/attempt; a resume left over from an earlier hold is ignored). Never
         on the same releases by itself, so it cannot loop on the same bug. Either release counts,
         whatever the step: a writer or stress step runs on the bench image too (86b100's writer
         crashed on its old bench on 11 November), so a release that fixes nothing costs one of the
-        lineage's resumes. False: the batch deadline passed first."""
+        lineage's resumes. `auto` (auto_resume_kind) also ends the wait, with no release, once the
+        cause of a provider-limit or money stop has cleared (hold_clear_step); it is polled, logged,
+        and counts as one of the lineage's resumes like any other, so the cap still ends the loop.
+        False: the batch deadline passed first."""
         if self.replaying:
             return True   # the recorded workflow went on past this hold: it resumed here
+        auto = auto if DBOS.patch("auto_resume_safe_holds") else None
         self.release_worker()
         self.status = "held_for_release"
         DBOS.set_event("release_hold", hold)
@@ -1395,6 +1503,13 @@ class _Case:
                 DBOS.set_event("release_hold", None)
                 return False
             if (self.current("plumbing"), self.current("bench")) != failed:
+                LOG.info("auto-resume %s: %s, a new release", self.case_id, hold)
+                break
+            # A GATES money stop is measured against the limit its rerun gets (case limit plus the G10 authority).
+            limit = self.spec.case_money_usd_micros if case_limit is None else case_limit
+            if auto and hold_clear_step(auto, self.batch_id, self.case_id, limit):
+                LOG.info("auto-resume %s: %s, %s cleared", self.case_id, hold, auto)
+                DBOS.set_event("auto_resume", {"hold": hold, "kind": auto})
                 break
             self.tell("waiting")
             msg = DBOS.recv(WAKE, timeout_seconds=max(0.001, min(_RT.timing.wake_poll_s,
@@ -1447,6 +1562,7 @@ def case_workflow(job: dict) -> dict:
             case.attack_cap_from = resume["attack_cap_from"]
             DBOS.set_event("attack_cap_from", case.attack_cap_from)
         case.override = resume.get("override")
+        case.roles = resume.get("roles")
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
@@ -1536,6 +1652,8 @@ class _Batch:
                 job["resume"]["attack_cap_from"] = self.resume["attack_cap_from"]
             if self.resume.get("override") is not None:   # absent otherwise: older jobs replay unchanged
                 job["resume"]["override"] = self.resume["override"]
+            if self.resume.get("roles") is not None:   # absent otherwise: older jobs replay unchanged
+                job["resume"]["roles"] = self.resume["roles"]
             self.case_ids[workflow_id] = case_id
         with SetWorkflowID(workflow_id):
             DBOS.start_workflow(case_workflow, job)
@@ -1935,9 +2053,9 @@ class Engine:
 
     def __init__(self, *, system_database_url: str, executor: Executor, timing: Timing = Timing(),
                  environ: Optional[Mapping[str, str]] = None, pool_size: int = 40,
-                 admission_paused=lambda: False):
+                 admission_paused=lambda: False, router_clear=lambda: False):
         self.url, self.executor, self.timing = system_database_url, executor, timing
-        self.admission_paused = admission_paused
+        self.admission_paused, self.router_clear = admission_paused, router_clear
         self.environ = os.environ if environ is None else environ
         self.pool_size = pool_size
         self.dbos = None
@@ -1953,6 +2071,7 @@ class Engine:
         self.dbos = DBOS(config=config)
         check_instance(self.dbos)
         _RT.executor, _RT.timing, _RT.admission_paused = self.executor, self.timing, self.admission_paused
+        _RT.router_clear = self.router_clear
         _RT.draining.clear()
         DBOS.launch()
         # Rule 6: register the queues of every unfinished batch before anything is started or
@@ -1979,13 +2098,15 @@ class Engine:
         return factory_bug_waste_keys(case_id, override)
 
     def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None,
-                    resume_of: Optional[str] = None, override: Optional[str] = None):
+                    resume_of: Optional[str] = None, override: Optional[str] = None,
+                    roles: Optional[dict] = None):
         """Attach to the batch if it exists (rule 3); start it otherwise. initial_registry is the
         batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2). import_snapshot,
         a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case.
         resume_of, a case stopped by an infrastructure failure, continues it as the batch's first
         case where it stopped (resume_point). override, the operator's reason, resumes it once where
-        resume_point's rules refuse it (founder 2026-11-11)."""
+        resume_point's rules refuse it (founder 2026-11-11). roles swaps its stress tester or strong
+        calibrator model (resume_point, founder 2026-11-12)."""
         if not isinstance(initial_registry, Ref) or initial_registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise ContractError("initial_registry must be a registry Ref")
         if import_snapshot is not None and (not isinstance(import_snapshot, Ref)
@@ -1998,7 +2119,9 @@ class Engine:
             raise ContractError("a batch either imports or resumes its first case")
         if override is not None and resume_of is None:
             raise ContractError("an override only resumes a case")
-        resume = None if resume_of is None else {"case": resume_of, **resume_point(resume_of, override)}
+        if roles is not None and resume_of is None:
+            raise ContractError("a role swap only resumes a case")
+        resume = None if resume_of is None else {"case": resume_of, **resume_point(resume_of, override, roles)}
         with SetWorkflowID(spec.batch_id):
             job = {"spec": to_record(spec), "initial_registry": to_record(initial_registry), "queue_v2": False}
             if import_snapshot is not None:

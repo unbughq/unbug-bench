@@ -208,6 +208,31 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(self.registry_doc(result, outputs), {
             "version": 1, "registry": {"revision": 0, "entries": {}}, "objects": {}, "refs": {}})
 
+    def test_a_resume_role_swap_survives_the_models_admit_pins(self):
+        # Founder 2026-11-12: ADMIT pins its models from INPUTS after context_for_step; a resumed
+        # case's role swap (StepInput.roles) applies over them, so its screens use the swapped model.
+        import dataclasses
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key,
+                           json.dumps({"version": 1, "dry_run": True, "seed": 7}).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        plain, outputs = self.run_admit(self.step(inputs, registry))
+        pinned = self.restore(self.step(inputs, registry), plain, outputs)[1].card
+        # Another stress tester whose family the pinned selection leaves free.
+        used = {pinned["roles"][r]["family"] for r in ("writer", "reviewer", "strong_calibrator", "stress_tester")}
+        model = next(m for m in ("opencode-go/deepseek-v4.1-flash", "opencode/minimax-m3.1-flash-free",
+                                 "openrouter/xiaomi/mimo-v2.6-pro") if run.family(m) not in used)
+        swapped = dataclasses.replace(self.step(inputs, registry, attempt=2), roles={"stress_tester": model})
+        result, outputs = self.run_admit(swapped)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:practice"))
+        card = self.restore(swapped, result, outputs)[1].card
+        self.assertEqual((card["models"]["attacker"], card["roles"]["stress_tester"]["model"]), ([model], model))
+        self.assertEqual([(s["role"], s["to"], s["step"]) for s in card["role_swaps"]][:1], [("stress_tester", model, "admit")])
+        # A swap the pinned selection refuses holds the case (policy.ROLES_REFUSED), never admit:processing_failed.
+        refused = dataclasses.replace(self.step(inputs, registry, attempt=3),
+                                      roles={"stress_tester": pinned["roles"]["writer"]["model"]})
+        result, _ = self.run_admit(refused)
+        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "infra:roles_refused"))
+
     def real_inputs(self, statement, **more):
         value = {"version": 1, "dry_run": False, "seed": 11, "source": "port",
                  "app_repo": "medusajs/medusa", "app_commit": "a" * 40,
@@ -282,8 +307,8 @@ class AdmitTests(unittest.TestCase):
         si = self.step(inputs, registry)
         result, outputs = self.run_admit(si)
         self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
-        self.assertEqual(self.calls, ["attacker-provider-preflight", "reviewer-provider-preflight",
-            "strong-calibrator-provider-preflight", "easy-calibrator-provider-preflight",
+        self.assertEqual(self.calls, ["builder-provider-preflight", "attacker-provider-preflight", "reviewer-provider-preflight",
+            "reviewer2-provider-preflight", "strong-calibrator-provider-preflight", "easy-calibrator-provider-preflight",
             "builder-selection", "reviewer-idea-realism"])
         self.freshness.assert_called_once()
         work, c = self.restore(si, result, outputs)
@@ -358,20 +383,21 @@ class AdmitTests(unittest.TestCase):
             done, outputs = self.run_admit(retry)
         self.assertEqual((done.outcome, done.reason), (Outcome.OK, 'admit:selected'))
         preflights = [n for n in self.calls if n.endswith('provider-preflight')]
-        self.assertEqual(preflights, ['attacker-provider-preflight', 'reviewer-provider-preflight',
+        self.assertEqual(preflights, ['builder-provider-preflight', 'attacker-provider-preflight', 'reviewer-provider-preflight',
+            'reviewer2-provider-preflight',
             'strong-calibrator-provider-preflight', 'strong-calibrator-provider-preflight',
             'easy-calibrator-provider-preflight'])
         _, c = self.restore(retry, done, outputs)
-        self.assertEqual([r.get('reused', False) for r in c.card['provider_preflight']], [True, True, False, False])
+        self.assertEqual([r.get('reused', False) for r in c.card['provider_preflight']], [True, True, True, True, False, False])
         # A pass older than PREFLIGHT_REUSE_S (a retry after a long wait) is checked again.
         self.calls.clear()
         for row in c.card['provider_preflight']: row['checked_at'] -= run.PREFLIGHT_REUSE_S
         run.provider_preflight(c, step=f'{BATCH}:1')
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 5)
         # Another step checks every route again.
         self.calls.clear()
         run.provider_preflight(c, step=f'{BATCH}:2')
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 5)
 
     def test_malformed_dedup_retries_on_fresh_worker_without_reselecting_or_erasing_spend(self):
         from dataclasses import replace
@@ -940,7 +966,8 @@ class AdmitTests(unittest.TestCase):
         value = self.real_inputs("unused", import_spent_usd_micros=2_500_000, import_mode="idea_only")
         value.pop("candidate")
         # The default reviewer is MiMo, an idea author's family, which no judge may share; GLM may.
-        value["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"]]
+        # With the writer, stress tester and strong calibrator that leaves OpenAI for the second reviewer.
+        value["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"], ["codex/gpt-6.1-sol"]]
         return value
 
     def idea_inputs(self, value=None):
@@ -987,9 +1014,9 @@ class AdmitTests(unittest.TestCase):
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
         archive = self.legacy_archive(old, text, writer=None, card_extra=self.OCTOBER_5813BE)
         mimo_reviewer = self.idea_value()
-        mimo_reviewer["models"]["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"]]
+        mimo_reviewer["models"]["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"], ["codex/gpt-6.1-sol"]]
         mimo_dedup = self.idea_value()
-        mimo_dedup["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"]]
+        mimo_dedup["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"], ["codex/gpt-6.1-sol"]]
         mimo_dedup["models"]["easy_calibrator"] = ["openrouter/xiaomi/mimo-v2.6-pro"]
         for value in (mimo_reviewer, mimo_dedup):
             result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
@@ -1135,8 +1162,10 @@ class AdmitTests(unittest.TestCase):
         import model_runtime
         value = self.real_inputs("# Candidate\n\nA bug.")
         models = value['models']
+        models['reviewers'].append(['opencode-go/glm-5.3-flash'])  # the rotation would add a second reviewer
         roles = {'writer': models['builder'][0], 'stress_tester': models['attacker'][0],
-                 'reviewer': models['reviewers'][0][0], 'strong_calibrator': models['strong_calibrator'][0],
+                 'reviewer': models['reviewers'][0][0], 'reviewer2': models['reviewers'][1][0],
+                 'strong_calibrator': models['strong_calibrator'][0],
                  'easy_calibrator': models['easy_calibrator'][0]}
         value['roles'] = {role: {'model': model, 'effort': model_runtime.model_effort(model),
                                 'family': model_runtime.family(model)} for role, model in roles.items()}

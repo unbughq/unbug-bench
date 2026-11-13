@@ -43,7 +43,8 @@ DRY_SKIP.update({"G16": "independent model fix", "G17": "model diagnosis"})
 # (G2 judges today's freshness, never October's; G3 prepares its runtime; G17 needs this run's G10
 # tries; G11 checks G10's passes and reads G17's difficulty); every other gate up to G15 keeps its
 # October verdict.
-RECERTIFY_RERUN = ("G2", "G3", "G16", "G10", "G17", "G11")
+# Founder 2026-11-13: G8/G9 rerun too, so both reviewers judge; an October one-reviewer pass is not kept.
+RECERTIFY_RERUN = ("G2", "G3", "G16", "G8", "G9", "G10", "G17", "G11")
 RECERTIFY_KEPT = tuple(f"G{i}" for i in range(1, 16) if f"G{i}" not in (*RECERTIFY_RERUN, "G12"))  # SEAL sets G12
 REPAIRABLE_GATES = frozenset({"G4", "G5", "G6", "G8", "G9", "G11", "G13", "G14", "G15", "G16", "G17"})
 # Model state that holds transcripts: archived into the seal, then shredded.
@@ -429,7 +430,8 @@ PREFLIGHT_REUSE_S = 1800     # a passed check is reused by a retry of the same s
 
 
 def provider_preflight(c, step=None):
-    """Check non-writer routes before spending on construction; availability is not a gate pass.
+    """Check every role's route, the writer's too (a silent writer route hung 11 admissions), before
+    spending on construction; availability is not a gate pass.
     With `step` (the engine step's identity), a role that passed in this step within
     PREFLIGHT_REUSE_S is not asked again: a retried ADMIT re-ran every "Reply OK" call and queued
     for the same routes it needed. An older pass (a retry after a long wait) is checked again."""
@@ -447,7 +449,11 @@ def provider_preflight(c, step=None):
             ("stress_tester", c.models["attacker"], "attacker-provider-preflight"),
             ("strong_tester", c.models["strong_calibrator"], "strong-calibrator-provider-preflight"),
             ("easy_tester", c.models["easy_calibrator"], "easy-calibrator-provider-preflight")]
-    checks[1:1] = [('reviewer' if i == 0 else 'reviewer2', chain,
+    # The writer's first call is candidate selection: only a case with no statement yet will make it.
+    if not (pathlib.Path(c.case) / "statement.md").is_file():
+        checks.insert(0, ("writer", c.models["builder"], "builder-provider-preflight"))
+    at = 2 if checks[0][0] == "writer" else 1
+    checks[at:at] = [('reviewer' if i == 0 else 'reviewer2', chain,
                     'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
     for role, chain, name in checks:
@@ -537,62 +543,147 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
             reverify_timeout = min(1200, max(300, 60 * sum(
                 search_evidence_error(row) is not None for row in freshness_lines(c))))
         deadline = time.monotonic() + min(reverify_timeout, getattr(c.args, 'agent_timeout', 1200))
-    for who, model_key in (("builder", "builder"), ("attacker", "attacker")):
-        if who in completed_roles: continue
+    def role_state(who):
         n = freshness_counts(c)
         errors = [{"row": i + 1, "reason": reason} for i, row in enumerate(freshness_lines(c))
                   if (row.get("who") == who or who == "builder" and row.get("who") not in ("builder", "attacker"))
                   and (reason := ('runner_retrieval_unavailable: append an alternative result as a NEW row'
                                   if row.get('url') in getattr(c, 'freshness_unfetched', set())
                                   else search_evidence_error(row))) is not None]
-        need = (f"at least {max(0, 3 - n['builder_web'])} more web and {max(0, 3 - n['builder_github'])} more GitHub"
-                if who == "builder" else f"at least {max(0, 2 - n['attacker'])} more web or GitHub")
         short = bool(errors) or (n["builder_web"] < 3 or n["builder_github"] < 3 if who == "builder" else n["attacker"] < 2)
+        return n, errors, short
+
+    if getattr(c.args, 'freshness_fanout', False):
+        # Both roles plan, search (concurrently) and score on their own; only close/unsure leads are
+        # browsed. A role still short afterwards falls through to the concurrent agentic top-up below.
+        import freshness_fanout
+        roles = [who for who in ("builder", "attacker") if who not in completed_roles and role_state(who)[2]]
+        if roles:
+            _freshness_snapshot(c)
+            try:
+                if deadline - time.monotonic() <= 0: raise BudgetError('timeout')
+                case_budget_boundary(c, c.models['builder'][0])
+                freshness_fanout.fan_out(sys.modules[__name__], c, roles, opencode, deadline)
+            finally:
+                finish_freshness_repair(c)
+    plans = []
+    for who, model_key in (("builder", "builder"), ("attacker", "attacker")):
+        if who in completed_roles: continue
+        n, errors, short = role_state(who)
+        missing = ((max(0, 3 - n['builder_web']), max(0, 3 - n['builder_github'])) if who == "builder"
+                   else (max(0, 2 - n['attacker']),))
+        need = (f"at least {missing[0]} more web and {missing[1]} more GitHub"
+                if who == "builder" else f"at least {missing[0]} more web or GitHub")
         if not short:
             if role_completed is not None: role_completed(who)
             continue
-        before = freshness_lines(c)
-        # Stable identities let a row's malformed fields be repaired without losing its history.
-        seen = set()
-        for i, row in enumerate(before):
-            key = row.get('_search_id')
-            if not isinstance(key, str) or not re.fullmatch(r'[0-9a-f]{64}', key) or key in seen:
-                key = hashlib.sha256(f'{i}:{json.dumps(row, sort_keys=True)}'.encode()).hexdigest()
-                row['_search_id'] = key
-            seen.add(key)
-        searches = c.case / 'freshness.jsonl'
-        searches.write_text(''.join(json.dumps(row) + '\n' for row in before))
-        statement = c.case / 'statement.md'
-        original = statement.read_bytes() if statement.is_file() else None
-        atomic_json(c.work / 'freshness-inflight.json',
-                    {'rows': before, 'statement_hex': original.hex() if original is not None else None})
-        text = (f"Freshness check only; change nothing else. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
-                f"case_dir to learn the bug and pinned app version. Then make {need} searches for this bug, its fix or workarounds in this app, and "
-                f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
-                f'{{"who": "{who}", "kind": "web" | "github", "query": "...", "url": "...", "at": "<UTC ISO time>", '
-                f'"hit": false | true, "retrieved": true, "note": "evidence/result summary", "app_version": "pinned version", "version_scope": "why the result applies or does not"}}. `hit` is true if the result discusses this bug, its fix or a workaround '
-                f"in this app. Use distinct queries and real result/search URLs; log every search, hit or not. "
-                f"Flag ambiguous public matches for independent confirmation; no retrieval is not a no-hit. "
-                f"Revisit every historical {who} row missing these evidence fields, older than 24 hours or marked retrieval failed: rerun the query, "
-                f"then amend its evidence fields truthfully, retaining its query/result and all hits. Do not drop failed searches "
-                f"or invent evidence; an unresolved search blocks admission. Repair evidence for this SAME idea; never select a replacement. "
-                 f"Retain every existing `_search_id` on its own row when repairing it; never delete, reassign or duplicate those IDs. "
-                 f"Retain valid who/kind/query/url fields exactly; append a different query or result as a NEW row. "
-                f"Current UTC: {datetime.datetime.now(datetime.timezone.utc).isoformat()}. Use the actual retrieval time and an exact x.y.z app version. "
-                f"Validation failures (1-based JSONL rows): {json.dumps(errors)}. "
-                f"Do not construct or expand the case.\n\n## This run\n\n" + run_context(c))
+        plans.append((who, model_key, need, errors, sum(missing)))
+    if plans:
+        _freshness_searches(c, plans, deadline, role_completed)
+    c.card["freshness_topup"] = {"before": counts_before, "after": freshness_counts(c)}
+
+
+FRESHNESS_EXTRA_SEARCHES = 2   # beyond the missing minimum: a search that finds nothing new is still a row
+
+
+def _freshness_snapshot(c):
+    """Give every search row a stable `_search_id` and record the rows and statement in
+    freshness-inflight.json, so finish_freshness_repair can restore history. Returns the rows."""
+    from registry import atomic_json
+    before = freshness_lines(c)
+    # Stable identities let a row's malformed fields be repaired without losing its history.
+    seen = set()
+    for i, row in enumerate(before):
+        key = row.get('_search_id')
+        if not isinstance(key, str) or not re.fullmatch(r'[0-9a-f]{64}', key) or key in seen:
+            key = hashlib.sha256(f'{i}:{json.dumps(row, sort_keys=True)}'.encode()).hexdigest()
+            row['_search_id'] = key
+        seen.add(key)
+    (c.case / 'freshness.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in before))
+    statement = c.case / 'statement.md'
+    original = statement.read_bytes() if statement.is_file() else None
+    atomic_json(c.work / 'freshness-inflight.json',
+                {'rows': before, 'statement_hex': original.hex() if original is not None else None})
+    return before
+
+
+def _freshness_searches(c, plans, deadline, role_completed):
+    """Run the roles' searches at the same time. Each works in its own copy of the case's search inputs, so
+    the two cannot write the same file; its rows are merged back by owner (builder rows and rows without a
+    role, attacker rows), and evidence validation reads the merged file exactly as before."""
+    before = _freshness_snapshot(c)
+    searches = c.case / 'freshness.jsonl'
+    owner = lambda row: "attacker" if row.get("who") == "attacker" else "builder"
+    lock, merged, failures = threading.Lock(), set(), {}
+
+    def merge(who, scratch):
+        with lock:
+            if who in merged: return
+            merged.add(who)
+            mine = {r['_search_id'] for r in before if owner(r) == who}
+            known = {r['_search_id'] for r in before}
+            theirs = []
+            for line in (scratch / 'freshness.jsonl').read_text().splitlines() if (scratch / 'freshness.jsonl').is_file() else []:
+                try: row = json.loads(line)
+                except ValueError: row = {"invalid_record": True}
+                theirs.append(row if isinstance(row, dict) else {"invalid_record": True})
+            by_id = {r['_search_id']: r for r in theirs if isinstance(r.get('_search_id'), str)}
+            # An owned row the role deleted is dropped here; finish_freshness_repair restores it from history.
+            rows = [by_id.get(r.get('_search_id'), r) if r.get('_search_id') in mine else r
+                    for r in freshness_lines(c) if r.get('_search_id') not in mine or r['_search_id'] in by_id]
+            rows += [r for r in theirs if r.get('_search_id') not in known]
+            searches.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+
+    # Copied before any role starts: a finished role's merge rewrites the case's file.
+    scratches = {}
+    for who, *_ in plans:
+        scratches[who] = pathlib.Path(tempfile.mkdtemp(prefix=f'freshness-{who}-'))
+        for name in ('statement.md', 'disclosure.md', 'provenance.json', 'promise.md', 'freshness.jsonl'):
+            if (c.case / name).is_file(): shutil.copy2(c.case / name, scratches[who] / name)
+
+    def search(who, model_key, need, errors, missing):
+        scratch = scratches[who]
         try:
-            # Repair/re-search shares one wall-clock ceiling across both roles.
+            text = (f"Freshness check only; change nothing else. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
+                    f"case_dir to learn the bug and pinned app version. Then make {need} searches for this bug, its fix or workarounds in this app, and "
+                    f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
+                    f'{{"who": "{who}", "kind": "web" | "github", "query": "...", "url": "...", "at": "<UTC ISO time>", '
+                    f'"hit": false | true, "retrieved": true, "note": "evidence/result summary", "app_version": "pinned version", "version_scope": "why the result applies or does not"}}. `hit` is true if the result discusses this bug, its fix or a workaround '
+                    f"in this app. Use distinct queries and real result/search URLs; log every search, hit or not. "
+                    f"Make at most {missing + FRESHNESS_EXTRA_SEARCHES} new searches in total, and stop as soon as the evidence is complete. "
+                    f"Flag ambiguous public matches for independent confirmation; no retrieval is not a no-hit. "
+                    f"Revisit every historical {who} row missing these evidence fields, older than 24 hours or marked retrieval failed: rerun the query, "
+                    f"then amend its evidence fields truthfully, retaining its query/result and all hits. Do not drop failed searches "
+                    f"or invent evidence; an unresolved search blocks admission. Repair evidence for this SAME idea; never select a replacement. "
+                    f"Retain every existing `_search_id` on its own row when repairing it; never delete, reassign or duplicate those IDs. "
+                    f"Retain valid who/kind/query/url fields exactly; append a different query or result as a NEW row. "
+                    f"Current UTC: {datetime.datetime.now(datetime.timezone.utc).isoformat()}. Use the actual retrieval time and an exact x.y.z app version. "
+                    f"Validation failures (1-based JSONL rows): {json.dumps(errors)}. "
+                    f"Do not construct or expand the case.\n\n## This run\n\n"
+                    + run_context(c).replace(str(c.case), str(scratch)))
             timeout = deadline - time.monotonic()
             if timeout <= 0: raise BudgetError('timeout')
             case_budget_boundary(c, c.models[model_key][0])
-            opencode(c, c.models[model_key], text, c.case, f"{who}-freshness",
-                     timeout=timeout, deadline=deadline,
-                     on_complete=(lambda: role_completed(who)) if role_completed is not None else None)
+            def done():
+                merge(who, scratch)   # the rows land before the role is marked complete
+                if role_completed is not None: role_completed(who)
+            opencode(c, c.models[model_key], text, scratch, f"{who}-freshness",
+                     timeout=timeout, deadline=deadline, on_complete=done)
+        except BaseException as error:
+            failures[who] = error
         finally:
-            finish_freshness_repair(c)
-    c.card["freshness_topup"] = {"before": counts_before, "after": freshness_counts(c)}
+            merge(who, scratch)
+            shutil.rmtree(scratch, ignore_errors=True)
 
+    threads = [threading.Thread(target=search, args=plan) for plan in plans]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join()
+    finish_freshness_repair(c)
+    if under_engine(c) and callable(getattr(c, 'engine_checkpoint', None)):
+        from durable.checkpoints import checkpoint
+        checkpoint(c)
+    for who in ("builder", "attacker"):
+        if who in failures: raise failures[who]
 
 def ensure_freshness(c):
     """Refresh the admitted idea; Engine attempts retain completed roles and judgments."""
@@ -932,13 +1023,52 @@ def case_hash(c):
     return h.hexdigest()
 
 
+def strong_attempts_exist(c):
+    """Finished strong tries for the current calibration identity (any tester slot) are already on disk."""
+    from calibration import completed_attempts
+    if not (c.work / "strong_calibrator" / "results.json").exists(): return False
+    identity = calibration_identity(c, "strong_calibrator", "exam", runs=c.args.pilot_runs)
+    return bool(completed_attempts(c.work / "strong_calibrator" / "results.json", identity, c.work))
+
+
 def _gate_completed(c, gate, ok, quiescent):
     if gate == "G5" and ok and not c.args.dry_run and not getattr(c.args, "no_early_probe", False):
-        early_probe(c)
+        # On resume, G10's own finished strong tries already label the case; the probe would buy a duplicate.
+        if strong_attempts_exist(c): log(c, "EARLY_PROBE", "skipped: strong attempts already completed")
+        else: early_probe(c)
     update_case_budget(c)
     if under_engine(c) and quiescent:
         from durable.checkpoints import checkpoint as engine_checkpoint
         engine_checkpoint(c)
+
+
+def g10_money_headroom(c):
+    """Founder 2026-11-12: before bench gate work, check the strong calibrator's calls are funded.
+    Each reserves its route's whole maximum (budget.reserve_invocation), so a shortfall found
+    mid-G10 stopped the case after G7 and a resume reran G7 (2.3 h). Raises the money stop now, which
+    the engine already turns into a wait for the batch bound; no call is admitted that would not be."""
+    if not under_engine(c) or c.args.dry_run or not getattr(c, "models", None): return
+    from decimal import Decimal
+    from budget import invocation_headroom, event_charge, G10_TRIES
+    accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
+    def largest(model, pick):
+        maxima = [Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)]
+        return pick(maxima) if maxima else Decimal(0)
+    # The cheapest route that could run it: a shortfall is certain only when none fits.
+    need = largest(c.models["strong_calibrator"][0], min)
+    if not need: return
+    need += largest(c.models["reviewers"][0][0], max)   # calibrate keeps one owner window outside the hold
+    done = max(len(jload(c.work / name / "results.json", []) or []) for name in ("strong_calibrator", "early_probe"))
+    remaining = c.args.pilot_tries - done
+    if remaining <= 0: return
+    cost = {}
+    for event in jload(c.ledger, {}).get("events", []):
+        name = event.get("invocation") or ""
+        if name.startswith(G10_TRIES): cost[name] = cost.get(name, 0) + event_charge(event)
+    need += (remaining - 1) * max(cost.values(), default=Decimal(0))   # observed cost of each earlier try
+    if invocation_headroom(c.ledger, c.engine) < need:
+        log(c, "G10", f"money headroom below ${need:.2f} for {remaining} strong tries: stopping before the bench gates")
+        raise BudgetError("budget_exhausted:grant_insufficient")
 
 
 def _gate_pipeline():
@@ -946,9 +1076,9 @@ def _gate_pipeline():
         bench=BENCH, evaluate=lambda c, gate: globals()[gate.lower()](c),
         case_hash=case_hash, log=log, publish=public_progress,
         budget_boundary=case_budget_boundary, after_gate=_gate_completed,
-        overlap_reason=g10_overlap_reason, gates=tuple(GATES),
+        overlap_reason=g10_overlap_reason, gates=tuple(GATES), money_headroom=g10_money_headroom,
         early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP,
-        side_gates=SIDE_GATES, side_lane=parallel_gates, early_lane=early_lane)
+        side_gates=SIDE_GATES, side_lane=parallel_gates, side_early=('G2', 'G5'), early_lane=early_lane)
 
 
 def checked_gate(c, gate):
@@ -1147,9 +1277,54 @@ class AllowanceSpent(TimeoutError):
     """A checkpoint's caller-given time allowance ran out."""
 
 
+def _checkpoint_receipt_dir(c, identity):
+    return c.work / "gate-checkpoints" / hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _saved_checkpoint(c, identity, runs, label):
+    """(summary, records) of a finished checkpoint with exactly this identity, or None. Re-read with
+    read_completed, so a saved batch with any invalid or missing run is not reused."""
+    from checkpoint_evidence import read_completed
+    directory = _checkpoint_receipt_dir(c, identity)
+    try:
+        if directory.is_symlink() or json.loads((directory / "identity.json").read_text()) != json.loads(json.dumps(identity, default=str)):
+            return None
+        receipt = "UNBUG_CHECKPOINT=" + json.dumps({"version": 1, "path": str(directory / "checkpoint.json"), "requested_runs": runs})
+        summary, records, _ = read_completed(argparse.Namespace(returncode=0, stdout=receipt, stderr=""), runs, label, require_valid=True)
+        import gate_state; gate_state.note_receipt(c, label, directory)
+        return summary, records
+    except Exception:  # unreadable, incomplete or invalid saved batch: just run it again
+        return None
+
+
+def _save_checkpoint(c, identity, source, label):
+    """Keep a finished checkpoint's verdict files (summary and per-run records) in c.work/gate-checkpoints,
+    which the snapshot retains, so a retried GATES step on a fresh worker skips it."""
+    directory = _checkpoint_receipt_dir(c, identity)
+    try:
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        staging = directory.with_name(directory.name + ".tmp")
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir()
+        for f in pathlib.Path(source).glob("*.json"): shutil.copyfile(f, staging / f.name)
+        (staging / "identity.json").write_text(json.dumps(identity, sort_keys=True, default=str))
+        shutil.rmtree(directory, ignore_errors=True)
+        staging.rename(directory)
+    except OSError:
+        return  # a lost receipt only costs a rerun
+    import gate_state; gate_state.note_receipt(c, label, directory)
+    # Throttled snapshot (the engine defers it while anything runs concurrently): a kill loses at most a few minutes.
+    if under_engine(c) and time.monotonic() - getattr(c.engine, "receipts_published", 0.0) > 300:
+        c.engine.receipts_published = time.monotonic()
+        from durable.checkpoints import checkpoint as engine_checkpoint
+        engine_checkpoint(c)
+
+
 def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=None):
     """bin/checkpoint on the case's base scenario (+ more); returns (summary, per-run records).
-    slot=k runs it whole on bench instance k (its own ports, database and lock) instead of spreading runs."""
+    slot=k runs it whole on bench instance k (its own ports, database and lock) instead of spreading runs.
+    Arguments, identity and the completed-record check are verdict code; the retry/allowance
+    plumbing (_checkpoint_call) is not hashed by gate_state."""
     args = [BENCH / "bin/checkpoint"] + [x for s in scenarios for x in ("--scenario", s)]
     env = None
     if slot is not None:
@@ -1158,22 +1333,44 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
     elif getattr(c.args, "bench_workers", 1) > 1:
         args += ["--factory-workers", c.args.bench_workers]
     from checkpoint_evidence import read_completed
-    from run_validity import retry
     identity = {"operation": "checkpoint", "case": case_hash(c), "guard": tree_digest(guard),
                 "scenarios": [tree_digest(s) for s in scenarios], "runs": runs, "seed": seed,
                 "slot": slot, "label": label, "bench": getattr(c, 'manifest0', None),
                 "workers": getattr(c.args, 'bench_workers', 1)}
+    # Receipt identity: what is scored, not how it was spread (slot, workers). G10 tries and the G11
+    # rerun are never reused here: G10 has its own attempt series, the rerun is a deliberate repeat.
+    reusable = not label.startswith(("g10-", "g11-"))
+    receipt_identity = {k: v for k, v in identity.items() if k not in ("slot", "workers")}
+    if reusable:
+        import claims
+        receipt_identity["scoring"] = claims.scoring_identity()
+        import gate_state  # the environment a bench run executes in, as the gate identity binds it
+        receipt_identity["environment"] = gate_state.environment("UNBUG_JUDGE", "MEDUSA_DEPS_IMAGE")
+        saved = _saved_checkpoint(c, receipt_identity, runs, label)
+        if saved is not None: return saved
+    def read(p):
+        summary, records, path = read_completed(p, runs, label, require_valid=True)
+        if reusable and path is not None: _save_checkpoint(c, receipt_identity, path.parent, label)
+        return summary, records, path
+    command = args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label]
+    return _checkpoint_call(c, identity, command, env, timeout, read)
+
+
+def _checkpoint_call(c, identity, command, env, timeout, read):
+    """Plumbing only (gate_state.SIDE_EFFECTS): run, time-box and retry one bench call. It never
+    picks samples; `read` (verdict code, built by checkpoint) decides what a completed run is."""
+    from run_validity import retry
     deadline = time.monotonic() + timeout if timeout is not None else None
     def invoke():
         case_budget_boundary(c)
         remaining = deadline - time.monotonic() if deadline is not None else None
         if remaining is not None and remaining <= 0: raise AllowanceSpent('checkpoint allowance exhausted')
         try:
-            p = sh(c, args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label], capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
+            p = sh(c, command, capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
         except subprocess.TimeoutExpired:
             if deadline is None: raise
             raise AllowanceSpent('checkpoint allowance exhausted') from None  # the caller's time, not a fault
-        summary, records, _ = read_completed(p, runs, label, require_valid=True)
+        summary, records, _ = read(p)
         return summary, records
     # A spent caller allowance is neither retried nor counted as an invalid attempt.
     return retry(c.work / "infra-attempts.json", identity, invoke, interruption=(BudgetError, AllowanceSpent))
@@ -1224,53 +1421,69 @@ def plain_and_reference(c, seed, tag):
     return verdicts(c, none), verdicts(c, ref), s
 
 
-def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=None, unchecked=None):
-    """(guards that solved, guards). With a deadline (the advisory early check only), guards left when
-    it passes go to `unchecked` and do not run; full G6 and G7 pass no deadline."""
+def reopened_first(c, gate, guards):
+    """refuse-all first (cheats()), then a cheat that failed this gate in an earlier round, then the rest."""
+    named = set((jload(c.work / "gate-details" / f"{gate}.json", {}) or {}).get("passing_cheats") or [])
+    return sorted(guards, key=lambda g: (g != BENCH / "guards/refuse-all", g.name not in named))
+
+
+def record_passing_cheats(c, gate, failures):
+    """Sealed-side, like G5.json: the writer repairing the gate reads which cheat got through."""
+    (c.work / "gate-details").mkdir(exist_ok=True)
+    (c.work / "gate-details" / f"{gate}.json").write_text(json.dumps({"passing_cheats": [pathlib.Path(x).name for x in failures]}))
+
+
+def cheat_runs(c, seed, tag, *, guards=None, runs=None, failures=None, stop_on_pass=False):
+    """(guards that solved, guards). Full G6 and G7: every cheat, no allowance. With stop_on_pass the
+    gate (which passes only at zero) stops at the first solving cheat; a passing case still runs them all."""
     guards = cheats(c) if guards is None else guards
     passed = 0
-    for i, g in enumerate(guards):
-        options = {}
-        if deadline is not None:
-            case_budget_boundary(c)
-            options['timeout'] = deadline - time.monotonic()
-        try:
-            if options.get('timeout', 1) <= 0: raise AllowanceSpent("saved-cheat validation time allowance exhausted")
-            _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
-                                 seed, f"{tag}-cheat", **options)
-        except AllowanceSpent:
-            if unchecked is None: raise
-            unchecked.extend(str(x) for x in guards[i:])
-            break
-        except InfrastructureExhausted:
-            # Advisory early check only: a cheat whose bench run stays invalid is left unchecked here
-            # (full G6 at GATES still runs it) instead of discarding the whole writer round.
-            if unchecked is None: raise
-            unchecked.append(str(g))
-            continue
-        values = verdicts(c, recs)
-        solved = any(v["solved"] for v in values)
+    shards = {}   # helper machines (off unless --helper-workers): checkpoints a helper completed; the rest run here
+    if getattr(c.args, "helper_workers", 0) > 0 and getattr(c, "helper_pool", None) is not None:
+        from durable import helpers
+        shards = helpers.checkpoint_shards(c, guards, c.args.runs if runs is None else runs, seed, f"{tag}-cheat",
+            case=case_hash(c), scenarios=[tree_digest(c.case / "base")], bench=getattr(c, "manifest0", None),
+            boundary=lambda: case_budget_boundary(c))
+    for g in guards:
+        _, recs = shards.get(str(g)) or checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs, seed, f"{tag}-cheat")
+        solved = any(v["solved"] for v in verdicts(c, recs))
         passed += solved
         if solved and failures is not None: failures.append(str(g))
+        if solved and stop_on_pass: break
     return passed, len(guards)
 
 
 def early_cheat_check(c):
-    """One run per retained case cheat; no models, retries, or full-G6 receipt."""
+    """One run per retained case cheat; no models, retries, or full-G6 receipt.
+    Its own loop (not cheat_runs) so allowance handling never enters G6/G7's verdict hash."""
     from case_contract import CaseProblem
     guards = sorted(p for p in (c.case / "guards/cheats").glob("*") if p.is_dir())
     if not guards: return None
     reopened, unchecked = [], []
+    deadline = time.monotonic() + 1800
     try:
-        passed, total = cheat_runs(c, c.seed, "early-g6", guards=guards, runs=1,
-            deadline=time.monotonic() + 1800, failures=reopened, unchecked=unchecked)
+        for i, g in enumerate(guards):
+            case_budget_boundary(c)
+            remaining = deadline - time.monotonic()
+            try:
+                if remaining <= 0: raise AllowanceSpent("saved-cheat validation time allowance exhausted")
+                _, recs = checkpoint(c, [c.case / "base"], g, 1, c.seed, "early-g6-cheat", timeout=remaining)
+            except AllowanceSpent:
+                unchecked.extend(str(x) for x in guards[i:])
+                break
+            except InfrastructureExhausted:
+                # A cheat whose bench run stays invalid is left unchecked here (full G6 at GATES
+                # still runs it) instead of discarding the whole writer round.
+                unchecked.append(str(g))
+                continue
+            if any(v["solved"] for v in verdicts(c, recs)): reopened.append(str(g))
     except CaseProblem as error:
         return [str(error)]
     except (RuntimeError, TimeoutError, subprocess.TimeoutExpired) as error:
         _gate_pipeline().record_crash(c, "saved-cheats", error)
         raise
     # Advisory: cheats the allowance did not reach are recorded unchecked; full G6 still runs them all.
-    c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': passed == 0, 'checked': total - len(unchecked),
+    c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': not reopened, 'checked': len(guards) - len(unchecked),
                                                            'unchecked': len(unchecked), 'runs_each': 1}
     # Private feedback only. This sample must never populate c.early['G6'] or its cache.
     return ["Retained cheat passed after repair: " + name for name in reopened] or None
@@ -1291,7 +1504,28 @@ def g1(c):
     if counts is None: return False, {"problems": problems}
     log(c, "G1 problems", json.dumps(problems))
     c.card["counts"] = counts
-    return not problems, {"problems": problems, "content_checks": "on" if full else "off (dry-run fixture)"}
+    details = {"problems": problems, "content_checks": "on" if full else "off (dry-run fixture)"}
+    if full and not problems and (warning := isolation_warnings(c)): details["warnings"] = warning
+    return not problems, details
+
+
+def isolation_warnings(c):
+    """Never a G1 failure: a case whose inventory services lack host_ports or mem_limit still runs, but
+    serially, because parallel bench copies (bench_workers, G10 overlap) need both. Counts only."""
+    import bench
+    try:
+        scenarios = [bench.load_scenario(c.case / "base")] + [bench.load_scenario(d) for d in sorted((c.case / "scenarios").iterdir()) if d.is_dir()]
+        services = bench.inventory_services(scenarios)
+        if not services: return []
+        warnings = []
+        if missing := [s["name"] for s in services if "host_ports" not in s]:
+            log(c, "G1 warning: inventory services without host_ports", json.dumps(missing))
+            warnings.append(f"{len(missing)} inventory service(s) lack host_ports: bench copies run serially")
+        if not bench.factory_memory_fits(scenarios, 1):
+            log(c, "G1 warning: memory caps missing or one bench copy does not fit")
+            warnings.append("inventory services lack mem_limit (or one copy does not fit): bench copies run serially")
+        return warnings
+    except Exception: return []  # advisory only
 
 
 def strategy_module():
@@ -1577,10 +1811,20 @@ def freshness_lines(c):
     return [x if isinstance(x, dict) else {"invalid_record": True} for x in lines]
 
 
-def freshness_counts(c):
+def own_search(c, row):
+    """search_evidence(row) unless it is an earlier stress tester's attacker row (swap_roles): one the
+    swap left in the log carries a `_search_id` or result URL the card's stale_attacker_searches names,
+    as does any copy the repair history keeps beside it."""
     from admission import search_evidence
+    key = search_evidence(row)
+    stale = c.card.get("stale_attacker_searches") or ()
+    ids, urls = {s[0] for s in stale} - {None}, {s[1] for s in stale} - {None}
+    return None if key and key[0] == "attacker" and (row.get("_search_id") in ids or row.get("url") in urls) else key
+
+
+def freshness_counts(c):
     evidence = {key for row in freshness_lines(c) if row.get('url') not in getattr(c, 'freshness_unfetched', set())
-                and (key := search_evidence(row)) is not None}
+                and (key := own_search(c, row)) is not None}
     n = lambda who, kind=None: sum(1 for w, k, q in evidence if w == who and (kind is None or k == kind))
     return {"builder_web": n("builder", "web"), "builder_github": n("builder", "github"), "attacker": n("attacker")}
 
@@ -1953,9 +2197,30 @@ def g4(c):
     return all(x["clean"] for x in v) and broke >= 1, {"broke": f"{broke}/{n}", "unclean": sum(not x["clean"] for x in v)}
 
 
+def g5_shards(c):
+    """Checkpoints of G5 (the reference run and every scenario key's guard) that helper machines
+    completed, dispatched together: {"reference" | "<scenario>/<key>": (summary, records)}. Empty with the
+    flag off, in rehearsal (reference only) or when no helper completes a job; G5 runs those here."""
+    if getattr(c.args, "helper_workers", 0) <= 0 or getattr(c, "helper_pool", None) is None or getattr(c.args, "rehearse_only", False):
+        return {}
+    from durable import helpers
+    base = tree_digest(c.case / "base")
+    specs = {"reference": {"guard": c.case / "guards/reference", "scenarios": [base], "runs": c.args.runs,
+                           "seed": c.seed, "label": "g5-reference"}}
+    for d in sorted(x for x in (c.case / "scenarios").glob("*") if x.is_dir()):
+        for name in ((jload(d / "key.json") or {}).get("expected_judge") or {}):
+            try: guard = find_guard(c, name, d)
+            except LookupError: continue   # a case defect g5 reports itself
+            specs[f"{d.name}/{name}"] = {"guard": guard, "scenarios": [base, tree_digest(d)], "runs": c.args.scenario_runs,
+                                         "seed": c.seed, "label": "g5-key", "workers": 1}
+    return helpers.run_checkpoints(c, specs, case=case_hash(c), bench=getattr(c, "manifest0", None),
+                                   boundary=lambda: case_budget_boundary(c))
+
+
 def g5(c):
     """Solvable, no over-blocking: reference solves every run; every scenario key matches the judge."""
-    s, recs = checkpoint(c, [c.case / "base"], c.case / "guards/reference", c.args.runs, c.seed, "g5-reference")
+    shards = g5_shards(c)   # helper machines (off unless --helper-workers): checkpoints a helper completed
+    s, recs = shards.get("reference") or checkpoint(c, [c.case / "base"], c.case / "guards/reference", c.args.runs, c.seed, "g5-reference")
     v = verdicts(c, recs)
     solved, n = sum(x["solved"] for x in v), len(v)
     c.card["reference_fix"] = f"{solved}/{n}"
@@ -1970,20 +2235,22 @@ def g5(c):
         try: guard = find_guard(c, name, d)
         except LookupError as error:  # a case defect the writer can repair, not a runner error (2026-10-19)
             unresolved[f"{d.name}/{name}"] = str(error); per_key[f"{d.name}/{name}"] = False; return False
-        summary, _ = checkpoint(c, [c.case / "base", d], guard, c.args.scenario_runs, c.seed, "g5-key", slot=slot)
+        summary, _ = shards.get(f"{d.name}/{name}") or checkpoint(c, [c.case / "base", d], guard, c.args.scenario_runs, c.seed, "g5-key", slot=slot)
         per_key[f"{d.name}/{name}"] = bool(summary.get("key_consistent"))
         return per_key[f"{d.name}/{name}"]
     if workers > 1 and total > 1 and no_fixed_port_services(c, keys):
         # Independent key checks, each whole on its own bench instance (same seeds and run counts as serial).
         # Legacy services with hardcoded hook endpoints retain the serial path.
         import concurrent.futures, queue
+        from durable.checkpoints import concurrent_section
         free = queue.Queue()
         for slot in range(workers): free.put(slot)
         def on_free_slot(d, name):
             slot = free.get()
             try: return key_ok(d, name, slot)
             finally: free.put(slot)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        # A snapshot inside would move other slots' half-written results; the section defers it to the join.
+        with concurrent_section(c), concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             consistent = sum(pool.map(lambda k: on_free_slot(*k), keys))
     else:
         consistent = sum(key_ok(d, name) for d, name in keys)
@@ -1996,7 +2263,12 @@ def g5(c):
 
 def g6(c):
     """Cheats fail: block-everything, case cheats (case base traffic) and every generic probe (bin/verify-negative)."""
-    passed, total = cheat_runs(c, c.seed, "g6")
+    failed = []
+    passed, total = cheat_runs(c, c.seed, "g6", guards=reopened_first(c, "G6", cheats(c)), failures=failed, stop_on_pass=True)
+    if passed:  # already failing: the generic probes cannot change the verdict
+        record_passing_cheats(c, "G6", failed)
+        c.card["cheats_passed"] = f"{passed}/{total}"
+        return False, {"cheats_passed": c.card["cheats_passed"], "stopped_at_first_passing_cheat": True}
     command = [BENCH / "bin/verify-negative"]
     if getattr(c.args, "bench_workers", 1) > 1: command += ["--factory-workers", c.args.bench_workers]
     p = sh(c, command, capture=True, timeout=7200)
@@ -2016,7 +2288,9 @@ def g7(c):
     """Flakiness: G4-G6 seeded runs again with a new seed; same verdicts. (Same day, same VM: see README.)"""
     seed = c.seed + 7919
     none, ref, s = plain_and_reference(c, seed, "g7")
-    passed, total = cheat_runs(c, seed, "g7")
+    failed = []
+    passed, total = cheat_runs(c, seed, "g7", guards=reopened_first(c, "G7", cheats(c)), failures=failed, stop_on_pass=True)
+    if passed: record_passing_cheats(c, "G7", failed)
     broke, solved = sum(x["broken"] for x in none), sum(x["solved"] for x in ref)
     c.card["flakiness_rerun"] = {"seed": seed, "plain_app_broke": f"{broke}/{len(none)}", "reference_fix": f"{solved}/{len(ref)}", "cheats_passed": f"{passed}/{total}"}
     ok = all(x["clean"] for x in none + ref) and broke >= 1 and solved == len(ref) and s.get("legit_completion", 0) >= 0.95 and passed == 0
@@ -2026,6 +2300,8 @@ def g7(c):
 def review(c):
     """One panel pass per reviewer model (cached for G8 and G9 while the case is unchanged)."""
     if hasattr(c, "votes") and getattr(c, "votes_hash", None) == case_hash(c): return c.votes
+    if len(c.models["reviewers"]) < 2:  # founder 2026-11-12: one reviewer is not a panel
+        raise ValueError("G8/G9 need two independent reviewers")
     c.votes = []
     for i, chain in enumerate(c.models["reviewers"], 1):
         d = c.work / f"review-{i}"
@@ -2033,10 +2309,11 @@ def review(c):
         shutil.copytree(c.case, d / "case")  # a copy: reviewers cannot change the case
         out = d / "verdict.json"
         text = prompt('reviewer', run_context(c, case_dir=str(d / 'case'), mode='case', verdict_path=str(out)))
-        text += engine_review_ruling(c)
+        keys = (PROMPTS / 'reviewer-keys.md').read_text()
+        text += "\n" + keys + engine_review_ruling(c)
         if under_engine(c):
             vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out,
-                {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', '')},
+                {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', ''), 'keys': keys},
                 'panel', '{fairness: {approve: boolean, findings: array}, realism: {approve: boolean, findings: array}}',
                 lambda v: isinstance(v, dict) and all(isinstance(v.get(k), dict) and
                     type(v[k].get('approve')) is bool for k in ('fairness', 'realism')))
@@ -2095,6 +2372,171 @@ def calibration_identity(c, role, exposure, *, runs=None, bench=None):
     return identity
 
 
+def _author_try(c, role, name, exposure, i, make_workspace):
+    """One calibrator try's model attempt: fresh reset, delivery, the pilot wall, the time limit. Returns
+    (workspace, capped). Shared by calibrate and by a helper running the same try (hosted_try)."""
+    import bench
+    a, base = c.args, c.case / "base"
+    if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
+    if hasattr(c, "factory_slot"):
+        sh(c, [sys.executable, "-c", "import bench,sys; bench.reset('none', scenarios=[bench.load_scenario(sys.argv[1])])", base],
+           cwd=BENCH / "bin", timeout=3600, check=True)
+    else:
+        bench.reset("none", scenarios=[bench.load_scenario(base)])  # live app for the pilot (ports 9000/9001)
+    ws = make_workspace()
+    prepare_delivery(c.case, BENCH, ws, exposure=exposure, slot=getattr(c, "factory_slot", 0))
+    user = getattr(c, "pilot_user", "pilot")
+    dest = pilot_home(user) / f"{name}-try-{i}"
+    # An interrupted copy may have left this path behind. cp -a would otherwise
+    # nest the new workspace inside it and reuse an old guard.
+    shred_tree(dest, sudo=True)
+    sh(c, ["sudo", "cp", "-a", ws, dest]); sh(c, ["sudo", "chown", "-R", f"{user}:{user}", dest])
+    text = prompt("pilot", "Work in this directory. Write your guard to ./guard/.\n")
+    if exposure == "statement":
+        text += "\nRead statement.md for the bug description, then implement your own fix against promise.md.\n"
+    if hasattr(c, "factory_slot"):
+        services = bench.inventory_services([bench.load_scenario(base)])
+        ports = [9000, 9001] + [p for s in services for p in s.get("host_ports", [])]
+        replacements = {str(p): str(p + 100 * c.factory_slot) for p in ports}
+        text = re.sub(r":(\d+)(?!\d)", lambda m: ":" + replacements.get(m[1], m[1]), text)
+    capped = None
+    try:  # a weak model can flail for hours: each try gets --calibrator-minutes; running out = whatever guard it left
+        call_name = f"{role.replace('_', '-')}-{name}-{i}"
+        call_context = copy.copy(c)
+        call_context.args = copy.copy(a)
+        if exposure == "exam":
+            call_context.exam_owner_models = c.models["reviewers"][0]
+            from exam_responder import owner_channel
+            if getattr(a, "resume", None) and not getattr(c, "budget_resumed", False):
+                from budget import resume_ledger
+                resume_ledger(c.ledger); c.budget_resumed = True
+            call_context.budget_resumed = True
+            call_context.args.concurrent_roles = True
+            call_context.role_cancel = getattr(c, "role_cancel", None) or threading.Event()
+            channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user)
+        else:
+            channel = contextlib.nullcontext("")
+        try:
+            with channel as instruction:
+                model_call(call_context, c.models[role], text + instruction, dest, call_name,
+                           user=user, timeout=a.calibrator_minutes * 60)
+        finally:
+            # Budget state belongs to the attempt even when a model or owner
+            # stops it. The cap handler below then explicitly permits continuation.
+            c.budget_resumed = getattr(call_context, "budget_resumed", False)
+            c.force_budget_resume = getattr(call_context, "force_budget_resume", False)
+    except BudgetError as error:
+        if str(error) not in ("timeout", "call_limit"):
+            label = interruption_label(error)
+            counts = c.card.setdefault("calibration_interruptions", {}).setdefault(name, {})
+            counts[label] = counts.get(label, 0) + 1
+            raise
+        capped = str(error); c.force_budget_resume = True
+    sh(c, ["sudo", "cp", "-a", dest / "guard", ws / "guard"]); sh(c, ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", ws])
+    shred_tree(dest, sudo=True)  # later tries and the other tester cannot read this attempt
+    return ws, capped
+
+
+def helper_try_authority(c, role, exposure, tries):
+    """(per-try USD, how many of `tries` the case's funding covers all at once). Concurrent tries are
+    admitted against the worst case of each, up front (founder-approved 2026-11-12): a try serial
+    execution would not have reserved yet is never dispatched, so the cap cannot be overrun by tries that
+    all start at once. The rest run here, one at a time, as today. A try's worst case is one call window
+    (the serial funding cap) plus, for the exam, the owner reviewer window held outside it."""
+    from decimal import Decimal
+    from model_runtime import CHEAP_CALL_WINDOW_USD, UNCAPPED_ROLES
+    accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
+    def widest(model):
+        return max((Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)), default=None)
+    per_try = widest(c.models[role][0])
+    if per_try is None: return Decimal(0), 0
+    if role not in UNCAPPED_ROLES: per_try = min(per_try, Decimal(str(CHEAP_CALL_WINDOW_USD)))
+    if exposure == "exam":
+        owner = widest(c.models["reviewers"][0][0])
+        if owner is None: return Decimal(0), 0
+        per_try += owner
+    if getattr(c, "engine", None) is not None:
+        from budget import available_invocation_funding
+        available = Decimal(available_invocation_funding(c.ledger, c.engine))
+    else:
+        _, summary = update_case_budget(c)
+        available = Decimal(str(summary["limit_usd"])) - Decimal(str(summary.get("total_spent_usd") or 0))
+    return per_try, max(0, min(tries, int(available // per_try)))
+
+
+def hosted_tries(c, series, role, name, exposure, runs):
+    """{try: helpers.unpack_try result} for the tries of this series a helper completed, all dispatched
+    at once. Each try is the whole serial unit (fresh reset and workspace, the pilot wall, the time limit,
+    then the scoring checkpoint) on its own helper, so tries stay independent. Tries with a saved
+    interrupted attempt (series.pending) keep their local path, and so do tries beyond the up-front money
+    authority (helper_try_authority). Committing stays with the caller."""
+    from durable import helpers
+    from durable.checkpoints import verdict_code
+    a = c.args
+    numbers = [i for i in series.remaining() if series.pending(i) is None]
+    per_try, covered = helper_try_authority(c, role, exposure, len(numbers))
+    numbers = numbers[:covered]
+    if not numbers: return {}
+    c.card.setdefault("helper_try_authority", {})[name] = {"per_try_usd": float(per_try), "hosted_tries": numbers,
+                                                          "reserved_usd": float(per_try * len(numbers))}
+    identity = calibration_identity(c, role, exposure, runs=runs)
+    identity_digest = helpers.digest_of({k: v for k, v in identity.items() if k != "slot"})
+    jobs = {i: helpers.make_try_job(case=case_hash(c), role=role, name=name, exposure=exposure, number=i, seed=c.seed + i,
+                                    runs=runs, minutes=a.calibrator_minutes, model=list(c.models[role]),
+                                    identity=identity_digest, bench=getattr(c, "manifest0", None), release=verdict_code(),
+                                    workers=getattr(a, "bench_workers", 1), authority_usd=str(per_try),
+                                    machine=helpers.need_for(getattr(a, "helper_min_per_copy", None), getattr(a, "bench_workers", 1)),
+                                    env=helpers._job_env(c), timeout_s=getattr(a, "agent_timeout", 14400),
+                                    context=helpers.try_context(c))
+            for i in numbers}
+    def boundary():
+        if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
+        case_budget_boundary(c)
+    return helpers.try_shards(c, jobs, boundary=boundary)
+
+
+def install_hosted_try(c, series, exposure, i, result):
+    """The workspace a local try would have left: the same delivery, plus the helper's guard bytes."""
+    ws = series.workspace(i)
+    prepare_delivery(c.case, BENCH, ws, exposure=exposure, slot=getattr(c, "factory_slot", 0))
+    for relative, data in result["guard"].items():
+        target = ws / "guard" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    if result["capped"]: c.force_budget_resume = True   # as the serial cap handler: the run may continue past the cap
+    execution = result["execution"]
+    return ws, result["capped"], (execution["summary"], execution["records"]) if execution else None
+
+
+def hosted_try(c, job):
+    """Helper side of one try job (the transport passes helpers.execute's `run` a context for this
+    helper's own case copy, models and pilot user): author the try exactly as calibrate does, score it
+    with the same checkpoint, and return the sealed-file form. A stale job is refused before any model call."""
+    from durable import helpers
+    from durable.checkpoints import verdict_code
+    role, name, i, runs, exposure = job["role"], job["name"], job["try"], job["runs"], job["exposure"]
+    a = c.args
+    mine = {"case": case_hash(c), "seed": c.seed + i, "minutes": a.calibrator_minutes, "bench": getattr(c, "manifest0", None),
+            "release": verdict_code(), "model": list(c.models[role]), "workers": getattr(a, "bench_workers", 1)}
+    for key, value in mine.items():
+        if job[key] != value: raise helpers.HelperRefused(f"try job's {key} differs from this helper's")
+    identity = calibration_identity(c, role, exposure, runs=runs)
+    if job["identity"] != helpers.digest_of({k: v for k, v in identity.items() if k != "slot"}):
+        raise helpers.HelperRefused("try job's calibration identity differs from this helper's")
+    ws = c.work / name / f"try-{i}"
+    if ws.exists(): shutil.rmtree(ws)
+    try:
+        ws, capped = _author_try(c, role, name, exposure, i, lambda: ws)
+    except BudgetError as error:   # a model or money stop is a result for the case side, not a helper fault
+        return helpers.pack_stop(str(error), interruption_label(error))
+    execution = None
+    if guard_submitted(ws / "guard"):
+        summary, recs = checkpoint(c, [c.case / "base"], ws / "guard", runs, job["seed"], "g10-" + name)
+        if not verdicts(c, recs): raise RuntimeError('calibrator checkpoint produced no runs')
+        execution = {"summary": summary, "records": recs}
+    return helpers.pack_try(ws / "guard", capped, execution)
+
+
 def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, collect_passes=True):
     """Fresh blind base-guard attempts behind the selected pilot Unix information wall.
     name (default role) names the work folder, so the early probe keeps apart from G10's tries."""
@@ -2115,69 +2557,23 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
             from durable.checkpoints import checkpoint as engine_checkpoint
             engine_checkpoint(c)
     def author(i):
-        if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
-        if hasattr(c, "factory_slot"):
-            sh(c, [sys.executable, "-c", "import bench,sys; bench.reset('none', scenarios=[bench.load_scenario(sys.argv[1])])", base],
-               cwd=BENCH / "bin", timeout=3600, check=True)
-        else:
-            bench.reset("none", scenarios=[bench.load_scenario(base)])  # live app for the pilot (ports 9000/9001)
-        ws = series.workspace(i)
-        prepare_delivery(c.case, BENCH, ws, exposure=exposure, slot=getattr(c, "factory_slot", 0))
-        user = getattr(c, "pilot_user", "pilot")
-        dest = pilot_home(user) / f"{name}-try-{i}"
-        # An interrupted copy may have left this path behind. cp -a would otherwise
-        # nest the new workspace inside it and reuse an old guard.
-        shred_tree(dest, sudo=True)
-        sh(c, ["sudo", "cp", "-a", ws, dest]); sh(c, ["sudo", "chown", "-R", f"{user}:{user}", dest])
-        text = prompt("pilot", "Work in this directory. Write your guard to ./guard/.\n")
-        if exposure == "statement":
-            text += "\nRead statement.md for the bug description, then implement your own fix against promise.md.\n"
-        if hasattr(c, "factory_slot"):
-            services = bench.inventory_services([bench.load_scenario(base)])
-            ports = [9000, 9001] + [p for s in services for p in s.get("host_ports", [])]
-            replacements = {str(p): str(p + 100 * c.factory_slot) for p in ports}
-            text = re.sub(r":(\d+)(?!\d)", lambda m: ":" + replacements.get(m[1], m[1]), text)
-        capped = None
-        try:  # a weak model can flail for hours: each try gets --calibrator-minutes; running out = whatever guard it left
-            call_name = f"{role.replace('_', '-')}-{name}-{i}"
-            call_context = copy.copy(c)
-            call_context.args = copy.copy(a)
-            if exposure == "exam":
-                call_context.exam_owner_models = c.models["reviewers"][0]
-                from exam_responder import owner_channel
-                if getattr(a, "resume", None) and not getattr(c, "budget_resumed", False):
-                    from budget import resume_ledger
-                    resume_ledger(c.ledger); c.budget_resumed = True
-                call_context.budget_resumed = True
-                call_context.args.concurrent_roles = True
-                call_context.role_cancel = getattr(c, "role_cancel", None) or threading.Event()
-                channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user)
-            else:
-                channel = contextlib.nullcontext("")
-            try:
-                with channel as instruction:
-                    model_call(call_context, c.models[role], text + instruction, dest, call_name,
-                               user=user, timeout=a.calibrator_minutes * 60)
-            finally:
-                # Budget state belongs to the attempt even when a model or owner
-                # stops it. The cap handler below then explicitly permits continuation.
-                c.budget_resumed = getattr(call_context, "budget_resumed", False)
-                c.force_budget_resume = getattr(call_context, "force_budget_resume", False)
-        except BudgetError as error:
-            if str(error) not in ("timeout", "call_limit"):
-                label = interruption_label(error)
-                counts = c.card.setdefault("calibration_interruptions", {}).setdefault(name, {})
-                counts[label] = counts.get(label, 0) + 1
-                raise
-            capped = str(error); c.force_budget_resume = True
-        sh(c, ["sudo", "cp", "-a", dest / "guard", ws / "guard"]); sh(c, ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", ws])
-        shred_tree(dest, sudo=True)  # later tries and the other tester cannot read this attempt
-        return ws, capped
+        return _author_try(c, role, name, exposure, i, lambda: series.workspace(i))
 
+    hosted = {}   # helper machines (off unless --helper-workers): tries a helper completed; the rest run here
+    if getattr(a, "helper_workers", 0) > 0 and getattr(c, "helper_pool", None) is not None:
+        hosted = hosted_tries(c, series, role, name, exposure, runs)
     for i in series.remaining():
         pending = series.pending(i)
+        execution = None
         if pending is None:
-            ws, capped = author(i)
+            if i in hosted and hosted[i]["stopped"] is not None:
+                counts = c.card.setdefault("calibration_interruptions", {}).setdefault(name, {})
+                counts[hosted[i]["label"]] = counts.get(hosted[i]["label"], 0) + 1
+                raise BudgetError(hosted[i]["stopped"])
+            if i in hosted:
+                ws, capped, execution = install_hosted_try(c, series, exposure, i, hosted[i])
+            else:
+                ws, capped = author(i)
             series.save_pending(i, ws, capped)
             if under_engine(c):
                 from durable.checkpoints import checkpoint as engine_checkpoint
@@ -2188,7 +2584,7 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
             commit({"try": i, "solved": False, "guard_submitted": False,
                             "stop_reason": {"timeout": "time_limit", "call_limit": "call_limit"}.get(capped, "completed"),
                             "why": f"no guard written{' (' + capped + ')' if capped else ''}"}, ws); continue
-        summary, recs = checkpoint(c, [base], ws / "guard", runs, c.seed + i, "g10-" + name)
+        summary, recs = execution or checkpoint(c, [base], ws / "guard", runs, c.seed + i, "g10-" + name)
         v = verdicts(c, recs)
         if not v: raise RuntimeError('calibrator checkpoint produced no runs')  # infrastructure, not the pilot
         # Only a completed valid execution can advance the scientific attempt.
@@ -2587,12 +2983,13 @@ ENGINE_SETTINGS = ("rounds", "runs", "scenario_runs", "pilot_tries", "pilot_runs
 SNAPSHOT_RETAINED = (
     "case", "scorecard.json", "continuation-budget.json", "usage-receipts",
     "gate-cache", "gate-details", "judge_breadth", "review-*", "bench-results", "fairness-*", "g11-evidence",
-    "g2-url-retrieval", "strategy-g14-checkpoints", "delivery-provenance.json",
+    "g2-url-retrieval", "gate-checkpoints", "strategy-*", "delivery-provenance.json",
     "strong_calibrator", "easy_calibrator", "early_probe",
     "attack-state.json", "attacks", "diagnostic-budgets", "infra-attempts.json", "selection-rejections.json", "fixes",
     "prototype.json", "public-search.json", "freshness-verdict.json", "freshness-repair.json",
     "freshness-inflight.json", "freshness-restored.jsonl", "idea-realism.json", "idea-realism-second.json", "dedup-second.json", "statements",
-    "ordinary-retries", "stress-publication.json", "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints")
+    "ordinary-retries", "stress-publication.json", "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints",
+    "helper-tries", "helper-results", "helper-ledger.jsonl")   # finished helper work and its booked spend
 FEEDBACK_VERSION = 1
 
 
@@ -2605,6 +3002,14 @@ class EngineStep:
             "feedback": step_input.feedback.digest if step_input.feedback else None,
             "ruling": step_input.ruling.digest if step_input.ruling else None}
         self.ceiling_usd = step_input.money_ceiling_usd_micros / 1_000_000
+        # The part of a GATES grant only G10's strong tries may spend (budget.call_limit): what the grant
+        # holds beyond an ordinary step's request (the case's money, at most BatchSpec's default), up to
+        # the G10 authority. Ordinary calls keep min(grant, that request), so a GATES grant of a workflow
+        # recorded before the authority, or a partial grant, never leaves them $0.
+        from durable.contract import BatchSpec
+        from durable.policy import gates_money_extension
+        self.g10_reserve_usd = min(gates_money_extension(step_input.step), max(
+            0, step_input.money_ceiling_usd_micros - BatchSpec.case_money_usd_micros)) / 1_000_000
         self.baseline_spent_usd = baseline_spent_usd
         # The attempt's own deadline (the supervisor kills the attempt at the same instant).
         now = time.time()
@@ -2681,6 +3086,83 @@ def invoke_diagnosis(c, *, model, prompt, inputs, output):
     return invoke(sys.modules[__name__], c, model=model, prompt=prompt, inputs=inputs, output=output)
 
 
+SWAP_MODEL_KEYS = {"stress_tester": "attacker", "strong_calibrator": "strong_calibrator"}
+
+
+class RoleSwapRefused(ValueError):
+    """A swap this case's card refuses. It refuses the same way on every attempt, so the worker reports
+    infra:roles_refused, which holds the case at once (policy.decide): no retry, no diagnosis. The
+    operator resumes it naming other models, or the old ones to undo the swap."""
+
+
+def swap_roles(c, step_input):
+    """Founder 2026-11-12: a resume's role swap ({role: model}, StepInput.roles) gives this case
+    another stress tester or strong calibrator. The swapped selection, as a whole, must pass
+    select_models' family rules, and each swapped model needs a bounded route. No role changes on a
+    SEAL step: its GATES ran with the recorded roles, which the sealed card must name. The strong
+    calibrator changes only before the case's first GATES step: never on a GATES step, nor once
+    card["gates"] holds a result (each GATES step refills it). Its G10 identity names the roles
+    (gate_state), so no try from another calibrator is ever reused; a swapped stress tester's G2 reruns
+    the same way, counting only its own searches (own_search). The card keeps every replaced model in role_swaps; the snapshot keeps the swap, so a
+    later step finds nothing left to change. ADMIT applies it after pinning its models; DIAGNOSIS
+    never does. A refusal raises RoleSwapRefused."""
+    roles = copy.deepcopy(c.card.get("roles"))
+    if not isinstance(roles, dict) or not all(isinstance(roles.get(r), dict) for r in SWAP_MODEL_KEYS):
+        raise ValueError("role swap: the case card records no role selection")
+    changed = {r: m for r, m in step_input.roles.items() if roles[r].get("model") != m}
+    if not changed:
+        return
+    kind = step_input.step.kind.value
+    if kind == "seal":
+        raise RoleSwapRefused("role swap: no role changes at SEAL; its GATES ran with the recorded roles")
+    if "strong_calibrator" in changed and (kind == "gates" or c.card.get("gates")):
+        raise RoleSwapRefused("role swap: the strong calibrator changes only before the case's first GATES step")
+    models = copy.deepcopy(c.models)
+    history = []
+    for role, model in changed.items():
+        history.append({"role": role, "from": roles[role].get("model"), "to": model,
+                        "step": step_input.step.name, "seq": step_input.seq})
+        roles[role] = {"model": model, "effort": model_effort(model), "family": family(model)}
+        models[SWAP_MODEL_KEYS[role]] = [model]
+    try:
+        model_runtime.check_swap_models(changed, getattr(c, "router_accounts", model_router.ACCOUNTS))
+        # The rotation picked the second reviewer around the old roles; a swap into its family re-picks it
+        # (G8/G9's identity names both reviewers, so they rerun). An operator-pinned one is never moved.
+        r2 = roles.get("reviewer2")
+        if r2 and not getattr(c.args, "reviewer2", None) and family(r2["model"]) in {family(m) for m in changed.values()}:
+            taken = {family(roles[r]["model"]) for r in ("writer", "stress_tester", "reviewer", "strong_calibrator")}
+            taken |= model_runtime.former_families(c.card, history)   # a former stress tester never reviews
+            new = model_runtime.second_reviewer(taken, getattr(c.args, "rotation_table", None))
+            history.append({"role": "reviewer2", "from": r2["model"], "to": new["model"],
+                            "step": step_input.step.name, "seq": step_input.seq})
+            roles["reviewer2"] = {**new, "family": family(new["model"])}
+            models["reviewers"] = [models["reviewers"][0], [new["model"]]]
+        model_runtime.check_role_families(roles)
+    except ValueError as error:
+        raise RoleSwapRefused(f"role swap: {error}") from None
+    log(c, "roles", "resume swap: " + json.dumps(history))
+    if "stress_tester" in changed:
+        # What the old stress testers searched never counts for the new one, which never sees it to reword:
+        # the card archives their plain rows out of the log. A possible public match stays for G2's review,
+        # under an identity the factory gives it here. Neither's result URL counts again.
+        rows, kept = freshness_lines(c), []
+        for i, row in enumerate(rows):
+            if row.get("who") != "attacker":
+                kept.append(row)
+                continue
+            if row.get("hit") is True or row.get("ambiguous") is True:
+                row["_search_id"] = hashlib.sha256(f"stale:{i}:{json.dumps(row, sort_keys=True)}".encode()).hexdigest()
+                kept.append(row)
+            else:
+                c.card.setdefault("stale_attacker_rows", []).append(row)
+            c.card.setdefault("stale_attacker_searches", []).append([row.get("_search_id"), row.get("url")])
+        if any(row.get("who") == "attacker" for row in rows):
+            (c.case / "freshness.jsonl").write_text("".join(json.dumps(r) + "\n" for r in kept))
+    c.card.setdefault("role_swaps", []).extend(history)
+    c.models = c.card["models"] = models
+    c.card["roles"] = roles
+
+
 def context_for_step(step_input, work):
     """Run context for one engine step, from a work tree the worker has just restored."""
     os.environ.setdefault("UNBUG_JUDGE", "1")  # Factory gates retain truth when contestant monitors are blinded.
@@ -2706,6 +3188,10 @@ def context_for_step(step_input, work):
     a.source = None if a.dry_run else card.get("source")
     a.seed, a.rotation_slot, a.case_id = card["seed"], card.get("rotation_slot"), c.case_id
     a.resume = None
+    # An explicitly given second reviewer is pinned: no swap moves it. main never picked one itself, so a
+    # card from before reviewer2_pinned that names two reviewers was given its second.
+    reviewers = (card.get("models") or {}).get("reviewers") or []
+    a.reviewer2 = card["reviewer2_pinned"] if "reviewer2_pinned" in card else (reviewers[1][0] if len(reviewers) > 1 else None)
     a.max_cost = ENGINE_COST_CAP
     # Remaining attempt time replaces the old operator timeout. Scientific
     # role-specific caps remain in their callers.
@@ -2726,8 +3212,17 @@ def context_for_step(step_input, work):
     c.stopped = False
     if card.get("models"):
         c.models = card["models"]
+        card.pop("reviewer2_unavailable", None)   # recomputed each attempt: a recovered case runs on
+        # An in-flight single-reviewer case adopts the second reviewer at its next round (founder 2026-11-12).
+        if len(c.models.get("reviewers") or []) == 1:
+            try:
+                model_runtime.with_second_reviewer(c, getattr(c.args, "rotation_table", None))
+            except ValueError as error:   # no family is free (an imported idea's authors cover them): GATES stops for the founder
+                card["reviewer2_unavailable"] = str(error)
     else:
         c.models = card["models"] = pick_models(c)
+    if getattr(step_input, "roles", None) and step_input.step.kind.value not in ("admit", "diagnosis"):
+        swap_roles(c, step_input)
     prepared = card.get("factory_slots_prepared", 1)
     c.prepared_factory_slots = prepared if type(prepared) is int and prepared >= 1 else 1
     c.manifest0 = bench_manifest()
@@ -2931,6 +3426,9 @@ def engine_writer_round(c, n, feedback):
     handbacks = (prior["handbacks"] if isinstance(prior, dict) and prior.get("engine") is True
                  and prior.get("round") == n and type(prior.get("handbacks")) is int else 0)
     deadline =getattr(getattr(c, "engine", None), "deadline_monotonic", None)
+    # The longest cycle (writer call plus its checks) seen in this round, across attempts: the next
+    # one may take as long as any of them, not just as long as the last.
+    longest = resumed["cycle_s"] if resumed is not None and type(resumed.get("cycle_s")) in (int, float) else 0.0
     for call in range(first, c.args.rounds + 1):
         before = start["case"] if call == 1 else resumed["case"] if call == first else case_hash(c)
         cycle_started = time.monotonic()
@@ -2971,13 +3469,15 @@ def engine_writer_round(c, n, feedback):
         # the 4 h deadline mid-cycle, losing the cycle and an infra retry). Hand the findings to a
         # fresh attempt of this round instead: same call count, same problems, full time.
         from durable.policy import WRITER_HANDBACK, WRITER_HANDBACK_CEILING
+        longest = max(longest, time.monotonic() - cycle_started)
         if (deadline is not None and call < c.args.rounds
                 and handbacks < min(c.args.rounds - 1, WRITER_HANDBACK_CEILING)
-                and deadline - time.monotonic() < WRITER_CYCLE_MARGIN * (time.monotonic() - cycle_started) + WRITER_CYCLE_RESERVE_S):
+                and deadline - time.monotonic() < WRITER_CYCLE_MARGIN * longest + WRITER_CYCLE_RESERVE_S):
             atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                        "report": f"round-{n}.json", "round_start": start, "repair_pending": True,
                                        "handbacks": handbacks + 1,
-                                       "handback": {"call": call + 1, "problems": problems, "case": case_hash(c)}})
+                                       "handback": {"call": call + 1, "problems": problems, "case": case_hash(c),
+                                                   "cycle_s": longest}})
             return {"outcome": Outcome.OK, "reason": WRITER_HANDBACK}
     return {"outcome": Outcome.EXHAUSTED, "reason": "writer:rounds_exhausted"}
 
@@ -3026,7 +3526,8 @@ def engine_stress_round(c, n):
         c.card["stress_review"] = {"status": "findings", "round": n}
         return {"outcome": Outcome.OK, "reason": "stress:findings", "feedback": _feedback("stress", findings, report)}
     if attack_diagnostic_unfinished(c, n): return infra("unfinished_diagnostic")
-    problems = None if c.args.dry_run else early_review(c)
+    # One reviewer is not a panel: with none eligible, GATES stops for the founder (engine_gates).
+    problems = None if c.args.dry_run or c.card.get("reviewer2_unavailable") else early_review(c)
     if problems:
         c.card["stress_review"] = {"status": "early_review_findings", "round": n}
         return {"outcome": Outcome.OK, "reason": "stress:findings", "feedback": _feedback("stress", problems, report)}
@@ -3043,6 +3544,9 @@ def _split_panel(c, gate):
 def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
+    if c.card.get("reviewer2_unavailable"):   # recertified or not
+        # G8/G9 need two independent reviewers (founder 2026-11-12) and none is eligible (context_for_step).
+        return {"outcome": Outcome.NEEDS_FOUNDER, "reason": "g8:no_eligible_reviewer", "gate": "G8", "passed": ()}
     adopt_parallel_gates_at_entry(c)
     scale_bench_workers(c)
     if not c.args.dry_run and not parallel_gates(c) and not g1(c)[1]["problems"]:
@@ -3196,6 +3700,7 @@ def argument_parser():
     p.add_argument("--max-repairs", type=int, default=2, help="retained repair setting for scientific step contexts")
     p.add_argument("--runs", type=int, default=10, help="runs per G4-G7 checkpoint")
     p.add_argument("--scenario-runs", type=int, default=3)
+    p.add_argument("--helper-workers", type=int, default=0, help="max helper machines for G6/G7 cheat checkpoints (needs a helper pool); 0 runs them here, as before")
     p.add_argument("--bench-workers", type=int, default=1, help="factory-only parallel bench instances; 1 preserves serial scheduling")
     p.add_argument("--audit-g11", action="store_true", help="restored case only: sealed reviewer audit, no build or gate changes")
     p.add_argument("--audit-fairness", action="store_true", help="audit a separate copy of a sealed case")
@@ -3203,6 +3708,9 @@ def argument_parser():
     p.add_argument("--continue-g11-review", action="store_true", help="continue a restored sealed audit, preserving its notes and remaining budget")
     p.add_argument("--concurrent-roles", action=argparse.BooleanOptionalAction, default=True,  # founder, 2026-10-17
                    help="run the two calibrators at once on isolated users and bench instances (Linux firewall required); --no-concurrent-roles for serial")
+    p.add_argument("--freshness-fanout", action=argparse.BooleanOptionalAction, default=True,
+                   help="G2 top-up searches by fan-out (plan, concurrent Exa/GitHub queries, one scoring call, deep dives on unsure hits) "
+                        "before any agentic browsing; --no-freshness-fanout for browsing only")
     p.add_argument("--parallel-gates", action=argparse.BooleanOptionalAction, default=False,
                    help="engine cases admitted with it: parallel calibrators and G10 overlap at quiescent checkpoints, "
                         "G2/G8/G9 beside the bench gates")

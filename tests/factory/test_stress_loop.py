@@ -70,6 +70,17 @@ class StressLoopTests(unittest.TestCase):
                 h.early_review.assert_not_called()
                 self.assertNotEqual(h.c.card.get('stress_review', {}).get('status'), 'completed')
 
+    def test_a_clean_round_without_an_eligible_second_reviewer_reaches_the_founder_stop(self):
+        # The one-reviewer panel refuses (run.review); the round must not raise it as a crash, so the
+        # case reaches GATES, which stops for the founder.
+        from durable.contract import Outcome
+        h = self.harness()
+        h.c.card['reviewer2_unavailable'] = 'no family was free'
+        h.early_review.side_effect = ValueError('G8/G9 need two independent reviewers')
+        self.assertEqual(self.stress(h, {'complete': True, 'blocking': []})['reason'], 'stress:clean')
+        out = run.engine_gates(h.c)
+        self.assertEqual((out['outcome'], out['reason']), (Outcome.NEEDS_FOUNDER, 'g8:no_eligible_reviewer'))
+
     def test_blocking_defects_precede_unfinished_validation(self):
         from durable.contract import Outcome
         result = {'complete': False, 'blocking': ['Judge raises KeyError on establish.',

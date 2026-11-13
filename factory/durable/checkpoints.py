@@ -69,7 +69,7 @@ def concurrent_section(c):
             checkpoint(c)
 
 
-def directory(c):
+def directory(c, model=True):
     # Attempts of the same sequence share receipts. Later scientific steps do not.
     # Keyed by the bench release, feedback, ruling and the verdict-path code (verdict_code), not
     # the whole plumbing release: every entry also carries its own exact binding (gate_call:
@@ -81,27 +81,32 @@ def directory(c):
     binding = getattr(c.engine, 'source_binding', None)
     if isinstance(binding, dict):   # bench, feedback and ruling still scope it; plumbing via verdict_code
         binding = {k: v for k, v in binding.items() if k != 'plumbing'}
-    identity = json.dumps([scope, binding, verdict_code()], sort_keys=True)
+    identity = json.dumps([scope, binding, verdict_code(model)], sort_keys=True)
     return c.work / 'engine-checkpoints' / hashlib.sha256(identity.encode()).hexdigest()
 
 
 # Factory code that turns a run into a saved verdict or model effect but sits outside each entry's
 # own binding (gate_state traces only the gate's functions in run.py and its listed science files):
-# the gate pipeline and attempt classification, the reuse rules, this module, the ordinary-retry
-# answers and the model harness. A plumbing release that changes any of them starts afresh.
-VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'durable/checkpoints.py',
-                'ordinary_retry.py', 'model_runtime.py', 'model_router.py', 'model_call_gate.py')
-_VERDICT_DIGEST = None
+# the gate pipeline and attempt classification, the reuse rules, this module and the helper-machine
+# shard and transport code. A plumbing release that changes any of them starts afresh. The model harness
+# (router, runtime, call gate, ordinary retry answers) is keyed only for model effects and model-stage
+# gates: a bench gate's verdict never passes through it, so a router/runtime release no longer
+# invalidates finished bench gates.
+BENCH_VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'durable/checkpoints.py', 'durable/helpers.py',
+                      'durable/helper_link.py')
+MODEL_CODE = ('ordinary_retry.py', 'model_runtime.py', 'model_router.py', 'model_call_gate.py')
+VERDICT_CODE = BENCH_VERDICT_CODE + MODEL_CODE
+_VERDICT_DIGEST = {}
 
 
-def verdict_code():
-    global _VERDICT_DIGEST
-    if _VERDICT_DIGEST is None:
+def verdict_code(model=True):
+    if model not in _VERDICT_DIGEST:
         root = Path(__file__).resolve().parents[1]
-        _VERDICT_DIGEST = hashlib.sha256(json.dumps(
-            {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in VERDICT_CODE},
+        names = VERDICT_CODE if model else BENCH_VERDICT_CODE
+        _VERDICT_DIGEST[model] = hashlib.sha256(json.dumps(
+            {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names},
             sort_keys=True).encode()).hexdigest()
-    return _VERDICT_DIGEST
+    return _VERDICT_DIGEST[model]
 
 
 def workpath(c, label, suffix=''):
@@ -243,7 +248,8 @@ def gate_call(c, gate, invoke, binding):
     # G3 establishes host-local Docker state, which an archive cannot restore.
     if gate in ('G2', 'G3'): return invoke()
     binding = json.loads(json.dumps(binding))  # Scientific inventories contain tuples; receipts contain JSON lists.
-    path = directory(c) / ('gate-' + gate + '.json')
+    from gate_state import MODEL_STAGES
+    path = directory(c, model=gate in MODEL_STAGES) / ('gate-' + gate + '.json')
     source = getattr(c.engine, 'source_binding', None)
     plumbing = source.get('plumbing') if isinstance(source, dict) else None
     if path.exists():

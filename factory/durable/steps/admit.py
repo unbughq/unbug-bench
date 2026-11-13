@@ -573,6 +573,8 @@ def _pin_models(c, runner, inputs):
         if role:
             setattr(c.args, flag + "_effort", role["effort"])
     selected = runner.pick_models(c)
+    if len(reviewers) == 1 and selected["reviewers"][:1] == reviewers:
+        requested = {**requested, "reviewers": selected["reviewers"]}  # the rotation adds the second reviewer
     if selected != requested:
         raise _Invalid("models")
     c.models = c.card["models"] = selected
@@ -795,6 +797,8 @@ def run(worker, step_input, keys):
         if inputs.get("recertify") is True and not c.card.get("recertify"):
             return StepResult(Outcome.EXHAUSTED, "admit:import_recertify"), {}   # recertify needs a sealed import
         _pin_models(c, runner, inputs)
+        if step_input.roles:   # a resume's role swap, over the models INPUTS pinned (run.swap_roles)
+            runner.swap_roles(c, step_input)
         imported = c.card.get("imported_from")
         if imported and imported.get("mode") == IDEA_ONLY:
             # Only the statement survives, so today's writer writes the whole case: any supported
@@ -851,6 +855,8 @@ def run(worker, step_input, keys):
         fields = {"outcome": Outcome.INFRA_ERROR, "reason": "admit:processing_failed"}
         if isinstance(error, _Conflict):
             fields = {"outcome": Outcome.EXHAUSTED, "reason": "admit:conflict"}
+        elif isinstance(error, getattr(runner, "RoleSwapRefused", ())):   # run.swap_roles
+            fields = {"outcome": Outcome.INFRA_ERROR, "reason": "infra:roles_refused"}
         elif isinstance(error, BudgetError):
             from model_router import ProviderWait
             translated = (runner.engine_provider_wait(c, error, now=worker.clock())

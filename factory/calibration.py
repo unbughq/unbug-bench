@@ -259,6 +259,12 @@ def atomic_results(path, rows):
 def compatible_identity(prior, current):
     """One pinned policy-only migration; unknown historical code is never trusted."""
     if prior == current: return True
+    # The tester slot only picks which reserved bench instance (port offset) ran the try; it never
+    # decides an outcome. Finished tries survive a resume onto another worker size. An unfinished
+    # (pending) attempt keeps the strict identity, so it is not carried across slots.
+    if isinstance(prior, dict) and isinstance(current, dict) and type(prior.get('slot')) is int and type(current.get('slot')) is int:
+        prior = {**prior, 'slot': current['slot']}
+        if prior == current: return True
     try:
         policy = json.loads(pathlib.Path(__file__).with_name('invalid-runs-compat.json').read_text())
         upgraded = copy.deepcopy(prior)

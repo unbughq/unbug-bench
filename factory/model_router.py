@@ -56,6 +56,11 @@ CHAINS = (
     ('opencode-go/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
 )
 ACCOUNT_FREE_ROUTES = ('opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4.1-flash-free')
+# A contended pool serves the case furthest along first (the engine step kind, run.Ctx.engine.kind):
+# a call of a higher priority is not queued behind older calls of a lower one. Within a priority the
+# order stays first come, first served. ponytail: no aging, so a steady stream of GATES calls can
+# starve a writer; add aging if a writer ever waits past its deadline for that reason.
+STAGE_PRIORITY = {'seal': 3, 'diagnosis': 3, 'gates': 3, 'stress': 2, 'writer': 1, 'admit': 0}
 REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route', 'capacity'}
 MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
 
@@ -466,11 +471,13 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd', 'capacity_protocol'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd', 'capacity_protocol', 'priority'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
                 if 'funding_usd' in data and _nano(data['funding_usd'], ROUND_FLOOR) <= 0: raise ValueError('empty invocation funding')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
+                priority = data.get('priority', 0)
+                if type(priority) is not int or not 0 <= priority <= max(STAGE_PRIORITY.values()): raise ValueError('invalid priority')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
                 choices = [r for r in self._routes(data['model'], [a for a in data['accounts'] if a in self.accounts], data.get('funding_usd'))
                            if (r['route'] not in GATED_OPENROUTER or type(data.get('paid_protocol')) is int and data['paid_protocol'] == 1)
@@ -491,8 +498,9 @@ class Store:
                         result = dict(kind='wait', reason='unbounded_route', retry_after=now+900, route=data['model'], account=None)
                 else:
                     order = db.execute('SELECT rowid FROM requests WHERE id=?', (identity,)).fetchone()[0]
-                    older = [json.loads(p) for (p,) in db.execute('SELECT payload FROM requests WHERE rowid<? AND seen>? ORDER BY rowid', (order, now - LEASE_SECONDS))
-                             if json.loads(p)['deadline'] > now and not db.execute('SELECT 1 FROM leases WHERE id=?', (json.loads(p)['id'],)).fetchone()]
+                    # Queued ahead of this call: older calls of at least its priority, and newer ones of a higher priority.
+                    older = [json.loads(p) for (p, row) in db.execute('SELECT payload,rowid FROM requests WHERE rowid!=? AND seen>? ORDER BY rowid', (order, now - LEASE_SECONDS))
+                             if json.loads(p)['deadline'] > now and json.loads(p).get('priority', 0) + (row < order) > priority and not db.execute('SELECT 1 FROM leases WHERE id=?', (json.loads(p)['id'],)).fetchone()]
                     funded = {}   # one ledger read per route name in this acquire
                     def unfunded(r):
                         if r['route'] not in funded: funded[r['route']] = self._unfunded(db, r, now)
@@ -779,6 +787,8 @@ def _admit(role, case, deadline, identity, accounts, excluded=()):
                 capacity_protocol=1)
     funding = getattr(case, 'router_funding_usd', None)
     if funding is not None: data['funding_usd'] = funding
+    priority = STAGE_PRIORITY.get(getattr(getattr(case, 'engine', None), 'kind', None))
+    if priority is not None: data['priority'] = priority
     result = _rpc('acquire', data)
     if result.get('kind') == 'lease':
         result.pop('kind')

@@ -82,8 +82,9 @@ class RepairProgressTests(unittest.TestCase):
                  patch.object(run, "ensure_freshness") as freshness:
                 result = run.engine_gates(c)
                 freshness.assert_called_once()
-            self.assertEqual(ran[0][0], ["G2", "G3", "G16", "G10", "G17", "G11"])
-            self.assertEqual(set(ran[0][1]), {"G1", "G4", "G5", "G6", "G7", "G8", "G9", "G13", "G14", "G15"})
+            # Founder 2026-11-13: G8/G9 rerun, so both reviewers judge; no October one-reviewer pass is kept.
+            self.assertEqual(ran[0][0], ["G2", "G3", "G16", "G8", "G9", "G10", "G17", "G11"])
+            self.assertEqual(set(ran[0][1]), {"G1", "G4", "G5", "G6", "G7", "G13", "G14", "G15"})
             self.assertEqual(c.card["gate_results"], {"G5": {"reference": "solved"}})
             self.assertEqual(c.card["kept_gate_source"]["case"], "case-old")
             self.assertEqual(result["outcome"], Outcome.OK)

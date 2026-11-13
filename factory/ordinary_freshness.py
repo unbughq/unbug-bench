@@ -5,7 +5,7 @@ import hashlib
 import shutil
 import uuid
 
-from admission import search_evidence_error, search_evidence
+from admission import search_evidence_error
 from budget import BudgetError
 import freshness_retrieval as retrieval
 from ordinary_retry import check, backoff, digest, read, transport
@@ -98,7 +98,7 @@ def ensure(run, c):
     def metadata():
         rows = run.freshness_lines(c)
         errors = [search_evidence_error(r) for r in rows]
-        found = {v for r in rows if (v := search_evidence(r)) is not None}
+        found = {v for r in rows if (v := run.own_search(c, r)) is not None}
         enough = (sum(w == 'builder' and k == 'web' for w,k,q in found) >= 3 and
                   sum(w == 'builder' and k == 'github' for w,k,q in found) >= 3 and
                   sum(w == 'attacker' for w,k,q in found) >= 2)

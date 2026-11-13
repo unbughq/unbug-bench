@@ -444,6 +444,40 @@ class RouterTests(unittest.TestCase):
         # Neither a dead lease nor a dead queue head can hold the lane indefinitely.
         self.assertEqual(self.acquire(holder['route'])['kind'],'lease')
 
+    def test_a_call_further_along_is_not_queued_behind_an_older_earlier_stage_call(self):
+        def ask(identity, priority=None):
+            data = dict(paid_protocol=1, id=identity, model='codex/gpt-6.1-sol', accounts=list(router.ACCOUNTS),
+                        role='writer', deadline=self.now[0] + 86400)
+            if priority is not None: data['priority'] = priority
+            return self.store.rpc('acquire', data)
+        holder = self.acquire('codex/gpt-6.1-sol')
+        writer, gates = uuid.uuid4().hex, uuid.uuid4().hex
+        self.assertEqual(ask(writer, router.STAGE_PRIORITY['writer'])['kind'], 'wait')   # queued first
+        self.assertEqual(ask(gates, router.STAGE_PRIORITY['gates'])['kind'], 'wait')
+        self.finish(holder)
+        # The older writer call polls first and still leaves the seat to the GATES call behind it.
+        self.assertEqual(ask(writer, router.STAGE_PRIORITY['writer'])['kind'], 'wait')
+        self.assertEqual(ask(gates, router.STAGE_PRIORITY['gates'])['kind'], 'lease')
+        # An older call of a higher stage is still served before a newer lower one.
+        gates_lease = self.store.rpc('acquire', dict(paid_protocol=1, id=gates, model='codex/gpt-6.1-sol',
+            accounts=list(router.ACCOUNTS), role='writer', deadline=self.now[0] + 86400, priority=3))
+        self.finish(gates_lease)
+        later = uuid.uuid4().hex
+        self.assertEqual(ask(later, router.STAGE_PRIORITY['admit'])['kind'], 'wait')   # behind the older writer
+        self.assertEqual(ask(writer, router.STAGE_PRIORITY['writer'])['kind'], 'lease')
+        with self.assertRaises(ValueError): ask(uuid.uuid4().hex, 9)
+
+    def test_the_admission_request_carries_the_engine_step_stage(self):
+        sent = []
+        def rpc(operation, data):
+            sent.append(data); return dict(kind='wait', reason='rate', retry_after=time.time() + 5)
+        for kind, expected in (('gates', 3), ('stress', 2), ('writer', 1), ('admit', 0), (None, None)):
+            case = SimpleNamespace(card={'roles': {'writer': {'model': 'codex/gpt-6.1-sol'}}},
+                                   engine=None if kind is None else SimpleNamespace(kind=kind))
+            with patch.object(router, '_rpc', rpc):
+                router._admit('writer', case, time.time() + 60, uuid.uuid4().hex, router.ACCOUNTS)
+            self.assertEqual(sent[-1].get('priority'), expected)
+
     def test_renewal_failure_cancels_and_defers_without_fallback(self):
         c, secrets, _ = self.context(); renewals = [0]
         def rpc(operation,data):

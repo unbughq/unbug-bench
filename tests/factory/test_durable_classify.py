@@ -369,6 +369,7 @@ class RealStops(unittest.TestCase):
         "Cancelled",          # run.py sh() turns it into BudgetError('cancelled')
         "PauseRequested",     # run_step reports it as "paused"
         "ProviderWait",       # run_step hands it to engine_provider_wait
+        "RoleSwapRefused",    # run.swap_roles, before run_step: the worker reports infra:roles_refused
         "RuntimeErrorCode",   # durable/runtime.py, control VM
         "_Changed", "_Conflict", "_Invalid", "_Stop",   # module-private, caught where raised
     }

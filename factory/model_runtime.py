@@ -85,7 +85,7 @@ def codex_usage_feed(home, user=None):
 
 def role_timeout(c, name, timeout):
     """The stress-review cap applies to stress review, not to the attacker's freshness search."""
-    if invocation_role(name) == 'stress_tester' and not name.endswith('-freshness'):
+    if invocation_role(name) == 'stress_tester' and '-freshness' not in name:
         return min(timeout or c.args.agent_timeout, attacker_timeout(c))
     return timeout
 
@@ -120,22 +120,22 @@ def select_models(c, *, log):
         if getattr(a, flag): roles[role] = {'model': getattr(a, flag), 'effort': getattr(a, flag + '_effort') or model_effort(getattr(a, flag))}
         elif getattr(a, flag + '_effort'): roles[role]['effort'] = getattr(a, flag + '_effort')
     roles['easy_calibrator'] = {'model': a.easy_calibrator, 'effort': a.easy_calibrator_effort or model_effort(a.easy_calibrator)}
-    if a.reviewer2: roles['reviewer2'] = {'model': a.reviewer2, 'effort': a.reviewer2_effort or model_effort(a.reviewer2)}
     if getattr(c, "engine", None) is None:
         from free_models import apply as apply_free_models
         roles = apply_free_models(c, roles)
     families = [family(roles[r]['model']) for r in flags]
-    if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
-    if a.reviewer2 and family(a.reviewer2) in (family(roles['writer']['model']), family(roles['stress_tester']['model'])):
-        raise ValueError('Every reviewer must be independent from the writer and stress tester')
-    if not roles['strong_calibrator']['model'].startswith(('claude/', 'codex/')):
-        raise ValueError('Strong calibrator must use the Claude or Codex subscription')
-    if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
-        raise ValueError('Easy calibrator must not be a contestant family')
+    if a.reviewer2: roles['reviewer2'] = {'model': a.reviewer2, 'effort': a.reviewer2_effort or model_effort(a.reviewer2)}
+    else:
+        # An imported idea's author families stay out of every judge role (admit.py), the second reviewer included.
+        roles['reviewer2'] = second_reviewer({*families, *((c.card.get('imported_from') or {}).get('idea_families') or ())},
+                                             getattr(a, 'rotation_table', None))
+        if getattr(a, 'reviewer2_effort', None): roles['reviewer2']['effort'] = a.reviewer2_effort
+    check_role_families(roles)
     for data in roles.values(): data['family'] = family(data['model'])
     c.card['roles'], c.card['rotation_slot'] = roles, a.rotation_slot
+    c.card['reviewer2_pinned'] = a.reviewer2 or None   # later steps restore the pin (run.context_for_step)
     m = {"builder": [roles['writer']['model']], "attacker": [roles['stress_tester']['model']],
-         "reviewers": [[roles['reviewer']['model']]] + ([[a.reviewer2]] if a.reviewer2 else []),
+         "reviewers": [[roles['reviewer']['model']], [roles['reviewer2']['model']]],
          "strong_calibrator": [roles['strong_calibrator']['model']], "easy_calibrator": [a.easy_calibrator]}
     if any(len(chain) != 1 or ',' in chain[0] for chain in [m['builder'], m['attacker'], *m['reviewers'], m['strong_calibrator'], m['easy_calibrator']]):
         raise ValueError("Select one requested model per role; the router owns approved fallbacks")
@@ -143,8 +143,42 @@ def select_models(c, *, log):
     return m
 
 
+def check_role_families(roles):
+    """The separation rules of a whole role selection ({role: {'model': ...}}): select_models, and a
+    resume's role swap (run.swap_roles), which checks the set after every swapped role is in place.
+    Like an explicit role flag, a swapped model is not held to the rotation's `refused` list."""
+    families = [family(roles[r]['model']) for r in ('writer', 'stress_tester', 'reviewer', 'strong_calibrator')]
+    if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
+    # Founder 2026-11-12: G8/G9 always have two reviewers, each of its own family, neither the writer's,
+    # stress tester's nor (for reviewer2) the strong calibrator's: five distinct families in all.
+    if 'reviewer2' in roles and len({*families, family(roles['reviewer2']['model'])}) != 5:
+        raise ValueError('Every reviewer must be independent: the second reviewer must be a fifth family, not the writer, stress tester, strong calibrator or first reviewer')
+    if not roles['strong_calibrator']['model'].startswith(('claude/', 'codex/')):
+        raise ValueError('Strong calibrator must use the Claude or Codex subscription')
+    if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
+        raise ValueError('Easy calibrator must not be a contestant family')
+
+
+def check_swap_models(swap, accounts=model_router.ACCOUNTS):
+    """What a resume's role swap ({role: model}) must meet before any case card is read: a strong
+    calibrator on a subscription, and a bounded route for every swapped model (bounded_route)."""
+    if 'strong_calibrator' in swap and not swap['strong_calibrator'].startswith(('claude/', 'codex/')):
+        raise ValueError('Strong calibrator must use the Claude or Codex subscription')
+    for role, model in swap.items():
+        if not bounded_route(role, model, accounts):
+            raise ValueError(f'{model} has no bounded route as {role}')
+
+
 def model_effort(model):
     return 'high' if model.startswith(('claude/', 'codex/')) else 'xhigh' if family(model) == 'meta' else 'default'
+
+
+def bounded_route(role, model, accounts=model_router.ACCOUNTS):
+    """Whether `role` can be leased `model` on a route with a known maximum. A walled role is never
+    leased a free or Go plan route (ModelRuntime._call)."""
+    return any(model_router.route_maximum(row['route']) is not None
+               and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES))
+               for row in model_router.routes(model, accounts))
 
 
 def require_bounded_models(c):
@@ -154,10 +188,7 @@ def require_bounded_models(c):
              ('strong_calibrator', models['strong_calibrator']), ('easy_calibrator', models['easy_calibrator'])]
     roles += [('reviewer' if i == 0 else 'reviewer2', chain) for i, chain in enumerate(models['reviewers'])]
     for role, chain in roles:
-        # A walled role is never leased a free or Go plan route (ModelRuntime._call).
-        if not any(model_router.route_maximum(row['route']) is not None
-                   and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES))
-                   for row in model_router.routes(chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))):
+        if not bounded_route(role, chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS)):
             raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',
                 model_router.retry_at('unbounded_route'), route=chain[0]))
 
@@ -173,6 +204,15 @@ def rotation(slot, table_name=None):
     for fam, roles in (table.get('refused') or {}).items():
         if any(row.get(r) == fam for r in roles): raise ValueError(f'{fam} is refused as {"/".join(roles)}: {table.get("refused_why", "")}')
     return {role: dict(table['families'][fam]) for role, fam in row.items()}
+
+
+def second_reviewer(taken, table_name=None):
+    """The rotation's first second-reviewer family that none of writer, stress tester, strong calibrator or
+    first reviewer (`taken`: their families) uses. Founder 2026-11-12: G8/G9 always have two reviewers."""
+    table = _read_json(PROMPTS.parent / (table_name or os.environ.get('FACTORY_ROTATION', 'rotation-3writers.json')))
+    for fam in table['reviewer2']:
+        if fam not in taken and family(table['families'][fam]['model']) not in taken: return dict(table['families'][fam])
+    raise ValueError('No second reviewer family is independent from writer, stress tester, strong calibrator and reviewer')
 
 
 def opencode_config(model=None, case=None, *, diagnosis=False):
@@ -341,9 +381,21 @@ def go_quota_moves_on(lease, reason):
 OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]
 
 
-def call_failure_reason(label, route):
+# A silent route (12 Nov: opencode/deepseek-v4.1-flash-free hung every writer admission call, 11 attempts of
+# 45 min each) must cost minutes, not an attempt. These short writer calls give up after 10 minutes without
+# output, and a stall moves them to the chain's next route, which later calls of the role also skip.
+SHORT_CALL_PREFIXES = ('builder-selection', 'builder-provider-preflight')
+SHORT_CALL_NO_PROGRESS_MINUTES = 10
+
+
+def short_call(name):
+    return name.startswith(SHORT_CALL_PREFIXES)
+
+
+def call_failure_reason(label, route, name=''):
     """A per-call failure that moves this call to its chain's next route, or None (the step fails).
     A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
+    if short_call(name) and label == 'stalled': return 'outage'
     if label.startswith('provider_limit'): return 'quota'
     if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
     if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
@@ -404,6 +456,8 @@ class ModelRuntime:
         if not hasattr(c, 'router_interrupted_calls'): c.router_interrupted_calls = []
         context.router_interrupted_calls = c.router_interrupted_calls
         context.router_model = requested
+        if getattr(c, 'stalled_routes', {}).get(role):
+            context.router_excluded = (*getattr(context, 'router_excluded', ()), *sorted(c.stalled_routes[role]))
         context.role_cancel = getattr(c, 'role_cancel', None) or threading.Event()
         context.model_env = dict(getattr(c, 'model_env', {}))
         active_seconds, last_wait, prior_waits = 0, None, []
@@ -426,7 +480,7 @@ class ModelRuntime:
                 if getattr(c, 'engine', None) is not None:
                     from budget import available_invocation_funding
                     from decimal import Decimal
-                    funding = Decimal(available_invocation_funding(c.ledger, c.engine))
+                    funding = Decimal(available_invocation_funding(c.ledger, c.engine, name))
                     owner_models = getattr(c, 'exam_owner_models', None)
                     if owner_models and role in ('strong_calibrator', 'easy_calibrator'):
                         choices = model_router._bounded_routes(owner_models[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))
@@ -510,7 +564,7 @@ class ModelRuntime:
                 failure = ({'reason': 'router_unavailable', 'model': lease.route} if lost is not None and lost.is_set()
                            else getattr(error, 'provider_failure', None))
                 if failure is None:
-                    reason = call_failure_reason(str(error), lease.route)
+                    reason = call_failure_reason(str(error), lease.route, name)
                     if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
                 if failure.get('reason') == 'quota' and lease.account in OPENCODE_ACCOUNTS:
@@ -526,6 +580,9 @@ class ModelRuntime:
                     if 'source_stop' not in failure and stop in FAILURE_STOPS:
                         failure = {**failure, 'source_stop': stop}
                     context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.pool + '/' + lease.route)
+                    if short_call(name) and str(error) == 'stalled':
+                        # Later calls of this role skip the silent route too (not other roles' routes).
+                        c.__dict__.setdefault('stalled_routes', {}).setdefault(role, set()).add(lease.pool + '/' + lease.route)
                 context.router_condition_since = time.monotonic()
                 if failure.get('reason') == 'quota' and lease.route.startswith('claude/'):
                     reset = _read_json(getattr(c, 'ledger', '/nonexistent'), {}).get('claude_resets_at')
@@ -782,7 +839,8 @@ class ModelRuntime:
                     result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
                                   max_cost=None if getattr(c, 'engine', None) is not None else c.args.max_cost,
                                   max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls, driver=driver,
-                                  progress_timeout=c.args.no_progress_minutes * 60, max_zero_tokens=c.args.max_zero_tokens,
+                                  progress_timeout=(min(c.args.no_progress_minutes, SHORT_CALL_NO_PROGRESS_MINUTES) if short_call(name)
+                                                    else c.args.no_progress_minutes) * 60, max_zero_tokens=c.args.max_zero_tokens,
                                   configured_model=model, resume=(bool(getattr(c.args, "resume", None)) and not getattr(c, "budget_resumed", False))
                                   or getattr(c, "force_budget_resume", False),
                                   concurrent=getattr(c, 'engine', None) is not None or getattr(c.args, "concurrent_roles", False), cancel=gate,
@@ -826,3 +884,23 @@ class ModelRuntime:
                 raise BudgetError('cleanup_failed') from cleanup_error
         return result.returncode
 
+
+
+def former_families(card, swaps=()):
+    """Families that wrote the case's idea or ever held a role on it (card role_swaps, plus `swaps` not
+    yet recorded): none of them may become the second reviewer."""
+    return ({family(s['from']) for s in (*(card.get('role_swaps') or ()), *swaps) if s.get('from')}
+            | set((card.get('imported_from') or {}).get('idea_families') or ()))
+
+
+def with_second_reviewer(c, table_name=None):
+    """An in-flight case pinned with one reviewer takes the rotation's second reviewer at its next
+    round (founder 2026-11-12). Returns True when it changed the pinned models."""
+    models, roles = c.card['models'], c.card.setdefault('roles', {})
+    if len(models['reviewers']) >= 2: return False
+    row = second_reviewer({family(models[k][0]) for k in ('builder', 'attacker', 'strong_calibrator')}
+                          | {family(models['reviewers'][0][0])} | former_families(c.card), table_name)
+    models['reviewers'] = [*models['reviewers'], [row['model']]]
+    roles['reviewer2'] = {**row, 'family': family(row['model'])}
+    c.card['reviewer2_pinned'] = None
+    return True
