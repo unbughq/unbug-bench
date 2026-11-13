@@ -1860,6 +1860,63 @@ class AutoResumeHolds(unittest.TestCase):
         self.assertEqual(seen, [])
 
 
+class ResumeRoleSwap(unittest.TestCase):
+    """Founder 2026-11-12: `start --resume-case <case> --roles stress_tester=<model>` gives a resumed
+    case another stress tester or strong calibrator. Every step of the resumed workflow carries the
+    swap; later resumes of the lineage keep it, those roles named again replaced."""
+
+    FLASH, SOL = "opencode-go/deepseek-v4.1-flash", "codex/gpt-6.1-sol"
+
+    def resume(self, r, batch, script=None, roles=None):
+        scenario = {"spec": {"batch_id": batch, "max_cases_started": 1, "max_infra_retries_per_step": 2},
+                    "resume_of": C1, "script": script or {}}
+        if roles is not None:
+            scenario["roles"] = roles
+        return EngineRun(manual_holds(scenario), workdir=r.work).run()
+
+    def test_a_swap_reaches_every_step_and_the_lineage_keeps_it(self):
+        again = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",
+                                 "checkpoint": True},
+                 "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = run(manual_holds(Resume.GATES_INFRA))
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertFalse(any("roles" in s for s in r.starts(1)))   # an unswapped case sends none
+        swaps = []
+        for batch, roles in (("b-u", {"stress_tester": self.FLASH}), ("b-v", None),
+                             ("b-w", {"strong_calibrator": self.SOL})):
+            before = len(r.starts(1))
+            self.assertEqual(self.resume(r, batch, again, roles)["result"]["cases"],
+                             {f"{C1}@{batch}": "held" if batch != "b-w" else "retired"})
+            swaps.append([s.get("roles") for s in r.starts(1)[before:]])
+        self.assertEqual(swaps[0], [{"stress_tester": self.FLASH}] * len(swaps[0]))
+        self.assertEqual(swaps[1], [{"stress_tester": self.FLASH}] * len(swaps[1]))   # inherited
+        self.assertEqual(swaps[2], [{"stress_tester": self.FLASH, "strong_calibrator": self.SOL}] * len(swaps[2]))
+
+    def test_a_swap_the_worker_refuses_holds_at_once_and_a_later_resume_may_change_it(self):
+        # The card's refusal (run.RoleSwapRefused) never changes between attempts: no retry, no diagnosis.
+        r, out = run(manual_holds(Resume.GATES_INFRA))
+        self.addCleanup(r.close)
+        before = len(r.starts(1))
+        refused = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:roles_refused"}}
+        self.assertEqual(self.resume(r, "b-u", refused, {"stress_tester": self.FLASH})["result"]["cases"],
+                         {f"{C1}@b-u": "held"})
+        self.assertEqual([x["key"].split("/")[2] for x in r.starts(1)[before:]], ["gates:1"])
+        # The hold is an ordinary infra stop: the operator resumes it naming another model.
+        before = len(r.starts(1))
+        self.assertEqual(self.resume(r, "b-v", None, {"stress_tester": self.SOL})["result"]["cases"],
+                         {f"{C1}@b-v": "sealed"})
+        self.assertEqual(r.starts(1)[before]["roles"], {"stress_tester": self.SOL})
+
+    def test_a_swap_outside_the_two_roles_is_refused(self):
+        from durable.contract import ContractError
+        from durable.engine import resume_point
+        for roles in ({}, {"writer": self.FLASH}, {"stress_tester": ""}, {"stress_tester": "flash"},
+                      {"reviewer": self.FLASH, "stress_tester": self.FLASH}, ["stress_tester"]):
+            with self.assertRaisesRegex(ContractError, "resume:bad_roles"):
+                resume_point(C1, None, roles)
+
+
 class ReleaseHolds(unittest.TestCase):
     """A factory_bug hold of a step that may run again waits in its own workflow for a factory
     release, then reruns that step on it, as a `--resume-case` batch would (86b100, 11 November)."""

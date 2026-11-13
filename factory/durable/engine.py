@@ -34,7 +34,7 @@ from dbos import DBOS, SetWorkflowID
 from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised, ContractError, FounderAction,
                               CASE_ID, FounderReply, Grant, LimitedBy, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
                               StepResult, Topic, Verdict, WorkerLease, assert_no_conductor, batch_spec_from_record,
-                              guarded_run, step_input_from_record, step_result_from_record, to_record,
+                              check_roles, guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
 from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
@@ -487,9 +487,26 @@ def _retired_only_by_deadline(latest, attempts: dict, last: tuple, earlier: list
         return False
 
 
-def resume_point(case_id: str, override: Optional[str] = None) -> dict:
-    """Where a case stopped by an infrastructure failure continues (_resume_point)."""
-    return _resume_point(case_id, override)[0]
+def resume_point(case_id: str, override: Optional[str] = None, roles: Optional[dict] = None) -> dict:
+    """Where a case stopped by an infrastructure failure continues (_resume_point).
+
+    Founder 2026-11-12: roles ({role: model}, contract.check_roles) gives the resumed case another
+    stress tester or strong calibrator. The lineage keeps a swap: each resume carries the roles of
+    the earlier ones, those named again replaced. The worker checks the models (run.context_for_step)."""
+    if roles is not None:
+        try:
+            check_roles(roles)
+        except ContractError:
+            raise ContractError("resume:bad_roles") from None
+    point = _resume_point(case_id, override)[0]
+    swap = {}
+    for w in sorted(DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__),
+                    key=lambda w: (w.created_at or 0, w.workflow_id)):
+        swap.update((w.input["args"][0].get("resume") or {}).get("roles") or {})
+    swap.update(roles or {})
+    if swap:   # absent otherwise: older jobs replay unchanged
+        point["roles"] = swap
+    return point
 
 
 def factory_bug_waste_keys(case_id: str, override: Optional[str] = None) -> list:
@@ -899,6 +916,7 @@ class _Case:
         self.rerun_seqs: list = []   # diagnosis seqs of factory_bug resumes in this workflow (rerun_after_release)
         self.gates_g10 = 0   # the G10 authority (gates_money_up_front) the case's GATES attempts carried
         self.override: Optional[str] = None   # the operator's reason, when an override resumed this case
+        self.roles: Optional[dict] = None     # a resume's role swap (resume_point), sent with every step
 
     @property
     def replaying(self) -> bool:
@@ -1021,7 +1039,7 @@ class _Case:
                            snapshot=snapshot, deadline_s=deadline_s(step, self.spec),
                            money_ceiling_usd_micros=0, feedback=feedback,
                            registry=Ref(**self.initial_registry) if admit else None, ruling=ruling,
-                           evidence=tuple(evidence))
+                           evidence=tuple(evidence), roles=self.roles)
             counters = self.counters(infra, limits, free, late)
             job = {"input": to_record(si), "initial_registry": self.initial_registry,
                    "request": max(requested_minimum, request_usd_micros(step, counters, self.spec)),
@@ -1378,6 +1396,8 @@ class _Case:
         self.stop_line(action)
         if action is Action.RETIRE:
             self.finish("retired")
+        if action is Action.HOLD:   # policy.ROLES_REFUSED; no workflow recorded it before it existed
+            self.finish("held")
         if action is not Action.DIAGNOSE:
             raise AssertionError(action)
         return self.diagnose()
@@ -1541,6 +1561,7 @@ def case_workflow(job: dict) -> dict:
             case.attack_cap_from = resume["attack_cap_from"]
             DBOS.set_event("attack_cap_from", case.attack_cap_from)
         case.override = resume.get("override")
+        case.roles = resume.get("roles")
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
@@ -1630,6 +1651,8 @@ class _Batch:
                 job["resume"]["attack_cap_from"] = self.resume["attack_cap_from"]
             if self.resume.get("override") is not None:   # absent otherwise: older jobs replay unchanged
                 job["resume"]["override"] = self.resume["override"]
+            if self.resume.get("roles") is not None:   # absent otherwise: older jobs replay unchanged
+                job["resume"]["roles"] = self.resume["roles"]
             self.case_ids[workflow_id] = case_id
         with SetWorkflowID(workflow_id):
             DBOS.start_workflow(case_workflow, job)
@@ -2074,13 +2097,15 @@ class Engine:
         return factory_bug_waste_keys(case_id, override)
 
     def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None,
-                    resume_of: Optional[str] = None, override: Optional[str] = None):
+                    resume_of: Optional[str] = None, override: Optional[str] = None,
+                    roles: Optional[dict] = None):
         """Attach to the batch if it exists (rule 3); start it otherwise. initial_registry is the
         batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2). import_snapshot,
         a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case.
         resume_of, a case stopped by an infrastructure failure, continues it as the batch's first
         case where it stopped (resume_point). override, the operator's reason, resumes it once where
-        resume_point's rules refuse it (founder 2026-11-11)."""
+        resume_point's rules refuse it (founder 2026-11-11). roles swaps its stress tester or strong
+        calibrator model (resume_point, founder 2026-11-12)."""
         if not isinstance(initial_registry, Ref) or initial_registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise ContractError("initial_registry must be a registry Ref")
         if import_snapshot is not None and (not isinstance(import_snapshot, Ref)
@@ -2093,7 +2118,9 @@ class Engine:
             raise ContractError("a batch either imports or resumes its first case")
         if override is not None and resume_of is None:
             raise ContractError("an override only resumes a case")
-        resume = None if resume_of is None else {"case": resume_of, **resume_point(resume_of, override)}
+        if roles is not None and resume_of is None:
+            raise ContractError("a role swap only resumes a case")
+        resume = None if resume_of is None else {"case": resume_of, **resume_point(resume_of, override, roles)}
         with SetWorkflowID(spec.batch_id):
             job = {"spec": to_record(spec), "initial_registry": to_record(initial_registry), "queue_v2": False}
             if import_snapshot is not None:

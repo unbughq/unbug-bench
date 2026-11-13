@@ -459,6 +459,27 @@ reason rides in the resume record, so a second override of the lineage is refuse
 retires at its next `factory_bug` diagnosis. The override's case card and the board show the reason;
 the published scorecard does not.
 
+Founder 2026-11-12: a resume may also give the case another stress tester or strong calibrator,
+since a snapshot card pins its models: `start --resume-case <case> --roles
+stress_tester=<model>[,strong_calibrator=<model>]`. No other role may change. The swap rides in the
+resume record, and later resumes of the lineage keep it, a role named again replaced. Every step of
+the resumed workflow carries it in the one optional contract field `StepInput.roles`, which the
+record leaves out when absent, so older records and workers are unchanged. `start` refuses what it
+can check without the case card (`roles_invalid`): the role names, a model without a bounded route
+for its role, a strong calibrator off the Claude or Codex subscription; and its
+`bound_below_call_hold` check counts the swapped models. The worker (`run.swap_roles`, from
+`context_for_step`; ADMIT applies it after pinning its INPUTS models) rewrites the card's models and
+roles and appends each replaced model to the card's `role_swaps` (role, from, to, step, seq), then
+checks the whole swapped selection against `select_models`' family rules
+(`model_runtime.check_role_families`; like an explicit role flag, not the rotation's `refused` list) and
+each swapped model's bounded route on the case's router accounts. No role changes on a SEAL step, and
+the strong calibrator changes only before the case's first GATES step. A refusal (`run.RoleSwapRefused`)
+is the same on every attempt, so the worker reports `infra:roles_refused` and the case holds at once
+(`policy.decide`): no retry, no diagnosis, the reason on the case card and the full message in the
+worker log. DIAGNOSIS never applies a swap. The hold is an infra stop, so the operator resumes again
+with other models; to undo a swap, name that role's earlier model (the card's `role_swaps` `from`):
+`--roles stress_tester=<earlier model>`.
+
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch
 whose batch or case money cannot hold one request on its dearest gated route (`bound_below_call_hold`;

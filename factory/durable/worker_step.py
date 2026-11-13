@@ -604,9 +604,10 @@ class Worker:
         runner = self.runner()
         try:
             c = runner.context_for_step(step_input, work)
-        except Exception:
+        except Exception as error:
             traceback.print_exc()
-            return fail("infra:context_failed")
+            refused = isinstance(error, getattr(runner, "RoleSwapRefused", ()))   # run.swap_roles
+            return fail("infra:roles_refused" if refused else "infra:context_failed")
         before = ledger_totals(c.ledger)
         self._save_baseline(step_input, c.ledger, before)
         if before["total"] is None:

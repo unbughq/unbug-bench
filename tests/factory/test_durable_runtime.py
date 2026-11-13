@@ -287,6 +287,40 @@ class RuntimeTests(unittest.TestCase):
             sock.assert_not_called()
         self.assertEqual(err.getvalue(), "override_needs_resume_case\n")
 
+    def test_a_role_swap_reaches_the_engine_only_with_a_resumed_case(self):
+        # Founder 2026-11-12: `start --resume-case <case> --roles stress_tester=<model>`.
+        runtime = self.runtime()
+        old_inputs = runtime.prepare("b-old", ArtifactKind.INPUTS, b"{}")
+        old = BatchSpec(batch_id="b-old", plumbing_version="a" * 64, bench_version="b" * 64,
+                        app_repo="medusajs/medusa", app_commit="c" * 40, inputs=old_inputs, target_sealed=1,
+                        money_bound_usd_micros=100, deadline_epoch=4e9, max_concurrency=1)
+        runtime.ledger.open("b-old", 100_000_000)
+        inputs = runtime.prepare("b-new", ArtifactKind.INPUTS, b"{}")
+        registry = runtime.prepare("b-new", ArtifactKind.STATEMENT_REGISTRY, b"opaque registry")
+        ok = BatchSpec(batch_id="b-new", plumbing_version="a" * 64, bench_version="b" * 64,
+                       app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs, target_sealed=1,
+                       money_bound_usd_micros=100, deadline_epoch=4e9, max_concurrency=1, max_cases_started=1)
+        def workflows(workflow_ids=None, workflow_id_prefix=None, **_):
+            if workflow_ids == ["b-old"]:
+                return [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
+            return []
+        roles = {"stress_tester": "opencode-go/deepseek-v4.1-flash"}
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
+                patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start, \
+                patch.object(runtime.engine, "factory_bug_waste_keys", return_value=[]) as named:
+            with self.assertRaisesRegex(RuntimeErrorCode, "resume_invalid"):
+                runtime.start(to_record(ok), to_record(registry), None, None, None, roles)
+            # What needs no case card is refused at start, before the lineage records it.
+            for bad in ({"stress_tester": "openrouter/unknown/model-x"}, {"strong_calibrator": roles["stress_tester"]},
+                        {"writer": roles["stress_tester"]}):
+                with self.assertRaisesRegex(RuntimeErrorCode, "roles_invalid"):
+                    runtime.start(to_record(ok), to_record(registry), None, "case-old-1", None, bad)
+            start.assert_not_called()
+            dispatch(runtime, {"op": "start", "spec": to_record(ok), "registry": to_record(registry),
+                               "resume": "case-old-1", "roles": roles})
+            named.assert_called_once_with("case-old-1")
+            start.assert_called_once_with(ok, registry, None, "case-old-1", roles=roles)
+
     def test_resume_books_factory_bug_losses_as_waste_before_counting_case_money(self):
         # 22e434-3 on 9 November: a writer step that stopped on our own bug had settled $45 as the
         # case's money. Once a factory_bug diagnosis names it, it is waste, and the resume gets the

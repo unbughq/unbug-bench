@@ -479,7 +479,7 @@ class FakeWorker:
                                          "pv": si.plumbing_version[:4], "bv": si.bench_version[:4],
                                          "ceiling": si.money_ceiling_usd_micros, "deadline_s": si.deadline_s,
                                          "opened": opened, "evidence": [r.kind.value for r in si.evidence],
-                                         "t": now})
+                                         "t": now, **({} if si.roles is None else {"roles": si.roles})})
 
     def _drop(self, what, key):
         n = self.flaky.get(what, {}).get(key, 0)
@@ -677,7 +677,8 @@ def engine_main(workdir):
             waste_keys = {"refused": str(error)}
         (work / "waste-keys.json").write_text(json.dumps(waste_keys))
         try:
-            handle = engine.start_batch(spec, registry, None, scenario["resume_of"], scenario.get("override"))
+            handle = engine.start_batch(spec, registry, None, scenario["resume_of"], scenario.get("override"),
+                                        roles=scenario.get("roles"))
         except ContractError as error:
             (work / "result.json").write_text(json.dumps({"refused": str(error)}))
             print("ENGINE-DONE", flush=True)

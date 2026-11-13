@@ -208,6 +208,31 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(self.registry_doc(result, outputs), {
             "version": 1, "registry": {"revision": 0, "entries": {}}, "objects": {}, "refs": {}})
 
+    def test_a_resume_role_swap_survives_the_models_admit_pins(self):
+        # Founder 2026-11-12: ADMIT pins its models from INPUTS after context_for_step; a resumed
+        # case's role swap (StepInput.roles) applies over them, so its screens use the swapped model.
+        import dataclasses
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key,
+                           json.dumps({"version": 1, "dry_run": True, "seed": 7}).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        plain, outputs = self.run_admit(self.step(inputs, registry))
+        pinned = self.restore(self.step(inputs, registry), plain, outputs)[1].card
+        # Another stress tester whose family the pinned selection leaves free.
+        used = {pinned["roles"][r]["family"] for r in ("writer", "reviewer", "strong_calibrator", "stress_tester")}
+        model = next(m for m in ("opencode-go/deepseek-v4.1-flash", "opencode/minimax-m3.1-flash-free",
+                                 "openrouter/xiaomi/mimo-v2.6-pro") if run.family(m) not in used)
+        swapped = dataclasses.replace(self.step(inputs, registry, attempt=2), roles={"stress_tester": model})
+        result, outputs = self.run_admit(swapped)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:practice"))
+        card = self.restore(swapped, result, outputs)[1].card
+        self.assertEqual((card["models"]["attacker"], card["roles"]["stress_tester"]["model"]), ([model], model))
+        self.assertEqual([(s["role"], s["to"], s["step"]) for s in card["role_swaps"]][:1], [("stress_tester", model, "admit")])
+        # A swap the pinned selection refuses holds the case (policy.ROLES_REFUSED), never admit:processing_failed.
+        refused = dataclasses.replace(self.step(inputs, registry, attempt=3),
+                                      roles={"stress_tester": pinned["roles"]["writer"]["model"]})
+        result, _ = self.run_admit(refused)
+        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "infra:roles_refused"))
+
     def real_inputs(self, statement, **more):
         value = {"version": 1, "dry_run": False, "seed": 11, "source": "port",
                  "app_repo": "medusajs/medusa", "app_commit": "a" * 40,

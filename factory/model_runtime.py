@@ -130,15 +130,7 @@ def select_models(c, *, log):
         roles['reviewer2'] = second_reviewer({*families, *((c.card.get('imported_from') or {}).get('idea_families') or ())},
                                              getattr(a, 'rotation_table', None))
         if getattr(a, 'reviewer2_effort', None): roles['reviewer2']['effort'] = a.reviewer2_effort
-    if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
-    # Founder 2026-11-12: G8/G9 always have two reviewers, each of its own family, neither the writer's,
-    # stress tester's nor (for reviewer2) the strong calibrator's: five distinct families in all.
-    if len({*families, family(roles['reviewer2']['model'])}) != 5:
-        raise ValueError('Every reviewer must be independent: the second reviewer must be a fifth family, not the writer, stress tester, strong calibrator or first reviewer')
-    if not roles['strong_calibrator']['model'].startswith(('claude/', 'codex/')):
-        raise ValueError('Strong calibrator must use the Claude or Codex subscription')
-    if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
-        raise ValueError('Easy calibrator must not be a contestant family')
+    check_role_families(roles)
     for data in roles.values(): data['family'] = family(data['model'])
     c.card['roles'], c.card['rotation_slot'] = roles, a.rotation_slot
     m = {"builder": [roles['writer']['model']], "attacker": [roles['stress_tester']['model']],
@@ -150,8 +142,42 @@ def select_models(c, *, log):
     return m
 
 
+def check_role_families(roles):
+    """The separation rules of a whole role selection ({role: {'model': ...}}): select_models, and a
+    resume's role swap (run.swap_roles), which checks the set after every swapped role is in place.
+    Like an explicit role flag, a swapped model is not held to the rotation's `refused` list."""
+    families = [family(roles[r]['model']) for r in ('writer', 'stress_tester', 'reviewer', 'strong_calibrator')]
+    if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
+    # Founder 2026-11-12: G8/G9 always have two reviewers, each of its own family, neither the writer's,
+    # stress tester's nor (for reviewer2) the strong calibrator's: five distinct families in all.
+    if 'reviewer2' in roles and len({*families, family(roles['reviewer2']['model'])}) != 5:
+        raise ValueError('Every reviewer must be independent: the second reviewer must be a fifth family, not the writer, stress tester, strong calibrator or first reviewer')
+    if not roles['strong_calibrator']['model'].startswith(('claude/', 'codex/')):
+        raise ValueError('Strong calibrator must use the Claude or Codex subscription')
+    if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
+        raise ValueError('Easy calibrator must not be a contestant family')
+
+
+def check_swap_models(swap, accounts=model_router.ACCOUNTS):
+    """What a resume's role swap ({role: model}) must meet before any case card is read: a strong
+    calibrator on a subscription, and a bounded route for every swapped model (bounded_route)."""
+    if 'strong_calibrator' in swap and not swap['strong_calibrator'].startswith(('claude/', 'codex/')):
+        raise ValueError('Strong calibrator must use the Claude or Codex subscription')
+    for role, model in swap.items():
+        if not bounded_route(role, model, accounts):
+            raise ValueError(f'{model} has no bounded route as {role}')
+
+
 def model_effort(model):
     return 'high' if model.startswith(('claude/', 'codex/')) else 'xhigh' if family(model) == 'meta' else 'default'
+
+
+def bounded_route(role, model, accounts=model_router.ACCOUNTS):
+    """Whether `role` can be leased `model` on a route with a known maximum. A walled role is never
+    leased a free or Go plan route (ModelRuntime._call)."""
+    return any(model_router.route_maximum(row['route']) is not None
+               and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES))
+               for row in model_router.routes(model, accounts))
 
 
 def require_bounded_models(c):
@@ -161,10 +187,7 @@ def require_bounded_models(c):
              ('strong_calibrator', models['strong_calibrator']), ('easy_calibrator', models['easy_calibrator'])]
     roles += [('reviewer' if i == 0 else 'reviewer2', chain) for i, chain in enumerate(models['reviewers'])]
     for role, chain in roles:
-        # A walled role is never leased a free or Go plan route (ModelRuntime._call).
-        if not any(model_router.route_maximum(row['route']) is not None
-                   and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES))
-                   for row in model_router.routes(chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))):
+        if not bounded_route(role, chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS)):
             raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',
                 model_router.retry_at('unbounded_route'), route=chain[0]))
 

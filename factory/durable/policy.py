@@ -43,6 +43,9 @@ DEADLINE_REASON = "infra:deadline"
 # across attempts. The engine backstops at WRITER_HANDBACK_CEILING per seq; past it a handback counts
 # as an infra error.
 WRITER_HANDBACK = "writer:handback"
+# A resume's role swap the case card refuses (run.RoleSwapRefused): the same on every attempt, so the
+# case holds at once, never retried or diagnosed; the operator resumes it naming other models.
+ROLES_REFUSED = "infra:roles_refused"
 MAX_WRITER_HANDBACKS = 8   # the engine cap of workflows recorded before the writer_handback_ceiling patch
 WRITER_HANDBACK_CEILING = 32
 
@@ -135,6 +138,8 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         # bounds paid attempts and the batch waits when its bound is exhausted.
         return Action.SLEEP
     if o is Outcome.INFRA_ERROR:
+        if result.reason == ROLES_REFUSED:
+            return Action.HOLD
         if is_pause(result):
             return Action.RETRY                   # never scored, never counted, never diagnosed
         if is_batch_deadline_stop(result, spec, now):

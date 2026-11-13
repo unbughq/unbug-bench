@@ -3075,6 +3075,66 @@ def invoke_diagnosis(c, *, model, prompt, inputs, output):
     return invoke(sys.modules[__name__], c, model=model, prompt=prompt, inputs=inputs, output=output)
 
 
+SWAP_MODEL_KEYS = {"stress_tester": "attacker", "strong_calibrator": "strong_calibrator"}
+
+
+class RoleSwapRefused(ValueError):
+    """A swap this case's card refuses. It refuses the same way on every attempt, so the worker reports
+    infra:roles_refused, which holds the case at once (policy.decide): no retry, no diagnosis. The
+    operator resumes it naming other models, or the old ones to undo the swap."""
+
+
+def swap_roles(c, step_input):
+    """Founder 2026-11-12: a resume's role swap ({role: model}, StepInput.roles) gives this case
+    another stress tester or strong calibrator. The swapped selection, as a whole, must pass
+    select_models' family rules, and each swapped model needs a bounded route. No role changes on a
+    SEAL step: its GATES ran with the recorded roles, which the sealed card must name. The strong
+    calibrator changes only before the case's first GATES step: never on a GATES step, nor once
+    card["gates"] holds a result (each GATES step refills it). Its G10 identity names the roles
+    (gate_state), so no try from another calibrator is ever reused; a swapped stress tester's G2 reruns
+    the same way. The card keeps every replaced model in role_swaps; the snapshot keeps the swap, so a
+    later step finds nothing left to change. ADMIT applies it after pinning its models; DIAGNOSIS
+    never does. A refusal raises RoleSwapRefused."""
+    roles = copy.deepcopy(c.card.get("roles"))
+    if not isinstance(roles, dict) or not all(isinstance(roles.get(r), dict) for r in SWAP_MODEL_KEYS):
+        raise ValueError("role swap: the case card records no role selection")
+    changed = {r: m for r, m in step_input.roles.items() if roles[r].get("model") != m}
+    if not changed:
+        return
+    kind = step_input.step.kind.value
+    if kind == "seal":
+        raise RoleSwapRefused("role swap: no role changes at SEAL; its GATES ran with the recorded roles")
+    if "strong_calibrator" in changed and (kind == "gates" or c.card.get("gates")):
+        raise RoleSwapRefused("role swap: the strong calibrator changes only before the case's first GATES step")
+    models = copy.deepcopy(c.models)
+    history = []
+    for role, model in changed.items():
+        history.append({"role": role, "from": roles[role].get("model"), "to": model,
+                        "step": step_input.step.name, "seq": step_input.seq})
+        roles[role] = {"model": model, "effort": model_effort(model), "family": family(model)}
+        models[SWAP_MODEL_KEYS[role]] = [model]
+    try:
+        model_runtime.check_swap_models(changed, getattr(c, "router_accounts", model_router.ACCOUNTS))
+        # The rotation picked the second reviewer around the old roles; a swap into its family re-picks it
+        # (G8/G9's identity names both reviewers, so they rerun). An operator-pinned one is never moved.
+        r2 = roles.get("reviewer2")
+        if r2 and not getattr(c.args, "reviewer2", None) and family(r2["model"]) in {family(m) for m in changed.values()}:
+            taken = {family(roles[r]["model"]) for r in ("writer", "stress_tester", "reviewer", "strong_calibrator")}
+            taken |= set((c.card.get("imported_from") or {}).get("idea_families") or ())
+            new = model_runtime.second_reviewer(taken, getattr(c.args, "rotation_table", None))
+            history.append({"role": "reviewer2", "from": r2["model"], "to": new["model"],
+                            "step": step_input.step.name, "seq": step_input.seq})
+            roles["reviewer2"] = {**new, "family": family(new["model"])}
+            models["reviewers"] = [models["reviewers"][0], [new["model"]]]
+        model_runtime.check_role_families(roles)
+    except ValueError as error:
+        raise RoleSwapRefused(f"role swap: {error}") from None
+    log(c, "roles", "resume swap: " + json.dumps(history))
+    c.card.setdefault("role_swaps", []).extend(history)
+    c.models = c.card["models"] = models
+    c.card["roles"] = roles
+
+
 def context_for_step(step_input, work):
     """Run context for one engine step, from a work tree the worker has just restored."""
     os.environ.setdefault("UNBUG_JUDGE", "1")  # Factory gates retain truth when contestant monitors are blinded.
@@ -3128,6 +3188,8 @@ def context_for_step(step_input, work):
                 card["reviewer2_unavailable"] = str(error)
     else:
         c.models = card["models"] = pick_models(c)
+    if getattr(step_input, "roles", None) and step_input.step.kind.value not in ("admit", "diagnosis"):
+        swap_roles(c, step_input)
     prepared = card.get("factory_slots_prepared", 1)
     c.prepared_factory_slots = prepared if type(prepared) is int and prepared >= 1 else 1
     c.manifest0 = bench_manifest()
