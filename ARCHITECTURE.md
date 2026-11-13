@@ -473,7 +473,11 @@ waits without holding a concurrency slot. Zero-cost genuine provider limits wait
 without an attempt-count cutoff; they never retire a case merely for recurring.
 A GATES request also covers every strong-calibrator try (`policy.gates_money_extension`, three whole Claude
 reservations; spend is unchanged), and before G6 `run.g10_money_headroom` raises the money stop if those calls cannot be
-funded, so it waits for the bound before any bench gate runs. A G10 provider or money stop is parked: the bench gates
+funded, so it waits for the bound before any bench gate runs. Only the strong tries and the exam owner they ask may
+spend that authority (`budget.call_limit`); every other GATES call keeps the old cap plus what of it G10 already used.
+A batch-only money retry doubles the request without it and adds it once; a lost GATES attempt is booked as waste at its
+grant less the authority; the SEAL after GATES and a GATES money hold's auto-resume use the case limit plus it. While a
+GATES attempt runs it holds up to the case's remaining money plus the authority ($50 + $150 = $200 per case) of the batch bound. A G10 provider or money stop is parked: the bench gates
 finish and the stop is raised when G10 is joined (a G10 rejection still wins at the next boundary).
 Claude OAuth requests omit the organization-dependent `inference_geo` parameter.
 Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
