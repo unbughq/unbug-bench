@@ -46,6 +46,11 @@ class HelperUnavailable(Exception):
     """No helper can be leased now."""
 
 
+class HelperInvalid(Exception):
+    """The helper's batch ran but is not a valid result. Not retried on another helper: the case
+    worker's own infra-retry allowance (infra-attempts.json) decides, as on the serial path."""
+
+
 class HelperRefused(Exception):
     """The helper's own copy of the inputs differs from the job (stale case, bench or release)."""
 
@@ -65,22 +70,72 @@ def machine_class() -> dict:
     return {"cpus": os.cpu_count(), "mem_gib": gib}
 
 
-def make_job(*, case, guard, scenarios, bench, release, runs, seed, label, machine=None, workers=1) -> dict:
-    """Everything that decides what the checkpoint measures. Digests are of trees, not paths."""
-    return {"version": JOB_VERSION, "kind": "checkpoint", "case": case, "guard": digest_of(guard),
-            "scenarios": [digest_of(s) for s in scenarios], "bench": bench, "release": release,
-            "runs": runs, "seed": seed, "label": label,
-            "machine": machine_class() if machine is None else machine, "workers": workers}
+def fits(mine: dict, need: dict | None) -> bool:
+    """A helper's class against a job's. Exact by default (stress timing depends on the machine);
+    {"min": True, ...} asks for at least that many cpus and GiB, for an experiment with other sizes."""
+    if need is None: return True
+    if not need.get("min"): return mine == need
+    return all(type(mine.get(k)) is int and mine[k] >= need[k] for k in ("cpus", "mem_gib"))
+
+
+def need_for(per_copy: dict | None, workers: int, own=None) -> dict:
+    """The class a job asks of its helper: the case worker's own, or per_copy {cpus, mem_gib} for each of
+    `workers` bench copies at least."""
+    if not per_copy: return machine_class() if own is None else own
+    return {"min": True, "cpus": per_copy["cpus"] * workers, "mem_gib": per_copy["mem_gib"] * workers}
+
+
+def make_job(*, case, guard, scenarios, bench, release, runs, seed, label, machine=None, workers=1, guard_at=None,
+             env=None, timeout_s=None) -> dict:
+    """Everything that decides what the checkpoint measures. Digests are of trees, not paths.
+    guard_at is where a helper finds the guard: ["case"|"bench", relative path]."""
+    job = {"version": JOB_VERSION, "kind": "checkpoint", "case": case, "guard": digest_of(guard),
+           "scenarios": [digest_of(s) for s in scenarios], "bench": bench, "release": release,
+           "runs": runs, "seed": seed, "label": label,
+           "machine": machine_class() if machine is None else machine, "workers": workers}
+    if guard_at is not None: job["guard_at"] = guard_at   # absent keeps old jobs' identity
+    if env is not None: job["env"] = env             # the case worker's UNBUG_* values, applied exactly
+    if timeout_s is not None: job["timeout_s"] = timeout_s
+    return job
 
 
 def make_try_job(*, case, role, name, exposure, number, seed, runs, minutes, model, identity, bench, release,
-                 machine=None, workers=1, authority_usd=None) -> dict:
+                 machine=None, workers=1, authority_usd=None, env=None, timeout_s=None, context=None) -> dict:
     """One G10 calibrator try: everything that decides what it measures. `identity` is the digest of the
-    calibration identity without the bench slot (a helper has its own slot)."""
-    return {"version": JOB_VERSION, "kind": "try", "case": case, "role": role, "name": name, "exposure": exposure,
-            "try": number, "seed": seed, "runs": runs, "minutes": minutes, "model": model, "identity": identity,
-            "bench": bench, "release": release, "machine": machine_class() if machine is None else machine,
-            "workers": workers, "authority_usd": authority_usd}
+    calibration identity without the bench slot (a helper has its own slot). `context` is what a helper
+    needs to rebuild the case worker's run context (args, card roles, router batch, attempt deadline); it
+    changes per attempt, so it is not part of the saved-try key (try_key), and the helper still refuses
+    unless the identity it derives from it matches."""
+    job = {"version": JOB_VERSION, "kind": "try", "case": case, "role": role, "name": name, "exposure": exposure,
+           "try": number, "seed": seed, "runs": runs, "minutes": minutes, "model": model, "identity": identity,
+           "bench": bench, "release": release, "machine": machine_class() if machine is None else machine,
+           "workers": workers, "authority_usd": authority_usd}
+    if env is not None: job["env"] = env
+    if timeout_s is not None: job["timeout_s"] = timeout_s
+    if context is not None: job["context"] = context
+    return job
+
+
+def try_context(c) -> dict:
+    """What a helper needs to rebuild this case worker's run context for one try (helper_link._try_context):
+    the case worker's own arguments, the card's model roles, the router batch and the attempt deadline.
+    No credentials: a helper has the same RAM-only router bundle every pool worker gets."""
+    args = {}
+    for k, v in vars(c.args).items():
+        try: canonical(v); args[k] = v
+        except (TypeError, ValueError): pass   # paths and objects are local to the case worker
+    engine = getattr(c, "engine", None)
+    return {"case_id": getattr(c, "case_id", None), "seed": c.seed, "args": args, "models": c.models,
+            "card": {k: c.card[k] for k in ("case", "seed", "models", "roles", "provider_accounts", "rotation_slot")
+                     if k in c.card},
+            "router_accounts": getattr(c, "router_accounts", None),
+            "batch": [getattr(c, "batch_id", None), getattr(c, "job_id", None), getattr(c, "batch_deadline", None)],
+            "attempt": getattr(engine, "key", None), "deadline_epoch": getattr(engine, "deadline_epoch", None)}
+
+
+def try_key(job) -> str:
+    """A try job's identity for reuse across attempts: everything but its per-attempt context."""
+    return digest_of({k: v for k, v in job.items() if k != "context"})
 
 
 def pack_stop(reason, label) -> dict:
@@ -151,7 +206,7 @@ def open_sealed(key: bytes, job: dict, sealed) -> dict:
         raise ValueError("helper result seal does not verify")
     if body.get("job") != job:
         raise ValueError("helper result answers a different job")
-    if job.get("machine") is not None and body.get("machine") != job["machine"]:
+    if not isinstance(body.get("machine"), dict) or not fits(body["machine"], job.get("machine")):
         raise ValueError("helper machine class differs from the job's")
     files = body.get("files")
     if not isinstance(files, dict) or any(type(t) is not str for t in files.values()):
@@ -169,7 +224,7 @@ def execute(job: dict, key: bytes, *, check, run, machine=machine_class) -> dict
     refuses, and the seal records the class it ran on. A "try" job's `run` returns the files (pack_try)."""
     check(job)
     mine = machine()
-    if job.get("machine") is not None and mine != job["machine"]:
+    if not fits(mine, job.get("machine")):
         raise HelperRefused(f"machine class {mine} differs from job's {job['machine']}")
     return seal(key, job, run(job) if job.get("kind") == "try" else collect(run(job)), mine)
 
@@ -200,10 +255,15 @@ def run_jobs(pool, jobs: dict, *, cap: int, key: bytes, accept, boundary=lambda:
                         leases[0] += 1
                     handle, began = pool.lease(), time.monotonic()
                     note({"event": "lease", "helper": str(handle)})
-                done[name] = accept(jobs[name], open_sealed(key, jobs[name], pool.run(handle, jobs[name], key)))
-                note({"event": "job", "helper": str(handle), "job": name, "ok": True})
+                sealed = pool.run(handle, jobs[name], key)
+                done[name] = accept(jobs[name], open_sealed(key, jobs[name], sealed))
+                note({"event": "job", "helper": str(handle), "job": name, "ok": True, "machine": sealed["body"]["machine"]})
             except HelperUnavailable:
                 todo.put((name, attempt)); break
+            except HelperInvalid as error:   # measured, not lost: no second helper, the local retry budget applies
+                note({"event": "job", "helper": str(handle), "job": name, "ok": False, "error": str(error)})
+                _release(pool, handle, True, began, note)
+                handle = None
             except Exception as error:   # helper fault of any kind: this job only goes round again
                 note({"event": "job", "helper": str(handle), "job": name, "ok": False, "error": type(error).__name__})
                 if attempt < MAX_ATTEMPTS: todo.put((name, attempt + 1))
@@ -238,13 +298,33 @@ def run_checkpoints(c, specs, *, case, bench, boundary=lambda: None) -> dict:
     checkpoint_evidence.read_completed, the serial path's own reader.
     """
     from durable.checkpoints import verdict_code
-    jobs = {name: make_job(case=case, guard=_tree(x["guard"]), scenarios=x["scenarios"], bench=bench, release=verdict_code(),
+    workers = getattr(c.args, "bench_workers", 1)
+    env, timeout_s = _job_env(c), getattr(c.args, "agent_timeout", 14400)
+    trees = {name: _tree(x["guard"]) for name, x in specs.items()}
+    jobs = {name: make_job(case=case, guard=trees[name], scenarios=x["scenarios"], bench=bench, release=verdict_code(),
                            runs=x["runs"], seed=x["seed"], label=x["label"],
-                           workers=x.get("workers", getattr(c.args, "bench_workers", 1))) for name, x in specs.items()}
+                           machine=need_for(getattr(c.args, "helper_min_per_copy", None), x.get("workers", workers)),
+                           workers=x.get("workers", workers), guard_at=_guard_at(c, x["guard"]), env=env, timeout_s=timeout_s)
+            for name, x in specs.items()}
+    names = {digest_of(job): name for name, job in jobs.items()}
+
     def accept(job, files):
-        return _read_batch(c, job, files, job["label"])
+        try:
+            return _read_batch(c, job, files, job["label"])
+        except Exception as error:   # charged to the row the local rerun (run.checkpoint, no slot) uses
+            x = specs[names[digest_of(job)]]
+            _charge_invalid(c, {"operation": "checkpoint", "case": case, "guard": trees[names[digest_of(job)]],
+                                "scenarios": x["scenarios"], "runs": x["runs"], "seed": x["seed"], "slot": None,
+                                "label": x["label"], "bench": bench, "workers": workers}, error)
+            raise HelperInvalid(type(error).__name__) from error
 
     return _dispatch(c, jobs, accept, boundary, label=",".join(sorted({x["label"] for x in specs.values()})))
+
+
+def _job_env(c):
+    """What bin/checkpoint sees from the case worker's process, applied exactly on the helper (sh() inherits it)."""
+    return {"UNBUG_JUDGE": os.environ.get("UNBUG_JUDGE"),
+            "UNBUG_FACTORY_SLOT": str(c.factory_slot) if hasattr(c, "factory_slot") else os.environ.get("UNBUG_FACTORY_SLOT")}
 
 
 def _read_batch(c, job, files, label):
@@ -273,6 +353,9 @@ def try_shards(c, jobs, *, boundary=lambda: None) -> dict:
     store = c.work / "helper-tries"
 
     def accept(job, files, save=True):
+        files = dict(files)
+        if "spend.json" in files: book_spend(c, json.loads(files.pop("spend.json")))   # before anything can refuse it
+        if json.loads(files.get("result.json", "{}")).get("failed"): raise HelperDied("try failed on the helper")
         out = unpack_try(files)
         if out["execution"] is not None:
             ex = out["execution"]
@@ -282,14 +365,14 @@ def try_shards(c, jobs, *, boundary=lambda: None) -> dict:
             out["execution"] = {"summary": summary, "records": records}
         if save and out["stopped"] is None:
             store.mkdir(parents=True, exist_ok=True)
-            target = store / (digest_of(job) + ".json")
+            target = store / (try_key(job) + ".json")
             tmp = target.with_name(target.name + f".{threading.get_ident()}.tmp")
             tmp.write_text(json.dumps(files)); os.replace(tmp, target)
         return out
 
     done, todo = {}, {}
     for number, job in jobs.items():
-        try: done[number] = accept(job, json.loads((store / (digest_of(job) + ".json")).read_text()), save=False)
+        try: done[number] = accept(job, json.loads((store / (try_key(job) + ".json")).read_text()), save=False)
         except (OSError, ValueError): todo[number] = job   # nothing saved, or not valid any more: run it
     return {**done, **_dispatch(c, todo, accept, boundary,
                                 label="g10-" + next((j["name"] for j in jobs.values()), ""))} if todo else done
@@ -300,11 +383,107 @@ def _dispatch(c, jobs, accept, boundary, *, label):
         with _LEDGER_LOCK, (c.work / "helper-ledger.jsonl").open("a") as f:
             f.write(json.dumps({**event, "label": label, "at": round(time.time())}) + "\n")
 
-    return run_jobs(c.helper_pool, jobs, cap=max(1, c.args.helper_workers), key=secrets.token_bytes(32),
-                    accept=accept, boundary=boundary, ledger=ledger)
+    def lease_boundary():
+        boundary()
+        book_lease(c)
+
+    try:
+        return run_jobs(c.helper_pool, jobs, cap=max(1, c.args.helper_workers), key=secrets.token_bytes(32),
+                        accept=accept, boundary=lease_boundary, ledger=ledger)
+    finally:
+        book_lease(c, enforce=False)
+
+
+_SPEND_TOTALS = ("cost", "calls", "list_cost_usd", "estimated_subscription_cost_usd", "plan_list_cost_usd")
+_SPEND_CARD = ("models_used", "route_receipts", "cleanup_errors")
+
+
+def spend_of(ledger_path, card) -> dict:
+    """Helper side: the model spend of one try, from its own budget ledger (reservations already settled)."""
+    try: ledger = json.loads(Path(ledger_path).read_text())
+    except (OSError, ValueError): ledger = {}
+    return {"ledger": {k: ledger[k] for k in ("events", "invocation_reservations", "unpriced_invocations", *_SPEND_TOTALS)
+                       if k in ledger},
+            "card": {k: card[k] for k in _SPEND_CARD if k in card}}
+
+
+def book_spend(c, spend):
+    """Case side: a helper try's model spend goes into the case's own budget ledger (c.ledger), as a local
+    try's calls would, so case_spending, the engine's usage_since and every funding check see it. Booked
+    once: a ledger that already holds any of its events or reservations (router lease ids, uuid4 events)
+    is not booked again, so a reused saved try or a replayed accept costs nothing twice."""
+    from budget import ledger_transaction
+    other, card = spend.get("ledger") or {}, spend.get("card") or {}
+    rows, events = other.get("invocation_reservations") or {}, other.get("events") or []
+    if not rows and not events: return
+    # A row the helper could not settle stays pending here: the case worker's own reconcile_reservations
+    # then charges its remaining maximum, as for a local call whose receipt was lost.
+    with ledger_transaction(c.ledger) as ledger:
+        mine = ledger.setdefault("invocation_reservations", {})
+        ids = {e.get("id") for e in ledger.get("events", [])}
+        if set(rows) & set(mine) or any(e.get("id") in ids for e in events): return
+        mine.update(rows)
+        ledger.setdefault("events", []).extend(events)
+        if other.get("unpriced_invocations"):
+            ledger.setdefault("unpriced_invocations", []).extend(other["unpriced_invocations"])
+        for k in _SPEND_TOTALS:
+            if k in other: ledger[k] = ledger.get(k, 0) + other[k]
+    c.card.setdefault("models_used", {}).update(card.get("models_used") or {})
+    for k in ("route_receipts", "cleanup_errors"):
+        if card.get(k): c.card.setdefault(k, []).extend(card[k])
+
+
+class _Stop(BaseException):
+    pass
+
+
+def _charge_invalid(c, identity, error):
+    """An invalid helper batch costs one attempt of the same infra-attempts.json row the serial
+    run.checkpoint would charge (same identity), so helpers cannot add attempts."""
+    from run_validity import retry
+    calls = []
+    def invoke():
+        calls.append(1)
+        if len(calls) > 1: raise _Stop   # not an invalid attempt: leaves exactly one charged
+        raise error
+    try: retry(c.work / "infra-attempts.json", identity, invoke)
+    except (_Stop, Exception): pass   # exhausted: the local rerun raises it from the same row
+
+
+def book_lease(c, enforce=True):
+    """Helper lease seconds (and money, when args.helper_usd_per_hour is set) onto the case card, from
+    helper-ledger.jsonl; with a rate, spend plus lease money at the case limit stops dispatch like model spend.
+    ponytail: counts released leases only; a lease the case worker never released shows up once its
+    controller deletes it and the case worker's next release."""
+    seconds = leases = 0
+    try:
+        for line in (c.work / "helper-ledger.jsonl").read_text().splitlines():
+            event = json.loads(line)
+            if event.get("event") == "release": seconds += event.get("seconds", 0); leases += 1
+    except (OSError, ValueError): pass
+    entry = c.card["helper_lease"] = {"leases": leases, "seconds": round(seconds, 1)}
+    rate = getattr(c.args, "helper_usd_per_hour", None)
+    if not rate: return
+    from decimal import Decimal
+    from budget import BudgetError
+    from model_runtime import update_case_budget
+    usd = Decimal(str(seconds)) / 3600 * Decimal(str(rate))
+    entry["usd"] = float(round(usd, 6))
+    _, summary = update_case_budget(c)
+    summary["helper_lease_usd"] = entry["usd"]
+    spent = summary.get("spent_usd")
+    if enforce and (spent is None or Decimal(str(spent)) + usd >= Decimal(str(summary["limit_usd"]))): raise BudgetError("budget_exhausted")
 
 
 _LEDGER_LOCK = threading.Lock()
+
+
+def _guard_at(c, guard):
+    """Where a helper finds this guard: in the case tree, or in its own bench copy (refuse-all)."""
+    try: return ["case", Path(guard).relative_to(c.case).as_posix()]
+    except ValueError: pass
+    import run
+    return ["bench", Path(guard).relative_to(run.BENCH).as_posix()]
 
 
 def _tree(path):

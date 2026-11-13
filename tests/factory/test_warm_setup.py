@@ -103,6 +103,16 @@ class WarmTests(unittest.TestCase):
         lease = self.pool.acquire(OTHER, self.h.second_plumbing(), self.bench)
         self.assertNotEqual(lease.worker_id, W.lease_worker_id(warm))   # built fresh, not the stale one
 
+    def test_a_lease_for_another_machine_size_never_takes_a_warm_worker(self):
+        # helper-transport leases helpers with their own vm_type; a warm worker has the pool's default size.
+        self.remember()
+        self.pool.refill()
+        warm = self.pool._read(self.slots()[0])["worker"]
+        lease = self.pool.acquire(OTHER, self.h.plumbing, self.bench, vm_type="large")
+        self.assertNotEqual(lease.worker_id, W.lease_worker_id(warm))
+        self.assertEqual(self.slots() and self.pool._read(self.slots()[0])["worker"], warm)   # still warm
+        self.assertIn("large", self.news()[-1])
+
     def test_two_releases_in_flight_do_not_make_the_pool_thrash(self):
         self.remember()
         self.pool.refill()

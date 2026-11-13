@@ -190,7 +190,11 @@ class Runtime:
                 if not isinstance(names, list) or not names or not set(names) <= set(ACCOUNTS):
                     raise RuntimeErrorCode("invalid_worker_accounts")
                 self.pool.credential_bundle = self.worker_credentials
-            self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, output_retry_s=retry)
+            self.helpers = None
+            if config.get("helpers"):   # off unless configured: {per_case, total, vm_type, min_per_copy, job_timeout_s}
+                from durable.helper_link import Broker
+                self.helpers = Broker(self.pool, self.pool.boat, ledger_dir=self.state / "helper-leases", **config["helpers"])
+            self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, output_retry_s=retry, helpers=self.helpers)
             self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys,
                                      sleep=draining_sleep, pause=hold_if_draining,
                                      renewing=lambda lease: guard_renewing(self.state, boat_id(lease.worker_id)))
@@ -250,6 +254,8 @@ class Runtime:
             # it holds the operator's reconcile attestation, and every start repeats this conservative check.
         else:
             self.pool.recover()
+        if self.helpers is not None:
+            self.helpers.release_orphans()   # a helper outlives no controller process
         self.launched = True  # destroy even if DBOS launch fails halfway through
         self.engine.launch()
         threading.Thread(target=self._sweep_pool, daemon=True).start()

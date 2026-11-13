@@ -88,11 +88,12 @@ def directory(c, model=True):
 # Factory code that turns a run into a saved verdict or model effect but sits outside each entry's
 # own binding (gate_state traces only the gate's functions in run.py and its listed science files):
 # the gate pipeline and attempt classification, the reuse rules, this module and the helper-machine
-# shard code. A plumbing release that changes any of them starts afresh. The model harness (router,
-# runtime, call gate, ordinary retry answers) is keyed only for model effects and model-stage gates:
-# a bench gate's verdict never passes through it, so a router/runtime release no longer invalidates
-# finished bench gates.
-BENCH_VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'durable/checkpoints.py', 'durable/helpers.py')
+# shard and transport code. A plumbing release that changes any of them starts afresh. The model harness
+# (router, runtime, call gate, ordinary retry answers) is keyed only for model effects and model-stage
+# gates: a bench gate's verdict never passes through it, so a router/runtime release no longer
+# invalidates finished bench gates.
+BENCH_VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'durable/checkpoints.py', 'durable/helpers.py',
+                      'durable/helper_link.py')
 MODEL_CODE = ('ordinary_retry.py', 'model_runtime.py', 'model_router.py', 'model_call_gate.py')
 VERDICT_CODE = BENCH_VERDICT_CODE + MODEL_CODE
 _VERDICT_DIGEST = {}
