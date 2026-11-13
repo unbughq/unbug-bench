@@ -51,6 +51,41 @@ class LiveSlotFixtureTests(unittest.TestCase):
             again = fingerprint()  # the next bin/checkpoint on slot 1
             self.assertEqual(again.returncode, 0, again.stderr)
 
+    def test_rebuilt_slot_gets_a_fresh_infra_allowance(self):
+        from run_validity import InfrastructureExhausted
+        with tempfile.TemporaryDirectory() as tmp:
+            bench, work = Path(tmp) / "bench", Path(tmp) / "work"
+            work.mkdir()
+            ids = bench / "results/factory-slots/1/seed-ids.json"
+            ids.parent.mkdir(parents=True)
+            c = types.SimpleNamespace(work=work)
+            calls, crash = [], [True]
+            def sh(c, command, **kwargs):
+                calls.append(command)
+                if crash[0]: raise FileNotFoundError(str(ids))  # bench_fingerprint on a broken slot
+                return types.SimpleNamespace(returncode=0)
+            def checkpoint(slot):
+                identity = {"operation": "checkpoint", "case": "f46dac", "guard": {}, "scenarios": [], "runs": 3,
+                            "seed": 1, "slot": slot, "label": "g5", "bench": None, "workers": 1}
+                return run._checkpoint_call(c, identity, ["bin/checkpoint"], None, None, lambda p: ({}, [], None))
+            with mock.patch.object(run, "BENCH", bench), mock.patch.object(run, "sh", sh), \
+                 mock.patch.object(run, "case_budget_boundary", lambda c: None):
+                ids.write_text('{"region_id": "reg_A"}\n')  # prepare_factory_slot's IDs before the crash
+                with self.assertRaises(InfrastructureExhausted): checkpoint(1)
+                self.assertEqual(len(calls), 2)
+                crash[0] = False
+                with self.assertRaises(InfrastructureExhausted): checkpoint(1)  # same shop: still refused
+                self.assertEqual(len(calls), 2)
+                ids.write_text('{"region_id": "reg_B"}\n')  # engine restart re-prepared the slot
+                self.assertEqual(checkpoint(1), ({}, []))
+                self.assertEqual(len(calls), 3)
+                # A slot-less checkpoint keeps the row helpers charge (durable/helpers.py), whatever the IDs.
+                crash[0] = True
+                with self.assertRaises(InfrastructureExhausted): checkpoint(None)
+                ids.write_text('{"region_id": "reg_C"}\n')
+                crash[0] = False
+                with self.assertRaises(InfrastructureExhausted): checkpoint(None)
+
 
 if __name__ == "__main__":
     unittest.main()
