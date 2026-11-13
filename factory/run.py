@@ -542,20 +542,37 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
             reverify_timeout = min(1200, max(300, 60 * sum(
                 search_evidence_error(row) is not None for row in freshness_lines(c))))
         deadline = time.monotonic() + min(reverify_timeout, getattr(c.args, 'agent_timeout', 1200))
-    plans = []
-    for who, model_key in (("builder", "builder"), ("attacker", "attacker")):
-        if who in completed_roles: continue
+    def role_state(who):
         n = freshness_counts(c)
         errors = [{"row": i + 1, "reason": reason} for i, row in enumerate(freshness_lines(c))
                   if (row.get("who") == who or who == "builder" and row.get("who") not in ("builder", "attacker"))
                   and (reason := ('runner_retrieval_unavailable: append an alternative result as a NEW row'
                                   if row.get('url') in getattr(c, 'freshness_unfetched', set())
                                   else search_evidence_error(row))) is not None]
+        short = bool(errors) or (n["builder_web"] < 3 or n["builder_github"] < 3 if who == "builder" else n["attacker"] < 2)
+        return n, errors, short
+
+    if getattr(c.args, 'freshness_fanout', False):
+        # Both roles plan, search (concurrently) and score on their own; only close/unsure leads are
+        # browsed. A role still short afterwards falls through to the concurrent agentic top-up below.
+        import freshness_fanout
+        roles = [who for who in ("builder", "attacker") if who not in completed_roles and role_state(who)[2]]
+        if roles:
+            _freshness_snapshot(c)
+            try:
+                if deadline - time.monotonic() <= 0: raise BudgetError('timeout')
+                case_budget_boundary(c, c.models['builder'][0])
+                freshness_fanout.fan_out(sys.modules[__name__], c, roles, opencode, deadline)
+            finally:
+                finish_freshness_repair(c)
+    plans = []
+    for who, model_key in (("builder", "builder"), ("attacker", "attacker")):
+        if who in completed_roles: continue
+        n, errors, short = role_state(who)
         missing = ((max(0, 3 - n['builder_web']), max(0, 3 - n['builder_github'])) if who == "builder"
                    else (max(0, 2 - n['attacker']),))
         need = (f"at least {missing[0]} more web and {missing[1]} more GitHub"
                 if who == "builder" else f"at least {missing[0]} more web or GitHub")
-        short = bool(errors) or (n["builder_web"] < 3 or n["builder_github"] < 3 if who == "builder" else n["attacker"] < 2)
         if not short:
             if role_completed is not None: role_completed(who)
             continue
@@ -568,10 +585,9 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
 FRESHNESS_EXTRA_SEARCHES = 2   # beyond the missing minimum: a search that finds nothing new is still a row
 
 
-def _freshness_searches(c, plans, deadline, role_completed):
-    """Run the roles' searches at the same time. Each works in its own copy of the case's search inputs, so
-    the two cannot write the same file; its rows are merged back by owner (builder rows and rows without a
-    role, attacker rows), and evidence validation reads the merged file exactly as before."""
+def _freshness_snapshot(c):
+    """Give every search row a stable `_search_id` and record the rows and statement in
+    freshness-inflight.json, so finish_freshness_repair can restore history. Returns the rows."""
     from registry import atomic_json
     before = freshness_lines(c)
     # Stable identities let a row's malformed fields be repaired without losing its history.
@@ -582,12 +598,20 @@ def _freshness_searches(c, plans, deadline, role_completed):
             key = hashlib.sha256(f'{i}:{json.dumps(row, sort_keys=True)}'.encode()).hexdigest()
             row['_search_id'] = key
         seen.add(key)
-    searches = c.case / 'freshness.jsonl'
-    searches.write_text(''.join(json.dumps(row) + '\n' for row in before))
+    (c.case / 'freshness.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in before))
     statement = c.case / 'statement.md'
     original = statement.read_bytes() if statement.is_file() else None
     atomic_json(c.work / 'freshness-inflight.json',
                 {'rows': before, 'statement_hex': original.hex() if original is not None else None})
+    return before
+
+
+def _freshness_searches(c, plans, deadline, role_completed):
+    """Run the roles' searches at the same time. Each works in its own copy of the case's search inputs, so
+    the two cannot write the same file; its rows are merged back by owner (builder rows and rows without a
+    role, attacker rows), and evidence validation reads the merged file exactly as before."""
+    before = _freshness_snapshot(c)
+    searches = c.case / 'freshness.jsonl'
     owner = lambda row: "attacker" if row.get("who") == "attacker" else "builder"
     lock, merged, failures = threading.Lock(), set(), {}
 
@@ -3568,6 +3592,9 @@ def argument_parser():
     p.add_argument("--continue-g11-review", action="store_true", help="continue a restored sealed audit, preserving its notes and remaining budget")
     p.add_argument("--concurrent-roles", action=argparse.BooleanOptionalAction, default=True,  # founder, 2026-10-17
                    help="run the two calibrators at once on isolated users and bench instances (Linux firewall required); --no-concurrent-roles for serial")
+    p.add_argument("--freshness-fanout", action=argparse.BooleanOptionalAction, default=True,
+                   help="G2 top-up searches by fan-out (plan, concurrent Exa/GitHub queries, one scoring call, deep dives on unsure hits) "
+                        "before any agentic browsing; --no-freshness-fanout for browsing only")
     p.add_argument("--parallel-gates", action=argparse.BooleanOptionalAction, default=False,
                    help="engine cases admitted with it: parallel calibrators and G10 overlap at quiescent checkpoints, "
                         "G2/G8/G9 beside the bench gates")

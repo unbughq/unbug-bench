@@ -272,7 +272,10 @@ to another model of the same family (the October GLM easy calibrator ran on a fr
 walled calibrator can no longer lease); reviewers stay, since the exam's owner contract binds
 the reviewer. Every role still needs a bounded route: the admission screens and GATES rerun the
 freshness check, and expired October search evidence is topped up by the writer and stress
-tester (the two searches run at the same time, each in its own copy of the case's search inputs, and merge back by row owner). ADMIT then answers `admit:imported_sealed`, and the engine skips WRITER
+tester (`freshness_fanout.py`: each role plans its queries in one call, the runner runs them at
+once on Exa and the GitHub search API, one call scores the results, and only close or unsure
+leads get an agentic deep dive; rows are logged in G2's format, the two roles run at once, each in a private scratch directory outside
+the case, and a role still short (or whose scoring stays incomplete) falls back to the concurrent agentic top-up (the two searches run at the same time, each in its own copy of the case's search inputs, and merge back by row owner); `--no-freshness-fanout` disables it). ADMIT then answers `admit:imported_sealed`, and the engine skips WRITER
 and STRESS: GATES keeps the October verdicts for `run.RECERTIFY_KEPT` and runs only G2 (today's
 freshness), G3 (to prepare the worker's runtime), G16, G10, G17 and G11, then SEAL writes the owner contract and
 delivery receipts as usual. G10 reruns because G17 and the receipts need this run's calibrator

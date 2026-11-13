@@ -85,7 +85,7 @@ def codex_usage_feed(home, user=None):
 
 def role_timeout(c, name, timeout):
     """The stress-review cap applies to stress review, not to the attacker's freshness search."""
-    if invocation_role(name) == 'stress_tester' and not name.endswith('-freshness'):
+    if invocation_role(name) == 'stress_tester' and '-freshness' not in name:
         return min(timeout or c.args.agent_timeout, attacker_timeout(c))
     return timeout
 
