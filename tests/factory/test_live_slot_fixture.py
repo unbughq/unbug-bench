@@ -79,6 +79,15 @@ class LiveSlotFixtureTests(unittest.TestCase):
                 ids.write_text('{"region_id": "reg_B"}\n')  # engine restart re-prepared the slot
                 self.assertEqual(checkpoint(1), ({}, []))
                 self.assertEqual(len(calls), 3)
+                # Slot 0 is the main shop, whose IDs prepare_factory_main rewrites in projects/medusa.
+                main = bench / "projects/medusa/seed-ids.json"
+                main.parent.mkdir(parents=True)
+                main.write_text('{"region_id": "reg_M1"}\n')
+                crash[0] = True
+                with self.assertRaises(InfrastructureExhausted): checkpoint(0)
+                main.write_text('{"region_id": "reg_M2"}\n')
+                crash[0] = False
+                self.assertEqual(checkpoint(0), ({}, []))
                 # A slot-less checkpoint keeps the row helpers charge (durable/helpers.py), whatever the IDs.
                 crash[0] = True
                 with self.assertRaises(InfrastructureExhausted): checkpoint(None)

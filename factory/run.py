@@ -1375,8 +1375,9 @@ def _checkpoint_call(c, identity, command, env, timeout, read):
     # A slot run's allowance belongs to the shop it ran on. prepare_factory_slot seeds fresh IDs, so a
     # rebuilt slot is not refused for crashes of the broken one (case f46dac). Slot-less rows stay
     # unchanged: durable/helpers.py charges them by this identity.
-    if identity.get("slot") is not None:
-        try: shop = hashlib.sha256((BENCH / f"results/factory-slots/{identity['slot']}/seed-ids.json").read_bytes()).hexdigest()
+    if (slot := identity.get("slot")) is not None:
+        ids = BENCH / (f"results/factory-slots/{slot}/seed-ids.json" if slot else "projects/medusa/seed-ids.json")
+        try: shop = hashlib.sha256(ids.read_bytes()).hexdigest()
         except OSError: shop = None
         identity = {**identity, "shop": shop}
     # A spent caller allowance is neither retried nor counted as an invalid attempt.
