@@ -15,3 +15,17 @@ Read-only, in-memory checks of the five prior examples produced the intended res
 **Nits:** None.
 
 Verdict: FAIL
+
+## Disposition (elephant)
+
+- Blocking 1 (timestamp ties): accepted, fixed in a14b1ced. Runs are placed by position in the latest
+  case workflow's own step list (its exact enqueue order, replayed and live), never by time.
+- Blocking 2 (behind origin/main): accepted; origin/main (case-money override) merged in, no
+  conflicts in the resume code.
+- Non-blocking, tests: the two-runs test covers finding 2 and the rerun count; the rewind, legacy
+  re-introduced value and recertify repair cases are checked by construction and against the real
+  records read-only, not by separate fake runs (each costs minutes). Ties cannot occur now: no
+  timestamps are read.
+- Non-blocking, legacy_resume: as before, a limit of the fake harness.
+- Non-blocking, review file in the tree: kept, because the founder's process for this change asks
+  for reviews under docs/reviews.
