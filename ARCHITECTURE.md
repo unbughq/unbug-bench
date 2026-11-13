@@ -286,8 +286,8 @@ once on Exa and the GitHub search API, one call scores the results, and only clo
 leads get an agentic deep dive (a too-short or cut-short excerpt is never scored a miss); rows are logged in G2's format, the two roles run at once, each in a private scratch directory outside
 the case, and a role still short (or whose scoring stays incomplete) falls back to the concurrent agentic top-up (the two searches run at the same time, each in its own copy of the case's search inputs, and merge back by row owner); `--no-freshness-fanout` disables it). ADMIT then answers `admit:imported_sealed`, and the engine skips WRITER
 and STRESS: GATES keeps the October verdicts for `run.RECERTIFY_KEPT` and runs only G2 (today's
-freshness), G3 (to prepare the worker's runtime), G16, G10, G17 and G11, then SEAL writes the owner contract and
-delivery receipts as usual. G10 reruns because G17 and the receipts need this run's calibrator
+freshness), G3 (to prepare the worker's runtime), G16, G8, G9, G10, G17 and G11, then SEAL writes the owner contract and
+delivery receipts as usual. G8 and G9 rerun because the founder decided on 2026-11-13 that an October one-reviewer pass is not kept: both reviewers judge again. G10 reruns because G17 and the receipts need this run's calibrator
 workspaces. A gate that asks for a repair, or a diagnosis that would extend, retires the case;
 a diagnosis that finds infrastructure holds it as for any case. A case retired by a gate's
 repair request can be resumed: the resume replays that GATES step, gives its feedback to one
