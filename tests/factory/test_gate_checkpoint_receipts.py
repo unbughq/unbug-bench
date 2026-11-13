@@ -158,8 +158,10 @@ class GateCheckpointReceipts(unittest.TestCase):
     def test_receipt_helpers_do_not_change_gate_runner_digests(self):
         for gate in ('G4', 'G5', 'G6'):
             names = gate_state.runner_inputs(gate)
-            for n in ('_save_checkpoint', '_saved_checkpoint', '_checkpoint_receipt_dir', 'under_engine', 'shutil', 'argparse'):
+            for n in ('_save_checkpoint', '_checkpoint_receipt_dir', 'under_engine', 'shutil'):
                 self.assertNotIn(n, names, (gate, n))
+            # Which saved samples stand in for a fresh run is verdict code: loosening it invalidates caches.
+            self.assertIn('_saved_checkpoint', names, gate)
 
     def test_g5_key_threads_run_inside_a_concurrent_section(self):
         c = self.c; c.engine = SimpleNamespace(); c.args.bench_workers = 2; c.args.runs = 1

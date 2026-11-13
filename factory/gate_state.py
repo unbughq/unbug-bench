@@ -71,7 +71,8 @@ SIDE_EFFECTS = {"checked_gate", "_gate_pipeline", "_gate_completed", "seal", "wi
                 # Retry/allowance plumbing around bench calls: never selects samples or reads a verdict.
                 "_checkpoint_call", "AllowanceSpent", "early_cheat_check",
                 # Gate-checkpoint receipts only skip finished work; the verdict still comes from the saved runs.
-                "_save_checkpoint", "_saved_checkpoint", "_checkpoint_receipt_dir", "under_engine"}
+                # _saved_checkpoint is hashed: it decides which saved samples stand in for a fresh run.
+                "_save_checkpoint", "_checkpoint_receipt_dir", "under_engine"}
 
 
 def source_inputs(*roots, path=None):
