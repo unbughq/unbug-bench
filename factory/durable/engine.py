@@ -1241,7 +1241,9 @@ class _Case:
         blocks = DBOS.patch("bound_wait_blocks")
         started = now_step() if keeps and not self.replaying else None
         while DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s) is None and blocks:
-            now = now_step()
+            # Read the clock only where the recorded loop did (a deadline) or under the keep patch:
+            # a workflow recorded before it holds recv, recv, ... and replays only that order.
+            now = now_step() if deadline is not None or started is not None else None
             if deadline is not None and now >= deadline:
                 self.release_worker()
                 return False
