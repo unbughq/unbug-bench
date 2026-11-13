@@ -203,8 +203,9 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
             if all(r['id'] in verdict for r in listing): break
         else:
             return   # still incomplete: log nothing; the role stays short and the agentic top-up fills it
-        for r in listing:   # a result with next to no text cannot be cleared unread
-            if len(r['snippet']) < THIN and verdict[r['id']][0] == 'miss': verdict[r['id']] = ('unsure', 'excerpt too short to clear')
+        for r in listing:   # a result with next to no text, or cut short, cannot be cleared unread
+            if (len(r['snippet']) < THIN or r.get('truncated')) and verdict[r['id']][0] == 'miss':
+                verdict[r['id']] = ('unsure', 'excerpt too short to clear' if len(r['snippet']) < THIN else 'excerpt cut short; read it')
     # 5. Deep dive (today's agentic browsing) only on close/unsure leads; an unanswered lead stays flagged.
     leads = [r for r in listing if verdict.get(r['id'], ('unsure', ''))[0] != 'miss']
     leads.sort(key=lambda r: verdict.get(r['id'], ('unsure',))[0] != 'close')   # the browsing cap reads close leads first

@@ -170,6 +170,11 @@ class FanoutTests(unittest.TestCase):
         listing = json.loads(self.prompts['builder-freshness-score'].split('```json\n')[1].split('\n```')[0])
         self.assertTrue(all(r.get('truncated') is True for r in listing))
         self.assertIn('"truncated" was cut short', self.prompts['builder-freshness-score'])
+        # The scorer called every cut excerpt a miss (the default): none is cleared unread; each goes to
+        # the deep dive and, unanswered there, stays an unresolved lead for G2's review.
+        self.assertIn('builder-freshness-dive', self.calls)
+        cut_rows = [r for r in self.rows() if r['url'] == 'https://github.com/x/y/1']
+        self.assertTrue(cut_rows and all(r.get('ambiguous') is True and r['hit'] is False for r in cut_rows))
 
     def test_failed_backend_falls_back_to_the_agentic_search(self):
         def down(q): raise OSError('rate limited')
