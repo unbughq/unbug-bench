@@ -188,8 +188,17 @@ class GateCheckpointReceipts(unittest.TestCase):
         self.assertTrue(keys and all(keys))
 
     def test_snapshot_keeps_receipts(self):
-        for n in ('gate-checkpoints', 'strategy-g15-checkpoints', 'strategy-g14-checkpoints'):
+        for n in ('gate-checkpoints', 'strategy-g15-checkpoints', 'strategy-g14-checkpoints',
+                  'helper-tries', 'helper-results', 'helper-ledger.jsonl'):
             self.assertTrue(any(fnmatch.fnmatch(n, pat) for pat in run.SNAPSHOT_RETAINED), n)
+
+    def test_a_helper_batch_is_registered_as_gate_evidence(self):
+        from durable import helpers
+        files = {f.name: f.read_text() for f in self.out.glob('*.json')}
+        with patch.dict(gate_state.RECEIPTS, {}, clear=True):
+            helpers._read_batch(self.c, {'runs': self.runs, 'label': 'g5-reference'}, files, 'g5-reference')
+            (directory,) = gate_state.RECEIPTS[str(self.c.work)]['g5-reference']
+        self.assertEqual(directory.parent, self.work / 'helper-results')
 
 
 if __name__ == '__main__':

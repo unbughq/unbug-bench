@@ -2980,7 +2980,8 @@ SNAPSHOT_RETAINED = (
     "attack-state.json", "attacks", "diagnostic-budgets", "infra-attempts.json", "selection-rejections.json", "fixes",
     "prototype.json", "public-search.json", "freshness-verdict.json", "freshness-repair.json",
     "freshness-inflight.json", "freshness-restored.jsonl", "idea-realism.json", "idea-realism-second.json", "dedup-second.json", "statements",
-    "ordinary-retries", "stress-publication.json", "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints")
+    "ordinary-retries", "stress-publication.json", "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints",
+    "helper-tries", "helper-results", "helper-ledger.jsonl")   # finished helper work and its booked spend
 FEEDBACK_VERSION = 1
 
 

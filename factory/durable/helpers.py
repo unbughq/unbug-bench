@@ -338,6 +338,7 @@ def _read_batch(c, job, files, label):
         {"version": 1, "path": str(out / "checkpoint.json"), "requested_runs": job["runs"]})
     summary, records, _ = checkpoint_evidence.read_completed(
         types.SimpleNamespace(returncode=0, stdout=receipt, stderr=""), job["runs"], label, require_valid=True)
+    import gate_state; gate_state.note_receipt(c, label, out)   # the gate's evidence covers helper batches too
     return summary, records
 
 
