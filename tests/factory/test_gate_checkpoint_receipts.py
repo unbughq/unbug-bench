@@ -69,6 +69,16 @@ class GateCheckpointReceipts(unittest.TestCase):
             self.call()
         self.assertEqual(sh.call_count, 4)
 
+    def test_execution_environment_change_reruns(self):
+        for key in ('MEDUSA_DEPS_IMAGE', 'UNBUG_JUDGE'):
+            with self.subTest(key), self.shell() as sh:
+                with patch.dict('os.environ', {key: 'one'}):
+                    self.call()
+                with patch.dict('os.environ', {key: 'two'}):
+                    self.call()
+                    self.call()   # the same environment again is reused
+                self.assertEqual(sh.call_count, 2)
+
     def test_saved_batch_with_a_missing_run_is_not_reused(self):
         with self.shell():
             self.call()
