@@ -3500,7 +3500,8 @@ def engine_stress_round(c, n):
         c.card["stress_review"] = {"status": "findings", "round": n}
         return {"outcome": Outcome.OK, "reason": "stress:findings", "feedback": _feedback("stress", findings, report)}
     if attack_diagnostic_unfinished(c, n): return infra("unfinished_diagnostic")
-    problems = None if c.args.dry_run else early_review(c)
+    # One reviewer is not a panel: with none eligible, GATES stops for the founder (engine_gates).
+    problems = None if c.args.dry_run or c.card.get("reviewer2_unavailable") else early_review(c)
     if problems:
         c.card["stress_review"] = {"status": "early_review_findings", "round": n}
         return {"outcome": Outcome.OK, "reason": "stress:findings", "feedback": _feedback("stress", problems, report)}
