@@ -92,6 +92,15 @@ Restart the controller or send a plumbing or bench release only when `control/ch
 <config>` exits 0: no attempt holds a leased worker without its recorded `attempt_step`, and the
 model router holds no unexpired lease (read-only; exit 1 names what runs, 2 means unreadable). Restarts
 and release sends mid-step cost 19 hours of `infra:worker_lost` from 6 November.
+Deploying the engine also needs: (1) a guard restart on the same release, because silent-worker
+retirement reads `guard/renewed.json`, which only the new guard writes (an old guard leaves
+`guard.renewing` unknown, so no worker is retired early: safe, but the feature does nothing);
+(2) read access for the engine's user to the router's books, which `router_clear` reads for quota
+auto-resume: the controller config's `router_db` names the router's `factory.sqlite3` when the
+router runs as another user or `UNBUG_CONTROL_HOME` is set (`model_router.production_database`
+refuses then); unset, it is the production router's own path, and an unreadable file means a quota
+hold never resumes by itself; (3) nothing for warm workers or helpers: both are off unless the
+runtime config sets `warm_workers` (default 0) or a `helpers` block, and the deploy leaves them unset.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 `client.py` reads that operator's public status/report over SSH using a saved local
 connection and default batch. `bin/install-unbug` packages a standalone read-only
