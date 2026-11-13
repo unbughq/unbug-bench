@@ -26,7 +26,8 @@ def note_receipt(c, label, directory):
 
 def forget_receipts(c, gate):
     mine = RECEIPTS.get(str(c.work), {})
-    for label in [k for k in mine if k.startswith(gate.lower() + "-")]: del mine[label]
+    # A copy first: a concurrent lane's note_receipt may add a label meanwhile.
+    for label in [k for k in list(mine) if k.startswith(gate.lower() + "-")]: mine.pop(label, None)
 
 
 def digest(path):

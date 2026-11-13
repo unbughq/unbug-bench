@@ -79,6 +79,16 @@ class GateCheckpointReceipts(unittest.TestCase):
                     self.call()   # the same environment again is reused
                 self.assertEqual(sh.call_count, 2)
 
+    def test_forget_receipts_survives_a_concurrent_note(self):
+        mine = {}
+        class Label(str):   # another lane notes a receipt while forget_receipts walks the labels
+            def startswith(self, *a):
+                mine.setdefault('g5-late', 'x'); return str.startswith(self, *a)
+        mine[Label('g6-a')] = 'x'
+        with patch.dict(gate_state.RECEIPTS, {str(self.c.work): mine}):
+            gate_state.forget_receipts(self.c, 'G6')
+        self.assertEqual(list(mine), ['g5-late'])
+
     def test_saved_batch_with_a_missing_run_is_not_reused(self):
         with self.shell():
             self.call()
