@@ -2138,7 +2138,7 @@ class GatesMoneyUpFront(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
         self.assertEqual(steps(r, 1)[-4:], ["gates:1", "diagnosis", "gates:1", "seal"])
 
-    def test_a_lost_gates_attempt_books_its_grant_without_the_extension(self):
+    def test_a_lost_gates_attempt_keeps_its_whole_grant_charged(self):
         from durable.policy import gates_money_extension
         from durable.contract import Step, StepKind
         ext = gates_money_extension(Step(StepKind.GATES, 1))
@@ -2151,10 +2151,9 @@ class GatesMoneyUpFront(unittest.TestCase):
                 key = f"{C1}/4/gates:1/1"
                 granted = next(x["amount"] for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == key)
                 closed = next(x for x in r.ledger_log() if x["key"] == key and x["op"] != "reserve")
-                if patched:
-                    self.assertEqual((closed["op"], closed["paid"], closed["waste"]), ("settle", granted - ext, True))
-                else:   # a job recorded before the patch books its whole grant, as before
-                    self.assertEqual(closed["op"], "settle_lost")
+                # Its spend is unknown, and G10 may have spent the authority: nothing is released.
+                self.assertEqual(closed["op"], "settle_lost")
+                self.assertEqual(granted > ext, patched)
 
 
 if __name__ == "__main__":

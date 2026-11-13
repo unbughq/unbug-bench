@@ -285,15 +285,10 @@ class Executor:
         from durable.contract import Usage
         _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, Usage(), waste=False)
 
-    def settle(self, si: StepInput, result: StepResult, g10_usd_micros: int = 0) -> str:
+    def settle(self, si: StepInput, result: StepResult) -> str:
         if settles_lost(result):
-            if g10_usd_micros:
-                # A lost GATES attempt books what the old rule held: its grant without the G10
-                # authority (engine gates_money_up_front), not the whole enlarged grant.
-                held = max(0, si.money_ceiling_usd_micros - g10_usd_micros)
-                _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, Usage(paid_usd_micros=held), waste=True)
-            else:
-                _call("engine:ledger_failed", self.ledger.settle_lost, si.idempotency_key)
+            # Spend unknown: the whole grant stays charged, G10 authority included (G10 may have spent it).
+            _call("engine:ledger_failed", self.ledger.settle_lost, si.idempotency_key)
             return "lost"
         waste = settles_as_waste(result)
         _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, result.usage, waste=waste)

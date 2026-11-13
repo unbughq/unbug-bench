@@ -284,7 +284,8 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
 
 @DBOS.step(**SEAM)
 def settle_step(si: dict, result: dict, g10_usd_micros: int = 0) -> str:
-    return _ex().settle(step_input_from_record(si), step_result_from_record(result), g10_usd_micros)
+    # g10_usd_micros is kept so recorded calls still match; a lost attempt books its whole grant.
+    return _ex().settle(step_input_from_record(si), step_result_from_record(result))
 
 
 @DBOS.step(**SEAM)
@@ -1049,7 +1050,7 @@ class _Case:
             if extension and DBOS.patch("gates_money_up_front"):
                 job["request"] += extension
                 job["case_limit"] += extension
-                job["g10_usd_micros"] = extension   # settle books a lost attempt without it
+                job["g10_usd_micros"] = extension   # a bound retry adds it once
                 self.gates_g10 = extension
             if step.kind is StepKind.SEAL:
                 # GATES may have spent its G10 authority from the case's money: SEAL keeps the same limit.

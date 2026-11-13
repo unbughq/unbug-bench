@@ -219,8 +219,11 @@ def attempt_limit(ledger, attempt):
     return usd(row['baseline']) + ceiling
 
 
-# G10's strong tries (G10 and its early probe) and the exam owner each try asks (exam_responder).
-G10_CALLS = ('strong-calibrator', 'reviewer-owner')
+# G10's strong tries (calibrate names them strong-calibrator-<folder>-<i>, folder strong_calibrator or
+# early_probe) and the exam owner each try asks (exam_responder: reviewer-owner-<folder>-try-<i>-<n>).
+# G16/G17 run the same role under other folders, so the folder is part of the name.
+G10_TRIES = ('strong-calibrator-strong_calibrator-', 'strong-calibrator-early_probe-')
+G10_CALLS = G10_TRIES + ('reviewer-owner-strong_calibrator-', 'reviewer-owner-early_probe-')
 
 
 def _g10_used(ledger):

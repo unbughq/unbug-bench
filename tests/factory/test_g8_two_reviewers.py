@@ -157,6 +157,11 @@ class ContextHookTests(unittest.TestCase):
         out = run.engine_gates(c)
         self.assertEqual((out["outcome"], out["reason"], out["gate"]), (Outcome.NEEDS_FOUNDER, "g8:no_eligible_reviewer", "G8"))
 
+    def test_a_recovered_case_drops_the_old_reviewer_failure(self):
+        reviewers = self.adopted(reviewer2_unavailable="no family was free")   # a family is free now
+        self.assertEqual(len(reviewers), 2)
+        self.assertNotIn("reviewer2_unavailable", self.card)
+
 
 class CacheIdentityTests(unittest.TestCase):
     def identity(self, gate, reviewers, root):

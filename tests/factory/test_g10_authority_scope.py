@@ -40,7 +40,7 @@ class G10Authority(unittest.TestCase):
     def test_other_gates_keep_the_old_cap(self):
         for name in ("reviewer-2-g8", "builder-g16-1", "attacker-freshness-1", "easy-calibrator-dedup"):
             self.assertEqual(self.headroom(name), 50)
-        self.assertEqual(self.headroom("strong-calibrator-pilot-1"), 200)
+        self.assertEqual(self.headroom("strong-calibrator-strong_calibrator-1"), 200)
         self.assertEqual(self.headroom(None), 200)   # the G10 headroom check and helper tries see it all
         with self.assertRaisesRegex(BudgetError, "grant_insufficient"):
             self.reserve("reviewer-2-g8", 51)
@@ -48,16 +48,25 @@ class G10Authority(unittest.TestCase):
         with self.assertRaisesRegex(BudgetError, "grant_insufficient"):
             self.reserve("reviewer-g17", 1)
         for i in (1, 2, 3):   # the strong tries still have their whole authority
-            self.reserve(f"strong-calibrator-pilot-{i}", 50)
+            self.reserve(f"strong-calibrator-strong_calibrator-{i}", 50)
         with self.assertRaisesRegex(BudgetError, "grant_insufficient"):
-            self.reserve("strong-calibrator-pilot-4", 1)
+            self.reserve("strong-calibrator-strong_calibrator-4", 1)
 
     def test_strong_tries_spend_the_authority_first(self):
         for i in (1, 2, 3):
-            self.reserve(f"strong-calibrator-pilot-{i}", 50)
+            self.reserve(f"strong-calibrator-strong_calibrator-{i}", 50)
             self.assertEqual(self.headroom("reviewer-g11"), 50)   # G10's holds never shrink the old cap
-        self.reserve("reviewer-owner-ws-1-1", 10)                  # the exam owner a try asks is G10's too
+        self.reserve("reviewer-owner-strong_calibrator-try-1-1", 10)                  # the exam owner a try asks is G10's too
         self.assertEqual(self.headroom("reviewer-g11"), 40)       # past its authority G10 uses the case's money
+
+    def test_g16_and_g17_keep_the_old_cap_though_they_use_the_strong_role(self):
+        for name in ("strong-calibrator-fairness-replacement-x-1", "strong-calibrator-judge_breadth-1",
+                     "reviewer-owner-fairness-replacement-x-try-1-1"):
+            self.assertEqual(self.headroom(name), 50)
+        with self.assertRaisesRegex(BudgetError, "grant_insufficient"):
+            self.reserve("strong-calibrator-judge_breadth-1", 75)
+        self.reserve("strong-calibrator-judge_breadth-1", 50)
+        self.assertEqual(self.headroom("strong-calibrator-early_probe-1"), 150)   # G10 keeps its $150
 
     def test_other_steps_are_unchanged(self):
         self.attempt = SimpleNamespace(key="b/c/2/writer:1/1", baseline_spent_usd=0, ceiling_usd=50.0)

@@ -1048,7 +1048,7 @@ def g10_money_headroom(c):
     the engine already turns into a wait for the batch bound; no call is admitted that would not be."""
     if not under_engine(c) or c.args.dry_run or not getattr(c, "models", None): return
     from decimal import Decimal
-    from budget import invocation_headroom, event_charge
+    from budget import invocation_headroom, event_charge, G10_TRIES
     accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
     def largest(model, pick):
         maxima = [Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)]
@@ -1063,7 +1063,7 @@ def g10_money_headroom(c):
     cost = {}
     for event in jload(c.ledger, {}).get("events", []):
         name = event.get("invocation") or ""
-        if name.startswith("strong-calibrator"): cost[name] = cost.get(name, 0) + event_charge(event)
+        if name.startswith(G10_TRIES): cost[name] = cost.get(name, 0) + event_charge(event)
     need += (remaining - 1) * max(cost.values(), default=Decimal(0))   # observed cost of each earlier try
     if invocation_headroom(c.ledger, c.engine) < need:
         log(c, "G10", f"money headroom below ${need:.2f} for {remaining} strong tries: stopping before the bench gates")
@@ -3180,6 +3180,7 @@ def context_for_step(step_input, work):
     c.stopped = False
     if card.get("models"):
         c.models = card["models"]
+        card.pop("reviewer2_unavailable", None)   # recomputed each attempt: a recovered case runs on
         # An in-flight single-reviewer case adopts the second reviewer at its next round (founder 2026-11-12).
         if len(c.models.get("reviewers") or []) == 1:
             try:
