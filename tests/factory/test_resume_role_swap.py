@@ -147,12 +147,21 @@ class Worker(unittest.TestCase):
         self.assertEqual(self.context(None, card).card["roles"]["reviewer2"]["family"], "z-ai")
 
     def test_a_swap_into_a_pinned_second_reviewers_family_is_refused(self):
-        # Slot 8 adopts Xiaomi as reviewer2; INPUTS pinned it (admit._pin_models records the pin), so a
-        # later step's swap into Xiaomi may not re-pick the reviewer: it is refused.
+        # A card checkpointed by main names two reviewers only when --reviewer2 gave the second (main's
+        # rotation never picked one), and has no reviewer2_pinned: a swap into its family is refused.
         card = self.context(None).card
-        card["reviewer2_pinned"] = card["roles"]["reviewer2"]["model"]
+        card.pop("reviewer2_pinned", None)   # as main wrote it
         with self.assertRaisesRegex(run.RoleSwapRefused, "fifth family"):
             self.context({"stress_tester": "openrouter/xiaomi/mimo-v2.6-pro"}, card)
+        # One pinned at selection records the pin itself.
+        import types
+        c = types.SimpleNamespace(args=run.argument_parser().parse_args(["--source", "port", "--reviewer2", SOL]),
+                                  card={}, engine=object())
+        c.args.builder, c.args.attacker = "opencode/deepseek-v4.1-flash-free", "opencode/minimax-m3.1-flash-free"
+        c.args.reviewer1, c.args.strong_calibrator = "openrouter/xiaomi/mimo-v2.6-pro", CLAUDE
+        c.args.easy_calibrator = "opencode-go/glm-5.3-flash"
+        run.model_runtime.select_models(c, log=lambda *a: None)
+        self.assertEqual(c.card["reviewer2_pinned"], SOL)
 
     def test_a_deepseek_flash_attacker_is_refused_where_deepseek_wrote_the_case(self):
         with self.assertRaisesRegex(ValueError, "four different families"):

@@ -133,6 +133,7 @@ def select_models(c, *, log):
     check_role_families(roles)
     for data in roles.values(): data['family'] = family(data['model'])
     c.card['roles'], c.card['rotation_slot'] = roles, a.rotation_slot
+    c.card['reviewer2_pinned'] = a.reviewer2 or None   # later steps restore the pin (run.context_for_step)
     m = {"builder": [roles['writer']['model']], "attacker": [roles['stress_tester']['model']],
          "reviewers": [[roles['reviewer']['model']], [roles['reviewer2']['model']]],
          "strong_calibrator": [roles['strong_calibrator']['model']], "easy_calibrator": [a.easy_calibrator]}
@@ -901,4 +902,5 @@ def with_second_reviewer(c, table_name=None):
                           | {family(models['reviewers'][0][0])} | former_families(c.card), table_name)
     models['reviewers'] = [*models['reviewers'], [row['model']]]
     roles['reviewer2'] = {**row, 'family': family(row['model'])}
+    c.card['reviewer2_pinned'] = None
     return True

@@ -578,8 +578,6 @@ def _pin_models(c, runner, inputs):
     if selected != requested:
         raise _Invalid("models")
     c.models = c.card["models"] = selected
-    if len(reviewers) == 2:
-        c.card["reviewer2_pinned"] = reviewers[1][0]   # later steps restore the pin (run.context_for_step)
 
 
 def _board_statement(root, refs, sealer, batch_key, case):
