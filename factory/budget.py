@@ -227,14 +227,17 @@ G10_CALLS = G10_TRIES + ('reviewer-owner-strong_calibrator-', 'reviewer-owner-ea
 
 
 def _g10_used(ledger):
-    """Spend booked to G10_CALLS reservations, plus the unspent holds of the pending ones."""
+    """What G10_CALLS reservations count against the case, valued as reserve_invocation values the case:
+    their spend as case_spending books it (event_charge, estimated gaps), plus the pending ones'
+    unspent holds as outstanding_reservations counts them."""
     events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
     used = Decimal(0)
     for lease_id, row in ledger.get('invocation_reservations', {}).items():
         if not str(row.get('call_name')).startswith(G10_CALLS): continue
-        booked = reservation_booked(ledger, lease_id, row, events)
-        if booked is None: raise BudgetError('usage_event_missing')
-        used += max(booked, usd(row['maximum_usd'])) if row['state'] == 'pending' else booked
+        bound = reservation_booked(ledger, lease_id, row, events)
+        if bound is None: raise BudgetError('usage_event_missing')
+        used += reservation_booked(ledger, lease_id, row, events, charge=event_charge) + usd(row.get('estimated_gap_usd', 0))
+        if row['state'] == 'pending': used += max(Decimal(0), usd(row['maximum_usd']) - bound)
     return used
 
 
@@ -249,14 +252,14 @@ def call_limit(ledger, attempt, call_name=None):
     return limit - reserve + min(reserve, max(Decimal(0), used))
 
 
-def reservation_booked(ledger, lease_id, row, events=None):
-    """Spend booked against one reservation: its listed events plus those bound to it by lease
-    and invocation before settlement lists them (the same join as _settle_leaf)."""
+def reservation_booked(ledger, lease_id, row, events=None, charge=None):
+    """Spend booked against one reservation (event_bound_charge, or `charge`): its listed events plus
+    those bound to it by lease and invocation before settlement lists them (the same join as _settle_leaf)."""
     if events is None: events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
     ids = set(row['event_ids']) | {i for i, e in events.items()
                                    if e.get('lease_id') == lease_id and e.get('invocation_id') == row['invocation_id']}
     if not ids <= events.keys(): return None   # a listed event is missing: the ledger cannot be trusted
-    return sum((event_bound_charge(events[i]) for i in ids), Decimal(0))
+    return sum(((charge or event_bound_charge)(events[i]) for i in ids), Decimal(0))
 
 
 def check_reservation(ledger, lease_id):

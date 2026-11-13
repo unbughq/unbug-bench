@@ -68,6 +68,18 @@ class G10Authority(unittest.TestCase):
         self.reserve("strong-calibrator-judge_breadth-1", 50)
         self.assertEqual(self.headroom("strong-calibrator-early_probe-1"), 150)   # G10 keeps its $150
 
+    def test_g10_use_is_valued_as_case_spending_values_it(self):
+        # A settled Go-plan strong try costs the case $0 (its $10 list value only bounds its own call);
+        # an estimated one adds its $5 gap to case spending. G10's use counts both the same way.
+        go = {"id": "e1", "cost": 0, "plan_list_cost_usd": 10, "priced": "plan", "lease_id": "l1", "invocation_id": "i1"}
+        rows = {lease: {"lease_id": lease, "invocation_id": inv, "call_name": f"strong-calibrator-strong_calibrator-{n}",
+                        "maximum_usd": "50.000000000", "state": state, "event_ids": ids, "estimated_gap_usd": gap}
+                for n, (lease, inv, state, ids, gap) in enumerate((("l1", "i1", "settled", ["e1"], "0.000000000"),
+                                                                   ("l2", "i2", "estimated", [], "5.000000000")), 1)}
+        ledger = {"cost": 0, "plan_list_cost_usd": 10, "events": [go], "invocation_reservations": rows}
+        self.assertEqual(budget._g10_used(ledger), Decimal(budget.case_spending(ledger)["total_spent_usd"]))
+        self.assertEqual(budget._g10_used(ledger), 5)
+
     def test_other_steps_are_unchanged(self):
         self.attempt = SimpleNamespace(key="b/c/2/writer:1/1", baseline_spent_usd=0, ceiling_usd=50.0)
         self.assertEqual(self.headroom("builder-1"), 50)
