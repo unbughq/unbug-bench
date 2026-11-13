@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import subprocess
@@ -46,7 +47,10 @@ class RunArtifacts:
     cleanup: Callable = shred_tree
 
     def results_since(self, c):
-        return [f for f in (self.bench / "results").rglob("*") if f.is_file() and f.name != ".bench.lock" and f.stat().st_mtime >= c.t0]
+        # A slot's seed IDs are a live fixture that later checkpoints on that slot read, not evidence.
+        results = self.bench / "results"
+        return [f for f in results.rglob("*") if f.is_file() and f.name != ".bench.lock" and f.stat().st_mtime >= c.t0
+                and not re.fullmatch(r"factory-slots/[0-9]+/seed-ids\.json", f.relative_to(results).as_posix())]
 
 
     def result_dirs_since(self, c):

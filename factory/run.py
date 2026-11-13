@@ -1186,6 +1186,12 @@ def loop_freshness(c, result, report):
     version = re.match(r'^v?(' + semver + r')(?=\s|$)', str(app.get('version', '')))
     tag = re.fullmatch(r'v?(' + semver + ')', str(app.get('commit', '')))
     pinned = (version or tag)[1] if version or tag else None
+    if pinned is None:
+        # A case pinned by commit SHA names its release only in its search evidence: use it
+        # when every recorded app_version agrees on one semver; otherwise it stays unknown.
+        found = {str(row.get('app_version') or '').strip().removeprefix('v') for row in lines} - {''}
+        only = re.fullmatch(semver, found.pop()) if len(found) == 1 else None
+        pinned = only[0] if only else None
     for url in requested:
         if any(row.get('url') == url for row in flagged): continue
         matches = [row for row in lines if row.get('url') == url]
@@ -1372,6 +1378,14 @@ def _checkpoint_call(c, identity, command, env, timeout, read):
             raise AllowanceSpent('checkpoint allowance exhausted') from None  # the caller's time, not a fault
         summary, records, _ = read(p)
         return summary, records
+    # A slot run's allowance belongs to the shop it ran on. prepare_factory_slot seeds fresh IDs, so a
+    # rebuilt slot is not refused for crashes of the broken one (case f46dac). Slot-less rows stay
+    # unchanged: durable/helpers.py charges them by this identity.
+    if (slot := identity.get("slot")) is not None:
+        ids = BENCH / (f"results/factory-slots/{slot}/seed-ids.json" if slot else "projects/medusa/seed-ids.json")
+        try: shop = hashlib.sha256(ids.read_bytes()).hexdigest()
+        except OSError: shop = None
+        identity = {**identity, "shop": shop}
     # A spent caller allowance is neither retried nor counted as an invalid attempt.
     return retry(c.work / "infra-attempts.json", identity, invoke, interruption=(BudgetError, AllowanceSpent))
 
