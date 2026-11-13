@@ -499,20 +499,22 @@ def check_case_money_extra(extra) -> None:
     """One grant: {"usd_micros": positive int up to CASE_MONEY_EXTRA_MAX, "reason": text like an override's}."""
     if not (isinstance(extra, dict) and set(extra) == {"usd_micros", "reason"}
             and type(extra["usd_micros"]) is int and 0 < extra["usd_micros"] <= CASE_MONEY_EXTRA_MAX
-            and type(extra["reason"]) is str and 0 < len(extra["reason"].strip()) <= OVERRIDE_REASON_MAX
-            and extra["reason"].isprintable()):
+            and type(extra["reason"]) is str and extra["reason"].strip()
+            and len(extra["reason"]) <= OVERRIDE_REASON_MAX and extra["reason"].isprintable()):
         raise ContractError("resume:bad_case_money_extra")
 
 
-def lineage_case_money_extra(case_id: str, extra: Optional[dict] = None) -> Optional[dict]:
+def lineage_case_money_extra(case_id: str, extra: Optional[dict] = None, exclude: Optional[str] = None) -> Optional[dict]:
     """The lineage's raised ceiling after this resume: the latest resume record's grant (its
-    usd_micros is the lineage's total), plus `extra`, whose reason then names it. None: no grant."""
+    usd_micros is the lineage's total), plus `extra`, whose reason then names it. None: no grant.
+    `exclude` names a workflow of the lineage not to read (runtime: the batch being started's own)."""
     if extra is not None:
         check_case_money_extra(extra)
     latest = None
     for w in sorted(DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__),
                     key=lambda w: (w.created_at or 0, w.workflow_id)):
-        latest = (w.input["args"][0].get("resume") or {}).get("case_money_extra") or latest
+        if w.workflow_id != exclude:
+            latest = (w.input["args"][0].get("resume") or {}).get("case_money_extra") or latest
     if extra is None:
         return latest
     total = (latest or {}).get("usd_micros", 0) + extra["usd_micros"]

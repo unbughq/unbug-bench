@@ -369,9 +369,18 @@ class Runtime:
             # Founder 2026-11-13: the lineage's grants (engine.lineage_case_money_extra) raise its ceiling.
             from durable.engine import lineage_case_money_extra
             try:
-                raised = (lineage_case_money_extra(resume_of, grant) or {}).get("usd_micros", 0)
+                lineage = lineage_case_money_extra(resume_of, grant, exclude=f"{resume_of}@{spec.batch_id}")
             except ContractError:
                 raise RuntimeErrorCode("case_money_extra_invalid") from None
+            # A retried start attaches to its batch (engine.start_batch): it keeps the grant that batch
+            # recorded, and a grant that differs from it would be dropped, so it is refused.
+            started = DBOS.list_workflows(workflow_ids=[spec.batch_id], load_output=False)
+            if started:
+                recorded = (started[0].input["args"][0].get("resume") or {}).get("case_money_extra")
+                if grant is not None and recorded != lineage:
+                    raise RuntimeErrorCode("case_money_extra_invalid")
+                lineage = recorded
+            raised = (lineage or {}).get("usd_micros", 0)
             if (type(carried) is not int
                     or used + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros + raised):
                 raise RuntimeErrorCode("resume_money")

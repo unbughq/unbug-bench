@@ -239,6 +239,8 @@ class RuntimeTests(unittest.TestCase):
         def workflows(workflow_ids=None, workflow_id_prefix=None, **_):
             if workflow_ids == ["b-old"]:
                 return [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
+            if workflow_ids == ["b-new"]:
+                return []   # not started yet
             assert workflow_id_prefix == "case-old-1@"
             return [SimpleNamespace(workflow_id="case-old-1@b-mid", created_at=1, input={"args": [{"resume": {}}]})]
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
@@ -357,9 +359,11 @@ class RuntimeTests(unittest.TestCase):
         def workflows(workflow_ids=None, workflow_id_prefix=None, **_):
             if workflow_ids == ["b-old"]:
                 return [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
+            if workflow_ids == ["b-new"]:
+                return started
             assert workflow_id_prefix == "case-old-1@"
             return earlier
-        earlier = []
+        earlier, started = [], []
         why = "founder 2026-11-13: let it finish"
         grant = {"usd_micros": 45_000_000, "reason": why}
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
@@ -372,7 +376,8 @@ class RuntimeTests(unittest.TestCase):
                               extra_case_money=44_999_999, case_money_reason=why)
             for amount, reason in ((0, why), (-1, why), (True, why), (1.5, why), ("45000000", why),
                                    (200_000_001, why), (45_000_000, None), (45_000_000, " "),
-                                   (45_000_000, "x" * 201), (45_000_000, "a\nb"), (None, why)):
+                                   (45_000_000, "x" * 201), (45_000_000, "x" + " " * 200), (45_000_000, "a\nb"),
+                                   (None, why)):
                 with self.subTest(amount=amount, reason=reason), \
                         self.assertRaisesRegex(RuntimeErrorCode, "case_money_extra_invalid"):
                     runtime.start(to_record(ok), to_record(registry), None, "case-old-1",
@@ -384,6 +389,19 @@ class RuntimeTests(unittest.TestCase):
             dispatch(runtime, {"op": "start", "spec": to_record(ok), "registry": to_record(registry),
                                "resume": "case-old-1", "extra_case_money": 45_000_000, "case_money_reason": why})
             start.assert_called_once_with(ok, registry, None, "case-old-1", case_money_extra=grant)
+            # Once b-new runs, a retried start attaches: the same grant is not counted twice, and
+            # another grant, which the attached batch would drop, is refused.
+            runtime.ledger.open("b-new", 100_000_000)   # its batch, which has spent nothing yet
+            started.append(SimpleNamespace(input={"args": [{"resume": {"case_money_extra": grant}}]}))
+            earlier.append(SimpleNamespace(workflow_id="case-old-1@b-new", created_at=1,
+                                           input={"args": [{"resume": {"case_money_extra": grant}}]}))
+            for amount in (45_000_000, None):
+                runtime.start(to_record(ok), to_record(registry), None, "case-old-1",
+                              extra_case_money=amount, case_money_reason=amount and why)
+            with self.assertRaisesRegex(RuntimeErrorCode, "case_money_extra_invalid"):
+                runtime.start(to_record(ok), to_record(registry), None, "case-old-1",
+                              extra_case_money=46_000_000, case_money_reason=why)
+            started.clear(); earlier.clear()
             # A later resume of the lineage keeps the raised ceiling without naming it again, and a
             # further grant adds to it, up to $200 in all.
             start.reset_mock()
