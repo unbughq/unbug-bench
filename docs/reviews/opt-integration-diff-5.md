@@ -1,0 +1,29 @@
+## Findings
+
+1. **Blocking — Reworded old searches count as the replacement tester’s work.** [factory/run.py:1814](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/factory/run.py:1814) identifies stale searches by their mutable query text. After a swap, the agentic fallback gives the replacement tester the old rows. Adding quotes to two old queries leaves their original timestamps and result URLs intact, but makes both count as new searches; history repair retains the edited rows alongside the originals. A read-only in-memory check changed the attacker count from zero to two this way. **Weakens the exam: yes.**
+
+2. **Should-fix — Old workers can spend G10-only authority on other gates.** [factory/durable/engine.py:1049](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/factory/durable/engine.py:1049) adds the G10 extension even if the batch is pinned to an older installed worker. Removing the extra input field lets that worker accept the request, but an `origin/main` worker has no G10-specific call limit. With a $200 grant, ordinary calls can therefore consume the $150 intended for G10. **Weakens the exam: no.**
+
+3. **Should-fix — A queued old grant can be mistaken for G10 authority.** [factory/run.py:3012](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/factory/run.py:3012) infers the reserve from the grant amount alone. Before this PR, a batch-funded GATES retry could already request $100 of ordinary funding. If that recorded attempt is queued when plumbing rolls onto the new worker, the worker reserves $50 for G10 even though no extension was granted. Ordinary calls can then stop for money despite having had sufficient authority. **Weakens the exam: no.**
+
+4. **Should-fix — A retry resets the G10 baseline within the same sequence.** [factory/budget.py:249](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/factory/budget.py:249) uses a baseline reset for each attempt. A batch-limited $100 attempt can spend $20 on G10 and $10 on ordinary calls, then wait for more batch funding. If its retry receives $170, the new calculation permits another $50 of ordinary calls, although only $40 remains of their original $50 allowance. That diverts $10 from G10. The previous same-sequence retry test was removed; its replacement covers a new sequence. **Weakens the exam: no.**
+
+5. **Should-fix — The roles release check misses inherited swaps and later release changes.** [factory/durable/runtime.py:381](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/factory/durable/runtime.py:381) checks only roles supplied on that `start`. Starting from a main-era case, an operator can resume with a swap on a compatible release, then resume it again without `--roles`: the lineage supplies the inherited swap after this check. Selecting an older release then sends `roles` to its strict decoder. A plumbing-release update during the first resume can produce the same result. The attempt can be lost and charged. **Weakens the exam: no.**
+
+## Diff-4 assessment
+
+| Finding | Fixed, with a regression that catches the prior behavior? |
+|---|---|
+| **1 — Recertification G8/G9** | **Yes, at orchestration level.** [test_repair_progress.py:65](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/tests/factory/test_repair_progress.py:65) checks the rerun and kept-gate lists; it mocks gate execution. |
+| **3 — Cached G2 swap count** | **Yes, at the binding level.** [test_resume_role_swap.py:121](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/tests/factory/test_resume_role_swap.py:121) checks A → B → A bindings, but does not exercise cached G2 reuse end to end. |
+| **4 — Search authorship** | **Partial.** The same test catches timestamp-only copies, but the reworded-query bypass remains, as in finding 1 above. |
+| **5 — Old worker decoder** | **Partial.** Removing the field fixes the reported unknown-field rejection, but there is no cross-version dispatch regression; the funding issue in finding 2 remains. |
+| **7 — Fresh sequence reserve** | **Yes for a new sequence.** [test_g10_authority_scope.py:94](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/tests/factory/test_g10_authority_scope.py:94) catches the lifetime-spending error. Same-sequence retries have the separate error in finding 4. |
+| **8 — Partial grant** | **Yes for the reported calculation.** [test_g10_authority_scope.py:81](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/tests/factory/test_g10_authority_scope.py:81) checks the $100 grant and smaller grants. |
+| **9 — Signal and local failures** | **Partial regression coverage.** [test_durable_guard.py:265](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/tests/factory/test_durable_guard.py:265) checks the new classifier with synthetic signal and local-failure responses, but does not verify the guard’s recording path for them. |
+| **10 — Old reviewer pin** | **Yes for the main-era card shape.** [test_resume_role_swap.py:183](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/tests/factory/test_resume_role_swap.py:183) removes the marker and checks that a conflicting swap is refused. |
+| **11 — Empty dependency-image variable** | **Yes.** [test_gate_checkpoint_receipts.py:82](/Users/bugsincode/Developer/unbug-bench/.claude/worktrees/opt-integration/tests/factory/test_gate_checkpoint_receipts.py:82) distinguishes the empty value from the unset fallback. |
+
+The permitted targeted test could not start because the read-only sandbox denied access to the `uv` cache. The regression assessments are based on inspection; live Boat and cross-version worker behavior were not tested.
+
+**Verdict: request changes.**
