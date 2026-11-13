@@ -238,7 +238,13 @@ def inputs(c, gate, bench):
         if gate not in SECOND_REVIEWER_GATES and "reviewer2" in identity["roles"]:
             identity["roles"]["reviewer2"] = None
         identity["model_science"] = model_science()
+        if gate == "G2" and (n := stress_swaps(c.card)):
+            identity["stress_swaps"] = n   # A->B->A names the same models, yet the old tester's G2 never counts
     return identity
+
+
+def stress_swaps(card):
+    return sum(s.get("role") == "stress_tester" for s in (card or {}).get("role_swaps") or ())
 
 
 def model_science():

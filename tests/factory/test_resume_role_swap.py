@@ -118,9 +118,43 @@ class Worker(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "four different families", msg=repr(alone)):
                 self.context(alone)
 
+    def test_a_swapped_stress_tester_never_counts_the_old_searches(self):
+        # Timestamps and copies prove no authorship: the swap records what the log held, and no G2
+        # verdict from before a stress-tester swap is reused, not even after swapping back (A->B->A).
+        import datetime
+        from admission import search_binding
+        from test_invalid_runs import PRACTICE
+        rows = [json.loads(line) for line in PRACTICE["files"]["freshness.jsonl"].splitlines() if line]
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        for row in rows: row.update(at=now, hit=False, ambiguous=False)
+        def swap(roles, card, log):
+            work = practice_tree(tempfile.mkdtemp(dir=self.tmp.name), CASE, card=card)
+            (work / "case/freshness.jsonl").write_text("\n".join(map(json.dumps, log)))
+            return run.context_for_step(step_input(roles), work)
+        before = swap(None, slot8_card(), rows)
+        self.assertEqual(run.freshness_counts(before)["attacker"], 2)
+        c = swap({"stress_tester": CLAUDE, "strong_calibrator": SOL}, before.card, rows)
+        self.assertEqual(run.freshness_counts(c), {"builder_web": 3, "builder_github": 3, "attacker": 0})
+        old = next(r for r in rows if r["who"] == "attacker")
+        copied = {**old, "at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "query": " " + old["query"].upper()}
+        (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, [*rows, copied])))
+        self.assertEqual(run.freshness_counts(c)["attacker"], 0)   # a re-timestamped copy is no new search
+        (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, [*rows, {**old, "query": "a new query"}])))
+        self.assertEqual(run.freshness_counts(c)["attacker"], 1)
+        back = swap({"stress_tester": SOL, "strong_calibrator": CLAUDE}, c.card, rows)
+        self.assertEqual(back.models, before.models)
+        self.assertEqual(run.freshness_counts(back)["attacker"], 0)
+        self.assertEqual(search_binding(back, rows), {**search_binding(before, rows), "stress_swaps": 2})
+        self.assertNotEqual(search_binding(back, rows), search_binding(c, rows))
+        import gate_state
+        unswapped = copy.copy(back)   # the same models and roles, as before any swap
+        unswapped.card = {k: v for k, v in back.card.items() if k != "role_swaps"}
+        self.assertNotEqual(gate_state.fingerprint(back, "G2", _ROOT), gate_state.fingerprint(unswapped, "G2", _ROOT))
+        self.assertEqual(gate_state.fingerprint(back, "G3", _ROOT), gate_state.fingerprint(unswapped, "G3", _ROOT))
+
     def test_the_card_keeps_every_replaced_model(self):
         c = self.context({"stress_tester": CLAUDE, "strong_calibrator": SOL})
-        self.assertEqual([{k: v for k, v in s.items() if k != "at"} for s in c.card["role_swaps"]], [
+        self.assertEqual(c.card["role_swaps"], [
             {"role": "stress_tester", "from": SOL, "to": CLAUDE, "step": "stress:1", "seq": 3},
             {"role": "strong_calibrator", "from": CLAUDE, "to": SOL, "step": "stress:1", "seq": 3}])
         # A later swap of the lineage adds to the history.
