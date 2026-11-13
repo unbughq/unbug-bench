@@ -181,6 +181,22 @@ def request_usd_micros(step: Step, counters: Counters, spec: BatchSpec) -> int:
     return max(spec.case_money_usd_micros, BATCH_ONLY_FLOOR_USD_MICROS)
 
 
+# Founder 2026-11-12: a GATES step is funded up front for every strong-calibrator try (G10 and its
+# early probe), each of which reserves one whole Claude call (token_prices.CLAUDE_CALL_USD) before it
+# runs. Without it the case's own $50 never covered a second reservation, and G10 money-stopped
+# mid-exam after hours of bench gates. Only the authority grows: spend is still what the calls use.
+G10_STRONG_TRIES = 3
+
+
+def gates_money_extension(step: Step) -> int:
+    """Micro-USD added to a GATES request (and to the case limit it is cut against, when it draws on
+    the case; a rerun after a diagnosis draws on the batch only and needs the same authority)."""
+    from token_prices import CLAUDE_CALL_USD
+    if step.kind is not StepKind.GATES:
+        return 0
+    return int(CLAUDE_CALL_USD * 1_000_000) * G10_STRONG_TRIES
+
+
 def decide_grant(step: Step, grant: Grant, *, minimum: int = MIN_GRANT_USD_MICROS) -> Optional[Action]:
     """Before an attempt starts. None: start it. A sub-minimum CASE grant gives up without
     starting, because the case's own money never comes back; a sub-minimum BATCH grant waits

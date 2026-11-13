@@ -166,7 +166,9 @@ class StepSequence(unittest.TestCase):
                 self.assertNotIn("inputs", x["opened"])
         self.assertEqual(start(r, f"{C1}/2/writer:1/1")["opened"]["snapshot"], f"snapshot {C1}/1/admit/1")
         # The grant is the ceiling: what the case's own money has left (each attempt pays 1000).
-        self.assertEqual([x["ceiling"] for x in r.starts(1)], [50 * M - 1000 * i for i in range(5)])
+        # The GATES step (4th) is also funded for the G10 strong tries (policy.gates_money_extension).
+        self.assertEqual([x["ceiling"] for x in r.starts(1)],
+                         [50 * M - 1000 * i + (150 * M if i == 3 else 0) for i in range(5)])
         # GATES gets its own deadline.
         self.assertEqual(start(r, f"{C1}/4/gates:1/1")["deadline_s"], 43_200.0)
         self.assertEqual(start(r, f"{C1}/2/writer:1/1")["deadline_s"], 14_400.0)
@@ -2028,6 +2030,26 @@ class Conductor(unittest.TestCase):
                 check_instance(dbos)
         finally:
             GlobalParams.dbos_cloud = False
+
+
+class GatesMoneyUpFront(unittest.TestCase):
+    """The GATES step's request and case limit carry the G10 strong-try funding; old workflows do not."""
+
+    def test_gates_reserve_is_extended_only_under_the_patch(self):
+        from durable.policy import gates_money_extension
+        from durable.contract import Step, StepKind
+        extension = gates_money_extension(Step(StepKind.GATES, 1))
+        granted = {}
+        for patched in (True, False):
+            r, out = run({"spec": {"max_cases_started": 1},
+                          "disabled_patches": [] if patched else ["gates_money_up_front"]})
+            self.addCleanup(r.close)
+            amounts = {x["key"]: x["amount"] for x in r.ledger_log() if x["op"] == "reserve"}
+            granted[patched] = (amounts[f"{C1}/4/gates:1/1"], amounts[f"{C1}/1/admit/1"])
+            self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        # The step that is not GATES is untouched; GATES grows by exactly the extension.
+        self.assertEqual(granted[True][1], granted[False][1])
+        self.assertEqual(granted[True][0] - granted[False][0], extension)
 
 
 if __name__ == "__main__":
