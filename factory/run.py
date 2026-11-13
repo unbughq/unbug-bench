@@ -3165,6 +3165,7 @@ def context_for_step(step_input, work):
     a.source = None if a.dry_run else card.get("source")
     a.seed, a.rotation_slot, a.case_id = card["seed"], card.get("rotation_slot"), c.case_id
     a.resume = None
+    a.reviewer2 = card.get("reviewer2_pinned")   # INPUTS pinned it (admit._pin_models): no swap moves it
     a.max_cost = ENGINE_COST_CAP
     # Remaining attempt time replaces the old operator timeout. Scientific
     # role-specific caps remain in their callers.

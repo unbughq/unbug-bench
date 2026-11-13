@@ -480,7 +480,8 @@ worker log. DIAGNOSIS never applies a swap. The hold is an infra stop, so the op
 with other models; to undo a swap, name that role's earlier model (the card's `role_swaps` `from`):
 `--roles stress_tester=<earlier model>`. A swapped stress tester's G2 counts only the attacker
 searches logged after its swap (`run.own_search`), so it searches itself; and no family in
-`role_swaps` may become the second reviewer (`model_runtime.former_families`).
+`role_swaps` may become the second reviewer (`model_runtime.former_families`). A swap into the second
+reviewer's family re-picks it, unless INPUTS pinned it (card `reviewer2_pinned`): then the swap is refused.
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch

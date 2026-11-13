@@ -146,6 +146,14 @@ class Worker(unittest.TestCase):
                                        "step": "stress:1", "seq": 2}])
         self.assertEqual(self.context(None, card).card["roles"]["reviewer2"]["family"], "z-ai")
 
+    def test_a_swap_into_a_pinned_second_reviewers_family_is_refused(self):
+        # Slot 8 adopts Xiaomi as reviewer2; INPUTS pinned it (admit._pin_models records the pin), so a
+        # later step's swap into Xiaomi may not re-pick the reviewer: it is refused.
+        card = self.context(None).card
+        card["reviewer2_pinned"] = card["roles"]["reviewer2"]["model"]
+        with self.assertRaisesRegex(run.RoleSwapRefused, "fifth family"):
+            self.context({"stress_tester": "openrouter/xiaomi/mimo-v2.6-pro"}, card)
+
     def test_a_deepseek_flash_attacker_is_refused_where_deepseek_wrote_the_case(self):
         with self.assertRaisesRegex(ValueError, "four different families"):
             self.context({"stress_tester": FLASH})
