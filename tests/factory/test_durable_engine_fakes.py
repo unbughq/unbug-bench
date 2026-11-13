@@ -669,6 +669,10 @@ def engine_main(workdir):
         case = case_id_for(spec.batch_id, 1)
         imported, ct = fakes["sealer"].seal(fakes["keys"].scope_key(case), ArtifactKind.CASE_SNAPSHOT, b"legacy import")
         fakes["store"].put_sealed(case, imported, ct)
+    if scenario.get("legacy_resume"):   # a resume point as made before `restore` and `at`
+        import durable.engine as engine_module
+        made = engine_module.resume_point
+        engine_module.resume_point = lambda *a, **k: {f: v for f, v in made(*a, **k).items() if f not in ("restore", "at")}
     if scenario.get("resume_of"):
         from durable.contract import ContractError
         try:   # what runtime.start books as waste before its resume_money check

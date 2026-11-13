@@ -2026,6 +2026,53 @@ class ReleaseHolds(unittest.TestCase):
                          [("5", "diagnosis", str(n)) for n in range(1, 4)])
         self.assertEqual([k[2] for k in r.keys(1) if k[1] == "writer:2"], ["1", "2", "3", "4"])
 
+    # 1bb2ad-2r3 on 13 November: resumed at its diagnosis (seq 3), whose factory_bug reran writer:1
+    # at seq 2 in place; that rerun was taken for replayed history and crashed with resume:diverged.
+    INFRA = {"outcome": "infra_error", "reason": "infra:stalled"}
+    SPEC = {"max_cases_started": 1, "max_infra_retries_per_step": 1}
+
+    def held_at_a_diagnosis(self):
+        r, out = run(manual_holds({"spec": self.SPEC,
+                                   "script": {"1/stress:1/1": {"feedback": True}, "1/writer:2/*": self.INFRA,
+                                              "1/diagnosis/*": self.INFRA}}))
+        self.addCleanup(r.close)
+        self.assertEqual((out["result"]["cases"], r.keys(1)[-1]), ({C1: "held"}, ("5", "diagnosis", "2")))
+        return r
+
+    def test_a_case_resumed_at_its_diagnosis_reruns_the_step_in_place(self):
+        for legacy in (False, True):   # a resume point made before `restore`: patched in place
+            with self.subTest(legacy=legacy):
+                r = self.held_at_a_diagnosis()
+                r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1, "legacy_resume": legacy,
+                                "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {}},
+                                "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]},
+                               workdir=r.work)
+                self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
+                # The rerun is new work after the restored diagnosis; stress:2 takes seq 5 afresh.
+                self.assertEqual(r.keys(1)[-5:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"),
+                                                  ("5", "stress:2", "1"), ("6", "gates:2", "1"), ("7", "seal", "1")])
+
+    def test_a_later_resume_replays_the_in_place_rerun_and_restores_the_step_after_it(self):
+        # The step that took the diagnosis's seq stops too: the next resume restores the diagnosis's
+        # attempts and that step's at the same seq, each its own, and goes live only at the latter.
+        # A first resume made before `restore` has its owners found from the recorded attempts.
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                r = self.held_at_a_diagnosis()
+                r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1, "legacy_resume": legacy,
+                                "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {},
+                                           "1/stress:2/*": self.INFRA},
+                                "deadline_in": 40, "timing": {"wake_poll_s": 0.3},
+                                "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]},
+                               workdir=r.work)
+                self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
+                self.assertEqual(r.keys(1)[-5:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"),
+                                                  ("5", "stress:2", "1"), ("5", "stress:2", "2"), ("6", "diagnosis", "1")])
+                before = len(r.starts(1))
+                r3 = EngineRun({"spec": {"batch_id": "b-v", **self.SPEC}, "resume_of": C1}, workdir=r.work)
+                self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
+                self.assertEqual(r.keys(1)[before:], [("5", "stress:2", "3"), ("6", "gates:2", "1"), ("7", "seal", "1")])
+
     def test_a_resume_case_batch_counts_the_resumes_made_in_place(self):
         # max 2: one release resume in b-t, then held at its deadline; the --resume-case batch is the
         # second resume, so its next factory_bug retires instead of holding a third time.
