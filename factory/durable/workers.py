@@ -296,6 +296,15 @@ def check_bundle(data: bytes) -> dict:
     return manifest
 
 
+def release_takes_roles(data: bytes) -> bool:
+    """Whether this release's StepInput decoder knows a resume's role swap: an older one refuses the field."""
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+            return b"SWAPPABLE_ROLES" in tar.extractfile("factory/durable/contract.py").read()
+    except (tarfile.TarError, OSError, EOFError, KeyError, AttributeError):
+        return False
+
+
 class ReleaseStore:
     """Each factory bundle once, keyed by its sha256 (bundles/<sha>.tgz), and which image
     serves each bench release (benches/<bench_version>.json). First-wins on both."""

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tarfile
 import sys
 import tempfile
 import time
@@ -305,9 +306,23 @@ class RuntimeTests(unittest.TestCase):
                 return [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
             return []
         roles = {"stress_tester": "opencode-go/deepseek-v4.1-flash"}
+        from durable.workers import build_bundle
+        release = build_bundle(ROOT)
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
-                patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start, \
+                patch.object(runtime.releases, "bundle", return_value=release) as bundle, patch.object(runtime.engine, "start_batch") as start, \
                 patch.object(runtime.engine, "factory_bug_waste_keys", return_value=[]) as named:
+            # A release from before role swaps would refuse every step that names them: refused here.
+            old_release = io.BytesIO()
+            with tarfile.open(fileobj=old_release, mode="w:gz") as tar:
+                body = (ROOT / "factory/durable/contract.py").read_bytes().replace(b"SWAPPABLE_ROLES", b"OTHER")
+                info = tarfile.TarInfo("factory/durable/contract.py"); info.size = len(body)
+                tar.addfile(info, io.BytesIO(body))
+            bundle.return_value = old_release.getvalue()
+            with self.assertRaisesRegex(RuntimeErrorCode, "roles_need_newer_release"):
+                runtime.start(to_record(ok), to_record(registry), None, "case-old-1", None, roles)
+            runtime.start(to_record(ok), to_record(registry), None, "case-old-1")   # no swap: any release
+            start.reset_mock(); named.reset_mock()
+            bundle.return_value = release
             with self.assertRaisesRegex(RuntimeErrorCode, "resume_invalid"):
                 runtime.start(to_record(ok), to_record(registry), None, None, None, roles)
             # What needs no case card is refused at start, before the lineage records it.

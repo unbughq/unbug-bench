@@ -30,7 +30,7 @@ from durable.contract import ArtifactKind, BatchSpec, CASE_ID, ContractError, Re
 from durable.guard import degraded as guard_degraded, renewing as guard_renewing, router_clear
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
-from durable.workers import BoatPool, PoolError, boat_id, ReleaseStore, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
+from durable.workers import BoatPool, PoolError, boat_id, ReleaseStore, release_takes_roles, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
 
 
 LOG = logging.getLogger("durable.runtime")
@@ -377,7 +377,9 @@ class Runtime:
         # The gate also keeps one micro-USD of headroom (model_call_gate.HEADROOM).
         if hold is not None and hold + 1 > min(spec.money_bound_usd_micros, spec.case_money_usd_micros):
             raise RuntimeErrorCode("bound_below_call_hold")
-        self.releases.bundle(spec.plumbing_version)
+        bundle = self.releases.bundle(spec.plumbing_version)
+        if roles is not None and not release_takes_roles(bundle):
+            raise RuntimeErrorCode("roles_need_newer_release")   # its workers would refuse every step
         swap = {} if roles is None else {"roles": roles}
         self.engine.start_batch(spec, registry, imported, resume_of, **extra, **swap)
         return {"batch_id": spec.batch_id}

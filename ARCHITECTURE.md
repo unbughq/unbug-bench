@@ -464,7 +464,9 @@ since a snapshot card pins its models: `start --resume-case <case> --roles
 stress_tester=<model>[,strong_calibrator=<model>]`. No other role may change. The swap rides in the
 resume record, and later resumes of the lineage keep it, a role named again replaced. Every step of
 the resumed workflow carries it in the one optional contract field `StepInput.roles`, which the
-record leaves out when absent, so older records and workers are unchanged. `start` refuses what it
+record leaves out when absent, so older records and workers are unchanged; a swap on a plumbing
+release from before the field, whose workers would refuse it, is refused at `start`
+(`roles_need_newer_release`, `workers.release_takes_roles`). `start` also refuses what it
 can check without the case card (`roles_invalid`): the role names, a model without a bounded route
 for its role, a strong calibrator off the Claude or Codex subscription; and its
 `bound_below_call_hold` check counts the swapped models. The worker (`run.swap_roles`, from
