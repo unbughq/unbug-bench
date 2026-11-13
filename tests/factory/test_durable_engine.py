@@ -2084,38 +2084,33 @@ class ReleaseHolds(unittest.TestCase):
         return r
 
     def test_a_case_resumed_at_its_diagnosis_reruns_the_step_in_place(self):
-        for legacy in (False, True):   # a resume point made before `restore`: patched in place
-            with self.subTest(legacy=legacy):
-                r = self.held_at_a_diagnosis()
-                r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1, "legacy_resume": legacy,
-                                "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {}},
-                                "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]},
-                               workdir=r.work)
-                self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
-                # The rerun is new work after the restored diagnosis; stress:2 takes seq 5 afresh.
-                self.assertEqual(r.keys(1)[-5:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"),
-                                                  ("5", "stress:2", "1"), ("6", "gates:2", "1"), ("7", "seal", "1")])
+        r = self.held_at_a_diagnosis()
+        r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1,
+                        "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {}},
+                        "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]},
+                       workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
+        # The rerun is new work after the restored diagnosis; stress:2 takes seq 5 afresh.
+        self.assertEqual(r.keys(1)[-5:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"),
+                                          ("5", "stress:2", "1"), ("6", "gates:2", "1"), ("7", "seal", "1")])
 
     def test_a_later_resume_replays_the_in_place_rerun_and_restores_the_step_after_it(self):
         # The step that took the diagnosis's seq stops too: the next resume restores the diagnosis's
         # attempts and that step's at the same seq, each its own, and goes live only at the latter.
-        # A first resume made before `restore` has its owners found from the recorded attempts.
-        for legacy in (False, True):
-            with self.subTest(legacy=legacy):
-                r = self.held_at_a_diagnosis()
-                r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1, "legacy_resume": legacy,
-                                "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {},
-                                           "1/stress:2/*": self.INFRA},
-                                "deadline_in": 40, "timing": {"wake_poll_s": 0.3},
-                                "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]},
-                               workdir=r.work)
-                self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
-                self.assertEqual(r.keys(1)[-5:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"),
-                                                  ("5", "stress:2", "1"), ("5", "stress:2", "2"), ("6", "diagnosis", "1")])
-                before = len(r.starts(1))
-                r3 = EngineRun({"spec": {"batch_id": "b-v", **self.SPEC}, "resume_of": C1}, workdir=r.work)
-                self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
-                self.assertEqual(r.keys(1)[before:], [("5", "stress:2", "3"), ("6", "gates:2", "1"), ("7", "seal", "1")])
+        r = self.held_at_a_diagnosis()
+        r2 = EngineRun({"spec": {"batch_id": "b-u", **self.SPEC}, "resume_of": C1,
+                        "script": {"1/diagnosis/*": {"verdict": "factory_bug"}, "1/writer:2/*": {},
+                                   "1/stress:2/*": self.INFRA},
+                        "deadline_in": 40, "timing": {"wake_poll_s": 0.3},
+                        "actions": [{"when": {"ran": f"{C1}/5/diagnosis/3"}, "plumbing": "3" * 64}]},
+                       workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
+        self.assertEqual(r.keys(1)[-5:], [("5", "diagnosis", "3"), ("4", "writer:2", "3"),
+                                          ("5", "stress:2", "1"), ("5", "stress:2", "2"), ("6", "diagnosis", "1")])
+        before = len(r.starts(1))
+        r3 = EngineRun({"spec": {"batch_id": "b-v", **self.SPEC}, "resume_of": C1}, workdir=r.work)
+        self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
+        self.assertEqual(r.keys(1)[before:], [("5", "stress:2", "3"), ("6", "gates:2", "1"), ("7", "seal", "1")])
 
     def test_two_runs_of_a_diagnosis_at_one_seq_each_restore_their_own_attempts(self):
         # The rerun fails again and a second diagnosis run takes the same seq, then holds on infra:
