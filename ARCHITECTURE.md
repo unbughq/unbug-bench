@@ -648,4 +648,4 @@ settled reservations and events come back sealed (`spend.json`, also on a stop o
 `usage_since` charge them exactly as a local try's calls. Releasing the first G6/G7 change re-binds G6's gate cache once (`run.cheat_runs` is in G6's
 traced source).
 
-G8 and G9 always run two reviewers of distinct families (`model_runtime.second_reviewer`, rotation `reviewer2`); `run.review` refuses fewer, and both must approve. Their gate identities bind the reviewer set; other gates keep the first reviewer only, so adopting the second reviewer reruns nothing else.
+G8 and G9 always run two reviewers of distinct families (`model_runtime.second_reviewer`, rotation `reviewer2`); `run.review` refuses fewer, and both must approve. Their gate identities bind the reviewer set, as do G11's, G16's and G17's, whose independent review asks the second reviewer when the first is inconclusive (`gate_state.SECOND_REVIEWER_GATES`); other gates keep the first reviewer only, so adopting the second reviewer reruns nothing else.

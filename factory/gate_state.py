@@ -73,6 +73,9 @@ STAGE_DEPENDENCIES = {**DEPENDENCIES,
     "G11": MEASURE + ("bin/run_validity.py", "bin/fake-pass-check", "factory/independent_review.py"),
     "G17": DEPENDENCIES["G16"]}
 MODEL_STAGES = {"G2", "G8", "G9", "G10", "G11", "G16", "G17"}
+# Gates whose verdict the second reviewer can decide: the G8/G9 panel (run.review), and G11, G16 and G17,
+# whose independent review (independent_review.review) asks it when the first reviewer is inconclusive.
+SECOND_REVIEWER_GATES = {"G8", "G9", "G11", "G16", "G17"}
 # Execution/checkpoint side effects cannot determine a scientific verdict.
 # External model/checker code remains conservatively pinned as whole modules.
 SIDE_EFFECTS = {"checked_gate", "_gate_pipeline", "_gate_completed", "seal", "wipe", "_run_artifacts",
@@ -223,15 +226,15 @@ def inputs(c, gate, bench):
                  ("builder", "strong_calibrator", "reviewers") if gate in {"G16", "G17", "G11"} else
                  ("builder", "attacker", "reviewers") if gate == "G2" else ("reviewers",))
         identity["models"] = {key: getattr(c, "models", {}).get(key) for key in names}
-        if gate not in {"G8", "G9"} and identity["models"].get("reviewers"):
-            # Only the G8/G9 panel uses the second reviewer (founder 2026-11-12); the other gates keep their
+        if gate not in SECOND_REVIEWER_GATES and identity["models"].get("reviewers"):
+            # Only these gates let the second reviewer decide (founder 2026-11-12); the others keep their
             # one-reviewer identity, so adopting it does not rerun them.
             identity["models"]["reviewers"] = identity["models"]["reviewers"][:1]
         role_names = {"builder": ("writer",), "attacker": ("stress_tester",),
                       "reviewers": ("reviewer", "reviewer2")}
         identity["roles"] = {key: c.card.get("roles", {}).get(key)
                              for name in names for key in role_names.get(name, (name,))}
-        if gate not in {"G8", "G9"} and "reviewer2" in identity["roles"]:
+        if gate not in SECOND_REVIEWER_GATES and "reviewer2" in identity["roles"]:
             identity["roles"]["reviewer2"] = None
         identity["model_science"] = model_science()
     return identity

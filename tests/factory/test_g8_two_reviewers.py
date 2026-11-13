@@ -196,10 +196,15 @@ class CacheIdentityTests(unittest.TestCase):
             self.assertEqual(gate_state.load(c, "G8", root), {"approve": "1/1"})
             c.models = {"reviewers": [["a/x"], ["b/y"]]}
             self.assertIsNone(gate_state.load(c, "G8", root))
-            # Gates that never use the second reviewer keep their identity, so they are not rerun.
-            for gate in ("G10", "G11"):
-                self.assertEqual(self.identity(gate, [["a/x"]], root)["models"]["reviewers"],
-                                 self.identity(gate, [["a/x"], ["b/y"]], root)["models"]["reviewers"])
+            # A gate that never uses the second reviewer keeps its identity, so it is not rerun.
+            self.assertEqual(self.identity("G10", [["a/x"]], root)["models"]["reviewers"],
+                             self.identity("G10", [["a/x"], ["b/y"]], root)["models"]["reviewers"])
+            # G11, G16 and G17 ask the second reviewer when the first is inconclusive: a verdict it gave
+            # is not reused once it is replaced (MiMo swapped for GLM).
+            for gate in ("G11", "G16", "G17"):
+                mimo = self.identity(gate, [["a/x"], ["opencode-go/mimo-v2.6-pro"]], root)
+                glm = self.identity(gate, [["a/x"], ["opencode-go/glm-5.3-flash"]], root)
+                self.assertNotEqual(mimo, glm, gate)
 
 
 if __name__ == "__main__":
