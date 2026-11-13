@@ -1316,6 +1316,8 @@ class _Case:
         self.stop_line(action)
         if action is Action.RETIRE:
             self.finish("retired")
+        if action is Action.HOLD:   # policy.ROLES_REFUSED; no workflow recorded it before it existed
+            self.finish("held")
         if action is not Action.DIAGNOSE:
             raise AssertionError(action)
         return self.diagnose()

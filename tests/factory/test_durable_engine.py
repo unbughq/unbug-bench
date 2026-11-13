@@ -1751,6 +1751,21 @@ class ResumeRoleSwap(unittest.TestCase):
         self.assertEqual(swaps[1], [{"stress_tester": self.FLASH}] * len(swaps[1]))   # inherited
         self.assertEqual(swaps[2], [{"stress_tester": self.FLASH, "strong_calibrator": self.SOL}] * len(swaps[2]))
 
+    def test_a_swap_the_worker_refuses_holds_at_once_and_a_later_resume_may_change_it(self):
+        # The card's refusal (run.RoleSwapRefused) never changes between attempts: no retry, no diagnosis.
+        r, out = run(manual_holds(Resume.GATES_INFRA))
+        self.addCleanup(r.close)
+        before = len(r.starts(1))
+        refused = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:roles_refused"}}
+        self.assertEqual(self.resume(r, "b-u", refused, {"stress_tester": self.FLASH})["result"]["cases"],
+                         {f"{C1}@b-u": "held"})
+        self.assertEqual([x["key"].split("/")[2] for x in r.starts(1)[before:]], ["gates:1"])
+        # The hold is an ordinary infra stop: the operator resumes it naming another model.
+        before = len(r.starts(1))
+        self.assertEqual(self.resume(r, "b-v", None, {"stress_tester": self.SOL})["result"]["cases"],
+                         {f"{C1}@b-v": "sealed"})
+        self.assertEqual(r.starts(1)[before]["roles"], {"stress_tester": self.SOL})
+
     def test_a_swap_outside_the_two_roles_is_refused(self):
         from durable.contract import ContractError
         from durable.engine import resume_point

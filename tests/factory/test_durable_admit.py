@@ -227,6 +227,11 @@ class AdmitTests(unittest.TestCase):
         card = self.restore(swapped, result, outputs)[1].card
         self.assertEqual((card["models"]["attacker"], card["roles"]["stress_tester"]["model"]), ([model], model))
         self.assertEqual([(s["role"], s["to"], s["step"]) for s in card["role_swaps"]], [("stress_tester", model, "admit")])
+        # A swap the pinned selection refuses holds the case (policy.ROLES_REFUSED), never admit:processing_failed.
+        refused = dataclasses.replace(self.step(inputs, registry, attempt=3),
+                                      roles={"stress_tester": pinned["roles"]["writer"]["model"]})
+        result, _ = self.run_admit(refused)
+        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "infra:roles_refused"))
 
     def real_inputs(self, statement, **more):
         value = {"version": 1, "dry_run": False, "seed": 11, "source": "port",

@@ -94,6 +94,7 @@ _FIXED = {
     'diagnosis_schema_wait': (_I, 'infra:diagnosis_schema_wait'),
     'extension_snapshot_invalid': (_I, 'infra:extension_snapshot_invalid'),
     'factory_bug_held': (_I, 'infra:factory_bug_held'),
+    'roles_refused': (_I, 'infra:roles_refused'),   # policy.ROLES_REFUSED: a resume's role swap the card refuses
     'malformed_output_exhausted': (_I, 'infra:malformed_output_exhausted'),
     'ordinary_retry_completion_missing': (_I, 'infra:retry_completion_missing'),
     'ordinary_retry_output_changed': (_I, 'infra:ordinary_retry_output_changed'),

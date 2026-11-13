@@ -853,6 +853,8 @@ def run(worker, step_input, keys):
         fields = {"outcome": Outcome.INFRA_ERROR, "reason": "admit:processing_failed"}
         if isinstance(error, _Conflict):
             fields = {"outcome": Outcome.EXHAUSTED, "reason": "admit:conflict"}
+        elif isinstance(error, getattr(runner, "RoleSwapRefused", ())):   # run.swap_roles
+            fields = {"outcome": Outcome.INFRA_ERROR, "reason": "infra:roles_refused"}
         elif isinstance(error, BudgetError):
             from model_router import ProviderWait
             translated = (runner.engine_provider_wait(c, error, now=worker.clock())

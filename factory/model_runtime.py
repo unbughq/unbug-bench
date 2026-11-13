@@ -124,7 +124,7 @@ def select_models(c, *, log):
     if getattr(c, "engine", None) is None:
         from free_models import apply as apply_free_models
         roles = apply_free_models(c, roles)
-    check_role_families(roles, getattr(a, 'rotation_table', None))
+    check_role_families(roles)
     for data in roles.values(): data['family'] = family(data['model'])
     c.card['roles'], c.card['rotation_slot'] = roles, a.rotation_slot
     m = {"builder": [roles['writer']['model']], "attacker": [roles['stress_tester']['model']],
@@ -136,10 +136,10 @@ def select_models(c, *, log):
     return m
 
 
-def check_role_families(roles, table_name=None):
+def check_role_families(roles):
     """The separation rules of a whole role selection ({role: {'model': ...}}): select_models, and a
     resume's role swap (run.swap_roles), which checks the set after every swapped role is in place.
-    The rotation table's `refused` families stay out of the roles it names, explicit models included."""
+    Like an explicit role flag, a swapped model is not held to the rotation's `refused` list."""
     families = [family(roles[r]['model']) for r in ('writer', 'stress_tester', 'reviewer', 'strong_calibrator')]
     if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
     if 'reviewer2' in roles and family(roles['reviewer2']['model']) in (family(roles['writer']['model']), family(roles['stress_tester']['model'])):
@@ -148,19 +148,15 @@ def check_role_families(roles, table_name=None):
         raise ValueError('Strong calibrator must use the Claude or Codex subscription')
     if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
         raise ValueError('Easy calibrator must not be a contestant family')
-    table = rotation_table(table_name)
-    for fam, refused in (table.get('refused') or {}).items():
-        if any(r in roles and family(roles[r]['model']) == fam for r in refused):
-            raise ValueError(f'{fam} is refused as {"/".join(refused)}: {table.get("refused_why", "")}')
 
 
-def check_swap_models(swap):
+def check_swap_models(swap, accounts=model_router.ACCOUNTS):
     """What a resume's role swap ({role: model}) must meet before any case card is read: a strong
     calibrator on a subscription, and a bounded route for every swapped model (bounded_route)."""
     if 'strong_calibrator' in swap and not swap['strong_calibrator'].startswith(('claude/', 'codex/')):
         raise ValueError('Strong calibrator must use the Claude or Codex subscription')
     for role, model in swap.items():
-        if not bounded_route(role, model):
+        if not bounded_route(role, model, accounts):
             raise ValueError(f'{model} has no bounded route as {role}')
 
 
@@ -188,14 +184,10 @@ def require_bounded_models(c):
                 model_router.retry_at('unbounded_route'), route=chain[0]))
 
 
-def rotation_table(table_name=None):
+def rotation(slot, table_name=None):
     # Default rotation-3writers.json: GPT only calibrates and reviews while OpenAI's filter refuses case
     # writing (2026-10-16). rotation.json (4 writer families) once Daybreak access is granted.
-    return _read_json(PROMPTS.parent / (table_name or os.environ.get('FACTORY_ROTATION', 'rotation-3writers.json')))
-
-
-def rotation(slot, table_name=None):
-    table = rotation_table(table_name)
+    table = _read_json(PROMPTS.parent / (table_name or os.environ.get('FACTORY_ROTATION', 'rotation-3writers.json')))
     if not isinstance(slot, int) or not 1 <= slot <= len(table['slots']): raise ValueError('rotation slot must be 1..8')
     row = table['slots'][slot - 1]
     if len(set(row.values())) != 4 or row['strong_calibrator'] not in ('anthropic', 'openai') or row['strong_calibrator'] == row['writer']:

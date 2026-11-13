@@ -438,11 +438,14 @@ for its role, a strong calibrator off the Claude or Codex subscription; and its
 `bound_below_call_hold` check counts the swapped models. The worker (`run.swap_roles`, from
 `context_for_step`; ADMIT applies it after pinning its INPUTS models) rewrites the card's models and
 roles and appends each replaced model to the card's `role_swaps` (role, from, to, step, seq), then
-checks the whole swapped selection against `select_models`' rules (`model_runtime.check_role_families`,
-the rotation table's `refused` list included). The strong calibrator changes only before the case's
-first GATES step. DIAGNOSIS never applies a swap, so a case whose swap the worker refuses (each other
-attempt fails `infra:context_failed`, the reason in the worker log) is still diagnosed and held. To
-undo a swap, resume again naming that role's earlier model (the card's `role_swaps` `from`):
+checks the whole swapped selection against `select_models`' family rules
+(`model_runtime.check_role_families`; like an explicit role flag, not the rotation's `refused` list) and
+each swapped model's bounded route on the case's router accounts. No role changes on a SEAL step, and
+the strong calibrator changes only before the case's first GATES step. A refusal (`run.RoleSwapRefused`)
+is the same on every attempt, so the worker reports `infra:roles_refused` and the case holds at once
+(`policy.decide`): no retry, no diagnosis, the reason on the case card and the full message in the
+worker log. DIAGNOSIS never applies a swap. The hold is an infra stop, so the operator resumes again
+with other models; to undo a swap, name that role's earlier model (the card's `role_swaps` `from`):
 `--roles stress_tester=<earlier model>`.
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused

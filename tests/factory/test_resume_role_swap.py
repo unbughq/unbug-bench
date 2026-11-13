@@ -24,7 +24,7 @@ from durable.cli import main, parse_roles
 from durable.contract import (ArtifactKind, ContractError, Ref, Step, StepInput, StepKind, step_input_from_record,
                               to_record)
 from durable.runtime import RuntimeErrorCode
-from test_durable_worker_step import BATCH, BENCH_V, CASE, PLUMBING, practice_card, practice_tree
+from test_durable_worker_step import BATCH, BENCH_V, CASE, PLUMBING, WorkerHome, practice_card, practice_tree
 
 FLASH = "opencode-go/deepseek-v4.1-flash"
 CLAUDE = "claude/claude-opus-5-5"     # stands in for claude/claude-mythos-5-2, not on main
@@ -135,23 +135,67 @@ class Worker(unittest.TestCase):
         self.assertEqual(c.models["attacker"], [FLASH])
         self.assertEqual(c.card["roles"]["stress_tester"]["family"], "deepseek")
 
-    def test_the_rotation_refused_list_applies_to_a_swap_and_to_select_models(self):
-        # rotation-3writers.json refuses openai as writer/stress_tester: here only that rule stops Codex.
+    def test_explicit_models_are_not_held_to_the_rotation_refused_list(self):
+        # rotation-3writers.json refuses openai as writer/stress_tester for its own rows only (as on main):
+        # an explicit attacker flag, and a swap like it, may name Codex where the families allow it.
+        import model_runtime
+        c = run.Ctx()
+        c.args, c.card = run.argument_parser().parse_args(["--source", "port", "--attacker", SOL]), {}
+        c.args.rotation_slot, c.args.reviewer1 = 7, "openrouter/xiaomi/mimo-v2.6-pro"
+        self.assertEqual(model_runtime.select_models(c, log=lambda *_: None)["attacker"], [SOL])
+        model_runtime.check_role_families({r: {"model": m} for r, m in SLOT8.items()})   # 22e434's own selection
         card = copy.deepcopy(practice_card(CASE))
         card["roles"]["writer"]["model"] = card["models"]["builder"][0] = "opencode/deepseek-v4.1-flash-free"
         card["roles"]["stress_tester"]["model"] = card["models"]["attacker"][0] = MINIMAX
         card["roles"]["strong_calibrator"]["model"] = card["models"]["strong_calibrator"][0] = CLAUDE
-        with self.assertRaisesRegex(ValueError, "openai is refused as writer/stress_tester"):
-            self.context({"stress_tester": SOL}, card)
-        import model_runtime
-        with self.assertRaisesRegex(ValueError, "openai is refused"):   # 22e434's own selection
-            model_runtime.check_role_families({r: {"model": m} for r, m in SLOT8.items()}, "rotation-3writers.json")
-        # An explicit attacker flag is held to it too (slot 7 with a MiMo reviewer: Codex is otherwise free).
-        c = run.Ctx()
-        c.args, c.card = run.argument_parser().parse_args(["--source", "port", "--attacker", SOL]), {}
-        c.args.rotation_slot, c.args.reviewer1 = 7, "openrouter/xiaomi/mimo-v2.6-pro"
-        with self.assertRaisesRegex(ValueError, "openai is refused"):
+        self.assertEqual(self.context({"stress_tester": SOL}, card).models["attacker"], [SOL])
+        # Family separation still applies to an explicit flag.
+        c.args.attacker = CLAUDE
+        with self.assertRaisesRegex(ValueError, "four different families"):
             model_runtime.select_models(c, log=lambda *_: None)
+
+    def test_a_swapped_model_needs_a_bounded_route_on_the_case_router_accounts(self):
+        # FLASH has a bounded route on the default accounts (above), none on a case with no account.
+        c = run.Ctx()
+        c.router_accounts = ()
+        work = practice_tree(tempfile.mkdtemp(dir=self.tmp.name), CASE, card=self.practice())
+        with patch.object(run, "Ctx", lambda: c), self.assertRaisesRegex(run.RoleSwapRefused, "no bounded route"):
+            run.context_for_step(step_input({"stress_tester": FLASH}), work)
+
+    def test_no_role_changes_on_a_seal_step(self):
+        # The sealed card must name the stress tester whose G2 and stress rounds it holds.
+        with self.assertRaisesRegex(run.RoleSwapRefused, "no role changes at SEAL"):
+            self.context({"stress_tester": FLASH}, self.practice(), kind=StepKind.SEAL)
+        # Before SEAL a swapped stress tester is fine: its G2 identity names it, so GATES reruns G2.
+        self.assertEqual(self.context({"stress_tester": FLASH}, self.practice(), kind=StepKind.GATES).models["attacker"],
+                         [FLASH])
+        # An unchanged role at SEAL is no swap.
+        self.assertEqual(self.context({"stress_tester": SOL}, kind=StepKind.SEAL).models["attacker"], [SOL])
+
+    def test_a_refused_swap_holds_the_case_on_its_first_attempt(self):
+        # Every refusal is a RoleSwapRefused, the same on each attempt: the worker reports
+        # infra:roles_refused and the policy holds the case without a retry or a diagnosis.
+        from durable.contract import BatchSpec, Outcome, StepResult
+        from durable.policy import Action, Counters, decide
+        for roles, card in (({"stress_tester": CLAUDE}, None), ({"strong_calibrator": "openrouter/z-ai/glm-5.3-flash"},
+                            self.practice()), ({"stress_tester": "openrouter/unknown/model-x"}, self.practice())):
+            with self.assertRaises(run.RoleSwapRefused, msg=repr(roles)):
+                self.context(roles, card)
+        spec = BatchSpec.__new__(BatchSpec)
+        object.__setattr__(spec, "max_infra_retries_per_step", 3)
+        for step in (Step(StepKind.ADMIT), Step(StepKind.WRITER, 1), Step(StepKind.STRESS, 1),
+                     Step(StepKind.GATES, 1), Step(StepKind.SEAL)):
+            result = StepResult(Outcome.INFRA_ERROR, "infra:roles_refused")
+            self.assertIs(decide(step, result, Counters(step_infra_errors=1), spec), Action.HOLD, step)
+
+    def test_the_worker_reports_a_refused_swap_as_roles_refused(self):
+        import dataclasses
+        from durable.contract import Outcome
+        from durable.worker_step import Worker
+        h = WorkerHome(self)   # writer anthropic: an anthropic stress tester breaks the family rule
+        si = dataclasses.replace(h.step(StepKind.STRESS, 1, snapshot=h.push_practice()), roles={"stress_tester": CLAUDE})
+        result, _ = Worker(h.home, sealer=h.sealer, runner=run).execute(si, h.keys(si))
+        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "infra:roles_refused"))
 
     def test_the_strong_calibrator_stays_on_a_subscription_and_swapped_models_need_a_bounded_route(self):
         with self.assertRaisesRegex(ValueError, "Claude or Codex subscription"):
@@ -168,15 +212,14 @@ class Worker(unittest.TestCase):
         for gates in ({"G10": "pass"}, {"G1": "pass"}):   # G10, or a GATES step that stopped before it
             with self.assertRaisesRegex(ValueError, "only before the case's first GATES step", msg=gates):
                 self.context(swap, slot8_card(gates=gates))
-        for kind in (StepKind.GATES, StepKind.SEAL):   # a GATES step empties card["gates"] as it starts
-            with self.assertRaisesRegex(ValueError, "only before the case's first GATES step", msg=kind):
-                self.context(swap, kind=kind)
+        with self.assertRaisesRegex(ValueError, "only before the case's first GATES step"):
+            self.context(swap, kind=StepKind.GATES)   # a GATES step empties card["gates"] as it starts
         # The stress tester alone may still change after G10.
         self.assertEqual(self.context({"stress_tester": FLASH}, self.practice(gates={"G10": "pass"})).models["attacker"],
                          [FLASH])
 
     def test_diagnosis_never_applies_a_swap(self):
-        # A refused swap fails every other step; diagnosis still runs on the case's own models.
+        # Diagnosis runs on the case's own models.
         c = self.context({"stress_tester": FLASH}, kind=StepKind.DIAGNOSIS)
         self.assertEqual((c.models["attacker"], "role_swaps" in c.card), ([SOL], False))
 
