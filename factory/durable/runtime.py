@@ -299,15 +299,19 @@ class Runtime:
         self.store.put_sealed(scope, ref, ciphertext)
         return ref
 
-    def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None, roles=None):
+    def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None, roles=None,
+              extra_case_money=None, case_money_reason=None):
         spec = batch_spec_from_record(spec_record)
         # An operator override (founder 2026-11-11) resumes a case once where engine.resume_point's
         # rules refuse it; the engine checks the reason and that the lineage has not used one.
-        if (override is not None or roles is not None) and resume_of is None:
+        grant = None if extra_case_money is None and case_money_reason is None else {
+            "usd_micros": extra_case_money, "reason": case_money_reason}
+        if (override is not None or roles is not None or grant is not None) and resume_of is None:
             raise RuntimeErrorCode("resume_invalid")
         if roles is not None:
             check_role_swap(roles)
         extra = {} if override is None else {"override": override}
+        money = {} if grant is None else {"case_money_extra": grant}
         registry = Ref(**registry_record)
         if registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise RuntimeErrorCode("registry_required")
@@ -362,7 +366,14 @@ class Runtime:
                        DBOS.list_workflows(workflow_id_prefix=resume_of + "@", load_input=False, load_output=False)]
             used = carried + sum(self.ledger.case_balance(b, resume_of, 0)["used"]
                                  for b in sorted({old_batch, *resumed}))
-            if type(carried) is not int or used + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros:
+            # Founder 2026-11-13: the lineage's grants (engine.lineage_case_money_extra) raise its ceiling.
+            from durable.engine import lineage_case_money_extra
+            try:
+                raised = (lineage_case_money_extra(resume_of, grant) or {}).get("usd_micros", 0)
+            except ContractError:
+                raise RuntimeErrorCode("case_money_extra_invalid") from None
+            if (type(carried) is not int
+                    or used + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros + raised):
                 raise RuntimeErrorCode("resume_money")
         from dbos import DBOS
         existing = DBOS.get_workflow_status(spec.batch_id)
@@ -381,7 +392,7 @@ class Runtime:
         if roles is not None and not release_takes_roles(bundle):
             raise RuntimeErrorCode("roles_need_newer_release")   # its workers would refuse every step
         swap = {} if roles is None else {"roles": roles}
-        self.engine.start_batch(spec, registry, imported, resume_of, **extra, **swap)
+        self.engine.start_batch(spec, registry, imported, resume_of, **extra, **swap, **money)
         return {"batch_id": spec.batch_id}
 
     def drain(self):

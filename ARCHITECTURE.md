@@ -459,6 +459,17 @@ reason rides in the resume record, so a second override of the lineage is refuse
 retires at its next `factory_bug` diagnosis. The override's case card and the board show the reason;
 the published scorecard does not.
 
+Founder 2026-11-13: a resume may raise its lineage's case-money ceiling so a case can finish:
+`start --resume-case <case> --extra-case-money <usd_micros> --case-money-reason <text>`. `start`'s
+`resume_money` check then lets the earlier spend plus the batch's case money reach the $50 default
+plus the lineage's grants. The grant (`{usd_micros, reason}`, `engine.lineage_case_money_extra`) rides
+in the resume record as the lineage's total, so later resumes keep it and a further grant adds to it,
+at most $200 in all (`case_money_extra_invalid` otherwise, as for a missing or bad reason). Nothing
+else changes: each batch's steps still reserve against that batch's own `case_money_usd_micros`
+(plus the GATES G10 authority), so a lineage without a grant behaves as before. The case card and the
+board show the grant and its reason; the published scorecard does not. A legacy import keeps the
+plain default (`import_invalid`).
+
 Founder 2026-11-12: a resume may also give the case another stress tester or strong calibrator,
 since a snapshot card pins its models: `start --resume-case <case> --roles
 stress_tester=<model>[,strong_calibrator=<model>]`. No other role may change. The swap rides in the

@@ -240,7 +240,7 @@ class RuntimeTests(unittest.TestCase):
             if workflow_ids == ["b-old"]:
                 return [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
             assert workflow_id_prefix == "case-old-1@"
-            return [SimpleNamespace(workflow_id="case-old-1@b-mid")]
+            return [SimpleNamespace(workflow_id="case-old-1@b-mid", created_at=1, input={"args": [{"resume": {}}]})]
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
                 patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start, \
                 patch.object(runtime.engine, "factory_bug_waste_keys", return_value=[]):
@@ -335,6 +335,75 @@ class RuntimeTests(unittest.TestCase):
                                "resume": "case-old-1", "roles": roles})
             named.assert_called_once_with("case-old-1")
             start.assert_called_once_with(ok, registry, None, "case-old-1", roles=roles)
+
+    def test_extra_case_money_raises_one_lineage_ceiling(self):
+        # Founder 2026-11-13: fresh-1109a-1 used its whole $50; `start --resume-case <case>
+        # --extra-case-money <usd_micros> --case-money-reason <text>` lets it finish.
+        from durable.contract import Usage
+        runtime = self.runtime()
+        old_inputs = runtime.prepare("b-old", ArtifactKind.INPUTS, b"{}")
+        old = BatchSpec(batch_id="b-old", plumbing_version="a" * 64, bench_version="b" * 64,
+                        app_repo="medusajs/medusa", app_commit="c" * 40, inputs=old_inputs, target_sealed=1,
+                        money_bound_usd_micros=100, deadline_epoch=4e9, max_concurrency=1)
+        runtime.ledger.open("b-old", 100_000_000)
+        runtime.ledger.reserve("b-old", "case-old-1", "case-old-1/1/writer:1/1", 50_000_000, 50_000_000)
+        runtime.ledger.settle("case-old-1/1/writer:1/1", Usage(paid_usd_micros=50_000_000))
+        inputs = runtime.prepare("b-new", ArtifactKind.INPUTS, b"{}")
+        registry = runtime.prepare("b-new", ArtifactKind.STATEMENT_REGISTRY, b"opaque registry")
+        ok = BatchSpec(batch_id="b-new", plumbing_version="a" * 64, bench_version="b" * 64,
+                       app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs, target_sealed=1,
+                       money_bound_usd_micros=100, deadline_epoch=4e9, max_concurrency=1, max_cases_started=1,
+                       case_money_usd_micros=45_000_000)
+        def workflows(workflow_ids=None, workflow_id_prefix=None, **_):
+            if workflow_ids == ["b-old"]:
+                return [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
+            assert workflow_id_prefix == "case-old-1@"
+            return earlier
+        earlier = []
+        why = "founder 2026-11-13: let it finish"
+        grant = {"usd_micros": 45_000_000, "reason": why}
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
+                patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start, \
+                patch.object(runtime.engine, "factory_bug_waste_keys", return_value=[]):
+            with self.assertRaisesRegex(RuntimeErrorCode, "resume_money"):   # today's ceiling, unchanged
+                runtime.start(to_record(ok), to_record(registry), None, "case-old-1")
+            with self.assertRaisesRegex(RuntimeErrorCode, "resume_money"):   # $50 + $44.99 is short
+                runtime.start(to_record(ok), to_record(registry), None, "case-old-1",
+                              extra_case_money=44_999_999, case_money_reason=why)
+            for amount, reason in ((0, why), (-1, why), (True, why), (1.5, why), ("45000000", why),
+                                   (200_000_001, why), (45_000_000, None), (45_000_000, " "),
+                                   (45_000_000, "x" * 201), (45_000_000, "a\nb"), (None, why)):
+                with self.subTest(amount=amount, reason=reason), \
+                        self.assertRaisesRegex(RuntimeErrorCode, "case_money_extra_invalid"):
+                    runtime.start(to_record(ok), to_record(registry), None, "case-old-1",
+                                  extra_case_money=amount, case_money_reason=reason)
+            with self.assertRaisesRegex(RuntimeErrorCode, "resume_invalid"):
+                runtime.start(to_record(ok), to_record(registry), None, None,
+                              extra_case_money=45_000_000, case_money_reason=why)
+            start.assert_not_called()
+            dispatch(runtime, {"op": "start", "spec": to_record(ok), "registry": to_record(registry),
+                               "resume": "case-old-1", "extra_case_money": 45_000_000, "case_money_reason": why})
+            start.assert_called_once_with(ok, registry, None, "case-old-1", case_money_extra=grant)
+            # A later resume of the lineage keeps the raised ceiling without naming it again, and a
+            # further grant adds to it, up to $200 in all.
+            start.reset_mock()
+            runtime.ledger.open("b-mid", 100_000_000)   # that resume's batch, which spent nothing
+            earlier.append(SimpleNamespace(workflow_id="case-old-1@b-mid", created_at=1,
+                                           input={"args": [{"resume": {"case_money_extra": grant}}]}))
+            runtime.start(to_record(ok), to_record(registry), None, "case-old-1")
+            start.assert_called_once_with(ok, registry, None, "case-old-1")
+            with self.assertRaisesRegex(RuntimeErrorCode, "case_money_extra_invalid"):
+                runtime.start(to_record(ok), to_record(registry), None, "case-old-1",
+                              extra_case_money=155_000_001, case_money_reason=why)
+        # The CLI refuses an amount without a case or a reason before it contacts the controller.
+        for argv, code in ((["--extra-case-money", "45000000", "--case-money-reason", why], "case_money_needs_resume_case"),
+                           (["--resume-case", "case-old-1", "--extra-case-money", "45000000"], "case_money_extra_invalid"),
+                           (["--resume-case", "case-old-1", "--case-money-reason", why], "case_money_extra_invalid")):
+            with patch("durable.cli.load_config", return_value=self.config), patch("sys.stderr", new_callable=io.StringIO) as err, \
+                    patch("socket.socket") as sock:
+                self.assertEqual(main(["--config", "x", "start", "spec.json", "registry.json", *argv]), 1)
+                sock.assert_not_called()
+            self.assertEqual(err.getvalue(), code + "\n")
 
     def test_resume_books_factory_bug_losses_as_waste_before_counting_case_money(self):
         # 22e434-3 on 9 November: a writer step that stopped on our own bug had settled $45 as the
