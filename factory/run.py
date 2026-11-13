@@ -1343,11 +1343,8 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
     if reusable:
         import claims
         receipt_identity["scoring"] = claims.scoring_identity()
-        # The environment a bench run executes in (as gate_state.inputs binds it); the deps image
-        # as bin/bench.py resolves it when the variable is unset.
-        deps = pathlib.Path("/opt/medusa-deps-image")
-        receipt_identity["environment"] = {"UNBUG_JUDGE": os.environ.get("UNBUG_JUDGE"), "MEDUSA_DEPS_IMAGE":
-            os.environ.get("MEDUSA_DEPS_IMAGE") or (deps.read_text().strip() if deps.is_file() else None)}
+        import gate_state  # the environment a bench run executes in, as the gate identity binds it
+        receipt_identity["environment"] = gate_state.environment("UNBUG_JUDGE", "MEDUSA_DEPS_IMAGE")
         saved = _saved_checkpoint(c, receipt_identity, runs, label)
         if saved is not None: return saved
     def read(p):

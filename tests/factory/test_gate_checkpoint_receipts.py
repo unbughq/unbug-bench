@@ -79,6 +79,19 @@ class GateCheckpointReceipts(unittest.TestCase):
                     self.call()   # the same environment again is reused
                 self.assertEqual(sh.call_count, 2)
 
+    def test_deps_image_file_binds_the_gate_identity_when_the_variable_is_unset(self):
+        # bin/bench.py runs with /opt/medusa-deps-image when MEDUSA_DEPS_IMAGE is unset; a saved gate
+        # pass must not be reused once that file names another image.
+        deps = self.work / 'medusa-deps-image'
+        env = {k: v for k, v in run.os.environ.items() if k != 'MEDUSA_DEPS_IMAGE'}
+        with patch.object(gate_state, 'DEPS_IMAGE_FILE', deps, create=True), patch.dict('os.environ', env, clear=True):
+            deps.write_text('one\n')
+            first = gate_state.fingerprint(self.c, 'G5', ROOT), gate_state.scientific_version(self.c, 'G5', ROOT)
+            deps.write_text('two\n')
+            second = gate_state.fingerprint(self.c, 'G5', ROOT), gate_state.scientific_version(self.c, 'G5', ROOT)
+        self.assertNotEqual(first[0], second[0])
+        self.assertNotEqual(first[1], second[1])
+
     def test_forget_receipts_survives_a_concurrent_note(self):
         mine = {}
         class Label(str):   # another lane notes a receipt while forget_receipts walks the labels

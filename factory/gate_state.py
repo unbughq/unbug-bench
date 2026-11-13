@@ -37,6 +37,15 @@ def digest(path):
 
 VERSION = 3
 RUNNER = pathlib.Path(__file__).with_name("run.py")
+DEPS_IMAGE_FILE = pathlib.Path("/opt/medusa-deps-image")
+
+
+def environment(*keys):
+    """The bench execution environment; the deps image as bin/bench.py resolves it when the variable is unset."""
+    result = {key: os.environ.get(key) for key in keys}
+    if "MEDUSA_DEPS_IMAGE" in result and not result["MEDUSA_DEPS_IMAGE"] and DEPS_IMAGE_FILE.is_file():
+        result["MEDUSA_DEPS_IMAGE"] = DEPS_IMAGE_FILE.read_text().strip()
+    return result
 MEASURE = ("factory/case_permissions.py", "bin/bench.py", "bin/bench_judging.py", "bin/checkpoint", "bin/checkpoint_evidence.py", "bin/claims.py", "bin/refusal.py", "bin/factory_pool.py", "bin/diagnostic_budget.py",
            "cases/medusa-oversell/checker/**", "cases/medusa-oversell/traffic/**", "projects/**", "guards/**")
 STRATEGY = ("bin/strategy", "bin/strategy_resume.py", "bin/silent_window.py", "bin/exposure.py", "bin/live_shop.py",
@@ -202,7 +211,7 @@ def inputs(c, gate, bench):
         "runner": runner_inputs(gate),
         "seed": c.seed, "slot": getattr(c, "factory_slot", 0),
         "args": {key: getattr(c.args, key, default) for key, default in settings.items()},
-        "environment": {key: os.environ.get(key) for key in ("UNBUG_JUDGE", "UNBUG_FACTORY_SLOT", "MEDUSA_DEPS_IMAGE")},
+        "environment": environment("UNBUG_JUDGE", "UNBUG_FACTORY_SLOT", "MEDUSA_DEPS_IMAGE"),
     }
     if gate in MODEL_STAGES:
         import run
@@ -248,7 +257,7 @@ def scientific_version(c, gate, bench):
         identity = {"gate": gate, "bench": judge_dependencies(c, bench),
                     "prompt": hashlib.sha256(run.prompt("attacker", "").encode()).hexdigest(),
                     "model": c.models.get("attacker"), "role": c.card.get("roles", {}).get("stress_tester"),
-                    "environment": {key: os.environ.get(key) for key in ("UNBUG_JUDGE", "MEDUSA_DEPS_IMAGE")}}
+                    "environment": environment("UNBUG_JUDGE", "MEDUSA_DEPS_IMAGE")}
         identity["bench"].pop("seed", None)
         settings = identity["bench"].get("settings", {})
     else:
