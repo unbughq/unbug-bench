@@ -51,7 +51,8 @@ class Fake:
         self.clock += 0.1
         if self.boat_refusals.get(args[0], 0):
             self.boat_refusals[args[0]] -= 1
-            return {"code": 1, "out": b"", "stderr": b"Error: sandbox lease cannot be extended", "seconds": 0.1}
+            return {"code": 1, "out": b'{"code":"not_found","error":"sandbox not found","event":"error","status":404}',
+                    "stderr": b"", "seconds": 0.1}
         left = self.boat_failures.get(args[0], 0)
         if left:
             self.boat_failures[args[0]] = left - 1
@@ -260,6 +261,16 @@ class GuardTests(unittest.TestCase):
         with patch("time.time", return_value=self.f.clock + 1):
             self.assertIsNone(renewing(self.f.state_dir, "bx_aaaaaaaa", stale_s=stale))
         self.assertEqual(self.f.deletes(), [])
+
+    def test_only_a_boat_api_refusal_of_the_sandbox_is_a_refusal(self):
+        from durable.guard import boat_refused
+        api = lambda status: {"code": 1, "out": ('{"event":"error","error":"x","status":%d}' % status).encode()}
+        self.assertTrue(boat_refused(api(404)))
+        unknown = [{"code": -9, "out": b""}, {"code": 124, "out": b""},            # killed, timed out
+                   {"code": 1, "out": b'{"event":"error","error":"could not reach the Boat API"}'},   # lost link
+                   {"code": 1, "out": b"boat-call: managed command refused"}, api(401), api(429), api(503)]
+        for done in unknown:
+            self.assertFalse(boat_refused(done), done)
 
     def test_a_control_plane_outage_or_operator_stop_records_no_refusal(self):
         self.tick()

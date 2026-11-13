@@ -331,15 +331,18 @@ class Guard:
         for row in owned:
             ttl = min(7200, int(self.request["deadline_epoch"] + self.checkpoint_grace_s - self.clock()))
             if ttl >= 1:
-                codes = []
+                answers = []
                 def extend():
-                    try: return self._boat(["extend", row["id"], "--ttl", str(ttl)], 30)
-                    except CheckFailed as error:
-                        codes.append(error.code); raise
+                    done = self.boat(["extend", row["id"], "--ttl", str(ttl)], 30)
+                    if done["code"]:
+                        answers.append(boat_refused(done))
+                        raise CheckFailed(f"exit_{done['code']}", done.get("stderr", ""))
+                    return done["out"]
                 ok, _ = self.check("boat_extend", extend)
-                # Only Boat's own answer is a refusal. A timeout or a call that never reached Boat
-                # (transport_failure) leaves the renewal unknown, so a silent link never retires a worker.
-                if ok or (codes and not any(map(transport_failure, codes))):
+                # Only the Boat API refusing this sandbox is a refusal (boat_refused). A timeout, a
+                # signal, a lost link or a credential problem leaves the renewal unknown, so a silent
+                # link never retires a worker before its attempt deadline.
+                if ok or (answers and all(answers)):
                     record.setdefault(row["id"], {})["ok" if ok else "refused"] = self.clock()
         self.save("renewed.json", record)
 
@@ -695,11 +698,17 @@ def degraded(state_dir) -> bool:
         return False
 
 
-def transport_failure(code: str) -> bool:
-    """A boat-call exit that says nothing of Boat's answer: timed out (124), capture failed (125),
-    could not run (126), or killed by a signal (128 and up)."""
-    number = code.removeprefix("exit_")
-    return number.isdigit() and int(number) >= 124
+def boat_refused(done: dict) -> bool:
+    """Whether a failed `boat extend` is the Boat API refusing this sandbox. Boat exits 1 for every
+    error and prints one JSON error event; only an answer from the API carries its HTTP `status`
+    (a lost link, a timeout or a killed call has none). Auth, timeout and rate-limit statuses are the
+    control VM's problem, not the sandbox's."""
+    try:
+        event = json.loads(done.get("out") or b"")
+    except ValueError:
+        return False
+    status = event.get("status") if isinstance(event, dict) and event.get("event") == "error" else None
+    return type(status) is int and 400 <= status < 500 and status not in (401, 403, 408, 429)
 
 
 RENEWAL_STALE_S = 900.0   # fifteen missed one-minute guard passes

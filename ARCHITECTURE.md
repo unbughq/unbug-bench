@@ -541,7 +541,7 @@ marked `reconciled`. A bound only ever lowers a charge, and the ceiling is uncha
 generation report replaces the bounded share with the provider's cost, which may be higher but
 never above the row's hold.
 
-A worker that has answered no poll for 30 minutes (`SILENT_WORKER_LIMIT_S`) is deleted and counted lost at once, but only when the guard's `renewed.json` shows Boat refusing its lease renewal (in a pass whose inventory call worked) and accepting none for 15 minutes (`guard.renewing`); a control-plane outage, an operator stop, a renewal that timed out or never reached Boat (`guard.transport_failure`), or no guard pass is unknown and never retires it. A router or credential wait keeps the case's worker and rechecks at 2, 4 and 8 minutes (`operational_wait_keeps_worker` DBOS patch) before releasing it and waiting out the rest of `credential_retry_s`.
+A worker that has answered no poll for 30 minutes (`SILENT_WORKER_LIMIT_S`) is deleted and counted lost at once, but only when the guard's `renewed.json` shows Boat refusing its lease renewal (in a pass whose inventory call worked) and accepting none for 15 minutes (`guard.renewing`); a control-plane outage, an operator stop, a renewal Boat's API did not refuse for that sandbox (a timeout, a signal, a lost link or a credential error; `guard.boat_refused`), or no guard pass is unknown and never retires it. A router or credential wait keeps the case's worker and rechecks at 2, 4 and 8 minutes (`operational_wait_keeps_worker` DBOS patch) before releasing it and waiting out the rest of `credential_retry_s`.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and
