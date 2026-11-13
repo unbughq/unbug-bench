@@ -458,8 +458,8 @@ other than a recertified case's repair, a `NEEDS_FOUNDER` escalation or a stress
 whether last or among the diagnosed step's attempts, and no diagnosis verdict but those two; nor an
 exhausted round, call or cost ceiling (`resume:ceiling_stop`, such as `writer:rounds_exhausted`):
 FACTORY.md raises those by explicit flags, never by a reset. The
-reason rides in the resume record, so a second override of the lineage is refused
-(`resume:override_used`); an override the rules did not need is not recorded. A lineage past the cap
+reason rides in the resume record, so a third override of the lineage is refused
+(`resume:override_used`; founder 2026-11-13 raised the limit from one to two); an override the rules did not need is not recorded. A lineage past the cap
 retires at its next `factory_bug` diagnosis. The override's case card and the board show the reason;
 the published scorecard does not.
 
