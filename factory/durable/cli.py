@@ -187,8 +187,8 @@ def main(argv=None):
     start.add_argument("--resume-case", help="a case stopped by an infrastructure failure (held or retired), or held "
                        "by a factory_bug diagnosis of an unchanged repair: continue it as this "
                        "one-case batch's case, where it stopped")
-    start.add_argument("--override-reason", help="operator override (founder 2026-11-11): resume --resume-case once "
-                       "more where the normal rules refuse it (a factory_bug hold whose stops are not all rerunnable "
+    start.add_argument("--override-reason", help="operator override (founder 2026-11-11): resume --resume-case "
+                       "(at most twice per case lineage) where the normal rules refuse it (a factory_bug hold whose stops are not all rerunnable "
                        "or that used its resumes, or a case whose last attempt was not an infra stop); never a "
                        "scientific stop or a sealed case. Recorded on the case card and the board")
     start.add_argument("--roles", help="founder 2026-11-12: resume --resume-case with another model for "

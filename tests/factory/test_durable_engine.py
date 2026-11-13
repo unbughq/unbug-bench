@@ -1616,7 +1616,7 @@ class Resume(unittest.TestCase):
 class ResumeOverride(unittest.TestCase):
     """Founder 2026-11-11: a case killed by a since-fixed factory bug resumes once more by an operator
     override (`start --resume-case <case> --override-reason <text>`) where Resume's rules refuse it.
-    Never an unfinished, sealed or scientifically stopped case, and once per lineage."""
+    Never an unfinished, sealed or scientifically stopped case, and at most twice per lineage."""
 
     WHY = "factory bug fixed in #122"
 
@@ -1630,7 +1630,7 @@ class ResumeOverride(unittest.TestCase):
             scenario["override"] = override
         return EngineRun(manual_holds(scenario), workdir=r.work).run()
 
-    def test_a_gates_hold_past_the_resume_cap_resumes_once_per_lineage(self):
+    def test_a_gates_hold_past_the_resume_cap_resumes_twice_per_lineage(self):
         # cae763-2-1: three factory_bug resumes, then a fourth factory_bug after gates
         # infra:raw_infrastructure_exhausted, which the policy retires.
         spec = {"max_infra_retries_per_step": 2}
@@ -1655,9 +1655,12 @@ class ResumeOverride(unittest.TestCase):
         self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()),
                          [f"{C1}/{gseq}/gates:1/{n}" for n in range(1, int(new[0][2]))])
         self.assertEqual(card(out, C1)["override"], self.WHY)
-        # Once per lineage, recorded in the resume record across batches.
-        self.assertEqual(self.resume(r, "b-z", override="again", spec=spec), {"refused": "resume:override_used"})
-        self.assertEqual(self.resume(r, "b-z", spec=spec), {"refused": "resume:not_stopped_by_infra"})
+        # Founder 2026-11-13: twice per lineage, counted from the resume records across batches.
+        out = self.resume(r, "b-z", again, override="again", spec=spec)
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-z": "retired"})
+        self.assertEqual(card(out, C1)["override"], "again")
+        self.assertEqual(self.resume(r, "b-z2", override="third", spec=spec), {"refused": "resume:override_used"})
+        self.assertEqual(self.resume(r, "b-z2", spec=spec), {"refused": "resume:not_stopped_by_infra"})
 
     def test_a_factory_bug_hold_whose_step_never_started_resumes_at_that_step(self):
         # The diagnosed stress step never started (the case grant was below the minimum), so it

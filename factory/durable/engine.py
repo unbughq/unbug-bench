@@ -423,9 +423,11 @@ def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
 # explicit operator override (`start --resume-case <case> --override-reason <text>`), where the rules
 # above refuse it: a factory_bug hold whose diagnosed stops are not all rerunnable, or that reached
 # MAX_FACTORY_BUG_RESUMES, or a case held or retired whose last attempt was not an infra stop. Never
-# a case that has not finished or sealed, and never a stop _override_refusal names. Once per lineage:
-# the override and its reason ride in the resume record (and on the case card), so a later one sees it.
+# a case that has not finished or sealed, and never a stop _override_refusal names. Each override and its
+# reason ride in the resume record (and on the case card), so a later one sees it. Founder 2026-11-13:
+# up to OVERRIDE_MAX per lineage (was once), so a case a second fixed factory bug killed can finish.
 OVERRIDE_REASON_MAX = 200
+OVERRIDE_MAX = 2
 
 
 def _override_refusal(kind: Optional[str], r) -> Optional[str]:
@@ -606,8 +608,8 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         return out.get("result") if w.status == "SUCCESS" and isinstance(out, dict) else None
 
     earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
-    if override is not None and any(r.get("override") is not None for r in earlier):
-        raise ContractError("resume:override_used")   # once per lineage
+    if override is not None and sum(r.get("override") is not None for r in earlier) >= OVERRIDE_MAX:
+        raise ContractError("resume:override_used")   # OVERRIDE_MAX per lineage
     overridden = False
     factory_bug_resumes = max([r.get("factory_bug_resumes", 0) for r in earlier], default=0)
     # Resumes the latest workflow made in place (rerun_after_release), by diagnosis seq. The new
@@ -2245,8 +2247,8 @@ class Engine:
         batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2). import_snapshot,
         a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case.
         resume_of, a case stopped by an infrastructure failure, continues it as the batch's first
-        case where it stopped (resume_point). override, the operator's reason, resumes it once where
-        resume_point's rules refuse it (founder 2026-11-11). roles swaps its stress tester or strong
+        case where it stopped (resume_point). override, the operator's reason, resumes it where
+        resume_point's rules refuse it, at most OVERRIDE_MAX times per lineage (founder 2026-11-11, 2026-11-13). roles swaps its stress tester or strong
         calibrator model (resume_point, founder 2026-11-12). case_money_extra raises its lineage's
         case-money ceiling (lineage_case_money_extra, founder 2026-11-13)."""
         if not isinstance(initial_registry, Ref) or initial_registry.kind is not ArtifactKind.STATEMENT_REGISTRY:

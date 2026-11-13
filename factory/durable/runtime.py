@@ -302,8 +302,8 @@ class Runtime:
     def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None, roles=None,
               extra_case_money=None, case_money_reason=None):
         spec = batch_spec_from_record(spec_record)
-        # An operator override (founder 2026-11-11) resumes a case once where engine.resume_point's
-        # rules refuse it; the engine checks the reason and that the lineage has not used one.
+        # An operator override (founder 2026-11-11) resumes a case where engine.resume_point's rules refuse
+        # it; the engine checks the reason and that the lineage has used fewer than OVERRIDE_MAX (two).
         grant = None if extra_case_money is None and case_money_reason is None else {
             "usd_micros": extra_case_money, "reason": case_money_reason}
         if (override is not None or roles is not None or grant is not None) and resume_of is None:
