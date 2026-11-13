@@ -1811,16 +1811,15 @@ def freshness_lines(c):
     return [x if isinstance(x, dict) else {"invalid_record": True} for x in lines]
 
 
-def attacker_search(row):
-    return [row.get("kind"), " ".join(str(row.get("query")).casefold().split())]
-
-
 def own_search(c, row):
-    """search_evidence(row) unless it repeats an attacker search logged before a resume swap's stress
-    tester took over (card stale_attacker_searches, written by swap_roles): the new one owes its own."""
+    """search_evidence(row) unless it is an earlier stress tester's attacker row (swap_roles): one the
+    swap left in the log carries a `_search_id` or result URL the card's stale_attacker_searches names,
+    as does any copy the repair history keeps beside it."""
     from admission import search_evidence
     key = search_evidence(row)
-    return None if key and key[0] == "attacker" and attacker_search(row) in c.card.get("stale_attacker_searches", ()) else key
+    stale = c.card.get("stale_attacker_searches") or ()
+    ids, urls = {s[0] for s in stale} - {None}, {s[1] for s in stale} - {None}
+    return None if key and key[0] == "attacker" and (row.get("_search_id") in ids or row.get("url") in urls) else key
 
 
 def freshness_counts(c):
@@ -3142,10 +3141,23 @@ def swap_roles(c, step_input):
     except ValueError as error:
         raise RoleSwapRefused(f"role swap: {error}") from None
     log(c, "roles", "resume swap: " + json.dumps(history))
-    if "stress_tester" in changed:   # what the old stress testers searched never counts for the new one
-        stale = c.card.get("stale_attacker_searches", [])
-        stale += [k for r in freshness_lines(c) if r.get("who") == "attacker" and (k := attacker_search(r)) not in stale]
-        c.card["stale_attacker_searches"] = stale
+    if "stress_tester" in changed:
+        # What the old stress testers searched never counts for the new one, which never sees it to reword:
+        # the card archives their plain rows out of the log. A possible public match stays for G2's review,
+        # under an identity the factory gives it here. Neither's result URL counts again.
+        rows, kept = freshness_lines(c), []
+        for i, row in enumerate(rows):
+            if row.get("who") != "attacker":
+                kept.append(row)
+                continue
+            if row.get("hit") is True or row.get("ambiguous") is True:
+                row["_search_id"] = hashlib.sha256(f"stale:{i}:{json.dumps(row, sort_keys=True)}".encode()).hexdigest()
+                kept.append(row)
+            else:
+                c.card.setdefault("stale_attacker_rows", []).append(row)
+            c.card.setdefault("stale_attacker_searches", []).append([row.get("_search_id"), row.get("url")])
+        if any(row.get("who") == "attacker" for row in rows):
+            (c.case / "freshness.jsonl").write_text("".join(json.dumps(r) + "\n" for r in kept))
     c.card.setdefault("role_swaps", []).extend(history)
     c.models = c.card["models"] = models
     c.card["roles"] = roles

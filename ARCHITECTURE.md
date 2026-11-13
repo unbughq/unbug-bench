@@ -480,8 +480,10 @@ is the same on every attempt, so the worker reports `infra:roles_refused` and th
 (`policy.decide`): no retry, no diagnosis, the reason on the case card and the full message in the
 worker log. DIAGNOSIS never applies a swap. The hold is an infra stop, so the operator resumes again
 with other models; to undo a swap, name that role's earlier model (the card's `role_swaps` `from`):
-`--roles stress_tester=<earlier model>`. A swapped stress tester's G2 never counts an attacker
-query the log held at its swap (the swap records them on the card, `run.own_search`), and no G2 verdict
+`--roles stress_tester=<earlier model>`. A stress-tester swap archives the old tester's attacker rows
+on the card (`stale_attacker_rows`), so no model is given them to reword; a possible public match stays
+in the log for G2 under a factory-given `_search_id`. No row with an archived or kept row's
+`_search_id` or result URL counts for the new tester (`run.own_search`), and no G2 verdict
 from before a stress-tester swap is reused (`admission.search_binding`, `gate_state.inputs`), so it searches itself; and no family in
 `role_swaps` may become the second reviewer (`model_runtime.former_families`). A swap into the second
 reviewer's family re-picks it, unless it was given explicitly (card `reviewer2_pinned`, or, on a card from before that field, any second reviewer, since main never picked one itself): then the swap is refused.

@@ -14,7 +14,9 @@ import io
 import json
 import os
 import tempfile
+import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault("BENCH", str(_ROOT))
@@ -119,14 +121,17 @@ class Worker(unittest.TestCase):
                 self.context(alone)
 
     def test_a_swapped_stress_tester_never_counts_the_old_searches(self):
-        # Timestamps and copies prove no authorship: the swap records what the log held, and no G2
-        # verdict from before a stress-tester swap is reused, not even after swapping back (A->B->A).
+        # Query text, timestamps and copies prove no authorship. The swap archives the old tester's plain
+        # rows out of the log and names its possible public match by a factory identity; no G2 verdict
+        # from before a stress-tester swap is reused, not even after swapping back (A->B->A).
         import datetime
         from admission import search_binding
         from test_invalid_runs import PRACTICE
         rows = [json.loads(line) for line in PRACTICE["files"]["freshness.jsonl"].splitlines() if line]
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         for row in rows: row.update(at=now, hit=False, ambiguous=False)
+        plain, lead = [r for r in rows if r["who"] == "attacker"]
+        lead["ambiguous"] = True   # a possible public match G2 must still review
         def swap(roles, card, log):
             work = practice_tree(tempfile.mkdtemp(dir=self.tmp.name), CASE, card=card)
             (work / "case/freshness.jsonl").write_text("\n".join(map(json.dumps, log)))
@@ -135,12 +140,30 @@ class Worker(unittest.TestCase):
         self.assertEqual(run.freshness_counts(before)["attacker"], 2)
         c = swap({"stress_tester": CLAUDE, "strong_calibrator": SOL}, before.card, rows)
         self.assertEqual(run.freshness_counts(c), {"builder_web": 3, "builder_github": 3, "attacker": 0})
-        old = next(r for r in rows if r["who"] == "attacker")
-        copied = {**old, "at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "query": " " + old["query"].upper()}
-        (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, [*rows, copied])))
-        self.assertEqual(run.freshness_counts(c)["attacker"], 0)   # a re-timestamped copy is no new search
-        (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, [*rows, {**old, "query": "a new query"}])))
-        self.assertEqual(run.freshness_counts(c)["attacker"], 1)
+        self.assertEqual(c.card["stale_attacker_rows"], [plain])
+        self.assertEqual([r["query"] for r in run.freshness_lines(c) if r["who"] == "attacker"], [lead["query"]])
+        # The agentic fallback rewords, re-times and copies every attacker row it is given, and also
+        # restates the archived one; history repair keeps the edited rows beside the originals.
+        def reword(c_, chain, text, scratch, name, **kwargs):
+            log = Path(scratch) / "freshness.jsonl"
+            given = [json.loads(line) for line in log.read_text().splitlines() if line]
+            self.assertNotIn(plain["query"], [r.get("query") for r in given])
+            later = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            edited = [{**r, "query": f'"{r["query"]}"', "at": later} if r.get("who") == "attacker" else r for r in given]
+            copies = [{**r, "_search_id": "f" * 64, "query": r["query"] + " fix", "at": later}
+                      for r in [*given, plain] if r.get("who") == "attacker"]
+            log.write_text("".join(json.dumps(r) + "\n" for r in [*edited, *copies]))
+            kwargs["on_complete"]()
+            return 0
+        with patch.object(run, "opencode", side_effect=reword), patch.object(run, "run_context", return_value=""), \
+                patch.object(run, "case_budget_boundary"):
+            run._freshness_searches(c, [("attacker", "attacker", "2 more", [], 2)], time.monotonic() + 60, None)
+        self.assertGreater(sum(r["who"] == "attacker" for r in run.freshness_lines(c)), 2)
+        self.assertEqual(run.freshness_counts(c)["attacker"], 0)
+        new = {**{k: v for k, v in plain.items() if k != "_search_id"}, "query": "a new query",
+               "url": "https://github.com/medusajs/medusa/issues/1"}
+        (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, [*run.freshness_lines(c), new])))
+        self.assertEqual(run.freshness_counts(c)["attacker"], 1)   # its own search counts
         back = swap({"stress_tester": SOL, "strong_calibrator": CLAUDE}, c.card, rows)
         self.assertEqual(back.models, before.models)
         self.assertEqual(run.freshness_counts(back)["attacker"], 0)
