@@ -371,10 +371,11 @@ class AttemptBudget(unittest.TestCase):
         self.assertGreater(Decimal(budget.available_invocation_funding(self.ledger, self.attempt)), 30)
 
     def test_a_failed_codex_call_books_only_the_usage_codex_reported(self):
-        """22e434-5 stress:2 (11-12 November): three Codex cybersecurity refusals (attempts 1, 11, 12) and one
-        expired Codex login with no request at all (attempt 6) each booked the whole $12.50 window as case
-        money ($50 in all), so the stress step ended stress:money. Codex runs on the subscription, which pays
-        its unseen tail as the Go plan does ("book Go at cost", founder 2026-11-09): only what Codex's own
+        """22e434-5 stress:2 attempt 1 (11 November), the live receipt: Codex's cybersecurity filter refused
+        the stress tester after 24 requests worth $0.238547 at list price, and main booked the whole $12.50
+        window as case money (as for attempts 11 and 12, and the expired login of attempt 6: $50 in all, so
+        the step ended stress:money). Codex on the ChatGPT subscription pays its unseen tail as the Go plan
+        does ("book Go at cost", founder 2026-11-09, extended to Codex 2026-11-14): only what Codex's own
         log reported is booked."""
         codex = 'codex/gpt-6.1-sol'
         self.store.capacities['codex-auth.json'] = 1
@@ -383,7 +384,7 @@ class AttemptBudget(unittest.TestCase):
             row = c.invocation_reservation
             with budget.ledger_transaction(self.ledger) as ledger:
                 event = {'id': row['invocation_id'] + ':request-0', 'cost': 0, 'priced': 'subscription',
-                         'estimated_subscription_cost_usd': 0.1664484, 'calls': 17,
+                         'estimated_subscription_cost_usd': 0.238547, 'calls': 24,
                          'invocation': name, 'invocation_id': row['invocation_id'], 'lease_id': row['lease_id']}
                 ledger['events'].append(event)
                 ledger['invocation_reservations'][row['lease_id']]['event_ids'].append(event['id'])
@@ -395,7 +396,38 @@ class AttemptBudget(unittest.TestCase):
         ledger = json.loads(self.ledger.read_text())
         row = next(iter(ledger['invocation_reservations'].values()))
         self.assertEqual(Decimal(row['estimated_gap_usd']), 0)
-        self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])), Decimal('0.1664484'))
+        self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])), Decimal('0.238547'))
+
+    def expired_codex_login(self, transport):
+        codex = 'codex/gpt-6.1-sol'
+        self.store.capacities['codex-auth.json'] = 1
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
+                patch.object(model_router, '_credential_ready', return_value=True), \
+                self.assertRaises(model_router.ProviderWait):
+            self.runtime.call(self.c, [codex], 'x', self.root, 'attacker-1', deadline=time.monotonic() + 2)
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], 0)
+        self.assertEqual(budget.outstanding_reservations(ledger), 0)
+        return ledger
+
+    def test_a_launched_codex_call_whose_login_expired_before_any_request_books_nothing(self):
+        """22e434-5 stress:2 attempt 6 (12 November): Codex started, its login had expired, and it made no
+        request (0 calls), yet main booked the whole $12.50 window."""
+        def transport(c, *args, **kwargs):
+            c.model_process_state['started'] = True
+            raise budget.BudgetError('codex_login_expired', provider_failure={'reason': 'credential_expiring',
+                'scope': 'account', 'model': 'codex/gpt-6.1-sol'})
+        ledger = self.expired_codex_login(transport)
+        row = next(iter(ledger['invocation_reservations'].values()))
+        self.assertEqual(Decimal(row['estimated_gap_usd']), 0)
+
+    def test_a_codex_call_with_no_login_file_never_launches_and_books_nothing(self):
+        """model_runtime's check before launch: no codex-auth.json at all is an expired login, refused
+        before any process starts."""
+        (model_router.SECRETS / 'codex-auth.json').unlink()
+        transport = Mock()
+        self.expired_codex_login(transport)
+        transport.assert_not_called()
 
     def test_writer_keeps_the_funded_window_and_stress_and_a_reviewer_are_capped(self):
         """An in-flight role finishes (FACTORY.md section 4): a long writer session keeps the whole

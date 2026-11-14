@@ -535,8 +535,11 @@ Engine invocations request a quote bounded by their currently uncommitted attemp
 funding. OpenRouter qualification-sized default windows are replaced by this
 funded window (at most $50, and at most $12.50 for every role but the writer on every family,
 Codex and Claude included, so four such calls fit one grant at once and a non-final receipt, which
-books its whole window, cannot exhaust it; a Go or Codex call's unseen tail is paid by its plan and books
-$0, so only what it reported is booked); explicit Claude profile ceilings remain binding.
+books its whole window, cannot exhaust it; the unseen tail of an OpenCode Go plan call, or of a
+`codex/` call on the ChatGPT subscription (`codex-auth.json`, routes in `token_prices.CODEX_PRICES`), is
+paid by its plan and books $0, so only what it reported is booked; a Codex-family model reached through
+OpenRouter is paid per request and keeps its gate bound, founder 2026-11-14); explicit Claude profile
+ceilings remain binding.
 A reservation is marked launched before its model process can start; a pending one never
 launched spent nothing, so spend accounting and crash reconciliation settle it at $0, while
 admission still counts it.
