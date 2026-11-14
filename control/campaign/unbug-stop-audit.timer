@@ -1,0 +1,7 @@
+[Unit]
+Description=Run the stop audit every 10 minutes (user unit, as `user`)
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+[Install]
+WantedBy=timers.target

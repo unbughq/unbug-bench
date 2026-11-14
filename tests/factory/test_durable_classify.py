@@ -420,6 +420,15 @@ class RealStops(unittest.TestCase):
             self.assertEqual(c, Classified(Outcome.INFRA_ERROR, reason), stop)
             self.assertIn(c.reason, PUBLISHED_REASONS, stop)
 
+    def test_the_gates_fallback_stop_is_the_retries_exhausted_reason(self):
+        # run.gates_result stops with "infrastructure_exhausted" when the card has no terminal_stop;
+        # it fell through to infra:raw_infrastructure_exhausted (stop audit, 2026-11-14).
+        for stop in ("infrastructure_exhausted", "Budget stopped: infrastructure_exhausted"):
+            self.assertEqual(classify(stop, step=StepKind.GATES, now=NOW),
+                             classify("InfrastructureExhausted", step=StepKind.GATES, now=NOW), stop)
+        self.assertEqual(classify("infrastructure_exhausted", step=StepKind.GATES, now=NOW),
+                         Classified(Outcome.INFRA_ERROR, "infra:execution_retries_exhausted"))
+
 
 class RetryAt(unittest.TestCase):
     def test_limit_without_reset_time_backs_off_like_the_router(self):
