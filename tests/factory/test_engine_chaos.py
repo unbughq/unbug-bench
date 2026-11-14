@@ -7,6 +7,7 @@ test_durable_engine_fakes.py (worker, pool, store, clock by short real waits, co
 
     uv run -q --with numpy --with scipy --with dbos==3.4.0 python -B tests/factory/test_engine_chaos.py
     CHAOS_SEEDS=500 CHAOS_JOBS=8 ...      # more seeds; CHAOS_SEED=17 replays one seed
+    ... test_engine_chaos.py shrink 17    # the fewest faults that still break the same invariant
 """
 import contextlib
 import hashlib
@@ -467,15 +468,16 @@ def check(sc, r, outs):
     for run, n in counted.items():
         if n > limit:
             v.append(("g", f"{'/'.join(run)} had {n} counted infra stops, allowance {limit}"))
+    spent = [o for o in outs if any(c and c.get("override") for c in o.get("cards", []))]
     for case in {x.split("/")[0] for x in starts}:
         mine = [k for k in starts if k.startswith(case + "/")]
         fb = [i for i, k in enumerate(mine) if "/diagnosis/" in k
               and (result_of(work, k) or {}).get("verdict") == "factory_bug"
               and any("/diagnosis/" not in later for later in mine[i + 1:])]
-        if len(fb) > 3:
-            v.append(("g", f"{case}: {len(fb)} factory_bug resumes, cap 3"))
+        # An override may pass the cap (engine._resume_point: factory_bug_resumes_exhausted), once each.
+        if len(fb) > 3 + len(spent):
+            v.append(("g", f"{case}: {len(fb)} factory_bug resumes, cap 3 + {len(spent)} overrides"))
     # (g) overrides spent per lineage
-    spent = [o for o in outs if any(c and c.get("override") for c in o.get("cards", []))]
     if len(spent) > 2:
         v.append(("g", f"{len(spent)} overrides spent in one lineage"))
     return v
@@ -491,9 +493,37 @@ def chaos(seed):
     r, outs, notes = run_seed(sc)
     try:
         return seed, check(sc, r, outs), notes, [o.get("result", {}).get("cases") if o.get("result") else o.get(
-            "refused", "timeout" if o.get("timeout") else "crash") for o in outs]
+            "refused", "parked:" + ",".join(f"{c['status']}@{c['stage']}/{c['reason']}" for c in o["cards"] if c)
+            if o.get("timeout") else "crash") for o in outs]
     finally:
         r.close()
+
+
+def violated(sc):
+    r, outs, _ = run_seed(sc)
+    try:
+        return {inv for inv, _ in check(sc, r, outs)} - KNOWN_OPEN
+    finally:
+        r.close()
+
+
+def shrink(seed):
+    """Greedy one-at-a-time removal of faults while the same invariant still breaks. Restarts are
+    wall-clock kills, so a shrunk sequence can be flaky: it is a lead, not a proof."""
+    sc = scenario_for(seed)
+    target = violated(sc)
+    if not target:
+        return None
+    for field in ("restarts", "resume", "dead_any", "flaky_any", "lost_start_any", "deadline_in"):
+        if field in sc:
+            trial = {k: v for k, v in sc.items() if k != field}
+            if target & violated(trial):
+                sc = trial
+    for key in sorted(sc["script"]):
+        trial = {**sc, "script": {k: v for k, v in sc["script"].items() if k != key}}
+        if target & violated(trial):
+            sc = trial
+    return target, sc
 
 
 class EngineChaos(unittest.TestCase):
@@ -519,5 +549,7 @@ class EngineChaos(unittest.TestCase):
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "engine":
         engine_program(sys.argv[2])
+    elif len(sys.argv) > 2 and sys.argv[1] == "shrink":   # python -B test_engine_chaos.py shrink <seed>
+        print(json.dumps(shrink(int(sys.argv[2])), default=sorted, sort_keys=True))
     else:
         unittest.main()
