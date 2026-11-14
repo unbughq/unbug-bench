@@ -4,7 +4,8 @@
   <controller venv>/bin/python -B bin/stop_audit --config <campaign config> --repo <git checkout> [--since <iso>] [--releases DIR] [--json]
 
 Reads every step attempt from the DBOS tables (one read-only transaction), maps each plumbing
-release to its commit (control/release.py records under --releases, default ~/.unbug-release) and
+release to its commit (the store's release-commits.json, or --release-map, and control/release.py
+records under --releases, default ~/.unbug-release) and
 judges each reason against factory/durable/stop_registry.py:
   REGRESSION  a bug reason on a release whose commit contains its fix: the fix did not work
   OPEN        a bug reason with no fix yet
@@ -43,14 +44,18 @@ def main(argv=None) -> int:
     parser.add_argument("--repo", type=Path, help="git checkout holding the release and fix commits")
     parser.add_argument("--releases", type=Path, default=Path.home() / ".unbug-release",
                         help="control/release.py --work directory")
+    parser.add_argument("--release-map", type=Path,
+                        help="release -> commit JSON map (default <state_dir>/releases/release-commits.json)")
     parser.add_argument("--since", type=datetime.fromisoformat, help="only attempts started at or after (ISO)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    rows = read_attempts(load_config(args.config)["database_url"])
+    config = load_config(args.config)
+    rows = read_attempts(config["database_url"])
+    release_map = args.release_map or Path(config["state_dir"]) / "releases/release-commits.json"
     if args.since:
         since = args.since.timestamp()
         rows = [r for r in rows if (r["started_at"] or 0) >= since]
-    report = audit(rows, release_commits(args.releases), git_contains(args.repo) if args.repo else None)
+    report = audit(rows, release_commits(args.releases, release_map), git_contains(args.repo) if args.repo else None)
     print(json.dumps(report, sort_keys=True) if args.json else render(report))
     return 1 if report["regression"] or report["unknown"] else 0
 

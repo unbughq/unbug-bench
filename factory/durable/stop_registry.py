@@ -201,10 +201,15 @@ def read_attempts(database_url: str) -> list:
     return [row for row in map(decode, outputs) if row is not None]
 
 
-def release_commits(work: Path) -> dict:
-    """plumbing_version -> commit, from control/release.py build-plumbing records (<work>/plumbing-*/state.json).
-    The release store itself (state/releases) keys bundles by sha256 only and records no commit."""
+def release_commits(work: Optional[Path], release_map: Optional[Path] = None) -> dict:
+    """plumbing_version -> commit, from the release store's map (state/releases/release-commits.json, written
+    by `workers.py release` given --commit or a COMMIT file) and from control/release.py build-plumbing
+    records (<work>/plumbing-*/state.json)."""
     out = {}
+    if release_map is not None and Path(release_map).is_file():
+        out.update(json.loads(Path(release_map).read_text()))
+    if work is None:
+        return out
     for path in sorted(Path(work).glob("plumbing-*/state.json")):
         try:
             state = json.loads(path.read_text())

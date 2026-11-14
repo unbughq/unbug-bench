@@ -61,7 +61,8 @@ def stop_audit(now):
         dsn = os.environ.get('UNBUG_DURABLE_DSN') or Path(config['database_url_file']).read_text().strip()
         rows = [r for r in read_attempts(dsn) if (r['started_at'] or 0) >= now - 86400]
         repo = os.environ.get('UNBUG_STOP_AUDIT_REPO')
-        return alerts(audit(rows, release_commits(Path(os.environ.get('UNBUG_RELEASE_WORK', '/home/user/.unbug-release'))),
+        return alerts(audit(rows, release_commits(Path(os.environ.get('UNBUG_RELEASE_WORK', '/home/user/.unbug-release')),
+                                                    state / 'releases' / 'release-commits.json'),
                             git_contains(Path(repo)) if repo else None))
     except Exception:
         return {'stop_audit:unknown': 'Could not run the stop audit. Run bin/stop_audit by hand.'}

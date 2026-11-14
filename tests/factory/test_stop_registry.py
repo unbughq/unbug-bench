@@ -90,6 +90,19 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(out["open"][0]["count"], 2)
         self.assertEqual(out["releases"]["p-new"]["attempts"], 2)
 
+    def test_release_commits_merge_the_store_map_and_release_records(self):
+        import json, tempfile
+        from durable.stop_registry import release_commits
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "store").mkdir()
+            (tmp / "store/release-commits.json").write_text(json.dumps({"p-live": NEW}))
+            (tmp / "work/plumbing-aaaa").mkdir(parents=True)
+            (tmp / "work/plumbing-aaaa/state.json").write_text(json.dumps({"commit": OLD, "plumbing_version": "p-old"}))
+            self.assertEqual(release_commits(tmp / "work", tmp / "store/release-commits.json"),
+                             {"p-live": NEW, "p-old": OLD})
+            self.assertEqual(release_commits(None, tmp / "missing.json"), {})
+
     def test_decode_reads_a_recorded_attempt_and_skips_other_outputs(self):
         record = {"started": True, "input": {"case_id": "case-1", "batch_id": "b-1", "seq": 3, "attempt": 2,
                                              "step": {"kind": "writer"}, "plumbing_version": "p"},

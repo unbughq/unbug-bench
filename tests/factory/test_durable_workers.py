@@ -402,6 +402,23 @@ class ReleaseStoreTests(unittest.TestCase):
         self.assertEqual(subprocess.run(args + ["--image", "other"], stderr=subprocess.DEVNULL, timeout=60).returncode, 1)
         self.assertEqual(W.ReleaseStore(store).image_for(bench, "x"), "bench-env")
 
+    def test_release_command_records_its_commit_for_the_stop_audit(self):
+        store, a, b = self.h.tmp / "cli-store", "a" * 40, "b" * 40
+        release = lambda *extra: subprocess.run([sys.executable, "-B", str(ROOT / "factory/durable/workers.py"),
+                                                 "release", "--root", str(self.h.tree), "--store", str(store), *extra],
+                                                capture_output=True, text=True, timeout=120)
+        commits = lambda: json.loads((store / W.RELEASE_COMMITS).read_text())
+        self.assertEqual(release().returncode, 0)                      # no commit known: no map
+        self.assertFalse((store / W.RELEASE_COMMITS).exists())
+        (self.h.tree / "COMMIT").write_text(a + "\n")                  # a git archive copy's COMMIT file
+        self.assertEqual(release().stdout.strip(), self.h.plumbing)   # outside the bundle: same release
+        self.assertEqual(commits(), {self.h.plumbing: a})
+        self.assertEqual(release("--commit", b).returncode, 0)        # the flag wins over the file
+        self.assertEqual(commits(), {self.h.plumbing: b})
+        bad = release("--commit", "9e33d0c2")
+        self.assertEqual((bad.returncode, commits()), (1, {self.h.plumbing: b}))
+        self.assertIn("not a full commit sha", bad.stderr)
+
 
 class PoolTests(unittest.TestCase):
     def setUp(self):

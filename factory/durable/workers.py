@@ -45,6 +45,7 @@ LOG = logging.getLogger("durable.pool")
 BOAT_CALL = REPO / "bin/boat-call"
 MANIFEST_NAME = "worker-release-manifest.json"
 FACTORY_MANIFEST_NAME = "worker-release-manifest.factory.json"
+RELEASE_COMMITS = "release-commits.json"            # <store>/release-commits.json: {plumbing_version: commit}
 WORKER_SCRIPT = WORKER_COMMAND[-1]                  # factory/durable/worker_step.py
 RELEASES = "releases"                               # ~/releases/<plumbing_version>/
 # Internal ownership keys; Boat carries these in its supported sandbox name field.
@@ -1078,6 +1079,7 @@ def main(argv=None) -> int:
     rel = sub.add_parser("release", help="build a bundle from a tree and store it; prints plumbing_version")
     rel.add_argument("--root", type=Path, required=True)
     rel.add_argument("--store", type=Path, required=True)
+    rel.add_argument("--commit", help="the tree's git commit (else <root>/COMMIT), recorded in release-commits.json")
     bench = sub.add_parser("bench", help="register the image that serves a bench release")
     bench.add_argument("--store", type=Path, required=True)
     bench.add_argument("--bench-version", required=True)
@@ -1086,7 +1088,16 @@ def main(argv=None) -> int:
     store = ReleaseStore(args.store)
     try:
         if args.command == "release":
-            print(store.put_bundle(build_bundle(args.root.resolve())))
+            commit_file = args.root / "COMMIT"
+            commit = args.commit or (commit_file.read_text().strip() if commit_file.is_file() else None)
+            if commit is not None and not re.fullmatch(r"[0-9a-f]{40}", commit):
+                raise ReleaseError("--commit or COMMIT is not a full commit sha")
+            version = store.put_bundle(build_bundle(args.root.resolve()))
+            if commit:   # bin/stop_audit maps a release to its commit through this file
+                path = args.store / RELEASE_COMMITS
+                known = json.loads(path.read_text()) if path.is_file() else {}
+                _atomic_json(path, {**known, version: commit})
+            print(version)
         else:
             store.register_bench(args.bench_version, args.image)
     except (ReleaseError, ContractError, OSError, ValueError) as error:
