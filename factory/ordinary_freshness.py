@@ -124,7 +124,7 @@ def ensure(run, c):
         # A refresh is never charged as a defect, so it is bounded by progress instead: fewer invalid
         # rows, or more valid searches by a role that was short of G2's minimum when the refresh opened
         # (every top-up may add spare searches, so those alone are no progress on rows needing a re-run).
-        valid = lambda rows, who: len({v for r in rows if isinstance(r, dict)
+        valid = lambda rows, who: len({v for r in rows if isinstance(r, dict) and r.get('url') not in getattr(c, 'freshness_unfetched', set())
                                        and (v := run.own_search(c, r)) is not None and v[0] == who})
         fixed = sum(e is not None for e in errors) < sum(e is not None for e in pending.get('targeted_errors') or ())
         short = pending.get('short') if isinstance(pending.get('short'), list) else ()

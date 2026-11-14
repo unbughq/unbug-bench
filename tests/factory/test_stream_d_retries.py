@@ -330,7 +330,7 @@ class RetryTests(unittest.TestCase):
         self.assertEqual([name for name, _, _ in self.calls], ['builder-freshness'] * 2)
         self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 0)
 
-    def test_a_dead_link_with_extra_searches_stalls_after_one_useless_refresh(self):
+    def test_an_unretrieved_row_with_spare_searches_stalls_after_one_useless_refresh(self):
         # Every top-up may add spare searches. With G2's minimum already met they are no progress on
         # the unretrieved row: one refresh that fixed nothing stalls.
         rows = self.searches()
@@ -346,6 +346,39 @@ class RetryTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
         self.assertEqual([name for name, _, _ in self.calls], ['builder-freshness'])
         self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 0)
+
+    def short_builder_and_unretrieved_attacker_row(self, builder_adds):
+        """Builder short of web searches; one attacker row stays unretrieved. The attacker always adds
+        two spare searches; the builder adds one valid web search only if builder_adds."""
+        rows = self.searches()
+        dead = {**rows[-1], 'query': 'unretrieved attacker query', 'retrieved': False,
+                'url': 'https://github.com/medusajs/medusa/issues/404'}
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows[1:] + [dead]))
+        self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        def emit(c, text, name, cwd):
+            path, n = Path(cwd) / 'freshness.jsonl', len(self.calls)
+            source = rows[0] if name.startswith('builder') else rows[-1]
+            extra = [] if name.startswith('builder') and not builder_adds else [
+                {**source, 'query': f'{name} spare {n} {i}',
+                 'url': f'https://github.com/medusajs/medusa/issues/{300 + 10 * n + i}'}
+                for i in range(1 if name.startswith('builder') else 2)]
+            path.write_text(path.read_text() + ''.join(json.dumps(r)+'\n' for r in extra))
+        self.cli(emit)
+
+    def test_spare_searches_of_another_role_do_not_rescue_a_short_role(self):
+        # A role still short after its top-up is a real defect, not a refresh: the attacker's spares do
+        # not count for it, and two such top-ups spend the defect bound.
+        self.short_builder_and_unretrieved_attacker_row(builder_adds=False)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_evidence_unavailable$'): run.g2(self.c)
+        self.assertEqual(sorted(name for name, _, _ in self.calls), ['attacker-freshness'] * 2 + ['builder-freshness'] * 2)
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 2)
+
+    def test_valid_searches_added_by_the_short_role_are_progress(self):
+        self.short_builder_and_unretrieved_attacker_row(builder_adds=True)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        # The builder's new search was progress, so a second refresh ran; it fixed nothing and stalled.
+        self.assertEqual(sorted(name for name, _, _ in self.calls),
+                         ['attacker-freshness', 'attacker-freshness', 'builder-freshness'])
 
     def test_a_real_defect_still_stops_after_spent_defects(self):
         rows = self.searches(True)
