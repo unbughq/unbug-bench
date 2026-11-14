@@ -309,12 +309,22 @@ def inventory(c, bench):
     return paths
 
 
+def digests(c, bench):
+    """inventory's files by digest. The G8/G9 lane runs beside G5/G16 and renames review-N while they
+    list it (cae763, 14 November: G16 crashed FileNotFoundError on review-1/verdict.json): a file gone
+    before it is read is not there."""
+    found = {}
+    for key, path in inventory(c, bench).items():
+        try: found[key] = digest(path)
+        except FileNotFoundError: pass
+    return found
+
+
 def save(c, gate, info, signature, before, bench):
     if gate not in REUSABLE:
         return
-    evidence = [{"kind": kind, "path": rel, "sha256": digest(p)}
-                for (kind, rel), p in inventory(c, bench).items()
-                if (kind, rel) not in before or before[(kind, rel)] != digest(p)]
+    evidence = [{"kind": kind, "path": rel, "sha256": sha256}
+                for (kind, rel), sha256 in digests(c, bench).items() if before.get((kind, rel)) != sha256]
     seen = {e["path"] for e in evidence if e["kind"] == "work"}
     for label, directories in sorted(RECEIPTS.get(str(c.work), {}).items()):
         if not label.startswith(gate.lower() + "-"): continue

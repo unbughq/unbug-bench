@@ -74,7 +74,7 @@ class GatePipeline:
                 return True, {**cached, "reused_verified_evidence": True,
                               "fingerprint_version": c.gate_fingerprint_versions[gate]}
             signature = gate_state.fingerprint(c, gate, self.bench)
-            before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.bench).items()}
+            before = gate_state.digests(c, self.bench)
             gate_state.forget_receipts(c, gate)
         try:
             with self.window(c, gate):
@@ -95,7 +95,11 @@ class GatePipeline:
         while (directory / f"{gate}.crash-{attempt}.json").exists(): attempt += 1
         (directory / f"{gate}.crash-{attempt}.json").write_text(json.dumps({
             "error": type(error).__name__, "message": str(error)[:20000], "traceback": traceback.format_exc()[:20000]}))
-        self.log(c, gate, "crashed", type(error).__name__)
+        # Where, without the message (it may quote case paths): the innermost non-stdlib frame and the record
+        # holding the full traceback (cae763, 14 November: the log said only FileNotFoundError).
+        frames = [f for f in traceback.extract_tb(error.__traceback__) if not f.filename.startswith(traceback.__file__.rsplit('/', 1)[0])]
+        self.log(c, gate, "crashed", type(error).__name__, *[f"at {f.filename.rsplit('/', 1)[-1]}:{f.lineno}" for f in frames[-1:]],
+                 f"(gate-details/{gate}.crash-{attempt}.json)")
 
 
     def early_gate(self, c, gate, on=None):

@@ -118,8 +118,11 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
         if not project.is_absolute():
             local = case / "base" / project
             project = local if local.is_dir() else bench_root / project
-        approved[name] = source_root(project, [case / "services" / name, case / "projects" / name,
-                                               bench_root / "projects" / name])
+        try:
+            approved[name] = source_root(project, [case / "services" / name, case / "projects" / name,
+                                                   bench_root / "projects" / name])
+        except ValueError as error:   # the case's own declaration (cae763, 14 November)
+            raise CaseProblem(f"{error}: service {name} must live in services/{name}") from error
     services = bench.inventory_services([scenario])
     inputs = {name: case / name for name in ("promise.md", "contestant.md")}
     if exposure == "statement": inputs["statement.md"] = case / "statement.md"
