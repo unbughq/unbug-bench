@@ -777,7 +777,9 @@ def _account_order(case):
     LABELS = {'opencode': {1: 'opencode-go-key', 2: 'opencode-go-key-2'},
               'claude': {1: 'claude-token', 2: 'claude-factory-token-2', 3: 'claude-factory-token-3'}}
     preferred = {LABELS[p].get(n) for p,n in (case.card.get('provider_accounts') or {}).items() if p in LABELS}
-    return sorted(getattr(case, 'router_accounts', ACCOUNTS),
+    # Workers are never sent the builder login; offering it turns a second-account quota wait into a credential fault.
+    offered = [a for a in getattr(case, 'router_accounts', ACCOUNTS) if a != 'claude-token' or (SECRETS / a).is_file()]
+    return sorted(offered,
                   key=lambda a: (not (SECRETS / a).is_file(), a not in preferred))
 
 
