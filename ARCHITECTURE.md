@@ -32,7 +32,10 @@ the guard is installed, with hard evidence that Postgres crashed (`pg_isready` f
 is OOM-killed or not running; never error text), restarts it once, records the container state and
 any readable OOM line in the trial, and redoes the reset; if that fails the same way the trial's
 worker stops with one infrastructure error (in a parallel pool, other slots finish on their own
-stacks first). A failure once the guard is being installed stays that trial's ordinary reset error. The checker uses
+stacks first). A failure once the guard is being installed stays that trial's ordinary reset error.
+First-time setup (`bench.setup`, used to prepare the main shop and each slot) shares that recovery
+(`with_postgres_recovery`), but because a half-built seed cannot be resumed it discards the database
+volume and seeds again instead of restarting; the evidence goes to the runner log. The checker uses
 read-only database access. Parallel factory slots have separate Compose projects,
 volumes, ports and seed manifests. Model roles run with information walls between
 case internals, testers and contestant-visible material.
