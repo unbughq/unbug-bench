@@ -100,7 +100,12 @@ REGISTRY = {
     "infra:freshness_refresh_stalled": OPEN,
     # Three free 4xx rejections in a row on one call (a permanent bad request); a real stop, not a wait.
     "router:upstream_rejected": OPEN,
-    "infra:diagnosis_result_invalid": OPEN,         # in flight: fix/sweep-leftovers
+    # The diagnosis run left no usable result: missing, oversized, unsafe, or unreadable.
+    # Each now names its cause; the causes behind them are not yet fixed, so they stay open.
+    "infra:diagnosis_result_invalid": OPEN,
+    "infra:diagnosis_result_missing": OPEN,
+    "infra:diagnosis_result_oversized": OPEN,
+    "infra:diagnosis_result_unsafe": OPEN,
     "infra:pool_failed": OPEN,   # several causes; 6ea112d fixed one (bounded_create arity)
     # Containment causes fixed by 0ec53bb0 and 3fd7d011; the scratch-unmount timeout is in flight on
     # fix/sweep-leftovers.
