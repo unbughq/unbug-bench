@@ -121,6 +121,19 @@ class DeliveryTests(unittest.TestCase):
                 prepare_delivery(self.case, self.bench, self.root / "fixed", exposure="statement")
             self.assertEqual(str(caught.exception), "private information in contestant material: services/market/README.md")
 
+    def test_a_service_outside_the_case_service_roots_is_a_case_problem(self):
+        # cae763 (11-14 November): base/scenario.json declared marketplace at "../channel". The
+        # plain ValueError was retried as infrastructure on every G16 attempt (eight crashes, ~$4
+        # each) instead of failing the gate with something the writer can repair.
+        from case_contract import CaseProblem
+        moved = self.case / "channel"; self.source.rename(moved)
+        (self.base / "scenario.json").write_text(json.dumps({"id": "BASE", "inventory_services": [
+            {"name": "channel", "project": "../channel", "host_ports": [9010]}]}))
+        with self.assertRaises(CaseProblem) as caught:
+            prepare_delivery(self.case, self.bench, self.root / "outside")
+        self.assertIn("services/channel", str(caught.exception))
+        self.assertFalse((self.root / "outside").exists())
+
     def test_case_material_defects_are_case_problems_not_infrastructure(self):
         # 18681d (9 November): its baseline SQL differed from the copy the exam delivers, and the
         # plain ValueError was retried six times as infrastructure. A case defect fails the gate.
