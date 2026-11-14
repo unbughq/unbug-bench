@@ -205,6 +205,35 @@ class DiagnosisTests(unittest.TestCase):
                 result, _ = self.execute()
                 self.assertEqual((result.outcome, result.reason), (outcome, reason))
 
+    def history(self, reasons):
+        rows = [{'seq': 3, 'step': 'gates', 'attempt': 1, 'outcome': 'gate_failed', 'reason': 'gate:G5',
+                 'paid_usd_micros': 0}]
+        rows += [{'seq': 4, 'step': 'writer', 'attempt': n, 'outcome': o, 'reason': r, 'paid_usd_micros': 0}
+                 for n, (o, r) in enumerate(reasons, 1)]
+        self.si = replace(self.si, evidence=(self.evidence, self.push(k.ArtifactKind.DIAGNOSTIC,
+                                                                      json.dumps(rows).encode())))
+
+    def test_a_step_stopping_on_one_infra_reason_is_a_factory_bug_without_a_model_call(self):
+        # f46dac-5-1, 11-14 November: every writer round stopped infra:freshness_evidence_unavailable with
+        # its gates passing; the agent said close_to_passing and policy retired it as making no progress.
+        same = ('infra_error', 'infra:freshness_evidence_unavailable')
+        self.history([('provider_limit', 'router:claude_limit'), ('infra_error', 'router:opencode_error'),
+                      same, ('infra_error', 'infra:paused'), same, same])
+        result, outputs = self.execute(expected_calls=0)
+        self.assertEqual((result.outcome, result.verdict), (k.Outcome.OK, k.Verdict.FACTORY_BUG))
+        self.assertIsNone(result.feedback)
+        report = json.loads(self.opened(result.report, outputs))
+        self.assertEqual(report['factory_bug']['component'], 'infra:freshness_evidence_unavailable')
+
+    def test_mixed_or_too_few_infra_stops_still_ask_the_agent(self):
+        same = ('infra_error', 'infra:freshness_evidence_unavailable')
+        for reasons in ([same, same], [same, ('infra_error', 'router:opencode_error'), same],
+                        [same, same, same, ('exhausted', 'writer:money')]):
+            with self.subTest(reasons=reasons):
+                self.history(reasons)
+                result, _ = self.execute()
+                self.assertEqual(result.verdict, k.Verdict.CLOSE_TO_PASSING)
+
     def test_unknown_verdict_is_infrastructure_failure(self):
         self.answer = 'private unknown verdict'
         result, _ = self.execute()
