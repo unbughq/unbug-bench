@@ -94,6 +94,50 @@ class PreflightRolePin(unittest.TestCase):
                    'easy-calibrator': 'easy_calibrator'}[prefix]) for prefix in run._SECOND_PREFIX.values()]
         self.assertEqual([(n, budget.invocation_role(n)) for n, _ in sites], sites)
 
+    def test_every_call_site_in_the_source_builds_a_name_with_a_known_role(self):
+        # Reads factory/ itself, so a new call site is checked without anyone adding it to a list.
+        # A literal name, or the fixed start of an f-string/concatenation, must resolve. A name passed
+        # in a variable cannot be read statically: those sites are listed here with where the name comes from,
+        # and a new one fails until it is reviewed and added.
+        import ast
+        forwarded = {('run.py', 'model_call'), ('run.py', 'retained_answer'), ('model_runtime.py', 'call')}
+        variable = {('freshness_fanout.py', '_ask'),            # f'{who}-freshness-…', who in builder/attacker
+                    ('run.py', 'search'),                       # f'{who}-freshness', who in builder/attacker
+                    ('run.py', 'provider_preflight'),           # role prefixes, test_every_call_name_maps_…
+                    ('run.py', '_second_answer'),               # _SECOND_PREFIX + '-second-opinion-…'
+                    ('run.py', '_author_try'),                  # strong-/easy-calibrator-<name>-<i>
+                    ('run.py', 'engine_writer_round'),          # builder-<n>, builder-<n>-fix-<k>
+                    ('independent_review.py', 'review')}        # reviewer / reviewer-N by index
+        seen_variable = set()
+        for path in sorted((ROOT / 'factory').rglob('*.py')):
+            tree = ast.parse(path.read_text())
+            owner = {}   # each call belongs to its innermost function (ast.walk visits outer ones first)
+            for fn in ast.walk(tree):
+                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    owner.update((call, fn) for call in ast.walk(fn) if isinstance(call, ast.Call))
+            for call, fn in owner.items():
+                f = call.func
+                callee = f.attr if isinstance(f, ast.Attribute) else getattr(f, 'id', None)
+                if callee not in ('opencode', 'model_call', 'retained_answer'): continue
+                where = (path.name, fn.name)
+                if where in forwarded: continue
+                arg = next((k.value for k in call.keywords if k.arg == 'name'), None)
+                if arg is None:
+                    index = 3 if path.name == 'checkpoints.py' else 4
+                    if len(call.args) <= index or any(isinstance(a, ast.Starred) for a in call.args[:index + 1]):
+                        self.fail(f'{where}: cannot find the call name argument')
+                    arg = call.args[index]
+                if isinstance(arg, ast.BinOp): arg = arg.left
+                if isinstance(arg, ast.JoinedStr):
+                    arg = arg.values[0] if arg.values and isinstance(arg.values[0], ast.Constant) else None
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    name = arg.value if arg.value[-1:] not in '-_' else arg.value + '1'
+                    with self.subTest(site=where, name=name):
+                        budget.invocation_role(name)
+                else:
+                    seen_variable.add(where)
+        self.assertEqual(seen_variable ^ variable, set(), 'review where these call names come from, then update the list')
+
     def test_an_unknown_call_name_is_refused_not_booked_to_the_first_reviewer(self):
         for name in ('reviewer2-provider-preflight', 'reviewers-x', 'pilot-1', 'x'):
             with self.assertRaises(ValueError): budget.invocation_role(name)
