@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -13,19 +14,23 @@ from carry_over import digest
 import diagnosis
 import diagnosis_task as task
 
+HELPER_LINE = re.compile(r'diagnosis task operation failed: \w+|sudo: [\w .,:/-]{1,200}')
+
 
 def _helper(runner, c, operation, identity):
     # The private result must never pass through runner.sh's stdout logging.
     command = ['sudo', '--', 'python3', '-I', '-B',
                str(Path(runner.__file__).parent / 'diagnosis_task.py'),
                operation, c.case_id, identity]
-    # What the helper said becomes the stop's cause, so the sealed diagnostic's traceback shows it;
-    # the helper writes only fixed text and an exception class name, never case data.
+    # What the helper said becomes the stop's cause, so the sealed diagnostic's traceback shows it.
+    # Only its fixed lines pass (diagnosis_task.py's failure line, sudo's own), never raw bytes.
     detail = ''
     try:
         process = subprocess.run(command, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, timeout=120)
-        detail = f'{operation}: returncode={process.returncode}; stderr={(process.stderr or b"")[-500:].decode("utf-8", "replace")}'
+        said = [line for line in (process.stderr or b'').decode('utf-8', 'replace').splitlines()
+                if HELPER_LINE.fullmatch(line)][-3:]
+        detail = f'{operation}: returncode={process.returncode}; stderr={" | ".join(said)}'
         if process.returncode or len(process.stdout) > task.MAX_RESPONSE:
             raise ValueError()
         value = json.loads(process.stdout)

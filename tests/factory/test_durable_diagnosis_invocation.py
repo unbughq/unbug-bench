@@ -142,12 +142,15 @@ class InvocationTests(unittest.TestCase):
                 self.assertIn('status=' + status, str(caught.exception.__cause__))
                 self.assert_clean()
         self.events.clear()
-        failed = SimpleNamespace(returncode=1, stdout=b'', stderr=b'diagnosis task operation failed: PermissionError\n')
+        failed = SimpleNamespace(returncode=1, stdout=b'', stderr=b'Traceback: /case/secret.py line 3\n'
+                                 b'diagnosis task operation failed: PermissionError\n')
         self.mutate = lambda op, value: failed if op == 'collect' else value
         with self.assertRaisesRegex(BudgetError, '^diagnosis_result_invalid$') as caught:
             self.invoke()
-        self.assertIn('returncode=1', str(caught.exception.__cause__))
-        self.assertIn('PermissionError', str(caught.exception.__cause__))
+        cause = str(caught.exception.__cause__)
+        self.assertIn('returncode=1', cause)
+        self.assertIn('diagnosis task operation failed: PermissionError', cause)
+        self.assertNotIn('secret', cause)  # only the helper's fixed lines pass, never raw stderr
         self.assert_clean()
 
     def test_rejects_oversized_bytes_even_with_valid_digest(self):
