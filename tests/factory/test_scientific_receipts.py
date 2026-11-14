@@ -142,7 +142,9 @@ class ScientificReceiptsTests(unittest.TestCase):
         return path, summary
 
     def test_saved_execution_receipt_distinguishes_authored_caps_and_wrong_fix(self):
-        path, summary = self.attempt(stop='time_limit')
+        # A call-capped try stays inconclusive. A time-limited try that handed in a checked fix is
+        # graded since the founder's 14 November decision (tests/factory/test_fairness.py).
+        path, summary = self.attempt(stop='call_limit')
         self.assertEqual(summary['scientific']['outcomes']['capped'], 1)
         row = json.loads(path.read_text())[0]
         self.assertEqual(row['scientific_outcome'], 'capped')
