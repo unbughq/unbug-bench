@@ -712,6 +712,29 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(seen,['claude-factory-token-2','claude-token'])
         self.assertEqual(self.store.rpc('status',{})['health']['claude-factory-token-2']['reason'],'rate')
 
+    def test_a_deferred_claude_quota_retries_soon_while_the_other_login_is_held(self):
+        # 2abb0a gates:9/4 (14 November): the small Claude account ran out mid-call; the deferred
+        # wait slept to that account's reset (1h50m) though the worker held the founder's login.
+        model = 'claude/claude-opus-5-5'
+        for held, soon in ((True, True), (False, False)):
+            c, secrets, _ = self.context(); c.card['roles']['writer']['model'] = model
+            reset = time.time() + 6000
+            c.ledger.write_text(json.dumps({**json.loads(c.ledger.read_text()), 'claude_resets_at': reset}))
+            if not held: (secrets / 'claude-token').unlink()
+            runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
+            def execute(context, *args, **kwargs):
+                c.card.setdefault('cleanup_errors', []).append({'stage': 'synthetic', 'error': 'synthetic'})  # defers the wait
+                raise budget.BudgetError('provider_limit:' + model, provider_failure={'reason': 'quota', 'model': model})
+            with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), patch.object(router, '_rpc', self.store.rpc), \
+                 patch.object(router, 'SECRETS', secrets), patch.object(router, 'WAIT_SECONDS', 0), \
+                 patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=execute):
+                with self.assertRaises(router.ProviderWait) as caught: runtime.call(c, [model], '', c.case, 'builder-quota')
+            self.assertEqual(caught.exception.wait.retry_after < reset - 3600, soon, held)
+            # Either way the small account itself stays blocked until its own reset.
+            health = self.store.rpc('status', {})['health']['claude-factory-token-2']
+            self.assertEqual((health['reason'], round(health['blocked_until'])), ('quota', round(reset)))
+            import shutil; shutil.rmtree(self.root); self.root.mkdir()
+
     def test_plain_codex_expiry_preserves_renewal_reason(self):
         c,secrets,_=self.context();model='codex/gpt-6.1-sol';c.card['roles']['writer']['model']=model
         def execute(context,models,*args,**kwargs):

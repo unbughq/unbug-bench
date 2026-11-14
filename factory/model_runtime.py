@@ -636,7 +636,13 @@ class ModelRuntime:
                 context.router_condition_since = time.monotonic()
                 if failure.get('reason') == 'quota' and lease.route.startswith('claude/'):
                     reset = _read_json(getattr(c, 'ledger', '/nonexistent'), {}).get('claude_resets_at')
-                    if model_router.finite(reset): failure = {**failure, 'reset_at': reset}
+                    # The reset is this login's. While the worker holds the other Claude login, a deferred
+                    # wait retries at the ordinary quota delay and the router moves it there: 2abb0a's
+                    # gates:9/4 (14 November) otherwise slept 1h50m to the small account's reset.
+                    other = any(a != lease.account and (model_router.SECRETS / a).is_file()
+                                for a in ('claude-factory-token-2', 'claude-token')
+                                if a in getattr(c, 'router_accounts', model_router.ACCOUNTS))
+                    if model_router.finite(reset): failure = {**failure, 'reset_at': reset, 'other_login': other}
             except model_router.RouterUnavailable:
                 failure = {'reason': 'router_unavailable', 'model': lease.route}
                 context.router_condition_since = time.monotonic()
@@ -705,7 +711,8 @@ class ModelRuntime:
             if getattr(c, 'engine', None) is not None:
                 from durable.checkpoints import checkpoint
                 checkpoint(c)
-            last_wait = model_router.Wait(failure['reason'], model_router.retry_at(failure['reason'], reset_at=failure.get('reset_at')),
+            last_wait = model_router.Wait(failure['reason'], model_router.retry_at(failure['reason'],
+                reset_at=None if failure.get('other_login') else failure.get('reset_at')),
                 evidence='interrupted', route=lease.route, account=lease.account,
                 lease_id=lease.lease_id, call_id=receipt)
             if invoked:
