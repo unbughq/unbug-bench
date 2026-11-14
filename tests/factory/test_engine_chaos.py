@@ -6,7 +6,8 @@ Real engine, policy, executor and SqlLedger (SQLite); only the edges are faked, 
 test_durable_engine_fakes.py (worker, pool, store, clock by short real waits, controller process).
 
     uv run -q --with numpy --with scipy --with dbos==3.4.0 python -B tests/factory/test_engine_chaos.py
-    CHAOS_SEEDS=500 CHAOS_JOBS=8 ...      # more seeds; CHAOS_SEED=17 replays one seed
+    CHAOS_SEEDS=500 CHAOS_JOBS=8 ...      # more seeds; CHAOS_SEED=17 replays one seed;
+                                          # CHAOS_TIMEOUT=s: a run still going then is judged parked or stuck
     ... test_engine_chaos.py shrink 17    # the fewest faults that still break the same invariant
 """
 import contextlib
@@ -282,7 +283,7 @@ def materialize(sc):
 
 # ---- running -------------------------------------------------------------------------------------
 
-def run_seed(sc, timeout=75):
+def run_seed(sc, timeout=float(os.environ.get("CHAOS_TIMEOUT", 30))):
     """Run one scenario (with restarts and resumes). Returns (run, outcomes, notes)."""
     r = ChaosRun(materialize(sc))
     outs, notes = [], []
