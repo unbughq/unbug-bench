@@ -223,6 +223,7 @@ class RealStops(unittest.TestCase):
         'freshness_evidence_unavailable': ("infra_error", 'infra:freshness_evidence_unavailable'),
         'freshness_review_unavailable': ("infra_error", 'infra:freshness_review_unavailable'),
         'freshness_refresh_stalled': ("infra_error", 'infra:freshness_refresh_stalled'),
+        'freshness_dead_links': ("infra_error", 'infra:freshness_dead_links'),
         'freshness_repair_state_invalid': ("infra_error", 'infra:freshness_repair_state_invalid'),
         'freshness_statement_changed': ("infra_error", 'infra:freshness_statement_changed'),
         'freshness_unresolved': ("infra_error", 'infra:freshness_unresolved'),

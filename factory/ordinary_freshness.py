@@ -122,12 +122,19 @@ def ensure(run, c):
         if defect and state['completed_defects'] >= 2:
             raise BudgetError('freshness_evidence_unavailable')
         # A refresh is never charged as a defect, so it is bounded by progress instead: fewer invalid
-        # rows or more valid searches. One that made neither is a retrieval outage (retryable infra),
-        # not a forever-repeated stop.
+        # rows, or more valid searches when it was opened short of G2's minimum (every top-up may add
+        # extra searches, so those alone are no progress on rows that need a re-run).
         valid = lambda rows: len({v for r in rows if isinstance(r, dict) and (v := run.own_search(c, r)) is not None})
         fixed = sum(e is not None for e in errors) < sum(e is not None for e in pending.get('targeted_errors') or ())
-        added = valid(run.freshness_lines(c)) > valid(pending.get('before_rows') or ())
+        added = pending.get('short') is True and valid(run.freshness_lines(c)) > valid(pending.get('before_rows') or ())
         if not defect and any(errors) and not fixed and not added:
+            # The same URLs failing again is the case's own dead links, for the diagnosis agent to judge;
+            # only expired rows a re-run did not refresh are our retrieval outage.
+            failed = lambda rows: {r.get('url') for r in rows
+                                   if isinstance(r, dict) and search_evidence_error(r) == 'retrieval_failed'}
+            dead = failed(run.freshness_lines(c))
+            if dead and dead <= failed(pending.get('before_rows') or ()):
+                raise BudgetError('freshness_dead_links')
             raise BudgetError('freshness_refresh_stalled')
     save()
     failures = 0
@@ -176,7 +183,9 @@ def ensure(run, c):
             backoff(c, failures)
             c.freshness_refetch_urls = set(c.freshness_unfetched)
             continue
+        n = run.freshness_counts(c)
         state['pending'] = {'operation_id': str(uuid.uuid4()), 'before_rows': run.freshness_lines(c),
-            'targeted_errors': errors, 'phase': 'pending', 'roles': [], 'charged': False}
+            'targeted_errors': errors, 'phase': 'pending', 'roles': [], 'charged': False,
+            'short': n['builder_web'] < 3 or n['builder_github'] < 3 or n['attacker'] < 2}
         state['last_topup'] = signature
         save()

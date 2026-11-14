@@ -12,13 +12,14 @@ sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/fact
 import run
 import test_freshness_restore_fixes as fixtures
 from router_test_support import offline_router
-from test_admission import evidence
+from test_admission import ENGINE, evidence
 
 
 class ConcurrentFreshness(unittest.TestCase):
     save = fixtures.FreshnessRestoreTests.save
     def setUp(self):
         fixtures.FreshnessRestoreTests.setUp(self)   # a case with a statement and complete evidence
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         # Both roles are short: each has one unretrieved row and needs one more search.
         self.rows = [{**r, 'retrieved': False} if i in (0, 6) else r for i, r in enumerate(self.rows)]
         self.save()

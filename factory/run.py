@@ -529,20 +529,13 @@ def finish_freshness_repair(c):
     if changed: raise BudgetError('freshness_statement_changed')
 
 
-def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_completed=None):
+def freshness_topup(c, *, completed_roles=(), role_completed=None):
     """One short call per role short of the G2 search minimum (models skip the logging duty)."""
     from admission import search_evidence_error
-    from registry import atomic_json
     finish_freshness_repair(c)
     counts_before = freshness_counts(c)
-    if under_engine(c):
-        # Busy searching is not a stall. The attempt's deadline, call limits and grant bound it.
-        deadline = c.engine.deadline_monotonic
-    else:
-        if reverify_timeout is None:
-            reverify_timeout = min(1200, max(300, 60 * sum(
-                search_evidence_error(row) is not None for row in freshness_lines(c))))
-        deadline = time.monotonic() + min(reverify_timeout, getattr(c.args, 'agent_timeout', 1200))
+    # Busy searching is not a stall. The attempt's deadline, call limits and grant bound it.
+    deadline = c.engine.deadline_monotonic
     def role_state(who):
         n = freshness_counts(c)
         errors = [{"row": i + 1, "reason": reason} for i, row in enumerate(freshness_lines(c))

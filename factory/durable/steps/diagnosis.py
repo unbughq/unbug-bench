@@ -55,11 +55,11 @@ def _feedback(c, runner):
 # A step whose last attempts all stopped on this many identical infra reasons is a factory bug.
 REPEATED_INFRA_STOPS = 3
 _NOT_FAULTS = ('infra:paused', 'infra:deadline')   # policy.PAUSE_REASONS and DEADLINE_REASON
-# Infra stops the case itself can cause: a flagged public hit no reviewer settles, or search rows with
-# real defects (an expired or unretrieved row stops infra:freshness_refresh_stalled instead). The agent
-# judges these.
+# Infra stops the case itself can cause: a flagged public hit no reviewer settles, search rows with real
+# defects, or search URLs that fail retrieval every time (dead links). The agent judges these. Expired
+# rows a re-run did not refresh stop infra:freshness_refresh_stalled, which stays a factory bug.
 _CASE_CAUSED = ('infra:freshness_review_unavailable', 'infra:freshness_evidence_unavailable',
-                'infra:freshness_unresolved')
+                'infra:freshness_unresolved', 'infra:freshness_dead_links')
 
 
 def repeated_infra_stop(history):

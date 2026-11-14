@@ -18,7 +18,7 @@ import model_runtime
 import model_router
 from router_test_support import offline_router
 _ROUTING = offline_router()
-from test_admission import evidence
+from test_admission import ENGINE, evidence
 
 
 class FreshnessRestoreTests(unittest.TestCase):
@@ -248,6 +248,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         return state
 
     def test_expiry_research_keeps_case_budget_boundary(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         self.addCleanup(offline_router()[0].close)
         self.expire()
         with patch.object(run, 'case_budget_boundary', side_effect=run.BudgetError('budget_exhausted')), \
