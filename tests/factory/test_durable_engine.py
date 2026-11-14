@@ -1623,9 +1623,9 @@ class ResumeOverride(unittest.TestCase):
     def manual_run(self, scenario, timeout=120):
         return run(manual_holds(scenario), timeout)
 
-    def resume(self, r, batch, script=None, override=None, spec=None):
+    def resume(self, r, batch, script=None, override=None, spec=None, extra=None):
         scenario = {"spec": {"batch_id": batch, "max_cases_started": 1, **(spec or {})}, "resume_of": C1,
-                    "script": script or {}}
+                    "script": script or {}, "override_extra": extra or {}}
         if override is not None:
             scenario["override"] = override
         return EngineRun(manual_holds(scenario), workdir=r.work).run()
@@ -1661,6 +1661,27 @@ class ResumeOverride(unittest.TestCase):
         self.assertEqual(card(out, C1)["override"], "again")
         self.assertEqual(self.resume(r, "b-z2", override="third", spec=spec), {"refused": "resume:override_used"})
         self.assertEqual(self.resume(r, "b-z2", spec=spec), {"refused": "resume:not_stopped_by_infra"})
+
+    def test_a_founder_extra_override_allows_one_more_for_that_case_only(self):
+        # Founder 2026-11-14 (f46dac-5-1): OVERRIDE_EXTRA grants a named case one override past the cap.
+        spec = {"max_infra_retries_per_step": 2}
+        again = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",
+                                 "checkpoint": True},
+                 "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = self.manual_run(Resume.GATES_INFRA)
+        self.addCleanup(r.close)
+        for batch in ("b-u", "b-v", "b-w"):
+            self.resume(r, batch, again, spec=spec)
+        for batch, why in (("b-y", self.WHY), ("b-z", "again")):
+            self.assertEqual(self.resume(r, batch, again, override=why, spec=spec)["result"]["cases"],
+                             {f"{C1}@{batch}": "retired"})
+        self.assertEqual(self.resume(r, "b-z2", override="third", spec=spec, extra={"case-t-9": 1}),
+                         {"refused": "resume:override_used"})   # another case's grant does not count
+        out = self.resume(r, "b-z3", again, override="third", spec=spec, extra={C1: 1})
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-z3": "retired"})
+        self.assertEqual(card(out, C1)["override"], "third")
+        self.assertEqual(self.resume(r, "b-z4", override="fourth", spec=spec, extra={C1: 1}),
+                         {"refused": "resume:override_used"})
 
     def test_a_factory_bug_hold_whose_step_never_started_resumes_at_that_step(self):
         # The diagnosed stress step never started (the case grant was below the minimum), so it

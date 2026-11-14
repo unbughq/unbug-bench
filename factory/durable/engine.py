@@ -428,6 +428,10 @@ def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
 # up to OVERRIDE_MAX per lineage (was once), so a case a second fixed factory bug killed can finish.
 OVERRIDE_REASON_MAX = 200
 OVERRIDE_MAX = 2
+# Founder 2026-11-14: one override beyond OVERRIDE_MAX for f46dac-5-1 alone. Its second override (the
+# close_to_passing extension) ran only a diagnosis, which said factory_bug: the G2 freshness livelock
+# fixed in 77d000f7. Case id -> extra overrides.
+OVERRIDE_EXTRA = {"case-import-f46dac-5-1": 1}
 
 
 def _override_refusal(kind: Optional[str], r) -> Optional[str]:
@@ -638,8 +642,9 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         raise ContractError("resume:not_stopped_by_infra")
 
     earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
-    if override is not None and sum(r.get("override") is not None for r in earlier) >= OVERRIDE_MAX:
-        raise ContractError("resume:override_used")   # OVERRIDE_MAX per lineage
+    if override is not None and (sum(r.get("override") is not None for r in earlier)
+                                 >= OVERRIDE_MAX + OVERRIDE_EXTRA.get(case_id, 0)):
+        raise ContractError("resume:override_used")   # OVERRIDE_MAX per lineage, plus a founder's extra
     overridden, extension_override = False, None
     factory_bug_resumes = max([r.get("factory_bug_resumes", 0) for r in earlier], default=0)
     # Resumes the latest workflow made in place (rerun_after_release), by diagnosis seq. The new
