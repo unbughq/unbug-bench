@@ -1717,21 +1717,60 @@ class ResumeOverride(unittest.TestCase):
         self.assertEqual((c["override"], c["extensions"], c["diagnoses"]), (self.WHY, 1, 1))
         self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()), [])
 
-    def test_a_deadline_retire_after_an_extension_without_progress_is_refused(self):
-        # decide_diagnosis retires a close_to_passing case whose extension made no progress, deadline
-        # or not: that is a judgment, so the override does not ask again.
-        r, out = self.manual_run({"spec": {"max_cases_started": 1}, "deadline_in": 14,
-                                  "script": {"1/stress:1/1": {"feedback": True},
-                                             "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
-                                             "1/5/diagnosis/1": {"verdict": "close_to_passing"},
-                                             "1/gates:3/1": {"outcome": "gate_failed", "gate": "G5",
-                                                             "repairable": True, "passed": []},
-                                             "1/9/diagnosis/1": {"verdict": "close_to_passing", "dur": 16}}})
+    # decide_diagnosis retired a close_to_passing case whose extension made no progress (deadline or
+    # not). Founder 2026-11-14 (18681d-r-1, f46dac-5-1, stalled by since-fixed factory bugs): an
+    # override asks the diagnosis afresh and grants it one extension; the next diagnosis judges
+    # progress as always.
+    NO_PROGRESS = {"spec": {"max_cases_started": 1}, "deadline_in": 14,
+                   "script": {"1/stress:1/1": {"feedback": True},
+                              "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                              "1/5/diagnosis/1": {"verdict": "close_to_passing"},
+                              "1/gates:3/1": {"outcome": "gate_failed", "gate": "G5",
+                                              "repairable": True, "passed": []},
+                              "1/9/diagnosis/1": {"verdict": "close_to_passing", "dur": 16}}}
+
+    def no_progress_retirement(self):
+        r, out = self.manual_run(self.NO_PROGRESS)
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
         self.assertEqual(r.keys(1)[-1], ("9", "diagnosis", "1"))
         self.assertEqual(card(out, C1)["extensions"], 1)
-        self.assertEqual(self.resume(r, "b-u", override=self.WHY), {"refused": "resume:scientific_stop"})
+        self.assertEqual(self.resume(r, "b-u"), {"refused": "resume:not_stopped_by_infra"})
+        return r
+
+    def test_a_no_progress_retire_after_close_to_passing_gets_one_extension_with_the_override(self):
+        r = self.no_progress_retirement()
+        before = len(r.starts(1))
+        out = self.resume(r, "b-v", {"1/diagnosis/*": {"verdict": "close_to_passing"}}, override=self.WHY)
+        new = r.keys(1)[before:]
+        # The diagnosis is asked afresh at its seq, then a writer round and the gates run.
+        self.assertEqual(new[0], ("9", "diagnosis", "2"))
+        self.assertEqual(new[1][1:], ("writer:4", "1"))
+        self.assertIn("gates:4", [k[1] for k in new])
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "sealed"})
+        c = card(out, C1)
+        self.assertEqual((c["override"], c["extensions"]), (self.WHY, 2))
+
+    def test_a_granted_extension_without_progress_retires_and_the_override_cap_holds(self):
+        r = self.no_progress_retirement()
+        stalled = {"1/diagnosis/*": {"verdict": "close_to_passing"},
+                   "1/gates:4/*": {"outcome": "gate_failed", "gate": "G5", "repairable": True, "passed": []},
+                   "1/gates:5/*": {"outcome": "gate_failed", "gate": "G5", "repairable": True, "passed": []}}
+        before = len(r.starts(1))
+        out = self.resume(r, "b-v", stalled, override=self.WHY)
+        new = r.keys(1)[before:]
+        self.assertEqual(new[1][1:], ("writer:4", "1"))
+        # No progress again: decide_diagnosis retires it at its next diagnosis, without looping.
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "retired"})
+        self.assertEqual([k[1] for k in new].count("diagnosis"), 2)
+        self.assertEqual(new[-1][1], "diagnosis")
+        self.assertEqual(card(out, C1)["extensions"], 2)
+        self.assertEqual(self.resume(r, "b-w"), {"refused": "resume:not_stopped_by_infra"})
+        # Each grant spends an override of the lineage's OVERRIDE_MAX; the earlier grant replays.
+        out = self.resume(r, "b-x", stalled, override="again")
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-x": "retired"})
+        self.assertEqual((card(out, C1)["override"], card(out, C1)["extensions"]), ("again", 3))
+        self.assertEqual(self.resume(r, "b-y", override="third"), {"refused": "resume:override_used"})
 
     def test_scientific_stops_are_refused_even_with_the_override(self):
         retire = {"when": {"case": 1, "status": "escalated"}, "reply": {"action": "retire"}}
