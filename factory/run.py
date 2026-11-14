@@ -85,6 +85,12 @@ def parallel_calibrators(c):
     import bench
     try:
         scenarios = [bench.load_scenario(c.case / "base")]
+        if any(c.case.glob("harbor/*/steps/*/window.json")):
+            # bin/live_shop.py finds an inventory container by compose service label alone, so a silent
+            # window beside another slot's copy reads two ids and fails (cae763, 14 November).
+            folder = c.case / "scenarios"
+            every = scenarios + [bench.load_scenario(d) for d in folder.iterdir() if d.is_dir()] if folder.is_dir() else scenarios
+            if bench.inventory_services(every): return False
         return bench.isolated_inventory_services(scenarios) and bench.factory_memory_fits(scenarios, 2)
     except (OSError, ValueError): return False  # an incomplete case may fail before G3
 
