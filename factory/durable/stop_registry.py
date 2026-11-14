@@ -134,6 +134,10 @@ REGISTRY = {
         "infra:version_mismatch", "infra:warm_failed", "infra:warm_stopped", "infra:worker_create_failed",
         "infra:worker_create_unknown", "infra:worker_delete_failed", "infra:worker_delete_unconfirmed",
         "infra:worker_error", "infra:worker_lost", "infra:worker_unreachable",
+        # workers.BoatPool._step's PoolError("infra:<name>") for each worker install step.
+        "infra:release_upload_failed", "infra:release_unpack_failed", "infra:cli_pin_failed",
+        "infra:image_source_prepare_failed", "infra:image_prepare_failed", "infra:release_qualify_failed",
+        "infra:release_commit_failed",
         # Model CLI faults: often the provider, sometimes us; open until triaged.
         "router:claude_error", "router:codex_error", "router:opencode_error", "router:process_error",
         "router:model_unavailable", "router:zero_tokens", "router:refusal", "router:unbounded_route",

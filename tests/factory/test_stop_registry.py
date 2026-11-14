@@ -14,6 +14,7 @@ from durable.stop_registry import REGISTRY, UNDECODABLE, audit, bug, decode, inv
 
 # A quoted reason literal anywhere in the factory or the campaign controller.
 LITERAL = re.compile(r"""["'](%s)["']""" % REASON.pattern)
+WORKER_STEP = re.compile(r'self\._step\(\w+, "([a-z][a-z_]*)"')
 FIX, OTHER_FIX, OLD, NEW = "f" * 40, "e" * 40, "a" * 40, "b" * 40
 
 
@@ -22,7 +23,9 @@ def recordable() -> set:
              | classify.IMPORT_REASONS | classify.REJECTION_REASONS | classify.BOARD_REASONS)
     sources = [*(ROOT / "factory").rglob("*.py"), *(ROOT / "control/campaign").glob("*.py")]
     literals = {m.group(1) for p in sources for m in LITERAL.finditer(p.read_text())}
-    return fixed | {r for r in literals if not r.endswith("_")}   # "admit:dedup_" etc. are prefixes
+    # workers.BoatPool._step(worker, "<name>", ...) raises PoolError(f"infra:{name}").
+    steps = {"infra:" + m.group(1) for m in WORKER_STEP.finditer((ROOT / "factory/durable/workers.py").read_text())}
+    return fixed | steps | {r for r in literals if not r.endswith("_")}   # "admit:dedup_" etc. are prefixes
 
 
 def row(reason, *, case="case-1", seq=1, attempt=1, pv="p-new", outcome="infra_error"):
