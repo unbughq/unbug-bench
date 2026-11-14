@@ -90,11 +90,12 @@ class ReleasePinTests(unittest.TestCase):
     """This release edits factory/calibration.py; stored identities and gate caches must not lose their hash."""
     def test_pin_is_current_and_maps_the_new_hash_to_the_old_one(self):
         import hashlib
-        pin = gate_state.release_pins()['factory/calibration.py']
-        actual = hashlib.sha256((_TEST_ROOT / 'factory/calibration.py').read_bytes()).hexdigest()
-        self.assertEqual(pin['to'], actual, 're-pin: calibration.py changed after the pin was computed')
-        found = gate_state.dependency_files(types.SimpleNamespace(args=types.SimpleNamespace()), ('factory/calibration.py',), _TEST_ROOT)
-        self.assertEqual(found, {'factory/calibration.py': pin['from']})
+        for name in ('factory/calibration.py', 'factory/fairness.py'):
+            pin = gate_state.release_pins()[name]
+            actual = hashlib.sha256((_TEST_ROOT / name).read_bytes()).hexdigest()
+            self.assertEqual(pin['to'], actual, f're-pin: {name} changed after the pin was computed')
+            found = gate_state.dependency_files(types.SimpleNamespace(args=types.SimpleNamespace()), (name,), _TEST_ROOT)
+            self.assertEqual(found, {name: pin['from']})
 
     def test_any_other_hash_is_reported_as_is(self):
         pins = {'factory/calibration.py': {'from': 'a' * 64, 'to': 'b' * 64}}

@@ -40,6 +40,10 @@
     "factory/calibration.py": {
       "from": "ec49b199a445bb13f059129a01e8f8bc3617ac98abc5100ae4d57e779e382767",
       "to": "391794408ae17a52f5e827f9aa1bacb5c58b3102cbdd67defe749dc3e573a602"
+    },
+    "factory/fairness.py": {
+      "from": "ddd0c943036621edee3c17f0a9595a1b9e2f323146ab8bb46b70ca2d8ac53c2d",
+      "to": "4a85b493e931b4ab67b721bf85e3b2ef0d3edeeeeb92b8203e5651c43dc51559"
     }
   }
 }
