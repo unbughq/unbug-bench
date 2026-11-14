@@ -640,6 +640,11 @@ class Handler(BaseHTTPRequestHandler):
                 parser.feed(chunk)
                 self.wfile.write(chunk); self.wfile.flush()
             if response.status == 200 and response.getheader('Content-Encoding', 'identity') == 'identity': usage = parser.final()
+            elif not paid and 400 <= response.status < 500:
+                # Anthropic rejected it (a 429 rate or usage limit, a bad request) before any model work:
+                # nothing is billed. Holding its worst case ($9.52 on Opus 5.5) booked phantom spend on
+                # every quota stop and exhausted a $12.50 window at the first 429. A 5xx stays unknown.
+                usage = dict.fromkeys(CLAUDE_GATE_FIELDS, 0)
         except (OSError, ValueError, http.client.HTTPException):
             if not sent:
                 try: self.error(502, 'api_error', 'upstream_unavailable')

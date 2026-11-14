@@ -686,7 +686,7 @@ class MaximaTests(unittest.TestCase):
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
-        self.seen=[];self.failure=False;self.malformed=False;self.stalled=None;self.responses=None
+        self.seen=[];self.failure=False;self.status=None;self.malformed=False;self.stalled=None;self.responses=None
         self.https_connection=http.client.HTTPSConnection
         owner=self
         class Upstream(BaseHTTPRequestHandler):
@@ -696,7 +696,7 @@ class ProtocolTests(unittest.TestCase):
                 owner.seen.append((self.path,json.loads(raw),dict(self.headers)))
                 usage=dict(input_tokens=1,cache_read_input_tokens=0,cache_creation_input_tokens=0,output_tokens=1)
                 data=owner.responses.pop(0) if owner.responses else b'not valid usage' if owner.malformed else sse(usage)
-                self.send_response(503 if owner.failure else 200)
+                self.send_response(owner.status or (503 if owner.failure else 200))
                 self.send_header('Content-Type','text/event-stream')
                 if owner.stalled is None or owner.stalled.content_length:
                     self.send_header('Content-Length',str(len(data)))
@@ -762,6 +762,21 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(len(self.seen),5)
         self.assertEqual((cap['forwarded_requests'],cap['unknown_requests'],cap['in_flight_requests']),(5,5,0))
         self.assertEqual(Decimal(cap['held_usd']),Decimal('47.604480'))
+
+    def test_a_rejected_4xx_request_settles_at_zero_and_never_exhausts_the_call(self):
+        """22e434-5 stress:2 attempt 13 and 18681d gates:4 attempt 3 (router:quota): Anthropic's 429 for a
+        usage limit kept the request's whole worst-case hold ($9.52 on Opus 5.5) as unknown spend. A 4xx
+        is a rejection before any model work and is not billed, so it settles at $0; in a $12.50 window
+        a single held 429 used to leave no room for the next request (model_call_cap)."""
+        self.status=429;env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'};cap={}
+        small=router.Lease(uuid.uuid4().hex,GATED_CLAUDE,'claude-token',time.time()+180,'subscription','anthropic',
+                           'claude-token',**router.funded_maximum(GATED_CLAUDE,'12.5'))
+        with gate.enforce(small,env,cap,3) as active:
+            for _ in range(3): self.assertEqual(self.post(env,body())[0],429)
+            self.assertFalse(active.is_set())
+        self.assertEqual(len(self.seen),3)
+        self.assertEqual((cap['validated_requests'],cap['unknown_requests']),(3,0))
+        self.assertEqual(Decimal(cap['held_usd'])+Decimal(cap['settled_usd']),0)
 
     def test_parent_cancel_and_cleanup_failure_are_not_monetary_labels(self):
         cancel=threading.Event();cancel.set();cap={};env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'}

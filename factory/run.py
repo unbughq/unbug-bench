@@ -2458,13 +2458,14 @@ def helper_try_authority(c, role, exposure, tries):
     all start at once. The rest run here, one at a time, as today. A try's worst case is one call window
     (the serial funding cap) plus, for the exam, the owner reviewer window held outside it."""
     from decimal import Decimal
-    from model_runtime import CHEAP_CALL_WINDOW_USD, UNCAPPED_ROLES
+    from model_runtime import call_window
     accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
     def widest(model):
         return max((Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)), default=None)
     per_try = widest(c.models[role][0])
     if per_try is None: return Decimal(0), 0
-    if role not in UNCAPPED_ROLES: per_try = min(per_try, Decimal(str(CHEAP_CALL_WINDOW_USD)))
+    window = call_window(role, c.models[role][0])
+    if window is not None: per_try = min(per_try, window)
     if exposure == "exam":
         owner = widest(c.models["reviewers"][0][0])
         if owner is None: return Decimal(0), 0

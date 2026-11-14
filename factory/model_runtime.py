@@ -51,6 +51,17 @@ CHEAP_CALL_WINDOW_USD = 12.5
 UNCAPPED_ROLES = ('writer',)
 
 
+def call_window(role, model):
+    """The most one call of this role on this model may reserve, or None (the writer keeps its funded
+    window). A Claude gate holds each request's worst case ($9.520896 on Opus 5.5) before forwarding it,
+    so a flat $12.50 cut a Claude attacker off (model_call_cap) after $3.04 of real spend (22e434-5,
+    13 November): a Claude window is the cheap spend plus that one hold. Other gated holds are cents."""
+    from decimal import Decimal
+    if role in UNCAPPED_ROLES: return None
+    hold = model_call_gate.request_hold(model) if model in model_call_gate.CLAUDE_PROFILES else None
+    return Decimal(str(CHEAP_CALL_WINDOW_USD)) + (hold or 0)
+
+
 def accounting_work(c):
     """Comparison keeps scientific scratch separate from the owning ledger receipts."""
     return getattr(c, 'accounting_work', c.work)
@@ -491,8 +502,8 @@ class ModelRuntime:
                         # Keep one qualified reviewer window outside the parent's hold.
                         funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
                         if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
-                    if role not in UNCAPPED_ROLES:
-                        funding = min(funding, Decimal(str(CHEAP_CALL_WINDOW_USD)))
+                    window = call_window(role, requested)
+                    if window is not None: funding = min(funding, window)
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)
                 except model_router.ProviderWait as error:

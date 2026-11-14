@@ -535,7 +535,10 @@ Engine invocations request a quote bounded by their currently uncommitted attemp
 funding. OpenRouter qualification-sized default windows are replaced by this
 funded window (at most $50, and at most $12.50 for every role but the writer on every family,
 Codex and Claude included, so four such calls fit one grant at once and a non-final receipt, which
-books its whole window, cannot exhaust it); explicit Claude profile ceilings remain binding.
+books its whole window, cannot exhaust it; a Claude call's cap adds the one request hold its gate keeps,
+$9.52 on Opus 5.5, so it still funds $12.50 of real spend, `model_runtime.call_window`); explicit Claude
+profile ceilings remain binding. A Claude gate settles a request Anthropic answered with a 4xx (a 429 rate
+or usage limit, a bad request) at $0: it was rejected before any model work; a 5xx keeps its whole hold.
 A reservation is marked launched before its model process can start; a pending one never
 launched spent nothing, so spend accounting and crash reconciliation settle it at $0, while
 admission still counts it.
