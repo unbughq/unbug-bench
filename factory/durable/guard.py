@@ -427,7 +427,8 @@ class Guard:
             # The router refuses every paid request past its ceiling (a clean router:credit wait), so
             # reaching it spends nothing more: pause new attempts until it is raised, and let steps in
             # flight finish their Claude, Codex and Go work. Only spend past the ceiling is a breach.
-            if spent >= ceiling - ROUTER_MARGIN_USD:
+            health["router_paused"] = spent >= ceiling - ROUTER_MARGIN_USD
+            if health["router_paused"]:
                 self.flag("router_spend", "router_ceiling", f"{spent:.2f} of {ceiling:.2f}")
             return spent > ceiling
         def terminal():
@@ -578,7 +579,11 @@ class Guard:
         if health["hard_stop"]:
             out["hard_stop"] = "Factory stopped. " + HARD_STOPS.get(health["hard_stop"], "Check the guard log.")
         since = health["degraded_since"]
-        if since is not None and now - since >= self.escalate_s:
+        if health.get("router_paused"):
+            out["router_ceiling_paused"] = ("Router paid spend is at its ceiling; new attempts paused. Raise the "
+                                            "ceiling (router restart with no calls in flight) to resume.")
+        if (since is not None and now - since >= self.escalate_s
+                and not (health.get("router_paused") and health["failed_checks"] == ["router_spend"])):
             failing = ", ".join(health["failed_checks"]) or "a check"
             out["degraded"] = f"New attempts have been paused for {int((now - since) / 60)} minutes: {failing} keeps failing."
         down = health["down_since"]

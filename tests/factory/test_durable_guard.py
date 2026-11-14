@@ -675,8 +675,17 @@ class GuardTests(unittest.TestCase):
         self.assertEqual((out["phase"], out["hard_stop"], out["failed_checks"]), ("degraded", None, ["router_spend"]))
         self.assertEqual(out["router_spent_usd"], 49.2)
         self.assertEqual(self.f.deleted, [])
+        paused = [m for m in self.f.sent if "at its ceiling; new attempts paused" in m]
+        self.assertEqual(len(paused), 1)                                  # at once, not after 15 minutes
+        for _ in range(20):                                               # and only once, no generic alert
+            self.f.clock += 60
+            self.f.guard(router=lambda: (49.2, 49.95)).run()
+        self.assertEqual([m for m in self.f.sent if "at its ceiling" in m], paused)
+        self.assertFalse(any("keeps failing" in m for m in self.f.sent))
         self.f.clock += 60
-        self.assertEqual(self.f.guard(router=lambda: (49.2, 80.0)).run()["phase"], "healthy")   # raised: resumes
+        out = self.f.guard(router=lambda: (49.2, 80.0)).run()                # raised: resumes
+        self.assertEqual((out["failed_checks"], out["hard_stop"]), ([], None))
+        self.assertFalse(degraded(self.f.state_dir))
 
     def test_real_router_spend_past_its_ceiling_stops_when_the_ledger_reads_low(self):
         """Live on 6 November the ledger booked $0.91 for an attempt the router charged $4.91. Spend the

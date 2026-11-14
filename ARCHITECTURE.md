@@ -533,12 +533,17 @@ Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
 geography stays conservatively priced, while explicit global usage releases it.
 Engine invocations request a quote bounded by their currently uncommitted attempt
 funding. OpenRouter qualification-sized default windows are replaced by this
-funded window (at most $50, and at most $12.50 for every role but the writer on every family,
-Codex and Claude included, so four such calls fit one grant at once and a non-final receipt, which
-books its whole window, cannot exhaust it; a Claude call's cap adds the one request hold its gate keeps,
-$9.52 on Opus 5.5, so it still funds $12.50 of real spend, `model_runtime.call_window`); explicit Claude
-profile ceilings remain binding. A Claude gate settles a request Anthropic answered with a 4xx (a 429 rate
-or usage limit, a bad request) at $0: it was rejected before any model work; a 5xx keeps its whole hold.
+funded window (at most $50; for every role but the writer, `model_runtime.call_window`: $12.50 on
+every family except Claude, whose cap is $12.50 plus the one request hold its gate keeps before
+forwarding, $9.52 on Opus 5.5, so $22.02 funds $12.50 of real spend). An unconfirmed receipt then costs
+a grant at most: a Codex or OpenRouter call its whole window ($12.50); a Claude call its closed gate's
+bound, real spend plus the holds of requests still unconfirmed (usually one, $9.52), never its whole
+window. Explicit Claude profile ceilings remain binding. A Claude gate settles a 4xx at $0 only when
+Anthropic answered with its JSON `{"type":"error"}` body and no model output or usage arrived (a 429
+rate or usage limit, a bad request: rejected before any model work); any other 4xx body, and every 5xx,
+keeps its whole hold. After `model_call_gate.MAX_REJECTIONS` (3) such free rejections in a row, 429s
+excluded, the call stops as `router:upstream_rejected`, so a permanent bad request cannot run to the
+step timeout; a 429 quota still parks as `router:quota`.
 A reservation is marked launched before its model process can start; a pending one never
 launched spent nothing, so spend accounting and crash reconciliation settle it at $0, while
 admission still counts it.
