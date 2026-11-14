@@ -663,14 +663,29 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.tick()["phase"], "stopped")
         self.assertEqual(self.f.deleted, ["bx_aaaaaaaa"])
 
-    def test_real_router_spend_stops_when_the_ledger_reads_low(self):
-        """Live on 6 November the ledger booked $0.91 for an attempt the router charged $4.91."""
+    def test_router_spend_at_its_ceiling_pauses_new_attempts_and_keeps_steps_in_flight(self):
+        """The router refuses every paid request past its ceiling itself (a clean router:credit wait), so
+        reaching it spends nothing more. A hard stop there gave steps in flight 10 minutes, then deleted
+        their workers: hours-long Claude and Codex steps that cost no router money were lost as waste.
+        Near the ceiling the guard now pauses new attempts until it is raised (router restart)."""
         self.f.money = {"spent": 1, "bound": 2, "held": 0}
         guard = self.f.guard(router=lambda: (49.2, 49.95))   # short of it, as the router never quite reaches it
         self.f.clock += 60
         out = guard.run()
-        self.assertEqual((out["phase"], out["hard_stop"]), ("stopped", "money_ceiling"))
+        self.assertEqual((out["phase"], out["hard_stop"], out["failed_checks"]), ("degraded", None, ["router_spend"]))
         self.assertEqual(out["router_spent_usd"], 49.2)
+        self.assertEqual(self.f.deleted, [])
+        self.f.clock += 60
+        self.assertEqual(self.f.guard(router=lambda: (49.2, 80.0)).run()["phase"], "healthy")   # raised: resumes
+
+    def test_real_router_spend_past_its_ceiling_stops_when_the_ledger_reads_low(self):
+        """Live on 6 November the ledger booked $0.91 for an attempt the router charged $4.91. Spend the
+        router let past its own ceiling is a breach: still a hard stop."""
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        guard = self.f.guard(router=lambda: (50.2, 49.95))
+        self.f.clock += 60
+        out = guard.run()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("stopped", "money_ceiling"))
 
     def test_router_books_are_read_for_real(self):
         db = self.f.state_dir / "router.sqlite3"
@@ -728,7 +743,7 @@ class GuardTests(unittest.TestCase):
                  "unavailable": [], "spend_usd_micros": {"spent": 0, "held": 0, "waste": 0}}
         line = next(l for l in render_board(board).splitlines() if l.startswith("Router paid"))
         self.assertIn("$40.50 of $50.00 ceiling (81%); provider credit $23.00; burning $", line)
-        self.assertIn("guard stop in ~", line)
+        self.assertIn("guard pause in ~", line)
 
     def test_router_below_its_ceiling_changes_nothing_and_unreadable_only_degrades(self):
         self.f.money = {"spent": 1, "bound": 2, "held": 0}

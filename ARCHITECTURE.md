@@ -550,8 +550,9 @@ wallet spending limit including all retained charges. Restart applies an explici
 limit transactionally without resetting settled or uncertain spending; live wallet
 credit is checked separately on every paid request (a refused request still records the balance it saw).
 A paid route whose ceiling cannot cover one more request's hold is also refused at lease time as a
-`credit` wait; current holds are under the guard's $1 margin, so with the guard running its stop
-usually comes first. An older request waiting only on such routes does not hold back newer requests
+`credit` wait; current holds are under the guard's $1 margin. Within that margin the guard pauses new
+attempts (degraded) until the ceiling is raised; steps in flight keep running, and their paid calls
+end as clean `router:credit` waits. Only router spend past its ceiling is a hard stop. An older request waiting only on such routes does not hold back newer requests
 for that pool. Without this setting, the
 historical first-use qualification ceiling remains fixed across restarts.
 An unconfirmed paid request books its whole hold until the provider says otherwise.

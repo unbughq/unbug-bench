@@ -5,7 +5,8 @@ which pauses new attempts (engine.py) until a pass succeeds. A stalled campaign 
 credentials or the router, no case progress for STALL_S while cases are live and no step is in
 flight, or a case parked on a founder decision for FOUNDER_WAIT_S) also reads degraded, with the
 reason in `stalled`, and alerts; it pauses nothing. Only these are hard stops: the deadline,
-the money ceiling and a confirmed Boat allowance or rate breach.
+the money ceiling (router spend only past its own ceiling: reaching it pauses) and a confirmed Boat
+allowance or rate breach.
 
 A hard stop pauses new attempts and gives steps in flight a checkpoint grace to record. When none
 is left, or the grace ends, the guard stops the controller and deletes the workers. Work still
@@ -33,7 +34,7 @@ GRACE_S = 120.0              # a controller that just came up is not judged yet
 CHECKPOINT_GRACE_S = 600.0   # after a hard stop, for steps in flight; a pass runs once a minute
 LOW_CREDIT_USD = 25.0        # alert below this provider credit (UNBUG_LOW_CREDIT_USD); a hold can be most of a grant
 ROUTER_MARGIN_USD = 1.0      # the router refuses a call that would pass its ceiling, so spend stalls below it
-CEILING_ALERT_SHARE = 0.8    # alert once router spend reaches this share of its ceiling, before the hard stop
+CEILING_ALERT_SHARE = 0.8    # alert once router spend reaches this share of its ceiling, before the pause
 BURN_WINDOW_S = 3600.0       # the spend rate behind a time-to-exhaustion estimate is this window's
 ESCALATE_S = 900.0           # sustained failure raises an alert; it still stops nothing
 DOWN_ALERT_S = 600.0
@@ -423,7 +424,12 @@ class Guard:
                        and all(type(v) in (int, float) for v in s) and now - s[0] < BURN_WINDOW_S] + [[now, spent]]
             health["router_spend_samples"] = samples
             health["router_burn_usd_per_hour"] = burn_rate(samples)
-            return spent >= ceiling - ROUTER_MARGIN_USD
+            # The router refuses every paid request past its ceiling (a clean router:credit wait), so
+            # reaching it spends nothing more: pause new attempts until it is raised, and let steps in
+            # flight finish their Claude, Codex and Go work. Only spend past the ceiling is a breach.
+            if spent >= ceiling - ROUTER_MARGIN_USD:
+                self.flag("router_spend", "router_ceiling", f"{spent:.2f} of {ceiling:.2f}")
+            return spent > ceiling
         def terminal():
             # The campaign is finished only when every watched batch is.
             reports = [self.rpc("status", batch) for batch in self.batches]
@@ -602,8 +608,8 @@ class Guard:
         if spent is not None and ceiling and spent >= CEILING_ALERT_SHARE * ceiling:
             left = max(ceiling - ROUTER_MARGIN_USD - spent, 0)
             out["router_ceiling"] = (f"Router paid spend is ${spent:.2f} of its ${ceiling:.2f} ceiling "
-                                     f"({spent / ceiling:.0%}); the guard stops the factory after ${left:.2f} more, "
-                                     f"{runway(left, rate)}. Raise the ceiling (router restart) or expect a stop.")
+                                     f"({spent / ceiling:.0%}); the guard pauses new attempts after ${left:.2f} more, "
+                                     f"{runway(left, rate)}. Raise the ceiling (router restart) or expect a pause.")
         out.update(health.get("warnings") or {})
         for case in self.load("scorecard.json", {}).get("cases", []):
             if not isinstance(case, dict):
