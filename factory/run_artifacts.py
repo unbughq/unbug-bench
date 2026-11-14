@@ -53,7 +53,7 @@ class RunArtifacts:
         gather leaves it, as gate_state.inventory does. The lock and seed IDs stay even for the wipe."""
         results = self.bench / "results"
         def kept(rel):
-            return (rel.name in (slot_state.LOCK, slot_state.SEED_IDS)
+            return (slot_state.always_kept(rel.as_posix())
                     or (not include_state and slot_state.is_state(rel.as_posix())))
         return [f for f in results.rglob("*") if f.is_file() and f.stat().st_mtime >= c.t0
                 and not kept(f.relative_to(results))]

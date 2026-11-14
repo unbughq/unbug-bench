@@ -65,14 +65,23 @@ class LiveSlotFixtureTests(unittest.TestCase):
 
     def test_registered_state_names_are_benchs_own(self):
         import bench
-        self.assertEqual(self.bench_state_names(),
-                         (slot_state.FILES - {slot_state.SEED_IDS}) | slot_state.DIRECTORIES)
+        # bench replaces these two atomically through a sibling with_suffix(".tmp").
+        temporaries = {".prepared.tmp": ("bin/bench.py", 'receipt.with_suffix(".tmp")'),
+                       ".pending.tmp": ("bin/checkpoint", 'state.with_suffix(".tmp")')}
+        for name, (source, write) in temporaries.items():
+            self.assertIn(write, (ROOT / source).read_text())
+        self.assertEqual(self.bench_state_names() | set(temporaries), slot_state.FILES | slot_state.DIRECTORIES)
         self.assertEqual(bench.IDS.name, slot_state.SEED_IDS)
         self.assertIn(bench.INVENTORY_STATE.name, slot_state.FILES)
         self.assertIn('RESULTS / f"' + slot_state.PROGRESS_PREFIX, (ROOT / "bin/bench.py").read_text())
-        self.assertFalse(slot_state.is_state(".factory-runs-x/records.json"))
-        self.assertFalse(slot_state.is_state("factory-slots/2/runs/x/01.json"))
-        self.assertTrue(slot_state.is_state("factory-slots/2/.no-changes/scenario.json"))
+        for evidence in (".factory-runs-x/records.json", "factory-slots/2/runs/x/01.json",
+                         "runs/x/checkpoint.json.tmp", "factory-slots/2/runs/x/checkpoint.json.tmp",
+                         "runs/x/.prepared.json", "runs/x/bench-progress-1.json", "runs/x/seed-ids.json",
+                         "seed-ids.json", "factory-slots/2/runs/seed-ids.json"):
+            self.assertFalse(slot_state.is_state(evidence), evidence)
+        for state in ("factory-slots/2/.no-changes/scenario.json", ".no-changes/scenario.json", "bench-progress-3.json",
+                      "factory-slots/2/bench-progress-3.json", "factory-slots/2/seed-ids.json", ".pending.tmp"):
+            self.assertTrue(slot_state.is_state(state), state)
 
     def test_gather_leaves_every_live_slot_state_file(self):
         """Gather moved .prepared.json, .inventory-services.json and the compose/port overrides too:
@@ -108,8 +117,10 @@ print(json.dumps(sorted(str(p.relative_to(bench.ROOT / 'results')) for p in r.rg
                           json.dumps(sorted(self.bench_state_names())))
             state = set(json.loads(state))
             self.assertEqual(len(state), 12)
+            # An interrupted checkpoint leaves its summary as checkpoint.json.tmp (bin/checkpoint_evidence.py).
             evidence = {"factory-slots/1/runs/20261113T000000Z-g5/01.json", ".factory-runs-x/records.json",
-                        ".factory-runs-x/job.json"}
+                        ".factory-runs-x/job.json", "factory-slots/1/runs/20261113T000000Z-g5/checkpoint.json.tmp",
+                        "runs/20261113T000000Z-g6/checkpoint.json.tmp"}
             for rel in evidence:
                 (bench / "results" / rel).parent.mkdir(parents=True, exist_ok=True)
                 (bench / "results" / rel).write_text("{}\n")
