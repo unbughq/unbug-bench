@@ -113,17 +113,20 @@ class PreflightRolePin(unittest.TestCase):
             tree = ast.parse(path.read_text())
             owner = {}   # each call belongs to its innermost function (ast.walk visits outer ones first)
             for fn in ast.walk(tree):
-                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if isinstance(fn, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
                     owner.update((call, fn) for call in ast.walk(fn) if isinstance(call, ast.Call))
+            def named(f): return f.attr if isinstance(f, ast.Attribute) else getattr(f, 'id', None)
+            calls = ('opencode', 'model_call', 'retained_answer')
             for call, fn in owner.items():
-                f = call.func
-                callee = f.attr if isinstance(f, ast.Attribute) else getattr(f, 'id', None)
-                if callee not in ('opencode', 'model_call', 'retained_answer'): continue
-                where = (path.name, fn.name)
+                shift = 0   # Context.run(model_call, c, …) passes the function itself: its args start one later
+                if named(call.func) not in calls:
+                    if not (call.args and named(call.args[0]) in calls): continue
+                    shift = 1
+                where = (path.name, getattr(fn, 'name', '<module>'))
                 if where in forwarded: continue
                 arg = next((k.value for k in call.keywords if k.arg == 'name'), None)
                 if arg is None:
-                    index = 3 if path.name == 'checkpoints.py' else 4
+                    index = 4 + shift
                     if len(call.args) <= index or any(isinstance(a, ast.Starred) for a in call.args[:index + 1]):
                         self.fail(f'{where}: cannot find the call name argument')
                     arg = call.args[index]
