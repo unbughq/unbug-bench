@@ -448,19 +448,21 @@ def _override_refusal(kind: Optional[str], r) -> Optional[str]:
     return None
 
 
-def _retired_only_by_deadline(latest, attempts: dict, last: tuple, earlier: list, result_of) -> bool:
-    """Whether a close_to_passing diagnosis (`last`) was retired only because the batch deadline had
-    passed (_Case.diagnose), not by decide_diagnosis: it finished after the deadline, the case had
-    extensions left, its last extension (if any) progressed, and it is not a recertified case (never
-    rewritten). Progress compares the gates passed when that extension began with those its own
-    GATES passed, from the recorded results, as _Case.diagnose does (ext_before, ext_after)."""
+def _close_to_passing_retirement(latest, attempts: dict, last: tuple, earlier: list, result_of) -> Optional[str]:
+    """Why a close_to_passing diagnosis (`last`) retired the case, when an override may resume it:
+    "deadline" when only the batch deadline retired it (_Case.diagnose): it finished after the
+    deadline and its last extension (if any) progressed; "no_progress" when decide_diagnosis retired
+    it because its last extension made no progress (founder 2026-11-14: 18681d-r-1 and f46dac-5-1,
+    whose extensions a since-fixed factory bug stalled). Either way the case had extensions left and
+    is not a recertified case (never rewritten); otherwise None. Progress compares the gates passed
+    when that extension began with those its own GATES passed, from the recorded results, as
+    _Case.diagnose does (ext_before, ext_after)."""
     spec = DBOS.list_workflows(workflow_ids=[latest.workflow_id])[0].input["args"][0]["spec"]
-    if (attempts[last].updated_at or 0) / 1000 < spec["deadline_epoch"]:
-        return False
+    late = (attempts[last].updated_at or 0) / 1000 >= spec["deadline_epoch"]
     card = DBOS.get_event(latest.workflow_id, "card", timeout_seconds=0) or {}
     used = card.get("extensions")
     if type(used) is not int or used >= min(spec.get("max_extensions", 5), 5):
-        return False
+        return None
     rows = sorted(attempts.items(), key=lambda kv: (kv[1].created_at or 0, kv[0]))
 
     def kind(w):
@@ -468,14 +470,14 @@ def _retired_only_by_deadline(latest, attempts: dict, last: tuple, earlier: list
     admit = [result_of(w) for _, w in rows if kind(w) == StepKind.ADMIT.value]
     if (any(isinstance(r, dict) and r.get("reason") == "admit:imported_sealed" for r in admit)
             and not any(r.get("recertify_repair") is True for r in earlier)):
-        return False
+        return None
     if used == 0:
-        return True
+        return "deadline" if late else None
     # The extension began at the last close_to_passing diagnosis before this one.
     started = [i for i, (k, w) in enumerate(rows) if k != last and kind(w) == StepKind.DIAGNOSIS.value
                and (result_of(w) or {}).get("verdict") == Verdict.CLOSE_TO_PASSING.value]
     if not started:
-        return False
+        return None
 
     def passed(lo, hi):   # the latest GATES result among rows[lo:hi], as _Case.absorb keeps it
         found = [r.get("passed") or [] for _, w in rows[lo:hi] if kind(w) == StepKind.GATES.value
@@ -485,9 +487,11 @@ def _retired_only_by_deadline(latest, attempts: dict, last: tuple, earlier: list
     before = passed(0, started[-1]) or ()
     after = passed(started[-1] + 1, end) or ()
     try:
-        return progressed(before, after)
+        if not progressed(before, after):
+            return "no_progress"
     except ContractError:
-        return False
+        return None
+    return "deadline" if late else None
 
 
 # Founder 2026-11-13: a resume may raise its lineage's case-money ceiling (runtime's resume_money
@@ -636,7 +640,7 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
     if override is not None and sum(r.get("override") is not None for r in earlier) >= OVERRIDE_MAX:
         raise ContractError("resume:override_used")   # OVERRIDE_MAX per lineage
-    overridden = False
+    overridden, extension_override = False, None
     factory_bug_resumes = max([r.get("factory_bug_resumes", 0) for r in earlier], default=0)
     # Resumes the latest workflow made in place (rerun_after_release), by diagnosis seq. The new
     # workflow replays, and so counts again, those before the run it continues; the rest it is told of.
@@ -758,14 +762,18 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
             isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
         # Operator override only: the last attempt reached no scientific result (it never started,
         # or stopped on money or a limit), or a diagnosis said close_to_passing and the batch deadline
-        # retired it (no extension starts after it). That step runs again at its seq, as after an
+        # retired it (no extension starts after it), or decide_diagnosis retired it because its last
+        # extension made no progress (founder 2026-11-14). That step runs again at its seq, as after an
         # infra stop; a diagnosis verdict is asked afresh rather than replayed into an extension.
         if override is None:
             raise ContractError("resume:not_stopped_by_infra")
         if diagnosis_ok:
-            if not (result.get("verdict") == Verdict.CLOSE_TO_PASSING.value and stopped == "retired"
-                    and _retired_only_by_deadline(latest, attempts, (seq, attempt), earlier, result_of)):
+            why = (result.get("verdict") == Verdict.CLOSE_TO_PASSING.value and stopped == "retired"
+                   and _close_to_passing_retirement(latest, attempts, (seq, attempt), earlier, result_of))
+            if not why:
                 raise ContractError("resume:scientific_stop")
+            if why == "no_progress":   # the diagnosis asked afresh may extend once without progress
+                extension_override = seq
         elif _override_refusal(last_step.split(":")[0], result):
             raise ContractError(_override_refusal(last_step.split(":")[0], result))
         overridden = True
@@ -826,6 +834,12 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     repaired = [r["recertify_repair_seq"] for r in earlier if r.get("recertify_repair_seq") is not None]
     if repaired:   # a repaired recertified case that stopped again replays its repair decision
         point.update(recertify_repair=True, recertify_repair_seq=repaired[0])
+    # Diagnosis seqs where an override granted an extension without progress: later resumes of the
+    # lineage replay those diagnoses as they ran (absent otherwise: older resumes replay unchanged).
+    granted = sorted({s for r in earlier for s in r.get("extension_override_seqs", ()) if s <= seq}
+                     | ({extension_override} if extension_override is not None else set()))
+    if granted:
+        point["extension_override_seqs"] = granted
     if overridden:   # only when the rules above refused it: an allowed resume spends no override
         point["override"] = override
     return (point, waste_keys)
@@ -1066,6 +1080,8 @@ class _Case:
         # resume_point: the GATES seq at which a recertified case was retired for a repair, when a
         # resume sends it to that repair.
         self.recertify_repair_seq: Optional[int] = None
+        # resume_point: diagnosis seqs where an override granted an extension without progress.
+        self.extension_override_seqs: set = set()
         # Attack cap (ATTACK_ROUNDS). attack_rounds counts stress rounds that returned findings.
         # attack_cap_from is the first seq the cap governs: a case that began under the older rule
         # (stress had to come back clean) replays its recorded rounds unchanged below it.
@@ -1598,6 +1614,9 @@ class _Case:
             self.finish("retired")
         self.verdict = r.verdict.value
         prog = progressed(self.ext_before, self.ext_after) if self.ext_before is not None else False
+        # resume_point: an override grants this diagnosis one extension though the last made no
+        # progress; the next diagnosis judges progress as always, so a stalled case still retires.
+        prog = prog or self.seq in self.extension_override_seqs
         decision = decide_diagnosis(r.verdict, progressed=prog, counters=self.counters(), spec=self.spec)
         if decision is Action.EXTEND and now_step() >= self.spec.deadline_epoch:
             decision = Action.RETIRE                        # no extension starts after the deadline
@@ -1743,6 +1762,7 @@ def case_workflow(job: dict) -> dict:
             case.attack_cap_from = resume["attack_cap_from"]
             DBOS.set_event("attack_cap_from", case.attack_cap_from)
         case.override = resume.get("override")
+        case.extension_override_seqs = set(resume.get("extension_override_seqs", ()))
         case.roles = resume.get("roles")
         case.case_money_extra = resume.get("case_money_extra")
     if job.get("import_snapshot") is not None:
@@ -1837,6 +1857,8 @@ class _Batch:
                     job["resume"][field] = self.resume[field]
             if self.resume.get("override") is not None:   # absent otherwise: older jobs replay unchanged
                 job["resume"]["override"] = self.resume["override"]
+            if self.resume.get("extension_override_seqs"):   # absent otherwise: older jobs replay unchanged
+                job["resume"]["extension_override_seqs"] = self.resume["extension_override_seqs"]
             if self.resume.get("roles") is not None:   # absent otherwise: older jobs replay unchanged
                 job["resume"]["roles"] = self.resume["roles"]
             if self.resume.get("case_money_extra") is not None:   # absent otherwise: older jobs replay unchanged
