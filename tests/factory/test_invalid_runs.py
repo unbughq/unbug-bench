@@ -43,7 +43,7 @@ class InvalidRunsTests(unittest.TestCase):
         case = self.work / 'case'; case.mkdir()
         for name, content in PRACTICE['files'].items():
             path = case / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(content)
-        self.c = SimpleNamespace(work=self.work, case=case, seed=42, case_id='case-practice',
+        self.c = SimpleNamespace(work=self.work, case=case, seed=42, case_id='case-practice', batch_deadline='2999-01-01T00:00:00Z',
             card={'gates': {}}, args=run.argument_parser().parse_args([]), stopped=False,
             models={'builder': ['claude/writer'], 'strong_calibrator': ['codex/solver'],
                     'easy_calibrator': ['glm/easy'], 'reviewers': [['deepseek/reviewer']]})

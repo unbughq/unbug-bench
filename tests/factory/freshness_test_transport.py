@@ -8,7 +8,7 @@ import freshness_retrieval
 HTTP = json.loads(gzip.decompress((Path(__file__).parent / 'fixtures/invalid-runs-http.json.gz').read_bytes()))
 
 
-def fetched(url):
+def fetched(url, **kwargs):
     return {'url': url, 'final_url': url, 'status': 200}, HTTP['body'].encode()
 
 

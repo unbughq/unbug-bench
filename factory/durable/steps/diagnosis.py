@@ -52,6 +52,47 @@ def _feedback(c, runner):
     return runner._feedback('diagnosis', problems, report)
 
 
+# A step whose last attempts all stopped on this many identical infra reasons is a factory bug.
+REPEATED_INFRA_STOPS = 3
+_NOT_FAULTS = ('infra:paused', 'infra:deadline')   # policy.PAUSE_REASONS and DEADLINE_REASON
+# Infra stops the case itself can cause: a flagged public hit no reviewer settles, or search rows with
+# real defects (expired or unretrieved rows a re-run did not refresh stop infra:freshness_refresh_stalled
+# instead). The agent judges these.
+_CASE_CAUSED = ('infra:freshness_review_unavailable', 'infra:freshness_evidence_unavailable',
+                'infra:freshness_unresolved')
+
+
+def repeated_infra_stop(history):
+    """The engine history's diagnosed step (its last row) when its last REPEATED_INFRA_STOPS infra
+    attempts all stopped on one reason and none of its attempts reached a gate verdict: the step cannot
+    run, whatever the case is like. None otherwise, and for a reason the case can cause (_CASE_CAUSED).
+    f46dac-5-1 (11-14 November) stopped every writer round on expired freshness rows with its gates
+    passing; the diagnosis agent called it close_to_passing and policy retired it, as an extension
+    needs progress."""
+    rows = [h for h in history if isinstance(h, dict)] if isinstance(history, list) else []
+    if not rows: return None
+    last = rows[-1]
+    mine = [h for h in rows if h.get('seq') == last.get('seq') and h.get('step') == last.get('step')]
+    if any(h.get('outcome') in (Outcome.GATE_FAILED.value, Outcome.OK.value) for h in mine): return None
+    infra = [h.get('reason') for h in mine
+             if h.get('outcome') == Outcome.INFRA_ERROR.value and h.get('reason') not in _NOT_FAULTS]
+    tail = infra[-REPEATED_INFRA_STOPS:]
+    if (last.get('outcome') == Outcome.INFRA_ERROR.value and len(tail) == REPEATED_INFRA_STOPS
+            and len(set(tail)) == 1 and isinstance(tail[0], str) and tail[0] and tail[0] not in _CASE_CAUSED):
+        return last.get('step'), tail[0]
+    return None
+
+
+def _history(evidence):
+    """The engine's stop history: the last evidence item that is a JSON list (engine.diagnose)."""
+    for ref, raw in reversed(evidence):
+        if ref.kind is ArtifactKind.DIAGNOSTIC:
+            try: value = json.loads(raw)
+            except ValueError: continue
+            if isinstance(value, list): return value
+    return None
+
+
 def run(worker, step_input, keys):
     """Return a contract result and encrypted blobs without scheduling more work."""
     outputs, c, before = {}, None, None
@@ -93,8 +134,20 @@ def run(worker, step_input, keys):
         from durable.checkpoints import directory, checkpoint
         saved_result = directory(c) / "diagnosis-result.json"
         invoke = getattr(runner, 'invoke_diagnosis', None)
+        repeated = repeated_infra_stop(_history(evidence))
         if saved_result.is_file():
             result = json.loads(saved_result.read_text())
+        elif repeated is not None:
+            # Decided in code, not by the agent: no model call, the same report shape.
+            step, reason = repeated
+            result = {'schema_version': 1, 'case_id': c.case_id, 'checkpoint_sha256': step_input.snapshot.digest,
+                      'outcome': Verdict.FACTORY_BUG.value, 'evidence': [],
+                      'reason': f'the last {REPEATED_INFRA_STOPS} attempts of {step} all stopped {reason}',
+                      'factory_bug': {'component': reason, 'reproducer': f'rerun {step} on this snapshot',
+                                      'fix_required': f'make {step} finish or stop for a case reason'}}
+            saved_result.parent.mkdir(parents=True, exist_ok=True)
+            atomic_json(saved_result, result)
+            checkpoint(c)
         else:
             if invoke is None:
                 return StepResult(Outcome.INFRA_ERROR, 'engine:diagnosis_unavailable'), {}

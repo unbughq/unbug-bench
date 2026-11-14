@@ -410,6 +410,17 @@ so it is the $50 ceiling less the import spend and less what every earlier batch
 (the ledger holds only batch spend, never the import's, so nothing is counted twice). A recorded
 attempt replays from its key whatever case money its job now carries.
 
+A diagnosed step whose last three infra attempts (pauses and deadline stops aside) all stopped on one
+reason, with no attempt reaching a verdict, is a `factory_bug` decided in code: the DIAGNOSIS step
+writes that verdict without a model call (`steps/diagnosis.py` `repeated_infra_stop`), since the step
+cannot run whatever the case is like. Stops the case itself can cause (`_CASE_CAUSED`: a flagged public
+hit no reviewer settles, search rows with real defects) still go to the agent. Expired or unretrieved
+rows a re-run search did not refresh stop `infra:freshness_refresh_stalled`, which stays a factory bug:
+nothing yet tells our retrieval outage from a dead link there. The
+resulting hold resumes on its own only for a GATES, writer or stress step
+(`FACTORY_BUG_RESUMABLE_INFRA`, below); a held step of any other kind, such as SEAL, needs an operator
+override to resume.
+
 A case held by a `factory_bug` diagnosis resumes the same way, but only when the diagnosed step
 stopped on a factory check rather than a scientific result (`FACTORY_BUG_RESUMABLE`: today a
 writer's `writer:unchanged_repair` or `writer:output_capped`), or when it is a GATES, writer or stress step
