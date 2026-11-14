@@ -100,8 +100,12 @@ REGISTRY = {
     "admit:processing_failed": bug(test=
         "tests/factory/test_preflight_role_pin.py::PreflightRolePin::"
         "test_every_call_site_in_the_source_builds_a_name_with_a_known_role"),
-    # Any missing freshness evidence; fix/freshness-expired-refetch made expired rows refetchable (f46dac).
-    "infra:freshness_evidence_unavailable": OPEN,
+    # Any missing freshness evidence; fix/freshness-expired-refetch made expired rows refetchable (f46dac);
+    # fix/g2-freshness-refresh lets a same-query re-run supersede an unretrievable row and never charges an
+    # unretrieved row's missing note as a defect. A role still short stays a real cause, so it stays open.
+    "infra:freshness_evidence_unavailable": bug(test=
+        "tests/factory/test_stream_d_retries.py::RetryTests::"
+        "test_an_unretrieved_rows_missing_note_is_refresh_work_not_a_defect"),
     # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve.
     # One reason, several causes (our outage, or the case's dead links), so it stays open.
     "infra:freshness_refresh_stalled": OPEN,

@@ -129,13 +129,19 @@ class FanoutTests(unittest.TestCase):
         (self.c.case / 'freshness.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
         return old
 
-    def test_a_rerun_that_does_not_retrieve_the_rows_url_leaves_it_for_the_agentic_repair(self):
+    def test_a_rerun_that_does_not_retrieve_the_rows_url_supersedes_it_with_a_new_row(self):
+        # A row whose own URL a re-run never returns (case f46dac's bot-challenged search pages) is kept
+        # unchanged as history; the re-run is logged as a new row of the same query, which replaces it.
         self.rerun_finds_old = False
         old = self.expired_rows()
         run.freshness_topup(self.c, completed_roles=('attacker',))
-        mine = [r for r in self.rows() if r['who'] == 'builder' and r['query'].startswith('old ')]
-        self.assertTrue(mine and all(r['at'] == old and r['note'] == 'n' for r in mine))   # never claimed as retrieved
-        self.assertIn('builder-freshness', self.calls)
+        rows = self.rows()
+        mine = [(r, gone) for r, gone in zip(rows, admission.superseded(rows))
+                if r['who'] == 'builder' and '/o/r/issues/' in r['url']]
+        self.assertTrue(mine and all(r['at'] == old and r['note'] == 'n' for r, _ in mine))   # never claimed as retrieved
+        self.assertTrue(all(gone for _, gone in mine))
+        self.assertEqual(len(rows), 12 + 6)   # one re-run row per old builder query
+        self.assertNotIn('builder-freshness', self.calls)   # nothing left for the agentic repair
 
     def test_an_amended_rows_note_counts_the_flagged_results(self):
         self.expired_rows()

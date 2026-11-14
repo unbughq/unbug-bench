@@ -18,13 +18,12 @@ import time
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from admission import search_evidence_error
+from admission import REFRESH as REPAIRABLE, search_evidence_error, superseded   # REPAIRABLE: a re-run fixes it
 from budget import BudgetError
 
 EXA_URL = 'https://mcp.exa.ai/mcp'   # the endpoint opencode's websearch tool (OPENCODE_ENABLE_EXA) uses; keyless
 UA = 'unbug-bench-freshness/1'
 MAX_LEADS = 12                        # deep dives per role; further leads stay flagged for G2's reviewer
-REPAIRABLE = ('evidence_expired', 'retrieval_failed')   # a re-run search fixes these; other defects go agentic
 SNIPPET = 1000                        # body excerpt the scorer reads per result
 THIN = 40                             # a web result with less body than this cannot be cleared unread
 COPIED = ('statement.md', 'disclosure.md', 'provenance.json', 'promise.md', 'case.json')
@@ -132,8 +131,8 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
     stamp = lambda: now().isoformat()
     # 1. Rows a re-run search can repair (expired or failed retrieval) keep their identity and are amended.
     items, have = [], set()
-    for row in rows:
-        if not isinstance(row, dict): continue
+    for row, old in zip(rows, superseded(rows)):
+        if not isinstance(row, dict) or old: continue
         if row.get('who') == who and row.get('kind') in kinds and isinstance(row.get('query'), str) and row['query'].strip():
             reason = search_evidence_error(row)
             fixed = {**row, 'at': stamp(), 'retrieved': True, 'note': 'x', 'app_version': version or '',
@@ -247,11 +246,12 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
         url = top['url'] if top else 'https://github.com/search?type=issues&q=' + quote(item['query'])
         if item['amend']:
             # The row keeps its URL (history), so it is amended only if this search retrieved that URL
-            # again; otherwise it stays for the agentic repair, which must amend it truthfully.
+            # again; otherwise the re-run is logged as a new row of the same query, which supersedes it.
             if any(r['url'] == item['url'] for r in found):
                 amended[item['amend']] = {'at': stamp(), 'retrieved': True, 'note': note, 'app_version': version,
                                           'version_scope': scope}
-        elif not flagged:
+                continue
+        if not flagged and (found or item['kind'] == 'github'):   # a web search with no results logs nothing
             new.append({**base, 'url': url, 'hit': False, 'note': note, 'version_scope': scope})
     with lock:
         current = run.freshness_lines(c)

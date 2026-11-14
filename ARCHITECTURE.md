@@ -416,7 +416,9 @@ writes that verdict without a model call (`steps/diagnosis.py` `repeated_infra_s
 cannot run whatever the case is like. Stops the case itself can cause (`_CASE_CAUSED`: a flagged public
 hit no reviewer settles, search rows with real defects) still go to the agent. Expired or unretrieved
 rows a re-run search did not refresh stop `infra:freshness_refresh_stalled`, which stays a factory bug:
-nothing yet tells our retrieval outage from a dead link there. The
+nothing yet tells our retrieval outage from a dead link there. A valid re-run of the same role, kind and
+query, logged as a new row, supersedes such a row (`admission.superseded`; never a flagged one), so a
+result page that never retrieves cannot block G2 forever. The
 resulting hold resumes on its own only for a GATES, writer or stress step
 (`FACTORY_BUG_RESUMABLE_INFRA`, below); a held step of any other kind, such as SEAL, needs an operator
 override to resume.

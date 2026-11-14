@@ -532,15 +532,16 @@ def finish_freshness_repair(c):
 
 def freshness_topup(c, *, completed_roles=(), role_completed=None):
     """One short call per role short of the G2 search minimum (models skip the logging duty)."""
-    from admission import search_evidence_error
+    from admission import search_evidence_error, superseded
     finish_freshness_repair(c)
     counts_before = freshness_counts(c)
     # Busy searching is not a stall. The attempt's deadline, call limits and grant bound it.
     deadline = c.engine.deadline_monotonic
     def role_state(who):
         n = freshness_counts(c)
-        errors = [{"row": i + 1, "reason": reason} for i, row in enumerate(freshness_lines(c))
-                  if (row.get("who") == who or who == "builder" and row.get("who") not in ("builder", "attacker"))
+        rows = freshness_lines(c)
+        errors = [{"row": i + 1, "reason": reason} for i, (row, old) in enumerate(zip(rows, superseded(rows)))
+                  if not old and (row.get("who") == who or who == "builder" and row.get("who") not in ("builder", "attacker"))
                   and (reason := ('runner_retrieval_unavailable: append an alternative result as a NEW row'
                                   if row.get('url') in getattr(c, 'freshness_unfetched', set())
                                   else search_evidence_error(row))) is not None]
@@ -647,7 +648,9 @@ def _freshness_searches(c, plans, deadline, role_completed):
                     f"Make at most {missing + FRESHNESS_EXTRA_SEARCHES} new searches in total, and stop as soon as the evidence is complete. "
                     f"Flag ambiguous public matches for independent confirmation; no retrieval is not a no-hit. "
                     f"Revisit every historical {who} row missing these evidence fields, older than 24 hours or marked retrieval failed: rerun the query, "
-                    f"then amend its evidence fields truthfully, retaining its query/result and all hits. Do not drop failed searches "
+                    f"then amend its evidence fields truthfully, retaining its query/result and all hits. If the rerun cannot retrieve "
+                    f"that row's result URL, leave the row and log the rerun as a NEW row with the SAME query and a retrievable result URL; "
+                    f"it supersedes the old row. Do not drop failed searches "
                     f"or invent evidence; an unresolved search blocks admission. Repair evidence for this SAME idea; never select a replacement. "
                     f"Retain every existing `_search_id` on its own row when repairing it; never delete, reassign or duplicate those IDs. "
                     f"Retain valid who/kind/query/url fields exactly; append a different query or result as a NEW row. "
@@ -1798,8 +1801,11 @@ def g2(c):
 def _g2(c):
     """Freshness: builder and attacker searches are logged and none found the bug published."""
     finish_freshness_repair(c)
+    from admission import search_binding, reusable_search, search_receipt, superseded
+    # A re-run's valid row replaces an old or unretrieved row of the same search (kept as history).
     lines, counted = freshness_lines(c), freshness_counts(c)
-    from admission import search_binding, reusable_search, search_receipt
+    gone = superseded(lines)
+    lines = [row for row, old in zip(lines, gone) if not old]
     binding = search_binding(c, lines)
     rejected = getattr(c, "rejected_freshness", None)
     if rejected is not None and rejected[0] == binding:
@@ -1867,7 +1873,7 @@ def _g2(c):
     confirmed = confirm_hits(c, flagged) if flagged and not invalid else flagged
     ok = not invalid and counted["builder_web"] >= 3 and counted["builder_github"] >= 3 and counted["attacker"] >= 2 and not confirmed
     other = sorted({f"{x.get('who')}/{x.get('kind')}" for x in lines} - {"builder/web", "builder/github", "attacker/web", "attacker/github"})
-    info = {"searches": len(lines), "hits": len(confirmed), "flagged_hits": len(flagged), "counted": counted, "invalid_evidence": invalid, "uncounted_who_kind": other[:10]}
+    info = {"searches": len(lines), "superseded_searches": sum(gone), "hits": len(confirmed), "flagged_hits": len(flagged), "counted": counted, "invalid_evidence": invalid, "uncounted_who_kind": other[:10]}
     info.update(all_transport_failed=bool(lines) and transport_failures == len(lines),
                 transport_pending=bool(getattr(c, 'freshness_transport_pending', False)),
                 unfetched_searches=sum(row.get('url') in c.freshness_unfetched for row in lines), invalid_evidence_reasons=reasons, confirmed_hits=c.freshness_confirmed_hits,

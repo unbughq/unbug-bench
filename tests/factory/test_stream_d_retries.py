@@ -26,6 +26,7 @@ sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/fact
 import test_stream_d_runtime as runtime_fixture
 from router_test_support import synthetic_maximum
 from freshness_test_transport import HTTP
+import admission
 import budget
 import diagnosis
 import freshness_retrieval as retrieval
@@ -388,6 +389,50 @@ class RetryTests(unittest.TestCase):
             'statement_sha256': hashlib.sha256((self.case / 'statement.md').read_bytes()).hexdigest()})
         self.cli(lambda *a: self.fail('a spent defect bound buys no more repairs'))
         with self.assertRaisesRegex(budget.BudgetError, '^freshness_evidence_unavailable$'): run.g2(self.c)
+
+    def bot_challenged_row(self, **fields):
+        """G2's minimum met, plus one search whose result page never retrieves (case f46dac's
+        html.duckduckgo.com rows, logged retrieved:false)."""
+        rows = self.searches()
+        dead = {**rows[0], 'query': 'bot challenged query', 'retrieved': False,
+                'url': 'https://html.duckduckgo.com/html/?q=bot+challenged+query', **fields}
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows + [dead]))
+        self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        return rows, dead
+
+    def test_a_rerun_of_an_unretrievable_search_supersedes_it(self):
+        # case-import-f46dac-5-1: a row whose result URL never retrieves could not be dropped (history is
+        # restored) nor amended truthfully, so G2 stayed blocked forever. A valid re-run of the same query
+        # logged as a new row replaces it; the old row stays in the log as history.
+        rows, dead = self.bot_challenged_row()
+        def emit(c, text, name, cwd):
+            path = Path(cwd) / 'freshness.jsonl'
+            rerun = {**dead, 'retrieved': True, 'url': 'https://github.com/medusajs/medusa/issues/77'}
+            rerun.pop('_search_id', None)
+            path.write_text(path.read_text() + json.dumps(rerun) + '\n')
+        self.cli(emit)
+        ok, info = run.g2(self.c)
+        self.assertTrue(ok, info)
+        self.assertEqual(info['superseded_searches'], 1)
+        self.assertIn(dead['url'], [r['url'] for r in run.freshness_lines(self.c)])
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 0)
+
+    def test_an_unretrieved_rows_missing_note_is_refresh_work_not_a_defect(self):
+        # An unretrieved result has no note yet; a refresh that could not re-run it stalls (retryable)
+        # and never spends the defect bound, which would stop every later round.
+        self.bot_challenged_row(note='')
+        atomic_json(self.work / 'freshness-repair.json', {'version': 2, 'completed_defects': 1, 'pending': None,
+            'statement_sha256': hashlib.sha256((self.case / 'statement.md').read_bytes()).hexdigest()})
+        self.cli(lambda *a: None)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 1)
+
+    def test_a_flagged_unretrieved_row_is_never_superseded(self):
+        # The science check: a possible public match stays blocking whatever else was searched.
+        rows = self.searches()
+        flagged = {**rows[0], 'retrieved': False, 'hit': True}
+        lines = rows + [flagged, {**rows[0], 'retrieved': False}, {**rows[0], 'retrieved': False, 'who': 'attacker'}]
+        self.assertEqual(admission.superseded(lines), [False] * len(rows) + [False, True, False])
 
     def stress_setup(self, emit):
         self.patch(run, 'g1', return_value=(True, {'problems': []}))

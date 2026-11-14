@@ -6,10 +6,9 @@ import shutil
 import uuid
 import datetime
 
-from admission import search_evidence_error
+from admission import REFRESH, search_evidence_error, superseded
 from budget import BudgetError
 import freshness_retrieval as retrieval
-from freshness_fanout import REPAIRABLE as REFRESH   # expired or failed retrieval: a re-run search fixes it
 from ordinary_retry import check, backoff, digest, read, transport
 from registry import atomic_json
 from run_validity import InvalidInfra
@@ -100,11 +99,14 @@ def ensure(run, c):
     def metadata():
         """(errors, defect): the rows' G2 errors, and whether anything but a refresh is missing."""
         rows = run.freshness_lines(c)
+        rows = [r for r, old in zip(rows, superseded(rows)) if not old]   # history a re-run replaced
         errors = [search_evidence_error(r) for r in rows]
         # A row that is only old or unretrieved needs its search re-run, not a repair: judge the
-        # rest of it as if refreshed. G2 itself still rejects it until the re-run really happens.
+        # rest of it as if refreshed (an unretrieved result has no note or scope yet; the re-run writes
+        # them, as freshness_fanout assumes). G2 itself still rejects it until the re-run really happens.
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        rows = [{**r, 'at': now, 'retrieved': True} if e in REFRESH else r for r, e in zip(rows, errors)]
+        rows = [{**r, 'at': now, 'retrieved': True, 'note': r.get('note') or 'x', 'version_scope': r.get('version_scope') or 'x'}
+                if e in REFRESH else r for r, e in zip(rows, errors)]
         found = {v for r in rows if (v := run.own_search(c, r)) is not None}
         enough = (sum(w == 'builder' and k == 'web' for w,k,q in found) >= 3 and
                   sum(w == 'builder' and k == 'github' for w,k,q in found) >= 3 and
