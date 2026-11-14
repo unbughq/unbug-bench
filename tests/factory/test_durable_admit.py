@@ -308,7 +308,7 @@ class AdmitTests(unittest.TestCase):
         result, outputs = self.run_admit(si)
         self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
         self.assertEqual(self.calls, ["builder-provider-preflight", "attacker-provider-preflight", "reviewer-provider-preflight",
-            "reviewer2-provider-preflight", "strong-calibrator-provider-preflight", "easy-calibrator-provider-preflight",
+            "reviewer-2-provider-preflight", "strong-calibrator-provider-preflight", "easy-calibrator-provider-preflight",
             "builder-selection", "reviewer-idea-realism"])
         self.freshness.assert_called_once()
         work, c = self.restore(si, result, outputs)
@@ -384,7 +384,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual((done.outcome, done.reason), (Outcome.OK, 'admit:selected'))
         preflights = [n for n in self.calls if n.endswith('provider-preflight')]
         self.assertEqual(preflights, ['builder-provider-preflight', 'attacker-provider-preflight', 'reviewer-provider-preflight',
-            'reviewer2-provider-preflight',
+            'reviewer-2-provider-preflight',
             'strong-calibrator-provider-preflight', 'strong-calibrator-provider-preflight',
             'easy-calibrator-provider-preflight'])
         _, c = self.restore(retry, done, outputs)
