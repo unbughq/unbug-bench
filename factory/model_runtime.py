@@ -386,6 +386,9 @@ OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.AC
 # output, and a stall moves them to the chain's next route, which later calls of the role also skip.
 SHORT_CALL_PREFIXES = ('builder-selection', 'builder-provider-preflight')
 SHORT_CALL_NO_PROGRESS_MINUTES = 10
+# Model scratch tmpfs unmount: each try, the pause between tries, and the whole budget (well inside
+# the engine's 900 s poll grace, so a slow unmount never becomes a lost worker).
+UNMOUNT_TRY_S, UNMOUNT_PAUSE_S, UNMOUNT_TOTAL_S = 60, 5, 300
 
 
 def short_call(name):
@@ -430,9 +433,24 @@ class ModelRuntime:
             import processes
             cleanup = copy.copy(c)
             cleanup.role_cancel = None
-            with processes.deadline(30, independent=True):
-                self.command(cleanup, ['sudo', 'umount', '--', str(scratch)], check=not allow_absent)
-                shutil.rmtree(scratch)
+            # A paid call's result is kept only if its tmpfs really goes. One umount under a 30 s limit
+            # threw away a $48.70 writer call (fresh-1110b, 11 November: TimeoutExpired), so retry a slow
+            # or busy unmount within UNMOUNT_TOTAL_S. A contained call's cgroup is already killed and
+            # empty here (ContainedCall.stop); an isolated user's leftovers are killed before each retry.
+            # Never a lazy unmount: the mount is either gone or the call fails as cleanup_failed.
+            end = time.monotonic() + UNMOUNT_TOTAL_S
+            while True:
+                try:
+                    with processes.deadline(max(1.0, min(UNMOUNT_TRY_S, end - time.monotonic())), independent=True):
+                        self.command(cleanup, ['sudo', 'umount', '--', str(scratch)], check=not allow_absent)
+                    break
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    if time.monotonic() + UNMOUNT_PAUSE_S >= end: raise
+                    if user:
+                        with processes.deadline(UNMOUNT_TRY_S, independent=True):
+                            self.command(cleanup, ['sudo', 'pkill', '-KILL', '-u', user])
+                    time.sleep(UNMOUNT_PAUSE_S)
+            shutil.rmtree(scratch)
         else:
             self.cleanup(scratch, sudo=bool(user))
 

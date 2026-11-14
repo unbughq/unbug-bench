@@ -114,7 +114,7 @@ class AttemptBudget(unittest.TestCase):
                 self.addCleanup(shutil.rmtree,path.parent,True)
                 kwargs['on_started']()
                 return subprocess.CompletedProcess(cmd,0)
-            with self.subTest(failure=failure),patch.object(model_runtime.sys,'platform','linux'),                  patch.object(model_runtime,'_opencode_flags',return_value=()),                  patch.object(model_runtime.model_call_gate,'enforce',gate_only),                  patch.object(model_runtime,'run_budgeted',side_effect=run_cli) as process:
+            with self.subTest(failure=failure),patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,UNMOUNT_TOTAL_S=.05),patch.object(model_runtime.sys,'platform','linux'),                  patch.object(model_runtime,'_opencode_flags',return_value=()),                  patch.object(model_runtime.model_call_gate,'enforce',gate_only),                  patch.object(model_runtime,'run_budgeted',side_effect=run_cli) as process:
                 if failure:
                     label='containment_unavailable' if failure=='mount' else 'cleanup_failed'
                     with self.assertRaisesRegex(budget.BudgetError,label):
@@ -131,6 +131,56 @@ class AttemptBudget(unittest.TestCase):
                 self.assertTrue(scratch[0].exists())
                 self.assertIn({'stage':'model_scratch','error':'CalledProcessError'},self.c.card['cleanup_errors'])
             elif scratch:self.assertFalse(scratch[0].exists())
+
+    def test_slow_scratch_unmount_is_retried_and_the_paid_result_kept(self):
+        """fresh-1110b writer:1 (11 November): one umount over its 30 s limit turned a successful
+        $48.70 call into cleanup_failed. A slow or busy unmount is retried; the mount still must go."""
+        paid='openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model']=paid
+        self.c.router_accounts=NO_GO
+        scratch=[];commands=[]
+        failures=[subprocess.TimeoutExpired('umount',60),subprocess.CalledProcessError(32,'umount')]
+        def command(c,args,**kwargs):
+            commands.append(list(map(str,args)))
+            if args[1]=='umount' and failures:raise failures.pop(0)
+        runtime=replace(self.runtime,command=command,cleanup=Mock())
+        @contextmanager
+        def gate_only(lease,env,cap,*args,**kwargs):
+            cap.update(closed=True,forwarded_requests=1,validated_requests=1,
+                       unknown_requests=0,in_flight_requests=0,settled_usd='0.000000000',held_usd='0.000000000')
+            yield threading.Event()
+        def run_cli(cmd,cwd,env,*args,**kwargs):
+            path=Path(env['XDG_CACHE_HOME']);path.mkdir(parents=True)
+            scratch.append(path.parent)
+            self.addCleanup(shutil.rmtree,path.parent,True)
+            kwargs['on_started']()
+            return subprocess.CompletedProcess(cmd,0)
+        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0),\
+             patch.object(model_runtime.sys,'platform','linux'),\
+             patch.object(model_runtime,'_opencode_flags',return_value=()),\
+             patch.object(model_runtime.model_call_gate,'enforce',gate_only),\
+             patch.object(model_runtime,'run_budgeted',side_effect=run_cli):
+            self.assertEqual(runtime.call(self.c,[paid],'synthetic',self.root,'builder-ram'),0)
+        umounts=[a for a in commands if a[1]=='umount']
+        self.assertEqual(len(umounts),3)
+        self.assertTrue(all(a==['sudo','umount','--',str(scratch[0])] for a in umounts))  # never lazy
+        self.assertFalse(scratch[0].exists())
+        self.assertNotIn('model_scratch',[e['stage'] for e in self.c.card.get('cleanup_errors',[])])
+
+    def test_busy_isolated_scratch_kills_the_user_before_each_retry_and_fails_if_it_stays(self):
+        state=self.root/'factory-tester-state-x';state.mkdir()
+        commands=[]
+        def command(c,args,**kwargs):
+            commands.append(list(map(str,args)))
+            if args[1]=='umount':raise subprocess.CalledProcessError(32,'umount')
+        runtime=replace(self.runtime,command=command)
+        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,UNMOUNT_TOTAL_S=.05):
+            with self.assertRaises(subprocess.CalledProcessError):
+                runtime._remove_state(self.c,state,memory=True,user='pilot')
+        self.assertTrue(state.exists())  # a mount that cannot go is never removed underneath
+        self.assertGreater(len(commands),2)
+        for before,after in zip(commands[::2],commands[1::2]):
+            self.assertEqual(before[1],'umount');self.assertEqual(after,['sudo','pkill','-KILL','-u','pilot'])
 
     def test_funded_invocation_continues_past_the_live_small_profile_stop(self):
         self.attempt.ceiling_usd = Decimal('40.792858')

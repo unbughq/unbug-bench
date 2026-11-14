@@ -41,7 +41,9 @@ volumes, ports and seed manifests. Model roles run with information walls betwee
 case internals, testers and contestant-visible material.
 Durable OpenCode calls put each role's private CLI state on an executable tmpfs.
 After process containment closes, cleanup unmounts that state instead of overwriting
-a potentially large disk cache.
+a potentially large disk cache. A slow or busy unmount is retried (60 s tries, 300 s in all; an
+isolated user's leftover processes are killed before each retry, never a lazy unmount), so a
+successful call keeps its result once the mount is really gone.
 A call cgroup left unlocked by a dead owner (a step killed at its deadline) is killed, emptied
 and removed by the next call's check; a poisoned or undrainable one still refuses containment. Failed cleanup remains an infrastructure failure.
 
