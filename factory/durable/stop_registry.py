@@ -10,13 +10,16 @@ tables (preflight role x stop, cleanup stage x error, case limits, import and re
 and the per-gate verdicts are generated, since a new member is the same class as its siblings.
 tests/factory/test_stop_registry.py fails when a reason the factory can record has no entry.
 
-`audit` is pure: attempt rows in, verdicts out. bin/stop_audit and the campaign guard both use it;
-`read_attempts` and `release_commits` are the thin readers around it.
+`audit` is pure: attempt rows in, verdicts out. bin/stop_audit runs it as `user` on a timer and
+writes `result` as JSON; the root campaign guard only reads that file (durable/guard.stop_audit_alerts).
+`read_attempts`, `release_commits` and `git_contains` are the thin, bounded readers around it.
 """
 from __future__ import annotations
 
 import base64
+import io
 import json
+import os
 from pathlib import Path
 import pickle
 import subprocess
@@ -50,41 +53,42 @@ REGISTRY = {
     "router:outage": WAIT, "router:credential_expiring": WAIT, "infra:credentials_unavailable": WAIT,
     "infra:worker_slots_full": WAIT, "infra:worker_start_rate": WAIT, "infra:paused": WAIT,
     "infra:campaign_deadline": WAIT,
-    # -- factory bugs with a fix on main (fixes on parallel branches are all listed) --
-    # 97d97b84: a writer-round case's diagnosis read a stress report that did not exist yet.
-    "diagnosis:processing_failed": bug("97d97b84d73135b916ebcc78c734715052cf755d", test=
-        "tests/factory/test_durable_diagnosis.py::DiagnosisTests::"
-        "test_a_close_verdict_on_a_case_stopped_in_a_writer_round_gives_feedback"),
-    # 0f818fe5: the diagnosis prompt carried the full inventory past Linux's one-argument limit.
+    # -- factory bugs with a fix on main --
+    # fixed_in only where the reason maps one-to-one to the cause the fix fixed; a reason that collects
+    # several causes stays open (its fixes in a comment), or a new cause would read as a regression.
+    # 0f818fe5: the diagnosis prompt carried the full inventory past Linux's one-argument limit, and any
+    # call over that limit now stops prompt_too_large before launch.
     "infra:prompt_too_large": bug("0f818fe5783950ec591cf6b24a93ef5807b948f6", test=
         "tests/factory/test_model_call_maxima.py::MaximaTests::"
         "test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity"),
-    # aeabd48d: strategy calls broke on pinned worker bench images; 1d52c92d preflights the release pair.
-    "infra:runner_exception": bug("aeabd48dadb3f057fd6670f9fc9507d7376cbad1",
-                                  "1d52c92d7c196dadbe09bec2414782a94a3e4417", test=
+    # -- factory bugs whose reason collects several causes: open, with the fixes so far --
+    # Fallback for any diagnosis exception that cannot name itself; 97d97b84 fixed the missing stress report.
+    "diagnosis:processing_failed": bug(test=
+        "tests/factory/test_durable_diagnosis.py::DiagnosisTests::"
+        "test_a_close_verdict_on_a_case_stopped_in_a_writer_round_gives_feedback"),
+    # Any runner exception; aeabd48d (strategy calls on pinned bench images) + 1d52c92d (release-pair preflight).
+    "infra:runner_exception": bug(test=
         "tests/factory/test_strategy_reuse.py::StrategyPrefixRecoveryTests::"
         "test_pinned_worker_strategy_before_sharing_still_runs"),
-    # 2fcbaf66: writer findings handed to a fresh attempt instead of a cycle doomed to hit the deadline;
-    # 5694aea3: a deadline kill seals its diagnostic.
-    "infra:deadline": bug("2fcbaf669024fde16c7523a968f61abadbe27dea",
-                          "5694aea3968ced5844d6a67ed0e1db5cae75470e", test=
+    # Anything that runs into the batch deadline; 2fcbaf66 (doomed writer cycle) + 5694aea3 (deadline diagnostic).
+    "infra:deadline": bug(test=
         "tests/factory/test_stress_loop.py::StressLoopTests::"
         "test_writer_hands_back_findings_instead_of_starting_a_doomed_cycle"),
-    # b58ea3ec, the latest of fe112d74, fa92e2eb, 956c9fa4: pilot homes removed in their own window.
-    "infra:diagnosis_cleanup_failed": bug("b58ea3ec6057c40f25f16c14eb55bc9de5a5d2e2", test=
+    # Any diagnosis cleanup stage; b58ea3ec (latest of fe112d74, fa92e2eb, 956c9fa4) fixed pilot homes.
+    "infra:diagnosis_cleanup_failed": bug(test=
         "tests/factory/test_pilot_home_teardown.py::PilotHomeTeardown::"
         "test_a_diagnosis_teardown_timeout_keeps_its_cause"),
-    # 8d1093d4: a silent writer route fails fast instead of stalling.
-    "infra:stalled": bug("8d1093d46b0f9028d048e680427cd4095d237bd2", test=
+    # Any silent call; 8d1093d4 fixed the silent writer route.
+    "infra:stalled": bug(test=
         "tests/factory/test_silent_writer_route.py::SilentWriterRoute::"
         "test_a_stalled_selection_call_moves_to_the_next_route"),
-    # 874b2727 (after f0f6e4e3, 0c2b545b): a live slot's seed IDs and a rebuilt slot's infra allowance.
-    # The gather class is still being fixed on fix/gather-live-slot-state.
-    "infra:execution_retries_exhausted": bug("874b2727a4b52d2d2d34c3908bf08a271ed4ea21", test=
+    # Any exhausted infra allowance (incl. run.gates_result's fallback stop); 874b2727 (after f0f6e4e3,
+    # 0c2b545b) fixed live-slot seed IDs and allowances; the gather class is on fix/gather-live-slot-state.
+    "infra:execution_retries_exhausted": bug(test=
         "tests/factory/test_live_slot_fixture.py::LiveSlotFixtureTests::"
         "test_rebuilt_slot_gets_a_fresh_infra_allowance"),
-    # f2c9199a: unknown code stops name themselves (infra:raw_<label>); only free text is left here.
-    "infra:unclassified_stop": bug("f2c9199aebed5ccb881b26a59d607f7adccc2544", test=
+    # Any free-text stop; f2c9199a made code stops name themselves (infra:raw_<label>).
+    "infra:unclassified_stop": bug(test=
         "tests/factory/test_durable_classify.py::SelfNamingStops::test_unknown_identifier_stops_name_themselves"),
     # -- factory bugs, open or in flight --
     "infra:cancelled": OPEN,                        # in flight: fix/probe-cap-no-shared-stop
@@ -146,6 +150,15 @@ REGISTRY = {
 }
 
 
+# Families named by a free label (classify.CLEANUP_PREFIX): one entry per prefix. infra:raw_* has none on
+# purpose: a stop no table knows is UNKNOWN until classify.py names it.
+PREFIXES = {"diagnosis:cf_": OPEN}   # a diagnosis whose cleanup also failed, named by its first error
+
+
+def lookup(reason: str, registry: dict = REGISTRY) -> Optional[dict]:
+    return registry.get(reason) or next((e for p, e in PREFIXES.items() if reason.startswith(p)), None)
+
+
 # ---- audit (pure) ---------------------------------------------------------------------------
 
 def audit(rows: Iterable[dict], commits: dict, contains: Optional[Callable[[str, str], Optional[bool]]],
@@ -170,7 +183,7 @@ def audit(rows: Iterable[dict], commits: dict, contains: Optional[Callable[[str,
         hit["cases"].add(r["case_id"])
     out = {"regression": [], "open": [], "unknown": [], "unchecked": [], "releases": releases}
     for (reason, pv), hit in sorted(hits.items()):
-        entry = registry.get(reason)
+        entry = lookup(reason, registry)
         row = {"reason": reason, "release": pv, "commit": commits.get(pv), "count": hit["count"],
                "cases": sorted(hit["cases"])}
         if entry is None:
@@ -194,47 +207,88 @@ def _all(answers) -> Optional[bool]:
     return False if False in answers else None if None in answers else True
 
 
-def alerts(report: dict) -> dict:
-    """At most one guard alert: the regressed and unknown reasons, keyed by them so a new one alerts again."""
-    regressed = sorted({r["reason"] for r in report["regression"]})
-    unknown = sorted({r["reason"] for r in report["unknown"]})
-    if not regressed and not unknown:
-        return {}
-    parts = ([f"fixed bugs came back: {', '.join(regressed)}"] if regressed else []) + \
-            ([f"unclassified stops: {', '.join(unknown)}"] if unknown else [])
-    return {"stop_audit:" + ",".join(regressed + unknown): "Stop audit: " + "; ".join(parts) + ". Run bin/stop_audit."}
+def render(report: dict) -> list:
+    """One text line per finding, then one per release."""
+    short = lambda v: (v or "?")[:12]
+    lines = []
+    for label in ("regression", "unknown", "unchecked", "open"):
+        for r in report[label]:
+            extra = f" fixed_in {','.join(map(short, r['fixed_in']))} test {r['test']}" if "fixed_in" in r else ""
+            lines.append(f"{label.upper():<10} {r['reason']:<40} {r['count']:>4}x release {short(r['release'])} "
+                         f"(commit {short(r['commit'])}) {len(r['cases'])} cases{extra}")
+    for pv, rel in sorted(report["releases"].items(), key=lambda kv: kv[0] or ""):
+        lines.append(f"RELEASE    {short(pv)} commit {short(rel['commit'])}: {rel['attempts']} attempts, "
+                     f"{rel['infra']} infra stops")
+    return lines
+
+
+def result(report: dict, undecodable: int, now: float) -> dict:
+    """What bin/stop_audit --write records for the campaign guard (durable/guard.stop_audit_alerts)."""
+    lines = render(report)
+    return {"written_at": now,
+            "counts": {"attempts": sum(r["attempts"] for r in report["releases"].values()),
+                       "undecodable": undecodable, **{k: len(report[k]) for k in
+                                                      ("regression", "unknown", "unchecked", "open")}},
+            "regression": [l for l in lines if l.startswith("REGRESSION")],
+            "unknown": [l for l in lines if l.startswith("UNKNOWN")],
+            "regression_reasons": sorted({r["reason"] for r in report["regression"]}),
+            "unknown_reasons": sorted({r["reason"] for r in report["unknown"]})}
 
 
 # ---- readers --------------------------------------------------------------------------------
 
-def decode(output: str) -> Optional[dict]:
-    """One DBOS.getResult output (base64 pickle) as an attempt row, or None if it is not a step attempt."""
-    value = pickle.loads(base64.b64decode(output))   # our own DBOS database; DBOS itself reads it so
+class _Builtins(pickle.Unpickler):
+    """Dicts, lists, tuples, strings, numbers, booleans and None need no class lookup: refuse every class."""
+    def find_class(self, module, name):
+        raise pickle.UnpicklingError(f"refused {module}.{name}")
+
+
+UNDECODABLE = object()
+
+
+def decode(output: str, row_time: Optional[float] = None):
+    """One DBOS.getResult output (base64 pickle) as an attempt row; None if it is not a step attempt;
+    UNDECODABLE if it is not base64 or pickles anything but builtins. started_at falls back to row_time."""
+    try:
+        value = _Builtins(io.BytesIO(base64.b64decode(output, validate=True))).load()
+    except Exception:
+        return UNDECODABLE
     if not isinstance(value, dict) or not isinstance(value.get("input"), dict) or not isinstance(value.get("result"), dict):
         return None
-    si, result = value["input"], value["result"]
-    if not isinstance(result.get("reason"), str):
+    si, res = value["input"], value["result"]
+    if not isinstance(res.get("reason"), str):
         return None
+    started = value.get("started_at")
     return {**{k: si.get(k) for k in ("case_id", "batch_id", "seq", "attempt", "plumbing_version")},
-            "outcome": result.get("outcome"), "reason": result["reason"], "started_at": value.get("started_at")}
+            "outcome": res.get("outcome"), "reason": res["reason"],
+            "started_at": started if isinstance(started, (int, float)) else row_time}
 
 
-def read_attempts(database_url: str) -> list:
-    """Every recorded step attempt, in one read-only transaction."""
+def read_attempts(database_url: str, since: Optional[float] = None) -> tuple:
+    """(attempt rows, undecodable count) from one bounded, read-only transaction. Rows whose own DBOS time
+    is before `since` are left out in SQL; then attempts started before it are dropped."""
     import sqlalchemy as sa
     url = sa.engine.make_url(database_url)
     if url.drivername == "postgresql":
         url = url.set(drivername="postgresql+psycopg")
-    engine = sa.create_engine(url)
+    engine = sa.create_engine(url, connect_args={"connect_timeout": 10})
     try:
         with engine.connect() as conn:
             conn.execute(sa.text("SET TRANSACTION READ ONLY"))
-            outputs = conn.execute(sa.text(
-                "SELECT output FROM dbos.operation_outputs WHERE function_name = 'DBOS.getResult' "
-                "AND workflow_uuid LIKE 'case-%@%' AND output IS NOT NULL")).scalars().all()
+            conn.execute(sa.text("SET LOCAL statement_timeout = '30s'"))
+            at = "COALESCE(completed_at_epoch_ms, started_at_epoch_ms)"
+            window = "" if since is None else f" AND ({at} IS NULL OR {at} >= :since_ms)"
+            found = conn.execute(sa.text(
+                f"SELECT output, {at} / 1000.0 FROM dbos.operation_outputs "
+                "WHERE function_name = 'DBOS.getResult' AND workflow_uuid LIKE 'case-%@%' "
+                "AND output IS NOT NULL" + window),
+                {} if since is None else {"since_ms": int(since * 1000)}).all()
     finally:
         engine.dispose()
-    return [row for row in map(decode, outputs) if row is not None]
+    decoded = [decode(output, None if at is None else float(at)) for output, at in found]
+    rows = [r for r in decoded if isinstance(r, dict)
+            and (since is None or r["started_at"] is None or r["started_at"] >= since)]
+    return rows, sum(r is UNDECODABLE for r in decoded)
 
 
 def release_commits(work: Optional[Path], release_map: Optional[Path] = None) -> dict:
@@ -242,8 +296,11 @@ def release_commits(work: Optional[Path], release_map: Optional[Path] = None) ->
     by `workers.py release` given --commit or a COMMIT file) and from control/release.py build-plumbing
     records (<work>/plumbing-*/state.json)."""
     out = {}
-    if release_map is not None and Path(release_map).is_file():
-        out.update(json.loads(Path(release_map).read_text()))
+    try:
+        known = json.loads(Path(release_map).read_text()) if release_map is not None else {}
+        out.update({k: v for k, v in known.items() if isinstance(k, str) and isinstance(v, str)})
+    except (OSError, ValueError, AttributeError):
+        pass   # no map yet, or an unreadable one: those releases read as commit ?
     if work is None:
         return out
     for path in sorted(Path(work).glob("plumbing-*/state.json")):
@@ -256,17 +313,24 @@ def release_commits(work: Optional[Path], release_map: Optional[Path] = None) ->
 
 
 def git_contains(repo: Path) -> Callable[[str, str], Optional[bool]]:
-    """contains(commit, fix): whether fix is an ancestor of commit in repo; None when git cannot tell."""
+    """contains(commit, fix): whether fix is an ancestor of commit in repo; None when git cannot tell.
+    Local objects only (no fetch, no lazy fetch) and bounded, so a bad repo never hangs the audit."""
     cache = {}
+    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
 
     def contains(commit: str, fix: str) -> Optional[bool]:
         if (commit, fix) not in cache:
-            # safe.directory: the guard runs as root over the operator's checkout.
-            code = subprocess.run(["git", "-c", f"safe.directory={repo}", "-C", str(repo), "merge-base", "--is-ancestor", fix, commit],
-                                  capture_output=True).returncode
+            try:
+                # safe.directory: the checkout may belong to another user.
+                code = subprocess.run(["git", "-c", f"safe.directory={repo}", "-c", "protocol.allow=never",
+                                       "-C", str(repo), "merge-base", "--is-ancestor", fix, commit],
+                                      capture_output=True, env=env, timeout=20).returncode
+            except (OSError, subprocess.TimeoutExpired):
+                code = None
             cache[commit, fix] = {0: True, 1: False}.get(code)
         return cache[commit, fix]
     return contains
 
 
-__all__ = ["REGISTRY", "audit", "alerts", "decode", "read_attempts", "release_commits", "git_contains"]
+__all__ = ["REGISTRY", "PREFIXES", "lookup", "audit", "render", "result", "decode", "read_attempts",
+           "release_commits", "git_contains"]

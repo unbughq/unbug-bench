@@ -8,10 +8,10 @@ import sys
 
 root = Path(os.environ.get('UNBUG_CAMPAIGN_ROOT', Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'factory'))
-from durable.guard import CHECKPOINT_GRACE_S, LOW_CREDIT_USD, CheckFailed, Guard, read_starts, router_spend, webhook
+from durable.guard import (CHECKPOINT_GRACE_S, LOW_CREDIT_USD, CheckFailed, Guard, read_starts, router_spend,
+                           stop_audit_alerts, webhook)
 from durable import preflight
 from durable.workers import BoatCli, BoatPool, ReleaseStore
-from durable.stop_registry import alerts, audit, git_contains, read_attempts, release_commits
 
 SERVICE = 'unbug-durable-case-campaign.service'
 request = json.loads((root / 'campaign-request.json').read_text())
@@ -54,25 +54,12 @@ def count():
     return read_starts(state / 'campaign-starts.json')
 
 
-def stop_audit(now):
-    """bin/stop_audit's verdict on the last day's attempts, as at most one alert (REGRESSION or UNKNOWN).
-    Without UNBUG_STOP_AUDIT_REPO (a git checkout) no fix can be checked, so only UNKNOWN alerts."""
-    try:
-        dsn = os.environ.get('UNBUG_DURABLE_DSN') or Path(config['database_url_file']).read_text().strip()
-        rows = [r for r in read_attempts(dsn) if (r['started_at'] or 0) >= now - 86400]
-        repo = os.environ.get('UNBUG_STOP_AUDIT_REPO')
-        return alerts(audit(rows, release_commits(Path(os.environ.get('UNBUG_RELEASE_WORK', '/home/user/.unbug-release')),
-                                                    state / 'releases' / 'release-commits.json'),
-                            git_contains(Path(repo)) if repo else None))
-    except Exception:
-        return {'stop_audit:unknown': 'Could not run the stop audit. Run bin/stop_audit by hand.'}
-
-
 url = os.environ.get('UNBUG_ALERT_WEBHOOK')
 router = lambda: router_spend(os.environ.get('UNBUG_ROUTER_DB', '/home/user/.unbug-control/router/factory.sqlite3'))
 Guard(request, state / 'guard', boat=cli.probe, rpc=rpc, service=Service(),
       ours=lambda row: pool._live(row) and pool._ours(row) is not None, count=count, delete=pool._delete_raw,
-      router=router, preflight=lambda now: {**preflight.warnings(request, now, router=router), **stop_audit(now)},
+      router=router, preflight=lambda now: {**preflight.warnings(request, now, router=router),
+                                             **stop_audit_alerts(state / 'stop-audit.json', now)},
       checkpoint_grace_s=float(os.environ.get('UNBUG_CHECKPOINT_GRACE_S', CHECKPOINT_GRACE_S)),
       low_credit_usd=float(os.environ.get('UNBUG_LOW_CREDIT_USD', LOW_CREDIT_USD)),
       notify=webhook(url) if url else None).run(cleanup='--cleanup' in sys.argv)

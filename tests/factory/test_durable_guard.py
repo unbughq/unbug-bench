@@ -831,5 +831,38 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(CheckFailed("x", "from 1.2.3.4").detail, "from [ip]")
 
 
+class StopAuditAlertTests(unittest.TestCase):
+    """The guard reads bin/stop_audit's result file only; whatever is there, it alerts and never raises."""
+
+    def alerts(self, content=None, now=NOW):
+        from durable.guard import stop_audit_alerts
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stop-audit.json"
+            if content is not None:
+                path.write_text(content if isinstance(content, str) else json.dumps(content))
+            return stop_audit_alerts(path, now)
+
+    def test_a_fresh_clean_result_raises_nothing(self):
+        self.assertEqual(self.alerts({"written_at": NOW - 600, "regression_reasons": [], "unknown_reasons": []}), {})
+
+    def test_regressions_and_unknown_reasons_alert_once_keyed_by_reason(self):
+        out = self.alerts({"written_at": NOW - 60, "regression_reasons": ["infra:prompt_too_large"],
+                           "unknown_reasons": ["infra:raw_key_error", "not a reason /etc/passwd"]})
+        self.assertEqual(out, {"stop_audit:infra:prompt_too_large,infra:raw_key_error":
+                               "Stop audit: fixed bugs came back: infra:prompt_too_large; "
+                               "unclassified stops: infra:raw_key_error. Run bin/stop_audit."})
+
+    def test_missing_stale_or_corrupt_results_alert_instead_of_raising(self):
+        self.assertEqual(list(self.alerts()), ["stop_audit:missing"])
+        stale = self.alerts({"written_at": NOW - 3600, "regression_reasons": [], "unknown_reasons": []})
+        self.assertEqual(list(stale), ["stop_audit:stale"])
+        self.assertIn("60 minutes old", stale["stop_audit:stale"])
+        for corrupt in ("{not json", "[]", "null", json.dumps({"written_at": "yesterday"}), json.dumps({}),
+                        json.dumps({"written_at": NOW, "regression_reasons": 7})):
+            out = self.alerts(corrupt)
+            self.assertTrue(set(out) <= {"stop_audit:unreadable"}, corrupt)
+        self.assertEqual(list(self.alerts("{not json")), ["stop_audit:unreadable"])
+
+
 if __name__ == "__main__":
     unittest.main()

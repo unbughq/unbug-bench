@@ -415,9 +415,11 @@ class ReleaseStoreTests(unittest.TestCase):
         self.assertEqual(commits(), {self.h.plumbing: a})
         self.assertEqual(release("--commit", b).returncode, 0)        # the flag wins over the file
         self.assertEqual(commits(), {self.h.plumbing: b})
-        bad = release("--commit", "9e33d0c2")
-        self.assertEqual((bad.returncode, commits()), (1, {self.h.plumbing: b}))
-        self.assertIn("not a full commit sha", bad.stderr)
+        bad = release("--commit", "9e33d0c2")                      # a bad commit only warns
+        self.assertEqual((bad.returncode, bad.stdout.strip(), commits()), (0, self.h.plumbing, {self.h.plumbing: b}))
+        self.assertIn("warning: release commit not recorded", bad.stderr)
+        (store / W.RELEASE_COMMITS).write_text("not json")                # nor does an unreadable map
+        self.assertEqual(release("--commit", a).returncode, 0)
 
 
 class PoolTests(unittest.TestCase):

@@ -689,6 +689,38 @@ def webhook(url: str) -> Callable:
     return send
 
 
+STOP_AUDIT_STALE_S = 1800.0   # bin/stop_audit writes every 10 minutes (unbug-stop-audit.timer)
+STOP_AUDIT_REASON = re.compile(r"[a-z][a-z0-9]*:[a-z][a-z_]{0,60}")
+
+
+def stop_audit_alerts(path, now: float) -> dict:
+    """The stop audit's alerts from the result bin/stop_audit --write left at path: a fixed bug that came
+    back or an unclassified stop, or the audit not running. Reads one JSON file; never raises."""
+    try:
+        data = json.loads(Path(path).read_text())
+        written = data["written_at"]
+        if type(written) not in (int, float):
+            raise ValueError("written_at")
+        # Reason codes only, so nothing else from a user-written file reaches an alert.
+        found = {kind: sorted(r for r in data.get(kind + "_reasons") or [] if isinstance(r, str)
+                              and STOP_AUDIT_REASON.fullmatch(r)) for kind in ("regression", "unknown")}
+    except FileNotFoundError:
+        return {"stop_audit:missing": "The stop audit is not running: it has written no result. "
+                                      "Check unbug-stop-audit.timer."}
+    except Exception:
+        return {"stop_audit:unreadable": "The stop audit's result is unreadable. Run bin/stop_audit by hand."}
+    out = {}
+    if now - written > STOP_AUDIT_STALE_S:
+        out["stop_audit:stale"] = (f"The stop audit is not running: its result is {int((now - written) / 60)} "
+                                   "minutes old. Check unbug-stop-audit.timer.")
+    parts = ([f"fixed bugs came back: {', '.join(found['regression'])}"] if found["regression"] else []) + \
+            ([f"unclassified stops: {', '.join(found['unknown'])}"] if found["unknown"] else [])
+    if parts:   # keyed by the reasons, so a new one alerts again
+        out["stop_audit:" + ",".join(found["regression"] + found["unknown"])] = \
+            "Stop audit: " + "; ".join(parts) + ". Run bin/stop_audit."
+    return out
+
+
 def degraded(state_dir) -> bool:
     """Whether the guard currently pauses new attempts. Unreadable or stale means no."""
     try:

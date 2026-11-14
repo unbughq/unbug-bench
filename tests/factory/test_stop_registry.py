@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "factory"))
 from durable import classify  # noqa: E402
 from durable.contract import REASON  # noqa: E402
-from durable.stop_registry import REGISTRY, alerts, audit, bug, decode  # noqa: E402
+from durable.stop_registry import REGISTRY, UNDECODABLE, audit, bug, decode, lookup, result  # noqa: E402
 
 # A quoted reason literal anywhere in the factory or the campaign controller.
 LITERAL = re.compile(r"""["'](%s)["']""" % REASON.pattern)
@@ -40,6 +40,17 @@ class RegistryTests(unittest.TestCase):
             self.assertRegex(reason, REASON)
             self.assertIn(entry["kind"], ("case", "wait", "bug"), reason)
 
+    def test_cleanup_labelled_diagnoses_are_one_open_family_and_raw_stops_stay_unknown(self):
+        self.assertEqual(lookup("diagnosis:cf_key_error"), {"kind": "bug", "fixed_in": None, "test": None})
+        self.assertIsNone(lookup("infra:raw_key_error"))
+        self.assertEqual(lookup("writer:validated"), {"kind": "case"})
+
+    def test_reasons_that_collect_several_causes_are_never_marked_fixed(self):
+        for reason in ("infra:execution_retries_exhausted", "infra:deadline", "infra:unclassified_stop",
+                       "infra:runner_exception", "infra:stalled", "infra:diagnosis_cleanup_failed",
+                       "diagnosis:processing_failed", "infra:pool_failed", "infra:cleanup_failed"):
+            self.assertIsNone(REGISTRY[reason]["fixed_in"], reason)
+
     def test_every_named_regression_test_exists(self):
         for reason, entry in REGISTRY.items():
             if entry["kind"] == "bug" and entry["test"]:
@@ -65,13 +76,17 @@ class AuditTests(unittest.TestCase):
         reg, = out["regression"]
         self.assertEqual((reg["reason"], reg["commit"], reg["fixed_in"], reg["count"], reg["cases"]),
                          ("infra:fixed", NEW, (FIX,), 2, ["case-1", "case-2"]))
-        self.assertEqual(alerts(out), {"stop_audit:infra:fixed":
-                                       "Stop audit: fixed bugs came back: infra:fixed. Run bin/stop_audit."})
+        written = result(out, undecodable=3, now=100.0)
+        self.assertEqual((written["written_at"], written["regression_reasons"], written["unknown_reasons"]),
+                         (100.0, ["infra:fixed"], []))
+        self.assertEqual((written["counts"]["regression"], written["counts"]["attempts"],
+                          written["counts"]["undecodable"]), (1, 2, 3))
+        self.assertTrue(written["regression"][0].startswith("REGRESSION infra:fixed"))
 
     def test_a_fixed_bug_before_its_fix_is_not_reported(self):
         out = self.run_audit([row("infra:fixed", pv="p-old")])
         self.assertEqual(out["regression"] + out["unchecked"] + out["open"], [])
-        self.assertEqual(alerts(out), {})
+        self.assertEqual(result(out, 0, 1.0)["regression_reasons"], [])
 
     def test_a_bug_with_several_fixes_regresses_only_on_a_release_with_all_of_them(self):
         has = {(NEW, FIX): True, (NEW, OTHER_FIX): True, (OLD, FIX): True, (OLD, OTHER_FIX): False}
@@ -113,7 +128,7 @@ class AuditTests(unittest.TestCase):
         self.assertEqual([r["reason"] for r in out["unknown"]], ["infra:raw_new_thing"])
         self.assertEqual(out["regression"], [])
         self.assertEqual(out["releases"], {"p-new": {"commit": NEW, "attempts": 4, "infra": 2}})
-        self.assertEqual(list(alerts(out)), ["stop_audit:infra:raw_new_thing"])
+        self.assertEqual(result(out, 0, 1.0)["unknown_reasons"], ["infra:raw_new_thing"])
 
     def test_the_same_attempt_read_twice_counts_once(self):
         out = self.run_audit([row("infra:open"), row("infra:open"), row("infra:open", attempt=2)])
@@ -143,6 +158,15 @@ class AuditTests(unittest.TestCase):
                          "started_at": 5.0})
         self.assertIsNone(decode(encode({"started": False, "action": "stale_preparation"})))
         self.assertIsNone(decode(encode("not a dict")))
+        # No recorded start (a lease that never started): the row's own DBOS time stands in.
+        self.assertEqual(decode(encode({**record, "started_at": None}), row_time=7.0)["started_at"], 7.0)
+
+    def test_decode_refuses_anything_but_builtins(self):
+        import collections
+        encode = lambda v: base64.b64encode(pickle.dumps(v)).decode()
+        for refused in (encode(collections.OrderedDict(a=1)), encode({"input": Path("/"), "result": {}}),
+                        "not base64!", base64.b64encode(b"not a pickle").decode()):
+            self.assertIs(decode(refused), UNDECODABLE, refused)
 
 
 if __name__ == "__main__":
