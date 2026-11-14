@@ -327,7 +327,7 @@ class AttemptBudget(unittest.TestCase):
         with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
                 ThreadPoolExecutor(2) as pool:
             calls = [pool.submit(self.runtime.call, self.c, [paid], 'x', self.root, name)
-                     for name in ('stress-1', 'reviewer-1')]
+                     for name in ('reviewer-stress-1', 'reviewer-1')]
             self.assertEqual([f.result(timeout=10) for f in calls], [0, 0])
         self.assertEqual(windows, [window, window])
         ledger = json.loads(self.ledger.read_text())
@@ -432,7 +432,7 @@ class AttemptBudget(unittest.TestCase):
         with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
                 ThreadPoolExecutor(3) as pool:
             calls = []
-            for name in ('reviewer-1', 'reviewer2-1', 'stress-1'):   # each holds its window, in turn
+            for name in ('reviewer-1', 'reviewer-r2-1', 'reviewer-stress-1'):   # each holds its window, in turn
                 calls.append(pool.submit(self.runtime.call, self.c, [paid], 'x', self.root, name))
                 self.assertTrue(entered.acquire(timeout=5))
             # Two windows fit; the third gets what is left; a fourth gets nothing.

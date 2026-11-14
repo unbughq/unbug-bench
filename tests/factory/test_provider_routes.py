@@ -66,7 +66,7 @@ class ProviderRoutesTest(TestCase):
         for chain in model_router.CHAINS:
             c = SimpleNamespace(work=self.work, card={})
             with mock.patch.object(model_runtime.ModelRuntime, "_invoke", return_value=0) as call:
-                run.model_call(c, [chain[0]], "synthetic", ".", "fixture")
+                run.model_call(c, [chain[0]], "synthetic", ".", "reviewer-fixture")
             self.assertEqual(call.call_args.args[1], [chain[0]])
             row = c.card['route_receipts'][-1]
             self.assertEqual((row['route'], row['family'], row['outcome']), (chain[0], model_runtime.family(chain[0]), 'done'))
@@ -86,7 +86,7 @@ class ProviderRoutesTest(TestCase):
             return 0
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
-            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
+            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'reviewer-fixture')
             # The chain starts at the Go plan route; the account's quota then also closes its free lane.
             self.assertEqual(tried[:2], [(go, 'opencode-go-key'), (go, 'opencode-go-key-2')])
             fallback = tried[2]   # the chain's OpenRouter route (synthetic maxima bound every route here)
@@ -96,7 +96,7 @@ class ProviderRoutesTest(TestCase):
             self.assertTrue(all(any(a in k for k in health) for a in ('opencode-go-key', 'opencode-go-key-2')))
             # The next call goes straight to the fallback: no exhausted account is retried.
             tried.clear()
-            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
+            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'reviewer-fixture')
             self.assertEqual(tried, [fallback])
         # Another route's per-call quota keeps its old, lane-only handling.
         self.assertEqual(model_runtime.call_failure_reason('provider_limit:x', 'openrouter/minimax/minimax-m3.1-flash'), 'quota')
@@ -114,11 +114,11 @@ class ProviderRoutesTest(TestCase):
         go, paid, free = model_router.CHAINS[-1]
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
-            runtime.call(c, [free], 't', '.', 'fixture')
+            runtime.call(c, [free], 't', '.', 'reviewer-fixture')
             self.assertEqual(tried, [go, go, paid])   # both Go accounts, then OpenRouter; never the free lane
             other = SimpleNamespace(card={})
             tried.clear()
-            runtime.call(other, [free], 't', '.', 'fixture')
+            runtime.call(other, [free], 't', '.', 'reviewer-fixture')
             self.assertEqual(tried, [paid])
         self.assertEqual(c.card['route_receipts'][-1]['billing'], 'paid')
         self.assertTrue(c.force_budget_resume)
