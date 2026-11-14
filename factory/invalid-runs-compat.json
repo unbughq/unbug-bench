@@ -39,7 +39,7 @@
   "release_pins": {
     "factory/calibration.py": {
       "from": "ec49b199a445bb13f059129a01e8f8bc3617ac98abc5100ae4d57e779e382767",
-      "to": "0dca9d66d021dcbeee8fb135b4e95325785617c14a5ea4f15529b443fcee3813"
+      "to": "391794408ae17a52f5e827f9aa1bacb5c58b3102cbdd67defe749dc3e573a602"
     }
   }
 }

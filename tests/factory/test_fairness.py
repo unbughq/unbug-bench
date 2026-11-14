@@ -90,5 +90,57 @@ class FairnessTests(unittest.TestCase):
                     self.assertNotIn("difficulty", c.card)
 
 
+class SubmittedAtTheBellTests(unittest.TestCase):
+    """Founder 2026-11-14: a fix handed in at the time limit is graded, not capped."""
+    # Shape of 2abb0a's judge_breadth/results.json row, stored before the rule changed.
+    LEGACY = {"try": 1, "solved": False, "stop_reason": "time_limit", "guard_submitted": True,
+              "checked_runs": 10, "solved_runs": 0, "errors": 0, "bench_crash": None,
+              "scientific_outcome": "capped"}
+
+    def test_time_limited_checked_fix_is_a_demonstrated_failure(self):
+        from calibration import scientific_outcome
+        row = {k: v for k, v in self.LEGACY.items() if k != "scientific_outcome"}
+        self.assertEqual(scientific_outcome(row), "demonstrated_failure")
+        self.assertEqual(scientific_outcome({**row, "solved_runs": 3}), "demonstrated_failure")
+        self.assertEqual(scientific_outcome({**row, "stop_reason": "call_limit"}), "capped")
+        self.assertEqual(scientific_outcome({**row, "guard_submitted": False}), "no_submission")
+        self.assertEqual(scientific_outcome({**row, "checked_runs": 0}), "capped")
+        self.assertEqual(scientific_outcome({**row, "errors": None}), "capped")
+        from run_validity import InvalidInfra
+        with self.assertRaises(InvalidInfra):
+            scientific_outcome({**row, "errors": 1})
+
+    def test_legacy_capped_row_goes_to_review_and_accepts_wrong_fix(self):
+        from calibration import attempt_summary
+        self.assertEqual(attempt_summary([dict(self.LEGACY)])["scientific"]["outcomes"]["demonstrated_failure"], 1)
+        for other in ({**self.LEGACY, "stop_reason": "call_limit", "scientific_outcome": "demonstrated_failure"},
+                      {**self.LEGACY, "scientific_outcome": "unknown"}):
+            with self.assertRaises(ValueError):
+                attempt_summary([other])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp).resolve()
+            c = FairnessTests.context(None, root)
+            c.case = root / "case"
+            workspace = root / "try-1"
+            (workspace / "guard").mkdir(parents=True)
+            (workspace / "guard/db.sql").write_text("select 1")
+            (workspace / "execution.json").write_text("{}")
+            (root / "judge_breadth").mkdir()
+            (root / "judge_breadth/results.json").write_text(json.dumps([{**self.LEGACY, "workspace": str(workspace)}]))
+            runner = types.SimpleNamespace(
+                family=lambda x: x, jload=lambda path, default=None: json.loads(pathlib.Path(path).read_text())
+                if pathlib.Path(path).is_file() else default, make_pilots=Mock(), calibrate=Mock())
+            seen = []
+            def review(c, r, gate, inputs, text, validate):
+                seen.append(json.loads((inputs["attempts"] / "attempts.json").read_text()))
+                return validate({"tries": [{"try": 1, "label": "wrong_fix", "finding": "wrong rows",
+                                            "evidence": "guard/db.sql"}]})
+            with patch("run_validity.require_valid"), patch("independent_review.review", review):
+                counts = fairness.review_attempts(c, runner, "G16", "judge_breadth")
+            self.assertEqual(counts, {"wrong_fix": 1, "missing_info": 0, "judge_too_narrow": 0})
+            self.assertEqual(seen[0][0]["scientific_outcome"], "demonstrated_failure")
+            runner.calibrate.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

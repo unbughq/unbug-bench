@@ -454,13 +454,15 @@ def scientific_outcome(row):
         return "solved"
     if row.get('guard_submitted') is False or (isinstance(row.get('why'), str) and row['why'] in NO_FIX):
         return "no_submission"
-    if row.get('stop_reason') in ("time_limit", "call_limit"):
-        return "capped"
     checked, solved = row.get('checked_runs'), row.get('solved_runs')
-    if (row.get('stop_reason') == 'completed' and row.get('guard_submitted') is True
+    # Founder 2026-11-14: a fix handed in at the time limit is graded like any other.
+    # A call_limit stop stays capped.
+    if (row.get('stop_reason') in ('completed', 'time_limit') and row.get('guard_submitted') is True
             and type(checked) is int and type(solved) is int and 0 <= solved < checked
             and row.get('errors') == 0):
         return "demonstrated_failure"
+    if row.get('stop_reason') in ("time_limit", "call_limit"):
+        return "capped"
     return "unknown"
 
 
@@ -488,7 +490,9 @@ def attempt_summary(rows):
         require_valid({'runs': 1, 'error_runs': row.get('errors', 0),
                        'invalid_runs': int(bool(row.get('bench_crash')))})
         observed = scientific_outcome(row)
-        if "scientific_outcome" in row and row["scientific_outcome"] != observed:
+        stored = row.get("scientific_outcome", observed)
+        # Rows stored before 2026-11-14 label a graded time-limit fix "capped".
+        if stored != observed and (stored, observed, row.get("stop_reason")) != ("capped", "demonstrated_failure", "time_limit"):
             raise ValueError("conflicting scientific outcome")
         scientific[observed] += 1
         why = row.get("why")
