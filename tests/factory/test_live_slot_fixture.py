@@ -7,10 +7,11 @@ import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import json, os, shutil, subprocess, tempfile, time, types, unittest
+import json, os, re, shutil, subprocess, tempfile, time, types, unittest
 from pathlib import Path
 from unittest import mock
 import run
+import gate_state
 
 ROOT = _TEST_ROOT
 FINGERPRINT = "import bench; bench.bench_fingerprint(); print(bench.IDS.relative_to(bench.ROOT))"
@@ -53,7 +54,9 @@ class LiveSlotFixtureTests(unittest.TestCase):
 
     def test_gather_leaves_every_live_slot_state_file(self):
         """Gather moved .prepared.json, .inventory-services.json and the compose/port overrides too:
-        the slot then looked unprepared and the next stop_inventory_services lost its compose files."""
+        the slot then looked unprepared and the next stop_inventory_services lost its compose files.
+        Everything else in results, including factory_pool's leftover .factory-runs-* records, is
+        evidence and is gathered (a checkpoint timeout leaves that folder behind)."""
         with tempfile.TemporaryDirectory() as tmp:
             bench = Path(tmp) / "bench"
             for name in ("bin/bench.py", "bin/bench_judging.py", "bin/processes.py", "bin/refusal.py",
@@ -68,33 +71,53 @@ class LiveSlotFixtureTests(unittest.TestCase):
                 self.assertEqual(p.returncode, 0, p.stderr)
                 return p.stdout.strip()
             c = types.SimpleNamespace(t0=time.time() - 1, work=Path(tmp) / "work")
-            # The state bench itself writes for slot 1, at the paths bench derives (importing it writes .slot-compose.yaml).
+            # Slot 1's state at the names bench itself uses (importing it writes the slot compose override).
             state = probe("""
 r = bench.RESULTS
 bench.IDS.write_text('{}')
-(r / '.prepared.json').write_text(json.dumps({'version': 1, 'slot': 1,
+(r / bench.PREPARED).write_text(json.dumps({'version': 1, 'slot': 1,
     'seed_ids_sha256': hashlib.sha256(bench.IDS.read_bytes()).hexdigest()}))
 bench.INVENTORY_STATE.write_text(json.dumps({'compose': ['true'], 'names': []}))
-for name in ('.inventory-compose.json', '.inventory-ports.yaml', '.guard-compose.yaml', '.prepared.tmp'):
+for name in (bench.INVENTORY_COMPOSE, bench.INVENTORY_PORTS, bench.GUARD_COMPOSE, bench.PENDING_STATE, bench.LOCK,
+             pathlib.Path(bench.PREPARED).with_suffix('.tmp').name, bench.PROGRESS_PREFIX + '7.json'):
     (r / name).write_text('x')
-(r / '.bench.lock').write_text('')
+(r / bench.NO_CHANGES).mkdir(); (r / bench.NO_CHANGES / 'scenario.json').write_text('{}')
 print(json.dumps(sorted(str(p.relative_to(bench.ROOT / 'results')) for p in r.rglob('*') if p.is_file())))""")
-            evidence = bench / "results/factory-slots/1/runs/20261113T000000Z-g5/01.json"
-            evidence.parent.mkdir(parents=True)
-            evidence.write_text("{}\n")
+            state = set(json.loads(state))
+            self.assertEqual(len(state), 12)
+            evidence = {"factory-slots/1/runs/20261113T000000Z-g5/01.json", ".factory-runs-x/records.json",
+                        ".factory-runs-x/job.json"}
+            for rel in evidence:
+                (bench / "results" / rel).parent.mkdir(parents=True, exist_ok=True)
+                (bench / "results" / rel).write_text("{}\n")
+            # The gate inventory and the gather agree on what is evidence.
+            inventory = {rel for kind, rel in gate_state.inventory(c, bench) if kind == "bench"}
+            self.assertEqual(inventory, evidence)
             with mock.patch.object(run, "BENCH", bench), mock.patch.object(run, "HOME", Path(tmp)):
                 run.gather_bench_results(c)
-            self.assertTrue((c.work / "bench-results/factory-slots/1/runs/20261113T000000Z-g5/01.json").is_file())
-            for rel in json.loads(state):
+            for rel in state:
                 self.assertTrue((bench / "results" / rel).is_file(), f"gather moved live slot state {rel}")
-            self.assertEqual(sorted(p.name for p in (c.work / "bench-results").rglob("*") if p.is_file()), ["01.json"])
+            self.assertEqual({p.relative_to(c.work / "bench-results").as_posix()
+                              for p in (c.work / "bench-results").rglob("*") if p.is_file()}, evidence)
             self.assertEqual(probe("print(bench.factory_slot_ready(bench.ROOT / 'results', 1), bench.INVENTORY_STATE.exists())"),
                              "True True")
             # The wipe still shreds that state (it can hold case paths), but never the lock or the seed IDs.
             artifacts = run._run_artifacts()
             artifacts.bench = bench
             wiped = {p.relative_to(bench / "results").as_posix() for p in artifacts.results_since(c, include_state=True)}
-            self.assertEqual(wiped, set(json.loads(state)) - {"factory-slots/1/seed-ids.json", "factory-slots/1/.bench.lock"})
+            self.assertEqual(wiped, state - {"factory-slots/1/seed-ids.json", "factory-slots/1/.bench.lock"})
+
+    def test_bench_writes_its_state_only_under_registered_names(self):
+        """A state file bench (or the CLIs beside it) writes into RESULTS under a bare literal would
+        bypass bench.is_state and be gathered as evidence again; renaming a constant must reach both."""
+        import bench
+        for name in ("bin/bench.py", "bin/checkpoint", "bin/factory_pool.py"):
+            text = (ROOT / name).read_text()
+            self.assertEqual(re.findall(r"RESULTS\s*/\s*f?[\"']\.[^\"']*[\"']", text), [], name)
+        self.assertTrue(all(bench.is_state(n) for n in bench.STATE_FILES))
+        self.assertTrue(bench.is_state(f"factory-slots/2/{bench.NO_CHANGES}/scenario.json"))
+        self.assertFalse(bench.is_state(".factory-runs-x/records.json"))
+        self.assertFalse(bench.is_state("factory-slots/2/runs/x/01.json"))
 
     def test_rebuilt_slot_gets_a_fresh_infra_allowance(self):
         from run_validity import InfrastructureExhausted

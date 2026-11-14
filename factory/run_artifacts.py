@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import pathlib
-import re
 import shlex
 import shutil
 import subprocess
@@ -48,13 +47,14 @@ class RunArtifacts:
 
     def results_since(self, c, *, include_state=False):
         """Bench files written during this run: evidence only, unless include_state (the wipe).
-        Bench state that a slot or a running bench still uses is never evidence: dot-named files and
-        directories (.prepared.json, .inventory-services.json, compose and port overrides, temporaries),
-        and a slot's seed IDs, which later checkpoints on that slot read. The lock and seed IDs always stay."""
+        bench.is_state names what a slot or a running bench still uses (readiness receipt, compose and
+        port overrides, inventory services, pending decisions, temporaries, progress, seed IDs); the
+        gather leaves it, as gate_state.inventory does. The lock and seed IDs stay even for the wipe."""
+        import bench
         results = self.bench / "results"
         def kept(rel):
-            return (rel.name == ".bench.lock" or re.fullmatch(r"factory-slots/[0-9]+/seed-ids\.json", rel.as_posix())
-                    or (not include_state and any(part.startswith(".") for part in rel.parts)))
+            return (rel.name in (bench.LOCK, bench.IDS.name)
+                    or (not include_state and bench.is_state(rel.as_posix())))
         return [f for f in results.rglob("*") if f.is_file() and f.stat().st_mtime >= c.t0
                 and not kept(f.relative_to(results))]
 

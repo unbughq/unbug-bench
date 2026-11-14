@@ -38,7 +38,7 @@ def prepare(slots, *, previous_slots=1, fresh=False, execute=None):
     # The checkpoint path already holds this lock for ordinary pool preparation.
     # G3 owns it across retirement, main setup and all extra-shop setup; taking it
     # only in the main child leaves destructive phases open to another checkpoint.
-    lock_context = (bench.RESULTS / ".bench.lock").open("w") if fresh else contextlib.nullcontext()
+    lock_context = (bench.RESULTS / bench.LOCK).open("w") if fresh else contextlib.nullcontext()
     with lock_context as lock:
         if fresh: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return _prepare(slots, previous_slots=previous_slots, fresh=fresh, execute=execute)

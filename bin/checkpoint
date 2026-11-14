@@ -229,12 +229,12 @@ def main():
     claims = json.loads(pathlib.Path(a.claims).read_text()) if a.claims else {}
     guard_name = pathlib.Path(a.guard).name
     label = a.label or "cp-" + "-".join(s["id"] for s in scenarios) + "-" + guard_name
-    with (bench.RESULTS / ".bench.lock").open("w") as lock:
+    with (bench.RESULTS / bench.LOCK).open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         active, decisions = scenarios, {}
         if any(s.get("delivery") == "pending" for s in scenarios):
             # ponytail: one local trial by default; use --pending-state for separate trials.
-            state = pathlib.Path(a.pending_state) if a.pending_state else bench.RESULTS / ".pending.json"
+            state = pathlib.Path(a.pending_state) if a.pending_state else bench.RESULTS / bench.PENDING_STATE
             active, decisions = select_scenarios(scenarios, claims, json.loads(state.read_text()) if state.exists() else {})
             state.parent.mkdir(parents=True, exist_ok=True)
             temporary = state.with_suffix(".tmp")
@@ -244,7 +244,7 @@ def main():
         # that fallback when every requested change is blocked. Keep metadata for bin/replay.
         delivered = active
         if not active:
-            empty = bench.RESULTS / ".no-changes"
+            empty = bench.RESULTS / bench.NO_CHANGES
             empty.mkdir(exist_ok=True)
             meta = {"id": "baseline", "title": "No changes", "kind": "none", "change": ""}
             (empty / "scenario.json").write_text(json.dumps(meta) + "\n")

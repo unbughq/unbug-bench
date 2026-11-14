@@ -34,7 +34,11 @@ any readable OOM line in the trial, and redoes the reset; if that fails the same
 worker stops with one infrastructure error (in a parallel pool, other slots finish on their own
 stacks first). A failure once the guard is being installed stays that trial's ordinary reset error. The checker uses
 read-only database access. Parallel factory slots have separate Compose projects,
-volumes, ports and seed manifests. Model roles run with information walls between
+volumes, ports and seed manifests. Bench state a slot keeps in `results/` between commands (named by
+`bench.is_state`: readiness receipt, compose and port overrides, inventory services, pending
+decisions, lock, progress, seed IDs, temporaries) is never evidence: the step gather and the gate
+inventory both leave it, and everything else there is gathered and sealed. A worker never serves a
+second case (its lease is per case and release deletes the machine), so no case-boundary clearing exists. Model roles run with information walls between
 case internals, testers and contestant-visible material.
 Durable OpenCode calls put each role's private CLI state on an executable tmpfs.
 After process containment closes, cleanup unmounts that state instead of overwriting
