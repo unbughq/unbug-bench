@@ -169,7 +169,7 @@ class AttemptBudget(unittest.TestCase):
             if name.startswith('strong-calibrator'):
                 # Capped like every non-writer call, and never into the owner's room.
                 self.assertEqual(Decimal(str(c.model_lease.max_usd)),
-                                 min(Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD)), self.attempt.ceiling_usd-expected))
+                                 min(model_runtime.call_window('strong_calibrator', ROUTE), self.attempt.ceiling_usd-expected))
                 parent=next(r for r in json.loads(self.ledger.read_text())['invocation_reservations'].values())
                 owner=copy.copy(self.c);owner.parent_call_name=name
                 self.assertEqual(self.runtime.call(owner,[reviewer],'question',self.root,'reviewer-owner-example'),0)
@@ -413,6 +413,29 @@ class AttemptBudget(unittest.TestCase):
         self.assertEqual(windows['strong-calibrator-1'], window)
         self.assertEqual(windows['reviewer-1'], window)
         self.assertGreater(windows['builder-1'], window)
+
+    def test_a_claude_attacker_window_funds_the_cheap_spend_beyond_its_request_hold(self):
+        """22e434-5 stress:2 attempt 14 (13 November): the stress tester swapped to Claude Opus 5.5 got a flat
+        $12.50 window, and the gate holds each request's worst case ($9.520896) before forwarding it, so the
+        call stopped model_call_cap after $3.04 of real spend (booked stress:money). The window is now
+        CHEAP_CALL_WINDOW_USD of real spend plus one request hold."""
+        self.attempt.ceiling_usd = Decimal('49.403501')
+        hold = model_call_gate.request_hold(ROUTE)
+        reached = []
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started'] = True
+            state = model_call_gate.Allowance(c.model_lease)
+            state.settled[0] = Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD)) - Decimal('0.01')
+            identity = state.reserve(32768)   # one more full request after ~$12.49 of real spend
+            reached.append(identity is not None)
+            if identity is not None: state.finish(identity, dict.fromkeys(model_call_gate.CLAUDE_GATE_FIELDS, 0))
+            state.close(); c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport):
+            self.assertEqual(self.runtime.call(self.c, [ROUTE], 'x', self.root, 'attacker-1'), 0)
+        self.assertEqual(reached, [True])
+        row = next(iter(json.loads(self.ledger.read_text())['invocation_reservations'].values()))
+        self.assertEqual(Decimal(row['maximum_usd']), Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD)) + hold)
 
     def test_cheap_windows_never_exceed_the_case_grant(self):
         paid = 'openrouter/minimax/minimax-m3.1-flash'

@@ -686,7 +686,7 @@ class MaximaTests(unittest.TestCase):
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
-        self.seen=[];self.failure=False;self.malformed=False;self.stalled=None;self.responses=None
+        self.seen=[];self.failure=False;self.status=None;self.content_type='text/event-stream';self.malformed=False;self.stalled=None;self.responses=None
         self.https_connection=http.client.HTTPSConnection
         owner=self
         class Upstream(BaseHTTPRequestHandler):
@@ -696,8 +696,8 @@ class ProtocolTests(unittest.TestCase):
                 owner.seen.append((self.path,json.loads(raw),dict(self.headers)))
                 usage=dict(input_tokens=1,cache_read_input_tokens=0,cache_creation_input_tokens=0,output_tokens=1)
                 data=owner.responses.pop(0) if owner.responses else b'not valid usage' if owner.malformed else sse(usage)
-                self.send_response(503 if owner.failure else 200)
-                self.send_header('Content-Type','text/event-stream')
+                self.send_response(owner.status or (503 if owner.failure else 200))
+                self.send_header('Content-Type',owner.content_type)
                 if owner.stalled is None or owner.stalled.content_length:
                     self.send_header('Content-Length',str(len(data)))
                 if owner.stalled is not None and owner.stalled.close_header:
@@ -762,6 +762,56 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(len(self.seen),5)
         self.assertEqual((cap['forwarded_requests'],cap['unknown_requests'],cap['in_flight_requests']),(5,5,0))
         self.assertEqual(Decimal(cap['held_usd']),Decimal('47.604480'))
+
+    def reject(self, status, kind):
+        self.status=status;self.content_type='application/json'
+        self.responses=[json.dumps({'type':'error','error':{'type':kind,'message':'synthetic'}}).encode()
+                        for _ in range(8)]
+
+    def small_lease(self):
+        return router.Lease(uuid.uuid4().hex,GATED_CLAUDE,'claude-token',time.time()+180,'subscription','anthropic',
+                            'claude-token',**router.funded_maximum(GATED_CLAUDE,'12.5'))
+
+    def test_a_rejected_4xx_request_settles_at_zero_and_never_exhausts_the_call(self):
+        """22e434-5 stress:2 attempt 13 and 18681d gates:4 attempt 3 (router:quota): Anthropic's 429 for a
+        usage limit kept the request's whole worst-case hold ($9.52 on Opus 5.5) as unknown spend. A 4xx
+        answered with Anthropic's JSON error and no model output is not billed, so it settles at $0; in a
+        $12.50 window a single held 429 used to leave no room for the next request (model_call_cap).
+        429s never count toward the rejection bound: a quota still parks as router:quota."""
+        self.reject(429,'rate_limit_error');env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'};cap={}
+        with gate.enforce(self.small_lease(),env,cap,3) as active:
+            for _ in range(gate.MAX_REJECTIONS+1): self.assertEqual(self.post(env,body())[0],429)
+            self.assertFalse(active.is_set())
+        self.assertEqual(len(self.seen),gate.MAX_REJECTIONS+1)
+        self.assertEqual((cap['validated_requests'],cap['unknown_requests']),(gate.MAX_REJECTIONS+1,0))
+        self.assertEqual(Decimal(cap['held_usd'])+Decimal(cap['settled_usd']),0)
+
+    def test_a_4xx_carrying_model_output_keeps_its_hold(self):
+        """Only Anthropic's own JSON error proves nothing was billed: a 4xx whose body carries a
+        message_start with usage, or a non-error message, stays unknown at its whole hold."""
+        usage=dict(input_tokens=1,cache_read_input_tokens=0,cache_creation_input_tokens=0,output_tokens=1)
+        message=json.dumps({'type':'message','model':'claude-opus-5-5','stop_reason':'end_turn','usage':usage}).encode()
+        for content_type,data in (('text/event-stream',sse(usage)),('application/json',message)):
+            self.seen.clear();self.status=400;self.content_type=content_type;self.responses=[data]
+            env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'};cap={}
+            with gate.enforce(self.small_lease(),env,cap,3):
+                self.assertEqual(self.post(env,body())[0],400)
+            self.assertEqual((cap['validated_requests'],cap['unknown_requests']),(0,1))
+            self.assertEqual(Decimal(cap['held_usd']),gate.request_hold(GATED_CLAUDE))
+
+    def test_a_repeated_permanent_4xx_stops_the_call_as_upstream_rejected(self):
+        """A permanent rejection (a prompt too long) settles at $0, so the money cap no longer stops a CLI
+        that keeps resending it: MAX_REJECTIONS in a row stop the call before the step timeout."""
+        self.reject(400,'invalid_request_error');env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'};cap={}
+        with self.assertRaisesRegex(budget.BudgetError,'^upstream_rejected$'):
+            with gate.enforce(self.small_lease(),env,cap,3) as active:
+                for _ in range(gate.MAX_REJECTIONS): self.assertEqual(self.post(env,body())[0],400)
+                self.assertTrue(active.is_set())
+                self.assertEqual(self.post(env,body())[0],400)   # refused at the gate, never forwarded
+        self.assertEqual(len(self.seen),gate.MAX_REJECTIONS)
+        self.assertEqual(Decimal(cap['held_usd'])+Decimal(cap['settled_usd']),0)
+        from durable.classify import _FIXED
+        self.assertEqual(_FIXED['upstream_rejected'][1],'router:upstream_rejected')
 
     def test_parent_cancel_and_cleanup_failure_are_not_monetary_labels(self):
         cancel=threading.Event();cancel.set();cap={};env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'}

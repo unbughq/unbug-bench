@@ -256,6 +256,7 @@ class RealStops(unittest.TestCase):
         "provider_routes_exhausted": ("provider_limit", "router:provider_wait"),
         "provider_wait_deadline": ("infra_error", "infra:deadline"),
         "refusal:": ("infra_error", "router:refusal"),
+        "upstream_rejected": ("infra_error", "router:upstream_rejected"),
         "reservation_already_invoked": ("infra_error", "infra:ledger_error"),
         "reservation_mismatch": ("infra_error", "infra:ledger_error"),
         "resume_while_active": ("infra_error", "infra:ledger_error"),

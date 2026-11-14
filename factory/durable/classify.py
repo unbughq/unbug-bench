@@ -73,6 +73,8 @@ _FIXED = {
     "model_unavailable": (_I, "router:model_unavailable"),
     "zero_tokens": (_I, "router:zero_tokens"),
     "refusal": (_I, "router:refusal"),
+    # model_call_gate.MAX_REJECTIONS free 4xx rejections in a row: a permanent bad request, not money.
+    "upstream_rejected": (_I, "router:upstream_rejected"),
     "admission_registry_unavailable": (_I, "admit:registry_unavailable"),
     "selection_board_unavailable": (_I, "admit:selection_board_unavailable"),
     "admission_dedup_unavailable": (_I, "admit:dedup_unavailable"),

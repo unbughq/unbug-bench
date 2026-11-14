@@ -332,7 +332,7 @@ def _router_line(guard: dict) -> list:
     if rate:
         line += f"; burning ${rate:,.2f}/h"
         if ceiling:   # the guard stops $1 short of the ceiling (guard.ROUTER_MARGIN_USD; not imported: laptop client)
-            line += f", guard stop in ~{max(ceiling - 1 - spent, 0) / rate:.1f}h"
+            line += f", guard pause in ~{max(ceiling - 1 - spent, 0) / rate:.1f}h"
         if type(credit) in (int, float):
             line += f", credit out in ~{credit / rate:.1f}h"
     return [line]
