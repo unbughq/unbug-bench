@@ -24,23 +24,6 @@ RESULTS.mkdir(parents=True, exist_ok=True)  # every CLI opens .bench.lock after 
 FACTORY_SLOT = int(os.environ.get("UNBUG_FACTORY_SLOT", "0"))
 GUARD_IMAGE = "unbug-bench-medusa:guard"
 PORTS = (9000, 9001)
-# Bench state kept in RESULTS between commands: what a slot or a running bench still uses (its
-# readiness receipt, compose and port overrides, inventory services, pending decisions, lock,
-# progress and seed IDs). Never evidence: the factory's gather and gate inventory leave it
-# (factory/run_artifacts.py, factory/gate_state.py), the wipe clears it. Anything else in RESULTS
-# (runs/, windows/, refusal evidence, factory_pool's .factory-runs-* records) is evidence.
-LOCK, PREPARED, SLOT_COMPOSE, GUARD_COMPOSE = ".bench.lock", ".prepared.json", ".slot-compose.yaml", ".guard-compose.yaml"
-INVENTORY_FILE, INVENTORY_COMPOSE, INVENTORY_PORTS = ".inventory-services.json", ".inventory-compose.json", ".inventory-ports.yaml"
-PENDING_STATE, NO_CHANGES, PROGRESS_PREFIX = ".pending.json", ".no-changes", "bench-progress-"
-STATE_FILES = frozenset({LOCK, PREPARED, SLOT_COMPOSE, GUARD_COMPOSE, INVENTORY_FILE, INVENTORY_COMPOSE,
-                         INVENTORY_PORTS, PENDING_STATE, IDS.name})
-
-def is_state(relative):
-    """Whether a path relative to a results root is bench state rather than evidence."""
-    parts = pathlib.PurePosixPath(relative).parts
-    return bool(parts) and (parts[-1] in STATE_FILES or parts[-1].endswith(".tmp")
-                            or parts[-1].startswith(PROGRESS_PREFIX) or NO_CHANGES in parts[:-1])
-
 if FACTORY_SLOT:
     # Factory workers opt in; the exam and Harbor keep the original project and ports.
     RESULTS = RESULTS / "factory-slots" / str(FACTORY_SLOT)
@@ -48,7 +31,7 @@ if FACTORY_SLOT:
     IDS = RESULTS / "seed-ids.json"
     PORTS = tuple(p + 100 * FACTORY_SLOT for p in PORTS)
     GUARD_IMAGE += f"-{FACTORY_SLOT}"
-    override = RESULTS / SLOT_COMPOSE
+    override = RESULTS / ".slot-compose.yaml"
     # !override is needed because Compose otherwise merges ports by container/host tuple.
     override.write_text("services:\n" + "".join(
         f"  {s}:\n    ports: !override [\"127.0.0.1:{p}:9000\"]\n"
@@ -71,7 +54,7 @@ _INVENTORY_PREPARATION = None  # batch-local; never reuse a previous case's imag
 
 class BenchProgress:
     def __init__(self, total):
-        self.path = RESULTS / f"{PROGRESS_PREFIX}{os.getpid()}.json"
+        self.path = RESULTS / f"bench-progress-{os.getpid()}.json"
         self.data = {"schema": 1, "pid": os.getpid(), "slot": FACTORY_SLOT,
                      "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                      "status": "running", "phase": "prepare", "completed_trials": 0,
@@ -206,7 +189,7 @@ def factory_memory_fits(scenarios, copies):
     except Exception:
         return False
 
-INVENTORY_STATE = RESULTS / INVENTORY_FILE
+INVENTORY_STATE = RESULTS / ".inventory-services.json"
 
 def stop_inventory_services():
     if INVENTORY_STATE.exists():
@@ -267,10 +250,10 @@ def start_inventory_services(services, guard_path, blind_monitors=()):
                     sorted(int(p["published"]) for p in published) != sorted(service["host_ports"])):
                 raise ValueError(f"Inventory service {service['name']} does not match its host_ports isolation contract")
             ports[service["name"]] = [{**p, "published": str(int(p["published"]) + 100 * FACTORY_SLOT)} for p in published]
-    override = RESULTS / INVENTORY_COMPOSE
+    override = RESULTS / ".inventory-compose.json"
     if ports:
         # Compose merges ports by host/container tuple unless !override replaces the original list.
-        port_override = RESULTS / INVENTORY_PORTS
+        port_override = RESULTS / ".inventory-ports.yaml"
         port_override.write_text("services:\n" + "".join(f"  {name}:\n    ports: !override {json.dumps(value)}\n" for name, value in ports.items()))
         compose += ["-f", str(port_override)]
     signature = None
@@ -372,7 +355,7 @@ def factory_slot_ready(results, slot):
         raise ValueError("factory readiness requires a nonzero slot")
     directory = results / "factory-slots" / str(slot)
     try:
-        receipt = json.loads((directory / PREPARED).read_text())
+        receipt = json.loads((directory / ".prepared.json").read_text())
         return receipt == {"version": 1, "slot": slot,
                            "seed_ids_sha256": hashlib.sha256((directory / "seed-ids.json").read_bytes()).hexdigest()}
     except (OSError, ValueError):
@@ -399,7 +382,7 @@ def retire_factory_slot():
     """Discard only this disposable extra slot and its readiness evidence."""
     if FACTORY_SLOT < 1:
         raise ValueError("factory slot retirement requires a nonzero slot")
-    (RESULTS / PREPARED).unlink(missing_ok=True)
+    (RESULTS / ".prepared.json").unlink(missing_ok=True)
     stop_inventory_services()
     dc("down", "-v", "--remove-orphans")
     IDS.unlink(missing_ok=True)
@@ -409,7 +392,7 @@ def prepare_factory_slot():
     """Prepare one disposable shop; publish readiness only after cleanup succeeds."""
     if FACTORY_SLOT < 1:
         raise ValueError("factory slot preparation requires a nonzero slot")
-    receipt = RESULTS / PREPARED
+    receipt = RESULTS / ".prepared.json"
     receipt.unlink(missing_ok=True)
     stop_inventory_services()
     dc("down", "-v", "--remove-orphans")
@@ -453,7 +436,7 @@ def prepare_app_guard(guard_path, scenarios=()):
 def start_app(guard_image):
     """Start both app instances: the image prepare_app_guard built, else the pinned app image."""
     if guard_image:
-        override = RESULTS / GUARD_COMPOSE
+        override = RESULTS / ".guard-compose.yaml"
         override.write_text("services:\n" + "".join(f"  {s}:\n    image: {GUARD_IMAGE}\n" for s in APP_SERVICES))
         command(COMPOSE + ["-f", str(override), "up", "-d", "--no-deps", "--no-build", *APP_SERVICES])
     else:
@@ -923,7 +906,7 @@ SUMMARY_FIELDS = ("crowd_oversold", "crowd_ok", "oversold", "concurrent_oversold
 
 def main():
     os.chdir(ROOT); RESULTS.mkdir(exist_ok=True)
-    with (RESULTS / LOCK).open("w") as lock:
+    with (RESULTS / ".bench.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         action = sys.argv[1]
         if action in ("setup", "reset"):

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bin'))
 import processes
+import slot_state
 
 
 def shred_tree(path, sudo=False):
@@ -47,14 +48,13 @@ class RunArtifacts:
 
     def results_since(self, c, *, include_state=False):
         """Bench files written during this run: evidence only, unless include_state (the wipe).
-        bench.is_state names what a slot or a running bench still uses (readiness receipt, compose and
-        port overrides, inventory services, pending decisions, temporaries, progress, seed IDs); the
+        slot_state.is_state names what a slot or a running bench still uses (readiness receipt, compose
+        and port overrides, inventory services, pending decisions, temporaries, progress, seed IDs); the
         gather leaves it, as gate_state.inventory does. The lock and seed IDs stay even for the wipe."""
-        import bench
         results = self.bench / "results"
         def kept(rel):
-            return (rel.name in (bench.LOCK, bench.IDS.name)
-                    or (not include_state and bench.is_state(rel.as_posix())))
+            return (rel.name in (slot_state.LOCK, slot_state.SEED_IDS)
+                    or (not include_state and slot_state.is_state(rel.as_posix())))
         return [f for f in results.rglob("*") if f.is_file() and f.stat().st_mtime >= c.t0
                 and not kept(f.relative_to(results))]
 

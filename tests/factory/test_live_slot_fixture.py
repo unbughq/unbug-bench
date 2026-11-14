@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 import run
 import gate_state
+import slot_state
 
 ROOT = _TEST_ROOT
 FINGERPRINT = "import bench; bench.bench_fingerprint(); print(bench.IDS.relative_to(bench.ROOT))"
@@ -52,6 +53,27 @@ class LiveSlotFixtureTests(unittest.TestCase):
             again = fingerprint()  # the next bin/checkpoint on slot 1
             self.assertEqual(again.returncode, 0, again.stderr)
 
+    @staticmethod
+    def bench_state_names():
+        """The dot-named files and folders bench and its CLIs keep in a results root, read from their
+        source: a rename or a new state file there changes this set (bench.py itself is not edited,
+        so the bench version stays)."""
+        names = set()
+        for name in ("bin/bench.py", "bin/checkpoint", "bin/factory_pool.py"):
+            names |= set(re.findall(r"(?:RESULTS|directory)\s*/\s*[\"'](\.[^\"'/]+)[\"']", (ROOT / name).read_text()))
+        return names
+
+    def test_registered_state_names_are_benchs_own(self):
+        import bench
+        self.assertEqual(self.bench_state_names(),
+                         (slot_state.FILES - {slot_state.SEED_IDS}) | slot_state.DIRECTORIES)
+        self.assertEqual(bench.IDS.name, slot_state.SEED_IDS)
+        self.assertIn(bench.INVENTORY_STATE.name, slot_state.FILES)
+        self.assertIn('RESULTS / f"' + slot_state.PROGRESS_PREFIX, (ROOT / "bin/bench.py").read_text())
+        self.assertFalse(slot_state.is_state(".factory-runs-x/records.json"))
+        self.assertFalse(slot_state.is_state("factory-slots/2/runs/x/01.json"))
+        self.assertTrue(slot_state.is_state("factory-slots/2/.no-changes/scenario.json"))
+
     def test_gather_leaves_every_live_slot_state_file(self):
         """Gather moved .prepared.json, .inventory-services.json and the compose/port overrides too:
         the slot then looked unprepared and the next stop_inventory_services lost its compose files.
@@ -65,24 +87,25 @@ class LiveSlotFixtureTests(unittest.TestCase):
                 shutil.copy2(ROOT / name, bench / name)
             (bench / "projects/medusa").mkdir(parents=True)
             env = {**os.environ, "UNBUG_FACTORY_SLOT": "1"}
-            def probe(code):
-                p = subprocess.run([sys.executable, "-B", "-c", "import bench, hashlib, json, pathlib\n" + code],
+            def probe(code, *args):
+                p = subprocess.run([sys.executable, "-B", "-c", "import bench, hashlib, json, pathlib, sys\n" + code, *args],
                                    cwd=bench / "bin", env=env, capture_output=True, text=True)
                 self.assertEqual(p.returncode, 0, p.stderr)
                 return p.stdout.strip()
             c = types.SimpleNamespace(t0=time.time() - 1, work=Path(tmp) / "work")
-            # Slot 1's state at the names bench itself uses (importing it writes the slot compose override).
+            # Slot 1's state under bench's own names (importing bench writes the slot compose override).
             state = probe("""
 r = bench.RESULTS
 bench.IDS.write_text('{}')
-(r / bench.PREPARED).write_text(json.dumps({'version': 1, 'slot': 1,
+(r / '.prepared.json').write_text(json.dumps({'version': 1, 'slot': 1,
     'seed_ids_sha256': hashlib.sha256(bench.IDS.read_bytes()).hexdigest()}))
 bench.INVENTORY_STATE.write_text(json.dumps({'compose': ['true'], 'names': []}))
-for name in (bench.INVENTORY_COMPOSE, bench.INVENTORY_PORTS, bench.GUARD_COMPOSE, bench.PENDING_STATE, bench.LOCK,
-             pathlib.Path(bench.PREPARED).with_suffix('.tmp').name, bench.PROGRESS_PREFIX + '7.json'):
-    (r / name).write_text('x')
-(r / bench.NO_CHANGES).mkdir(); (r / bench.NO_CHANGES / 'scenario.json').write_text('{}')
-print(json.dumps(sorted(str(p.relative_to(bench.ROOT / 'results')) for p in r.rglob('*') if p.is_file())))""")
+for name in json.loads(sys.argv[1]):
+    if not (r / name).exists(): (r / name).mkdir() if name == '.no-changes' else (r / name).write_text('x')
+(r / '.no-changes' / 'scenario.json').write_text('{}')
+for name in ('.prepared.tmp', 'bench-progress-7.json'): (r / name).write_text('x')
+print(json.dumps(sorted(str(p.relative_to(bench.ROOT / 'results')) for p in r.rglob('*') if p.is_file())))""",
+                          json.dumps(sorted(self.bench_state_names())))
             state = set(json.loads(state))
             self.assertEqual(len(state), 12)
             evidence = {"factory-slots/1/runs/20261113T000000Z-g5/01.json", ".factory-runs-x/records.json",
@@ -106,18 +129,6 @@ print(json.dumps(sorted(str(p.relative_to(bench.ROOT / 'results')) for p in r.rg
             artifacts.bench = bench
             wiped = {p.relative_to(bench / "results").as_posix() for p in artifacts.results_since(c, include_state=True)}
             self.assertEqual(wiped, state - {"factory-slots/1/seed-ids.json", "factory-slots/1/.bench.lock"})
-
-    def test_bench_writes_its_state_only_under_registered_names(self):
-        """A state file bench (or the CLIs beside it) writes into RESULTS under a bare literal would
-        bypass bench.is_state and be gathered as evidence again; renaming a constant must reach both."""
-        import bench
-        for name in ("bin/bench.py", "bin/checkpoint", "bin/factory_pool.py"):
-            text = (ROOT / name).read_text()
-            self.assertEqual(re.findall(r"RESULTS\s*/\s*f?[\"']\.[^\"']*[\"']", text), [], name)
-        self.assertTrue(all(bench.is_state(n) for n in bench.STATE_FILES))
-        self.assertTrue(bench.is_state(f"factory-slots/2/{bench.NO_CHANGES}/scenario.json"))
-        self.assertFalse(bench.is_state(".factory-runs-x/records.json"))
-        self.assertFalse(bench.is_state("factory-slots/2/runs/x/01.json"))
 
     def test_rebuilt_slot_gets_a_fresh_infra_allowance(self):
         from run_validity import InfrastructureExhausted
