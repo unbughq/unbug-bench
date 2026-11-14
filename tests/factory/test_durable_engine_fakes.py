@@ -565,6 +565,7 @@ def engine_main(workdir):
     from durable.executor import Executor
     from durable import report
     from durable.contract import BenchRelease, BoundRaised, FounderReply, PlumbingRelease, Topic
+    engine_module.OVERRIDE_EXTRA.update(scenario.get('override_extra', {}))
     disabled_patches = set(scenario.get('disabled_patches', []))
     if scenario.get('legacy_admit_snapshot'):
         disabled_patches.add('admit_checkpoint_input')
