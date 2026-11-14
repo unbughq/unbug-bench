@@ -390,6 +390,19 @@ SHORT_CALL_NO_PROGRESS_MINUTES = 10
 # try starts. Not a hard bound: a last try, a user kill and the removal can each still run up to
 # UNMOUNT_TRY_S past it, still well inside the engine's 900 s poll grace.
 UNMOUNT_TRY_S, UNMOUNT_PAUSE_S, UNMOUNT_TOTAL_S = 60, 5, 300
+MOUNTINFO = '/proc/self/mountinfo'
+
+
+def mounted(path):
+    """Whether path is a mount point, by the kernel's own table: it needs no access to the path.
+    os.path.ismount lstats path/.., which an isolated user's chown -R makes unsearchable, and it
+    then answers False for a tmpfs that is still mounted."""
+    target = os.fsencode(os.path.abspath(path))
+    try: table = pathlib.Path(MOUNTINFO).read_bytes()
+    except OSError: return True  # unknown: never remove anything under a possible mount
+    unescape = lambda field: re.sub(rb'\\([0-7]{3})', lambda m: bytes([int(m[1], 8)]), field)
+    return any(len(fields := line.split(b' ')) > 4 and unescape(fields[4]) == target
+               for line in table.splitlines())
 
 
 def short_call(name):
@@ -449,7 +462,7 @@ class ModelRuntime:
                     break
                 except (RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
                     # run.sh raises RuntimeError on a non-zero exit; processes.run raises TimeoutExpired.
-                    if not os.path.ismount(scratch): break
+                    if not mounted(scratch): break
                     if time.monotonic() + UNMOUNT_PAUSE_S >= end: raise
                     if user:
                         with processes.deadline(UNMOUNT_TRY_S, independent=True):

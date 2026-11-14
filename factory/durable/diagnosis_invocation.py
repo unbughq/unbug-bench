@@ -14,7 +14,7 @@ from carry_over import digest
 import diagnosis
 import diagnosis_task as task
 
-HELPER_LINE = re.compile(r'diagnosis task operation failed: \w+|sudo: [\w .,:/-]{1,200}')
+HELPER_LINE = re.compile(r'diagnosis task operation failed: \w+')
 
 
 def _helper(runner, c, operation, identity):
@@ -23,7 +23,7 @@ def _helper(runner, c, operation, identity):
                str(Path(runner.__file__).parent / 'diagnosis_task.py'),
                operation, c.case_id, identity]
     # What the helper said becomes the stop's cause, so the sealed diagnostic's traceback shows it.
-    # Only its fixed lines pass (diagnosis_task.py's failure line, sudo's own), never raw bytes.
+    # Only diagnosis_task.py's fixed failure line passes, never raw bytes; the return code says the rest.
     detail = ''
     try:
         process = subprocess.run(command, stdout=subprocess.PIPE,

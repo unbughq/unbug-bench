@@ -10,6 +10,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from decimal import Decimal
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -114,7 +115,7 @@ class AttemptBudget(unittest.TestCase):
                 self.addCleanup(shutil.rmtree,path.parent,True)
                 kwargs['on_started']()
                 return subprocess.CompletedProcess(cmd,0)
-            with self.subTest(failure=failure),patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,UNMOUNT_TOTAL_S=.05),patch.object(model_runtime.os.path,'ismount',return_value=True),patch.object(model_runtime.sys,'platform','linux'),                  patch.object(model_runtime,'_opencode_flags',return_value=()),                  patch.object(model_runtime.model_call_gate,'enforce',gate_only),                  patch.object(model_runtime,'run_budgeted',side_effect=run_cli) as process:
+            with self.subTest(failure=failure),patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,UNMOUNT_TOTAL_S=.05),patch.object(model_runtime,'mounted',return_value=True),patch.object(model_runtime.sys,'platform','linux'),                  patch.object(model_runtime,'_opencode_flags',return_value=()),                  patch.object(model_runtime.model_call_gate,'enforce',gate_only),                  patch.object(model_runtime,'run_budgeted',side_effect=run_cli) as process:
                 if failure:
                     label='containment_unavailable' if failure=='mount' else 'cleanup_failed'
                     with self.assertRaisesRegex(budget.BudgetError,label):
@@ -155,7 +156,7 @@ class AttemptBudget(unittest.TestCase):
             self.addCleanup(shutil.rmtree,path.parent,True)
             kwargs['on_started']()
             return subprocess.CompletedProcess(cmd,0)
-        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0),patch.object(model_runtime.os.path,'ismount',return_value=True),\
+        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0),patch.object(model_runtime,'mounted',return_value=True),\
              patch.object(model_runtime.sys,'platform','linux'),\
              patch.object(model_runtime,'_opencode_flags',return_value=()),\
              patch.object(model_runtime.model_call_gate,'enforce',gate_only),\
@@ -174,13 +175,49 @@ class AttemptBudget(unittest.TestCase):
             commands.append(list(map(str,args)))
             if args[1]=='umount':raise RuntimeError('sudo: exit 32\numount: target is busy')
         runtime=replace(self.runtime,command=command)
-        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,UNMOUNT_TOTAL_S=.05),patch.object(model_runtime.os.path,'ismount',return_value=True):
+        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,UNMOUNT_TOTAL_S=.05),patch.object(model_runtime,'mounted',return_value=True):
             with self.assertRaises(RuntimeError):
                 runtime._remove_state(self.c,state,memory=True,user='pilot')
         self.assertTrue(state.exists())  # a mount that cannot go is never removed underneath
         self.assertGreater(len(commands),2)
         for before,after in zip(commands[::2],commands[1::2]):
             self.assertEqual(before[1],'umount');self.assertEqual(after,['sudo','pkill','-KILL','-u','pilot'])
+
+    def test_mount_table_decides_with_escaped_paths(self):
+        """The real /proc/self/mountinfo parser on a fixture: mount points are octal-escaped."""
+        table=self.root/'mountinfo'
+        table.write_bytes(b'22 1 0:21 / / rw,relatime shared:1 - ext4 /dev/sda1 rw\n'
+                          b'97 22 0:45 / /srv/model\\040scratch\\011x\\134y rw,nosuid - tmpfs tmpfs rw,size=1024k\n'
+                          b'98 22 0:46 / /srv/other rw - tmpfs tmpfs rw\n')
+        with patch.object(model_runtime,'MOUNTINFO',str(table)):
+            self.assertTrue(model_runtime.mounted('/srv/model scratch\tx\\y'))
+            self.assertTrue(model_runtime.mounted('/srv/other'))
+            self.assertFalse(model_runtime.mounted('/srv/model'))
+            self.assertFalse(model_runtime.mounted('/srv/other/sub'))
+            self.assertFalse(model_runtime.mounted('/srv/model\\040scratch\\011x\\134y'))
+        with patch.object(model_runtime,'MOUNTINFO',str(self.root/'absent')):
+            self.assertTrue(model_runtime.mounted('/srv/other'))  # unknown never reads as gone
+
+    def test_unsearchable_scratch_still_mounted_is_killed_and_retried(self):
+        """After chown -R to the isolated user the runner cannot search scratch, so os.path.ismount
+        says False while the tmpfs is still mounted: the mount table must decide."""
+        state=self.root/'factory-tester-state-locked';state.mkdir()
+        table=self.root/'mountinfo'
+        table.write_text(f'97 22 0:45 / {state} rw - tmpfs tmpfs rw\n')
+        state.chmod(0)
+        self.addCleanup(lambda:state.exists() and state.chmod(0o700))
+        self.assertFalse(os.path.ismount(state))
+        commands=[]
+        def command(c,args,**kwargs):
+            commands.append(args[1])
+            if args[1]=='umount':
+                if commands.count('umount')==1:raise RuntimeError('sudo: exit 32\numount: target is busy')
+                table.write_text('');state.chmod(0o700)  # the tmpfs is gone
+        runtime=replace(self.runtime,command=command)
+        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,MOUNTINFO=str(table)):
+            runtime._remove_state(self.c,state,memory=True,user='pilot')
+        self.assertEqual(commands,['umount','pkill','umount'])
+        self.assertFalse(state.exists())
 
     def test_umount_that_timed_out_but_completed_is_success(self):
         """After a timed-out umount the kernel often finishes it: the retry would fail 'not mounted'.
@@ -193,7 +230,7 @@ class AttemptBudget(unittest.TestCase):
                     commands.append(args[1])
                     if args[1]=='umount':raise error
                 runtime=replace(self.runtime,command=command)
-                with patch.object(model_runtime.os.path,'ismount',return_value=False):
+                with patch.object(model_runtime,'mounted',return_value=False):
                     runtime._remove_state(self.c,state,memory=True,user='pilot')
                 self.assertEqual(commands,['umount'])
                 self.assertFalse(state.exists())
