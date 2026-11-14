@@ -147,6 +147,15 @@ class Run(Setup):
         r = self.ex(Channel([Poll(PollState.RUNNING, checkpoint=ckpt), None])).run(self.si())
         self.assertEqual((r.reason, r.snapshot), ("infra:worker_lost", ckpt))   # a retry may restore it
 
+    def test_an_absent_attempt_that_spent_keeps_the_usage_its_cancel_reports(self):
+        # The attempt's unit died after spending, with no result: the worker answers ABSENT, and its
+        # cancel writes infra:cancelled with the attempt's usage so far (worker_step.cancel). The
+        # executor used to replace it with a usage-less attempt_absent, so the whole grant was lost.
+        # (test_engine_chaos seed 2014.)
+        spent = StepResult(Outcome.INFRA_ERROR, "infra:cancelled", Usage(1, 700, 700))
+        r = self.ex(Channel([Poll(PollState.ABSENT)], on_cancel=Poll(PollState.DONE, spent))).run(self.si())
+        self.assertEqual((r.reason, r.usage), ("infra:cancelled", spent.usage))
+
     def test_late_done_survives_a_prolonged_unconfirmed_cancel(self):
         late = self.ok()
         ch = Channel([None] * 30 + [Poll(PollState.DONE, late)])

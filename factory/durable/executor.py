@@ -132,9 +132,12 @@ class Executor:
                 # worker death is required before a different attempt can begin.
                 done = self._cancel_confirm(lease, si, self.clock() + self.grace_s)
                 if done is not None:
-                    if done.reason == "infra:cancelled":
+                    # A tombstone reports no usage: the attempt never ran here, or its spend is
+                    # unknown. A unit that died after spending, with no result, is ABSENT too, and
+                    # its cancel reports what the attempt's own ledger holds: keep that usage.
+                    if done.reason == "infra:cancelled" and done.usage == Usage():
                         return self._lost(si, "infra:attempt_absent", checkpoint)
-                    return self._check_outputs(si, done)
+                    return self._check_outputs(si, done, checkpoint)
                 if not self._alive(lease):
                     return self._lost(si, "infra:worker_lost", checkpoint)
                 continue

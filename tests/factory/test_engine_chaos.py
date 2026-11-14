@@ -36,7 +36,9 @@ TIMING = {"wake_poll_s": 0.5, "credential_retry_s": 0.2, "pause_retry_s": 0.2, "
           "pool_wait_ceiling_s": 1.0}
 # Violations a pushed fix branch closes, skipped until it merges: delete each entry with its merge.
 # b-cancelled: an infra:cancelled result that reports usage books its whole grant (fix/cancelled-settles-usage).
-KNOWN_OPEN = set(filter(None, os.environ.get("CHAOS_KNOWN_OPEN", "b-cancelled").split(",")))
+# b-absent: the same for an attempt whose unit died after spending (ABSENT, then a cancel that reports
+# usage): executor.run keeps that usage on this branch, and the policy books it once that fix merges.
+KNOWN_OPEN = set(filter(None, os.environ.get("CHAOS_KNOWN_OPEN", "b-cancelled,b-absent").split(",")))
 PARKED = {"waiting_for_bound", "escalated", "held_for_release", "waiting_for_release"}
 TERMINAL = {"sealed", "retired", "held", "stopped_admission", "not_admitted"}
 
@@ -85,6 +87,7 @@ class SeqFree(dict):
 
 
 def engine_program(workdir):
+    from durable.contract import Outcome, Poll, PollState, StepResult, Usage
     build = fakes_mod.build_fakes
 
     def build_fakes(state_dir, scenario):
@@ -101,6 +104,34 @@ def engine_program(workdir):
                 return
             return start(lease, si, keys, blobs)
         w.start = lossy_start
+        # The attempt's processes die after spending, with no result: the real worker (worker_step.poll)
+        # answers ABSENT, and its cancel writes infra:cancelled with the attempt's usage so far.
+        crashes = SeqFree({k: 1 for k in scenario.get("crash_any", [])})
+        poll, cancel = w.poll, w.cancel
+
+        def crashing_poll(lease, si):
+            p = poll(lease, si)
+            key = si.idempotency_key
+            if p.state is PollState.RUNNING and key in crashes and pool.alive(lease):
+                a = w.f.read(f"attempts-{si.case_id}.json", {}).get(key)
+                if a and a["mode"] == "run" and not a["done"]:
+                    return Poll(PollState.ABSENT)
+            return p
+
+        def crashing_cancel(lease, si):
+            key = si.idempotency_key
+            with w.f.locked():
+                attempts = w.f.read(f"attempts-{si.case_id}.json", {})
+                a = attempts.get(key)
+                if key in crashes and a and a["mode"] == "run" and not a["done"] and pool.alive(lease):
+                    a["done"] = True
+                    w.f.write(f"attempts-{si.case_id}.json", attempts)
+                    w._write_result(key, StepResult(Outcome.INFRA_ERROR, "infra:cancelled",
+                                                    Usage(calls=1, paid_usd_micros=a["spec"].get("paid", 1000))),
+                                    ran=True)
+            return cancel(lease, si)
+        pool = out["pool"]
+        w.poll, w.cancel = crashing_poll, crashing_cancel
         return out
     fakes_mod.build_fakes = build_fakes
     fakes_mod.engine_main(workdir)
@@ -178,6 +209,11 @@ def scenario_for(seed):
         sc["dead_any"] = [any_key() for _ in range(rng.randint(1, 3))]
     if rng.random() < .25:   # a start frame lost on the wire: the attempt is absent
         sc["lost_start_any"] = [any_key() for _ in range(rng.randint(1, 3))]
+    if rng.random() < .25:   # the attempt's processes die after spending, leaving no result
+        sc["crash_any"] = [any_key() for _ in range(rng.randint(1, 2))]
+        for k in sc["crash_any"]:
+            n, rest = k.split("-")[-1].split("/", 1)
+            script.setdefault(f"{n}/{rest}", {})["dur"] = 60.0
     if rng.random() < .3:   # lost polls and cancels on the wire
         sc["flaky_any"] = {what: {any_key(): rng.randint(1, 3) for _ in range(3)} for what in ("poll", "cancel")}
     if rng.random() < .4:   # long attempts, so restarts land mid-attempt; a short deadline cuts some
@@ -401,11 +437,13 @@ def check(sc, r, outs):
         real = res.usage.paid_usd_micros
         if booked < real:
             v.append(("b", f"{key} booked {booked} < real spend {real} ({res.reason})"))
-        if state == "lost" and real > 0 and not settles_lost(res):
-            pass   # the engine's own result differed (worker lost): the grant covers it
-        elif state == "lost" and real > 0:
-            v.append(("b-cancelled" if res.reason == "infra:cancelled" else "b", f"{key} {res.reason} reported {real} spent but booked its whole grant "
-                           f"{x['granted_usd_micros']} as waste"))
+        # A result that reports its usage must settle on it. A crashed attempt's worker reports it
+        # through its cancel (worker_step.cancel); a pool-dead worker reports nothing (grant covers it).
+        crashed = any(seq_free(key) == c for c in sc.get("crash_any", []))
+        if state == "lost" and real > 0 and (crashed or settles_lost(res)):
+            v.append(("b-absent" if crashed else "b-cancelled" if res.reason == "infra:cancelled" else "b",
+                      f"{key} {res.reason} reported {real} spent but booked its whole grant "
+                      f"{x['granted_usd_micros']} as waste"))
         waste = state == "lost" or x["waste"] or key in rebooked
         if waste and res.outcome.value in ("ok", "gate_failed", "needs_founder") and state != "lost" \
                 and key not in rebooked:
