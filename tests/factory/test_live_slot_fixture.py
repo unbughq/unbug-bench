@@ -7,7 +7,7 @@ import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import os, shutil, subprocess, tempfile, time, types, unittest
+import json, os, shutil, subprocess, tempfile, time, types, unittest
 from pathlib import Path
 from unittest import mock
 import run
@@ -50,6 +50,51 @@ class LiveSlotFixtureTests(unittest.TestCase):
             self.assertFalse((c.work / "bench-results/factory-slots/1/seed-ids.json").exists())
             again = fingerprint()  # the next bin/checkpoint on slot 1
             self.assertEqual(again.returncode, 0, again.stderr)
+
+    def test_gather_leaves_every_live_slot_state_file(self):
+        """Gather moved .prepared.json, .inventory-services.json and the compose/port overrides too:
+        the slot then looked unprepared and the next stop_inventory_services lost its compose files."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bench = Path(tmp) / "bench"
+            for name in ("bin/bench.py", "bin/bench_judging.py", "bin/processes.py", "bin/refusal.py",
+                         "factory/case_permissions.py"):
+                (bench / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, bench / name)
+            (bench / "projects/medusa").mkdir(parents=True)
+            env = {**os.environ, "UNBUG_FACTORY_SLOT": "1"}
+            def probe(code):
+                p = subprocess.run([sys.executable, "-B", "-c", "import bench, hashlib, json, pathlib\n" + code],
+                                   cwd=bench / "bin", env=env, capture_output=True, text=True)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                return p.stdout.strip()
+            c = types.SimpleNamespace(t0=time.time() - 1, work=Path(tmp) / "work")
+            # The state bench itself writes for slot 1, at the paths bench derives (importing it writes .slot-compose.yaml).
+            state = probe("""
+r = bench.RESULTS
+bench.IDS.write_text('{}')
+(r / '.prepared.json').write_text(json.dumps({'version': 1, 'slot': 1,
+    'seed_ids_sha256': hashlib.sha256(bench.IDS.read_bytes()).hexdigest()}))
+bench.INVENTORY_STATE.write_text(json.dumps({'compose': ['true'], 'names': []}))
+for name in ('.inventory-compose.json', '.inventory-ports.yaml', '.guard-compose.yaml', '.prepared.tmp'):
+    (r / name).write_text('x')
+(r / '.bench.lock').write_text('')
+print(json.dumps(sorted(str(p.relative_to(bench.ROOT / 'results')) for p in r.rglob('*') if p.is_file())))""")
+            evidence = bench / "results/factory-slots/1/runs/20261113T000000Z-g5/01.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text("{}\n")
+            with mock.patch.object(run, "BENCH", bench), mock.patch.object(run, "HOME", Path(tmp)):
+                run.gather_bench_results(c)
+            self.assertTrue((c.work / "bench-results/factory-slots/1/runs/20261113T000000Z-g5/01.json").is_file())
+            for rel in json.loads(state):
+                self.assertTrue((bench / "results" / rel).is_file(), f"gather moved live slot state {rel}")
+            self.assertEqual(sorted(p.name for p in (c.work / "bench-results").rglob("*") if p.is_file()), ["01.json"])
+            self.assertEqual(probe("print(bench.factory_slot_ready(bench.ROOT / 'results', 1), bench.INVENTORY_STATE.exists())"),
+                             "True True")
+            # The wipe still shreds that state (it can hold case paths), but never the lock or the seed IDs.
+            artifacts = run._run_artifacts()
+            artifacts.bench = bench
+            wiped = {p.relative_to(bench / "results").as_posix() for p in artifacts.results_since(c, include_state=True)}
+            self.assertEqual(wiped, set(json.loads(state)) - {"factory-slots/1/seed-ids.json", "factory-slots/1/.bench.lock"})
 
     def test_rebuilt_slot_gets_a_fresh_infra_allowance(self):
         from run_validity import InfrastructureExhausted

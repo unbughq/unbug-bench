@@ -46,11 +46,17 @@ class RunArtifacts:
     retain_delivery: Callable
     cleanup: Callable = shred_tree
 
-    def results_since(self, c):
-        # A slot's seed IDs are a live fixture that later checkpoints on that slot read, not evidence.
+    def results_since(self, c, *, include_state=False):
+        """Bench files written during this run: evidence only, unless include_state (the wipe).
+        Bench state that a slot or a running bench still uses is never evidence: dot-named files and
+        directories (.prepared.json, .inventory-services.json, compose and port overrides, temporaries),
+        and a slot's seed IDs, which later checkpoints on that slot read. The lock and seed IDs always stay."""
         results = self.bench / "results"
-        return [f for f in results.rglob("*") if f.is_file() and f.name != ".bench.lock" and f.stat().st_mtime >= c.t0
-                and not re.fullmatch(r"factory-slots/[0-9]+/seed-ids\.json", f.relative_to(results).as_posix())]
+        def kept(rel):
+            return (rel.name == ".bench.lock" or re.fullmatch(r"factory-slots/[0-9]+/seed-ids\.json", rel.as_posix())
+                    or (not include_state and any(part.startswith(".") for part in rel.parts)))
+        return [f for f in results.rglob("*") if f.is_file() and f.stat().st_mtime >= c.t0
+                and not kept(f.relative_to(results))]
 
 
     def result_dirs_since(self, c):
@@ -157,14 +163,14 @@ class RunArtifacts:
                 processes.run(["sudo", "pkill", "-KILL", "-u", user], capture_output=True)
                 processes.run(["sudo", "userdel", "-r", user], capture_output=True)
         processes.run(["chmod", "755", str(self.home)], capture_output=True)
-        for f in self.results_since(c): self.cleanup(f)
+        for f in self.results_since(c, include_state=True): self.cleanup(f)
         for d in self.result_dirs_since(c):
             if d.exists() and not any(f.is_file() for f in d.rglob("*")): shutil.rmtree(d)
         processes.run(["docker", "image", "rm", "-f", "unbug-bench-medusa:guard"], capture_output=True)
         processes.run(["docker", "compose", "-f", str(self.bench / "projects/medusa/compose.yaml"), "down", "-v"], capture_output=True)  # the database held case data
         processes.run(["docker", "builder", "prune", "-af"], capture_output=True)  # layers held patched source
         left = sum(1 for p in [c.work, *(home for _, home in self.pilot_homes()), *(self.home / d for d in self.agent_state)] if p.exists() for f in ([p] if p.is_file() else p.rglob("*")) if f.is_file())
-        left += len(self.results_since(c))
+        left += len(self.results_since(c, include_state=True))
         c.card["wipe"] = {"plaintext_files_left": left,
                           "named_dirs_left": sum(1 for d in self.result_dirs_since(c) if not any(f.is_file() for f in d.rglob("*"))),
                           "guard_image_left": bool(processes.run(["docker", "images", "-q", "unbug-bench-medusa:guard"], capture_output=True, text=True).stdout.strip()),
