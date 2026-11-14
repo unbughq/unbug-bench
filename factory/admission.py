@@ -133,6 +133,20 @@ def search_evidence(row):
     return (row.get("who"), row["kind"], " ".join(row["query"].casefold().split()))
 
 
+REFRESH = ("evidence_expired", "retrieval_failed")   # a re-run of the same search fixes these
+
+
+def superseded(rows):
+    """Per row: True for history a re-run replaced. A row that is only old or unretrieved is superseded by
+    a valid search with its role, kind and query (the re-run), so a result URL that never retrieves (a
+    bot-challenged search page) does not block G2 forever. A flagged row is never superseded: its hit
+    stays for the reviewer."""
+    valid = {search_evidence(r) for r in rows} - {None}
+    return [search_evidence_error(r) in REFRESH and r.get("hit") is not True and r.get("ambiguous") is not True
+            and isinstance(r.get("query"), str)
+            and (r.get("who"), r.get("kind"), " ".join(r["query"].casefold().split())) in valid for r in rows]
+
+
 def _prototype(run, c):
     """One-run rejection screen only; final seeded gates are unchanged."""
     required = ("case.json", "statement.md", "promise.md", "base/scenario.json", "base/key.json",
