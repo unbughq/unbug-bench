@@ -95,6 +95,11 @@ REGISTRY = {
     "infra:cancelled": OPEN,                        # in flight: fix/probe-cap-no-shared-stop
     "admit:processing_failed": OPEN,                # in flight: fix/reviewer2-preflight-role
     "infra:freshness_evidence_unavailable": OPEN,   # in flight: fix/freshness-expired-refetch
+    # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve.
+    # One reason, several causes (our outage, or the case's dead links), so it stays open.
+    "infra:freshness_refresh_stalled": OPEN,
+    # Three free 4xx rejections in a row on one call (a permanent bad request); a real stop, not a wait.
+    "router:upstream_rejected": OPEN,
     "infra:diagnosis_result_invalid": OPEN,         # in flight: fix/sweep-leftovers
     "infra:pool_failed": OPEN,   # several causes; 6ea112d fixed one (bounded_create arity)
     # Containment causes fixed by 0ec53bb0 and 3fd7d011; the scratch-unmount timeout is in flight on
