@@ -92,9 +92,16 @@ REGISTRY = {
     "infra:unclassified_stop": bug(test=
         "tests/factory/test_durable_classify.py::SelfNamingStops::test_unknown_identifier_stops_name_themselves"),
     # -- factory bugs, open or in flight --
-    "infra:cancelled": OPEN,                        # in flight: fix/probe-cap-no-shared-stop
-    "admit:processing_failed": OPEN,                # in flight: fix/reviewer2-preflight-role
-    "infra:freshness_evidence_unavailable": OPEN,   # in flight: fix/freshness-expired-refetch
+    # Each of these collects several causes, so it stays open with its fixes named here (see above).
+    # Any cancel; 0ed1ef2d stopped a call's own cancel becoming the shared ledger's stop (2abb0a gates:9).
+    "infra:cancelled": bug(test=
+        "tests/factory/test_budget.py::BudgetTests::test_own_cancel_does_not_stop_peers_or_later_calls"),
+    # Any admission processing failure; ba032666 named the second reviewer's calls (1110a-2's preflight).
+    "admit:processing_failed": bug(test=
+        "tests/factory/test_preflight_role_pin.py::PreflightRolePin::"
+        "test_every_call_site_in_the_source_builds_a_name_with_a_known_role"),
+    # Any missing freshness evidence; fix/freshness-expired-refetch made expired rows refetchable (f46dac).
+    "infra:freshness_evidence_unavailable": OPEN,
     # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve.
     # One reason, several causes (our outage, or the case's dead links), so it stays open.
     "infra:freshness_refresh_stalled": OPEN,
