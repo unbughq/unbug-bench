@@ -1662,6 +1662,11 @@ class ResumeOverride(unittest.TestCase):
         self.assertEqual(self.resume(r, "b-z2", override="third", spec=spec), {"refused": "resume:override_used"})
         self.assertEqual(self.resume(r, "b-z2", spec=spec), {"refused": "resume:not_stopped_by_infra"})
 
+    def test_the_founder_granted_extras_are_recorded(self):
+        # Founder 2026-11-14: f46dac-5-1 and cae763-2-1 each get one override past OVERRIDE_MAX.
+        from durable.engine import OVERRIDE_EXTRA
+        self.assertEqual(OVERRIDE_EXTRA, {"case-import-f46dac-5-1": 1, "case-import-cae763-2-1": 1})
+
     def test_a_founder_extra_override_allows_one_more_for_that_case_only(self):
         # Founder 2026-11-14 (f46dac-5-1): OVERRIDE_EXTRA grants a named case one override past the cap.
         spec = {"max_infra_retries_per_step": 2}
