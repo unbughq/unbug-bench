@@ -10,7 +10,8 @@ Description=Write the stop audit's result (is each factory bug class fixed?) for
 [Service]
 Type=oneshot
 Environment=UNBUG_STOP_AUDIT_REPO=/home/user/unbug-bench-main
-# Exit 3 means a REGRESSION or UNKNOWN was written; the guard alerts on it, so it is not a unit failure.
+# Exit 3 means a REGRESSION, UNKNOWN or INVARIANT was written; the guard alerts on it, so it is not a
+# unit failure.
 # Any other non-zero exit (a crash is 1, the timeout 124) is.
 SuccessExitStatus=3
 ExecStart=/usr/bin/timeout 120 /home/user/durable-qualification-20261105/venv/bin/python -B /home/user/durable-first-case-20261106/source-current/bin/stop_audit --config /home/user/durable-first-case-20261106/config.json --last-hours 24 --write

@@ -185,13 +185,13 @@ def booked(*, state="settled", paid=500, granted=1000, waste=False, rebooked=Fal
 
 
 class InvariantTests(unittest.TestCase):
-    """Each live invariant from fake attempt, ledger, budget and board rows."""
-    BUDGET = {"b-1": {"bound": 10_000, "spent": 5_000, "waste": 1_000}}
+    """Each live invariant from fake attempt, ledger and budget rows."""
+    BUDGET = {"b-1": {"bound": 10_000, "held": 0, "spent": 5_000, "waste": 1_000}}
+    SENTINEL = object()
 
-    def checks(self, attempts=(), ledger=None, budgets=None, cases=()):
-        key = "case-1/2/writer:1/1"
-        return [c for c, _ in invariants(list(attempts), {key: booked()} if ledger is None else ledger,
-                                         self.BUDGET if budgets is None else budgets, list(cases))]
+    def checks(self, attempts=(), ledger=SENTINEL, budgets=SENTINEL):
+        ledger = {"case-1/2/writer:1/1": booked()} if ledger is self.SENTINEL else ledger
+        return [c for c, _ in invariants(list(attempts), ledger, self.BUDGET if budgets is self.SENTINEL else budgets)]
 
     def test_a_consistent_batch_breaks_nothing(self):
         self.assertEqual(self.checks([attempt()]), [])
@@ -204,9 +204,12 @@ class InvariantTests(unittest.TestCase):
         held = {"case-1/2/writer:1/1": booked(state="held", paid=0)}
         self.assertEqual(self.checks([attempt(paid=900)], ledger=held), [])                    # not settled yet
 
-    def test_a_batch_over_its_bound(self):
-        over = {"b-1": {"bound": 10_000, "spent": 10_001, "waste": 0}}
-        self.assertEqual(self.checks(budgets=over), ["batch_over_bound"])
+    def test_a_batch_over_its_bound_by_the_ledger_s_own_rule(self):
+        self.assertEqual(self.checks(budgets={"b-1": {"bound": 10_000, "held": 0, "spent": 10_001, "waste": 0}}),
+                         ["batch_over_bound"])
+        self.assertEqual(self.checks(budgets={"b-1": {"bound": 10_000, "held": 6_000, "spent": 5_000, "waste": 0}}),
+                         ["batch_over_bound"])                                            # holds count as used
+        self.assertEqual(self.checks(budgets={"b-1": {"bound": 10_000, "held": 0, "spent": 10_000, "waste": 0}}), [])
 
     def test_waste_booked_to_the_case_s_own_money(self):
         broken = attempt(outcome="infra_error", reason="infra:stalled", waste=True)
@@ -214,20 +217,16 @@ class InvariantTests(unittest.TestCase):
         for fine in (booked(waste=True), booked(rebooked=True), booked(case_money=False)):
             self.assertEqual(self.checks([broken], ledger={"case-1/2/writer:1/1": fine}), [])
 
-    def test_a_live_case_stuck_over_two_hours(self):
-        case = lambda status, quiet: {"batch": "b-1", "case": "case-1", "status": status, "live": True,
-                                      "quiet_for_s": quiet}
-        self.assertEqual(self.checks(cases=[case("running", 7300)]), ["case_stuck"])
-        self.assertEqual(self.checks(cases=[case("running", 7000)]), [])
-        self.assertEqual(self.checks(cases=[case("held", 99_999)]), [])                 # a hold is not stuck
-        self.assertEqual(self.checks(cases=[case("waiting_for_bound", 7300)]), ["case_stuck"])   # 4000 real < bound
-        spent = {"b-1": {"bound": 10_000, "spent": 11_000, "waste": 1_000}}               # real spend at the bound
-        self.assertEqual(self.checks(budgets=spent, cases=[case("waiting_for_bound", 7300)]), ["batch_over_bound"])
-
     def test_one_attempt_recorded_with_two_results(self):
         self.assertEqual(self.checks([attempt(), attempt()]), [])                       # read twice, same result
         twice = self.checks([attempt(), attempt(outcome="infra_error", reason="infra:cancelled")])
         self.assertEqual(twice, ["attempt_recorded_twice"])
+
+    def test_an_unreadable_section_skips_only_its_own_checks(self):
+        twice = [attempt(paid=900), attempt(outcome="infra_error", reason="infra:cancelled", paid=900)]
+        over = {"b-1": {"bound": 1, "held": 0, "spent": 2, "waste": 0}}
+        self.assertEqual(self.checks(twice, ledger=None, budgets=over), ["attempt_recorded_twice", "batch_over_bound"])
+        self.assertEqual(self.checks(twice, budgets=None), ["attempt_recorded_twice", "spend_below_usage"])
 
     def test_decode_gives_the_ledger_key_and_the_waste_rule(self):
         record = {"input": {"case_id": "case-1", "batch_id": "b-1", "seq": 2, "attempt": 1, "plumbing_version": "p",
@@ -240,9 +239,10 @@ class InvariantTests(unittest.TestCase):
         self.assertEqual(decode(base64.b64encode(pickle.dumps(record)).decode())["key"], "case-1/2/admit/1")
 
     def test_violations_reach_the_result_file(self):
-        written = result(audit([], {}, None), 0, 1.0, [("case_stuck", "INVARIANT  case_stuck  b-1 case-1: x")])
+        line = "INVARIANT  batch_over_bound  b-1: held 0 + spent 2 > bound 1"
+        written = result(audit([], {}, None), 0, 1.0, [("batch_over_bound", line)])
         self.assertEqual((written["invariant_reasons"], written["invariant"], written["counts"]["invariant"]),
-                         (["case_stuck"], ["INVARIANT  case_stuck  b-1 case-1: x"], 1))
+                         (["batch_over_bound"], [line], 1))
 
 
 if __name__ == "__main__":
