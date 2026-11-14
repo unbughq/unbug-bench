@@ -84,7 +84,6 @@ _FIXED = {
     "freshness_evidence_unavailable": (_I, "infra:freshness_evidence_unavailable"),
     "freshness_review_unavailable": (_I, "infra:freshness_review_unavailable"),
     "freshness_refresh_stalled": (_I, "infra:freshness_refresh_stalled"),   # a re-run search refreshed no row
-    "freshness_dead_links": (_I, "infra:freshness_dead_links"),   # the same search URLs failed retrieval again
     "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
     "freshness_statement_changed": (_I, "infra:freshness_statement_changed"),
     "freshness_unresolved": (_I, "infra:freshness_unresolved"),

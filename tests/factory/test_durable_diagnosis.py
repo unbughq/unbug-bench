@@ -229,8 +229,7 @@ class DiagnosisTests(unittest.TestCase):
         same = ('infra_error', 'infra:freshness_refresh_stalled')
         # A stop the case itself can cause is the agent's to judge, however often it repeats.
         case = [[('infra_error', reason)] * 3 for reason in ('infra:freshness_review_unavailable',
-                'infra:freshness_evidence_unavailable', 'infra:freshness_unresolved',
-                'infra:freshness_dead_links')]
+                'infra:freshness_evidence_unavailable', 'infra:freshness_unresolved')]
         for reasons in ([same, same], [same, ('infra_error', 'router:opencode_error'), same],
                         [same, same, same, ('exhausted', 'writer:money')], *case):
             with self.subTest(reasons=reasons):

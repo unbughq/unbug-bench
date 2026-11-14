@@ -154,7 +154,7 @@ class AdmissionTests(unittest.TestCase):
             calls.append(name)
             self.assertIn("retrieval_failed", text)
             self.assertGreater(kwargs["timeout"], 300)
-            self.assertLessEqual(kwargs["timeout"], 3600)   # the engine attempt deadline bounds it
+            self.assertAlmostEqual(kwargs["timeout"], kwargs["deadline"] - time.monotonic(), delta=5)   # the attempt deadline
             scratch_write(cwd, [{**row, 'retrieved': True} for row in scratch_rows(cwd)])
             return 0
         with patch.object(run, "prior_statements", return_value={}), patch.object(run, "opencode", repair), \
@@ -176,14 +176,13 @@ class AdmissionTests(unittest.TestCase):
         before = (c.case / "statement.md").read_bytes()
         with patch.object(run, "prior_statements", return_value={}), \
              patch.object(run, "opencode", return_value=0) as model:
-            # Unretrieved rows need a re-run search, not a repair: a refresh that retrieved the same URLs no
-            # better stops on the case's dead links, and a later attempt tries again without spending the
-            # defect bound.
-            with self.assertRaisesRegex(run.BudgetError, "^freshness_dead_links$"):
+            # Unretrieved rows need a re-run search, not a repair: a refresh that re-ran nothing is a
+            # retryable stall, and a later attempt tries again without spending the defect bound.
+            with self.assertRaisesRegex(run.BudgetError, "^freshness_refresh_stalled$"):
                 run.statement_precheck(c)
             self.assertEqual(model.call_count, 2)
             resumed = types.SimpleNamespace(**vars(c))
-            with self.assertRaisesRegex(run.BudgetError, "^freshness_dead_links$"):
+            with self.assertRaisesRegex(run.BudgetError, "^freshness_refresh_stalled$"):
                 run.statement_precheck(resumed)
             self.assertEqual(model.call_count, 4)
         self.assertEqual(json.loads((c.work / "freshness-repair.json").read_text())["completed_defects"], 0)
@@ -299,7 +298,7 @@ class AdmissionTests(unittest.TestCase):
             scratch_write(cwd, [row for row in scratch_rows(cwd) if row['retrieved']])
             return 0
         with patch.object(run, 'opencode', delete_failed):
-            with self.assertRaisesRegex(run.BudgetError, '^freshness_dead_links$'):
+            with self.assertRaisesRegex(run.BudgetError, '^freshness_refresh_stalled$'):
                 run.ensure_freshness(c)
         self.assertTrue(any(row['retrieved'] is False for row in run.freshness_lines(c)))
 

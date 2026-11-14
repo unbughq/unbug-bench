@@ -332,7 +332,7 @@ class RetryTests(unittest.TestCase):
 
     def test_a_dead_link_with_extra_searches_stalls_after_one_useless_refresh(self):
         # Every top-up may add spare searches. With G2's minimum already met they are no progress on
-        # the dead row, and the same URL failing again is the case's own dead link.
+        # the unretrieved row: one refresh that fixed nothing stalls.
         rows = self.searches()
         dead = {**rows[0], 'query': 'dead link query', 'retrieved': False,
                 'url': 'https://github.com/medusajs/medusa/issues/404'}
@@ -343,7 +343,7 @@ class RetryTests(unittest.TestCase):
                       'url': f'https://github.com/medusajs/medusa/issues/{200 + 10 * len(self.calls) + i}'} for i in range(2)]
             path.write_text(path.read_text() + ''.join(json.dumps(r)+'\n' for r in extra))
         self.cli(emit)
-        with self.assertRaisesRegex(budget.BudgetError, '^freshness_dead_links$'): run.g2(self.c)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
         self.assertEqual([name for name, _, _ in self.calls], ['builder-freshness'])
         self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 0)
 

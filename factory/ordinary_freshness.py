@@ -122,19 +122,16 @@ def ensure(run, c):
         if defect and state['completed_defects'] >= 2:
             raise BudgetError('freshness_evidence_unavailable')
         # A refresh is never charged as a defect, so it is bounded by progress instead: fewer invalid
-        # rows, or more valid searches when it was opened short of G2's minimum (every top-up may add
-        # extra searches, so those alone are no progress on rows that need a re-run).
-        valid = lambda rows: len({v for r in rows if isinstance(r, dict) and (v := run.own_search(c, r)) is not None})
+        # rows, or more valid searches by a role that was short of G2's minimum when the refresh opened
+        # (every top-up may add spare searches, so those alone are no progress on rows needing a re-run).
+        valid = lambda rows, who: len({v for r in rows if isinstance(r, dict)
+                                       and (v := run.own_search(c, r)) is not None and v[0] == who})
         fixed = sum(e is not None for e in errors) < sum(e is not None for e in pending.get('targeted_errors') or ())
-        added = pending.get('short') is True and valid(run.freshness_lines(c)) > valid(pending.get('before_rows') or ())
+        short = pending.get('short') if isinstance(pending.get('short'), list) else ()
+        added = any(valid(run.freshness_lines(c), who) > valid(pending.get('before_rows') or (), who) for who in short)
         if not defect and any(errors) and not fixed and not added:
-            # The same URLs failing again is the case's own dead links, for the diagnosis agent to judge;
-            # only expired rows a re-run did not refresh are our retrieval outage.
-            failed = lambda rows: {r.get('url') for r in rows
-                                   if isinstance(r, dict) and search_evidence_error(r) == 'retrieval_failed'}
-            dead = failed(run.freshness_lines(c))
-            if dead and dead <= failed(pending.get('before_rows') or ()):
-                raise BudgetError('freshness_dead_links')
+            # Nothing tells our outage from a dead link here (our retrieval never fetches a row the
+            # searcher marked unretrieved), so every stall is one retryable infra reason.
             raise BudgetError('freshness_refresh_stalled')
     save()
     failures = 0
@@ -186,6 +183,7 @@ def ensure(run, c):
         n = run.freshness_counts(c)
         state['pending'] = {'operation_id': str(uuid.uuid4()), 'before_rows': run.freshness_lines(c),
             'targeted_errors': errors, 'phase': 'pending', 'roles': [], 'charged': False,
-            'short': n['builder_web'] < 3 or n['builder_github'] < 3 or n['attacker'] < 2}
+            'short': [who for who, short in (('builder', n['builder_web'] < 3 or n['builder_github'] < 3),
+                                             ('attacker', n['attacker'] < 2)) if short]}
         state['last_topup'] = signature
         save()
