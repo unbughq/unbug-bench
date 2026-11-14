@@ -422,10 +422,11 @@ def _settle_leaf(ledger, receipt, wait_id=None):
     if gate is not None: bound = min(bound, gate)
     estimate = (max(Decimal(0), bound - booked).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
                 if not receipt['final_usage_known'] else Decimal(0))
-    if row.get('route') in GO_ROUTES:
-        # A Go plan call's unseen tail is still paid by the plan, so it books no money ("book Go
-        # at cost", founder 2026-11-09). Booking its whole maximum as case money is what filled
-        # cae763-2's and 22e434-3's $50 with no real spend.
+    if row.get('route') in GO_ROUTES or row.get('route') in CODEX_PRICES:
+        # A Go plan or Codex subscription call's unseen tail is still paid by the plan, so it books
+        # no money ("book Go at cost", founder 2026-11-09). Booking its whole maximum as case money
+        # is what filled cae763-2's and 22e434-3's $50 with no real spend, and 22e434-5's (three
+        # Codex refusals and an expired Codex login at $12.50 each, 11-12 November).
         estimate = Decimal(0)
     if row['state'] == 'estimated' and not receipt['final_usage_known']:
         # An estimate is already a ceiling (closed gate or maximum). Non-final

@@ -536,7 +536,10 @@ funding. OpenRouter qualification-sized default windows are replaced by this
 funded window (at most $50; for every role but the writer, `model_runtime.call_window`: $12.50 on
 every family except Claude, whose cap is $12.50 plus the one request hold its gate keeps before
 forwarding, $9.52 on Opus 5.5, so $22.02 funds $12.50 of real spend). An unconfirmed receipt then costs
-a grant at most: a Codex or OpenRouter call its whole window ($12.50); a Claude call its closed gate's
+a grant at most: an OpenRouter call its whole window ($12.50); the unseen tail of an OpenCode Go plan call, or of a
+`codex/` call on the ChatGPT subscription (`codex-auth.json`, routes in `token_prices.CODEX_PRICES`), is paid by
+its plan and books $0, so only what it reported is booked (a Codex-family model reached through OpenRouter is paid
+per request and keeps its gate bound, founder 2026-11-14); a Claude call its closed gate's
 bound, real spend plus the holds of requests still unconfirmed (usually one, $9.52), never its whole
 window. Explicit Claude profile ceilings remain binding. A Claude gate settles a 4xx at $0 only when
 Anthropic answered with its JSON `{"type":"error"}` body and no model output or usage arrived (a 429
