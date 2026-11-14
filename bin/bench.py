@@ -317,15 +317,6 @@ def check_inventory_services(services):
 def setup(scenarios=()):
     command(["node", str(APP / "verify-lock.mjs")])
     dc("build", "medusa")
-    # The seed is not resumable (roles and the template already exist after a partial run), so a
-    # Postgres crash here recovers to a fresh database volume and seeds again (f46dac-5, 11 November:
-    # "crash of another server process" while creating medusa_seed). Evidence goes to the runner log.
-    def fresh(evidence):
-        print("bench setup: Postgres crashed; seeding a fresh database " + json.dumps(evidence, sort_keys=True), file=sys.stderr)
-        dc("down", "-v")
-    return with_postgres_recovery(lambda stage: _seed(scenarios), fresh)
-
-def _seed(scenarios):
     dc("up", "-d", "--wait", "postgres", "redis")
     dc("run", "--rm", "--no-deps", "-e", "DATABASE_URL=postgres://medusa:medusa@postgres:5432/medusa", "medusa", "npm", "run", "migrate")
     seed_container = f"unbug-factory-{FACTORY_SLOT}-seed" if FACTORY_SLOT else "unbug-bench-seed"
@@ -509,32 +500,6 @@ def restart_postgres(evidence):
                 raise PostgresUnrecoverable("Postgres not ready 120 s after restart", {**evidence, **postgres_evidence()})
             time.sleep(1)
 
-def with_postgres_recovery(attempt, recover, on_recovered=None):
-    """Run attempt(stage); on a Postgres crash shown by hard evidence (never by error text, and never
-    once stage["guard"] is set), recover(evidence) and run it once more. A second crash, or a failed
-    recovery, is PostgresUnrecoverable. Shared by reset (restart) and setup (fresh database)."""
-    stage = {}
-    try:
-        return attempt(stage)
-    except PostgresUnrecoverable:
-        raise
-    except RuntimeError as error:
-        evidence = None if stage.get("guard") else postgres_crash()
-        if evidence is None: raise
-        evidence["first_error"] = str(error)[-300:]
-    recover(evidence)
-    if on_recovered is not None: on_recovered(evidence)
-    stage = {}
-    try:
-        return attempt(stage)
-    except PostgresUnrecoverable:
-        raise
-    except RuntimeError as error:
-        after = None if stage.get("guard") else postgres_crash()
-        if after is None: raise
-        raise PostgresUnrecoverable("Postgres failed again after recovery",
-                                    {**evidence, "second_error": str(error)[-300:], "after_restart": after}) from None
-
 def reset(guard="none", *, app_prepared=False, scenarios=(), progress=None, refusal=None):
     # ponytail: landed admin.sql replays in directory-name order; record landing order if two ever interact.
     scenarios = scenarios or [{"dir": f.parent, "admin_only": True} for f in sorted(LANDED.glob("*/admin.sql"))]
@@ -543,9 +508,23 @@ def reset(guard="none", *, app_prepared=False, scenarios=(), progress=None, refu
     # Once the guard is being installed, any failure may be the guard's own (PROTOCOL: a repeated
     # guard-caused harness error scores unsafe): it stays this trial's ordinary reset error, with no
     # restart or retry here. A broken stack is then caught before the next trial's guard.
-    recorded = None if progress is None else (lambda evidence: progress.__setitem__("postgres_restart", evidence))
-    return with_postgres_recovery(lambda stage: _reset(guard_path, scenarios, progress, refusal, stage),
-                                  restart_postgres, recorded)
+    stage = {}
+    try:
+        return _reset(guard_path, scenarios, progress, refusal, stage)
+    except RuntimeError as error:
+        evidence = None if stage.get("guard") else postgres_crash()
+        if evidence is None: raise
+        evidence["first_error"] = str(error)[-300:]
+    restart_postgres(evidence)
+    if progress is not None: progress["postgres_restart"] = evidence
+    stage = {}
+    try:
+        return _reset(guard_path, scenarios, progress, refusal, stage)
+    except RuntimeError as error:
+        after = None if stage.get("guard") else postgres_crash()
+        if after is None: raise
+        raise PostgresUnrecoverable("Postgres failed again after a restart",
+                                    {**evidence, "second_error": str(error)[-300:], "after_restart": after}) from None
 
 def _reset(guard_path, scenarios, progress, refusal, stage):
     start = time.monotonic()

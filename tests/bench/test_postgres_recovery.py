@@ -1,7 +1,6 @@
 """Synthetic fixture: a crashed bench Postgres is restarted once at reset, else the case stops as infra.
 Only hard evidence (pg_isready, container state) counts; a guard's own SQL failure never does."""
 import contextlib
-import io
 import importlib.util
 import json
 import pathlib
@@ -34,7 +33,7 @@ class Stack:
 
     def dc(self, *args, **kwargs):
         self.events.append(args)
-        if args in (('restart', 'postgres'), ('down', '-v')):
+        if args == ('restart', 'postgres'):
             self.down = False
         if args[:3] == ('exec', '-T', 'postgres') and 'pg_isready' in args and (self.down or not self.ready):
             raise RuntimeError('Command failed: pg_isready')
@@ -43,7 +42,7 @@ class Stack:
     def sql(self, query, user='medusa', **kwargs):
         if self.down:
             raise CRASH
-        if ('DROP DATABASE IF EXISTS medusa' in query or 'CREATE DATABASE medusa_seed' in query) and self.crashes:
+        if 'DROP DATABASE IF EXISTS medusa' in query and self.crashes:
             self.crashes -= 1
             self.down = True
             raise CRASH
@@ -105,41 +104,6 @@ class PostgresRecoveryTests(unittest.TestCase):
             self.assertIs(evidence['pg_isready'], False)
             self.assertIs(evidence['OOMKilled'], True)
             self.assertEqual(evidence['dmesg_oom'], OOM)
-
-    def test_crash_during_first_setup_seeds_a_fresh_database(self):
-        """f46dac-5 (11 November): prepare_factory_main died in setup() creating medusa_seed with
-        "crash of another server process"; setup had no recovery, unlike reset."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            ids = root / 'seed-ids.json'; ids.write_text('{"admin": {"email": "a@example.test", "password": "x"}}')
-            stack = Stack(crashes=1)
-            with mock.patch.object(bench, 'IDS', ids), contextlib.redirect_stderr(io.StringIO()):
-                baseline = run(stack, root, lambda: bench.setup())
-            self.assertEqual(baseline['checker'], bench.EXPECTED_BASELINE)
-            self.assertEqual(stack.events.count(('down', '-v')), 1)   # the half-built seed is discarded
-            self.assertEqual(stack.events.count(('up', '-d', '--wait', 'postgres', 'redis')), 2)
-            self.assertNotIn(('restart', 'postgres'), stack.events)
-
-    def test_setup_crashing_twice_is_unrecoverable(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            ids = root / 'seed-ids.json'; ids.write_text('{"admin": {"email": "a@example.test", "password": "x"}}')
-            with mock.patch.object(bench, 'IDS', ids), contextlib.redirect_stderr(io.StringIO()):
-                with self.assertRaises(bench.PostgresUnrecoverable) as caught:
-                    run(Stack(crashes=2), root, lambda: bench.setup())
-            self.assertIn('second_error', caught.exception.evidence)
-
-    def test_setup_failure_before_postgres_is_not_a_crash(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            stack = Stack()
-            def build_fails(*args, **kwargs):
-                if args == ('build', 'medusa'): raise RuntimeError('Command failed: build')
-                return stack.dc(*args, **kwargs)
-            with mock.patch.object(stack, 'dc', side_effect=build_fails):
-                with self.assertRaisesRegex(RuntimeError, 'build') as caught:
-                    run(stack, pathlib.Path(tmp), lambda: bench.setup())
-            self.assertNotIsInstance(caught.exception, bench.PostgresUnrecoverable)
-            self.assertNotIn(('down', '-v'), stack.events)
 
     def test_crash_wording_with_healthy_postgres_is_not_retried(self):
         with tempfile.TemporaryDirectory() as tmp:
