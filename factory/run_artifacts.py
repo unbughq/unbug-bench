@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import pathlib
-import re
 import shlex
 import shutil
 import subprocess
@@ -18,6 +17,7 @@ from pathlib import Path
 from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bin'))
 import processes
+import slot_state
 
 
 def shred_tree(path, sudo=False):
@@ -46,11 +46,17 @@ class RunArtifacts:
     retain_delivery: Callable
     cleanup: Callable = shred_tree
 
-    def results_since(self, c):
-        # A slot's seed IDs are a live fixture that later checkpoints on that slot read, not evidence.
+    def results_since(self, c, *, include_state=False):
+        """Bench files written during this run: evidence only, unless include_state (the wipe).
+        slot_state.is_state names what a slot or a running bench still uses (readiness receipt, compose
+        and port overrides, inventory services, pending decisions, temporaries, progress, seed IDs); the
+        gather leaves it, as gate_state.inventory does. The lock and seed IDs stay even for the wipe."""
         results = self.bench / "results"
-        return [f for f in results.rglob("*") if f.is_file() and f.name != ".bench.lock" and f.stat().st_mtime >= c.t0
-                and not re.fullmatch(r"factory-slots/[0-9]+/seed-ids\.json", f.relative_to(results).as_posix())]
+        def kept(rel):
+            return (slot_state.always_kept(rel.as_posix())
+                    or (not include_state and slot_state.is_state(rel.as_posix())))
+        return [f for f in results.rglob("*") if f.is_file() and f.stat().st_mtime >= c.t0
+                and not kept(f.relative_to(results))]
 
 
     def result_dirs_since(self, c):
@@ -157,14 +163,14 @@ class RunArtifacts:
                 processes.run(["sudo", "pkill", "-KILL", "-u", user], capture_output=True)
                 processes.run(["sudo", "userdel", "-r", user], capture_output=True)
         processes.run(["chmod", "755", str(self.home)], capture_output=True)
-        for f in self.results_since(c): self.cleanup(f)
+        for f in self.results_since(c, include_state=True): self.cleanup(f)
         for d in self.result_dirs_since(c):
             if d.exists() and not any(f.is_file() for f in d.rglob("*")): shutil.rmtree(d)
         processes.run(["docker", "image", "rm", "-f", "unbug-bench-medusa:guard"], capture_output=True)
         processes.run(["docker", "compose", "-f", str(self.bench / "projects/medusa/compose.yaml"), "down", "-v"], capture_output=True)  # the database held case data
         processes.run(["docker", "builder", "prune", "-af"], capture_output=True)  # layers held patched source
         left = sum(1 for p in [c.work, *(home for _, home in self.pilot_homes()), *(self.home / d for d in self.agent_state)] if p.exists() for f in ([p] if p.is_file() else p.rglob("*")) if f.is_file())
-        left += len(self.results_since(c))
+        left += len(self.results_since(c, include_state=True))
         c.card["wipe"] = {"plaintext_files_left": left,
                           "named_dirs_left": sum(1 for d in self.result_dirs_since(c) if not any(f.is_file() for f in d.rglob("*"))),
                           "guard_image_left": bool(processes.run(["docker", "images", "-q", "unbug-bench-medusa:guard"], capture_output=True, text=True).stdout.strip()),
