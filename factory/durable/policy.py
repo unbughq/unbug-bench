@@ -65,8 +65,13 @@ UNCONFIRMED_WORKER_LIMIT_S = 9000.0
 # worker's host is alive: a control-side outage must never kill it.
 SILENT_WORKER_LIMIT_S = 1800.0
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
-LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
+LOST_REASONS = frozenset({"infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})
+# These book the whole grant only when they carry no usage. A worker writes infra:cancelled, like
+# infra:deadline, from the attempt's own ledger once its processes are stopped, holding launched calls
+# without a receipt at their authorization; an unreadable ledger is infra:usage_unknown instead. A
+# cancelled result with no usage may be a tombstone on a worker that never saw the attempt: lost.
+LOST_WITHOUT_USAGE = USAGE_STOP_REASONS | {"infra:cancelled"}
 
 
 class Action(str, Enum):
@@ -237,9 +242,10 @@ def is_money_stop(result: StepResult) -> bool:
 
 
 def settles_lost(result: StepResult) -> bool:
-    """Every infra:cancelled result, and every result the executor made for an attempt whose
-    usage it cannot know, settles with settle_lost (design review 5, N6)."""
-    return result.reason in LOST_REASONS or (result.reason in USAGE_STOP_REASONS and result.usage == Usage())
+    """Every result the executor made for an attempt whose usage it cannot know, and every usage stop
+    or infra:cancelled result that reports no usage, settles with settle_lost. A cancelled result that
+    reports usage settles on it, as waste (settles_as_waste)."""
+    return result.reason in LOST_REASONS or (result.reason in LOST_WITHOUT_USAGE and result.usage == Usage())
 
 
 def draws_case_money(step: Step, counters: Counters) -> bool:

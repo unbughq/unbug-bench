@@ -228,6 +228,8 @@ class Settlements(unittest.TestCase):
 
     def test_cancelled_and_unknown_usage_settle_lost(self):
         self.assertTrue(settles_lost(StepResult(Outcome.INFRA_ERROR, "infra:cancelled")))
+        # The worker's own cancel or stop reports the attempt's ledger usage: that is what it spent.
+        self.assertFalse(settles_lost(StepResult(Outcome.INFRA_ERROR, "infra:cancelled", Usage(148, 5_539_236))))
         for code in ("infra:worker_lost", "infra:attempt_absent", "engine:executor_raised"):
             self.assertTrue(settles_lost(StepResult(Outcome.INFRA_ERROR, code)))
         self.assertFalse(settles_lost(StepResult(Outcome.INFRA_ERROR, "infra:deadline", Usage(paid_usd_micros=4))))
