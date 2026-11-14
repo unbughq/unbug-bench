@@ -10,6 +10,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from decimal import Decimal
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -99,7 +100,7 @@ class AttemptBudget(unittest.TestCase):
             slow=Mock(side_effect=subprocess.TimeoutExpired('shred',120))
             def command(c,args,**kwargs):
                 commands.append(list(map(str,args)))
-                if args[1]==failure:raise subprocess.CalledProcessError(1,args)
+                if args[1]==failure:raise RuntimeError(f'sudo: exit 32\n{args[1]}: target is busy')
             runtime=replace(self.runtime,command=command,cleanup=slow)
             @contextmanager
             def gate_only(lease,env,cap,*args,**kwargs):
@@ -114,7 +115,7 @@ class AttemptBudget(unittest.TestCase):
                 self.addCleanup(shutil.rmtree,path.parent,True)
                 kwargs['on_started']()
                 return subprocess.CompletedProcess(cmd,0)
-            with self.subTest(failure=failure),patch.object(model_runtime.sys,'platform','linux'),                  patch.object(model_runtime,'_opencode_flags',return_value=()),                  patch.object(model_runtime.model_call_gate,'enforce',gate_only),                  patch.object(model_runtime,'run_budgeted',side_effect=run_cli) as process:
+            with self.subTest(failure=failure),patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,UNMOUNT_TOTAL_S=.05),patch.object(model_runtime,'mounted',return_value=True),patch.object(model_runtime.sys,'platform','linux'),                  patch.object(model_runtime,'_opencode_flags',return_value=()),                  patch.object(model_runtime.model_call_gate,'enforce',gate_only),                  patch.object(model_runtime,'run_budgeted',side_effect=run_cli) as process:
                 if failure:
                     label='containment_unavailable' if failure=='mount' else 'cleanup_failed'
                     with self.assertRaisesRegex(budget.BudgetError,label):
@@ -129,8 +130,110 @@ class AttemptBudget(unittest.TestCase):
             self.assertTrue(any(args[1]=='umount' for args in commands))
             if failure=='umount':
                 self.assertTrue(scratch[0].exists())
-                self.assertIn({'stage':'model_scratch','error':'CalledProcessError'},self.c.card['cleanup_errors'])
+                self.assertIn({'stage':'model_scratch','error':'RuntimeError'},self.c.card['cleanup_errors'])
             elif scratch:self.assertFalse(scratch[0].exists())
+
+    def test_slow_scratch_unmount_is_retried_and_the_paid_result_kept(self):
+        """fresh-1110b writer:1 (11 November): one umount over its 30 s limit turned a successful
+        $48.70 call into cleanup_failed. A slow or busy unmount is retried; the mount still must go."""
+        paid='openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model']=paid
+        self.c.router_accounts=NO_GO
+        scratch=[];commands=[]
+        failures=[subprocess.TimeoutExpired('umount',60),RuntimeError('sudo: exit 32\numount: target is busy')]
+        def command(c,args,**kwargs):
+            commands.append(list(map(str,args)))
+            if args[1]=='umount' and failures:raise failures.pop(0)
+        runtime=replace(self.runtime,command=command,cleanup=Mock())
+        @contextmanager
+        def gate_only(lease,env,cap,*args,**kwargs):
+            cap.update(closed=True,forwarded_requests=1,validated_requests=1,
+                       unknown_requests=0,in_flight_requests=0,settled_usd='0.000000000',held_usd='0.000000000')
+            yield threading.Event()
+        def run_cli(cmd,cwd,env,*args,**kwargs):
+            path=Path(env['XDG_CACHE_HOME']);path.mkdir(parents=True)
+            scratch.append(path.parent)
+            self.addCleanup(shutil.rmtree,path.parent,True)
+            kwargs['on_started']()
+            return subprocess.CompletedProcess(cmd,0)
+        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0),patch.object(model_runtime,'mounted',return_value=True),\
+             patch.object(model_runtime.sys,'platform','linux'),\
+             patch.object(model_runtime,'_opencode_flags',return_value=()),\
+             patch.object(model_runtime.model_call_gate,'enforce',gate_only),\
+             patch.object(model_runtime,'run_budgeted',side_effect=run_cli):
+            self.assertEqual(runtime.call(self.c,[paid],'synthetic',self.root,'builder-ram'),0)
+        umounts=[a for a in commands if a[1]=='umount']
+        self.assertEqual(len(umounts),3)
+        self.assertTrue(all(a==['sudo','umount','--',str(scratch[0])] for a in umounts))  # never lazy
+        self.assertFalse(scratch[0].exists())
+        self.assertNotIn('model_scratch',[e['stage'] for e in self.c.card.get('cleanup_errors',[])])
+
+    def test_busy_isolated_scratch_kills_the_user_before_each_retry_and_fails_if_it_stays(self):
+        state=self.root/'factory-tester-state-x';state.mkdir()
+        commands=[]
+        def command(c,args,**kwargs):
+            commands.append(list(map(str,args)))
+            if args[1]=='umount':raise RuntimeError('sudo: exit 32\numount: target is busy')
+        runtime=replace(self.runtime,command=command)
+        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,UNMOUNT_TOTAL_S=.05),patch.object(model_runtime,'mounted',return_value=True):
+            with self.assertRaises(RuntimeError):
+                runtime._remove_state(self.c,state,memory=True,user='pilot')
+        self.assertTrue(state.exists())  # a mount that cannot go is never removed underneath
+        self.assertGreater(len(commands),2)
+        for before,after in zip(commands[::2],commands[1::2]):
+            self.assertEqual(before[1],'umount');self.assertEqual(after,['sudo','pkill','-KILL','-u','pilot'])
+
+    def test_mount_table_decides_with_escaped_paths(self):
+        """The real /proc/self/mountinfo parser on a fixture: mount points are octal-escaped."""
+        table=self.root/'mountinfo'
+        table.write_bytes(b'22 1 0:21 / / rw,relatime shared:1 - ext4 /dev/sda1 rw\n'
+                          b'97 22 0:45 / /srv/model\\040scratch\\011x\\134y rw,nosuid - tmpfs tmpfs rw,size=1024k\n'
+                          b'98 22 0:46 / /srv/other rw - tmpfs tmpfs rw\n')
+        with patch.object(model_runtime,'MOUNTINFO',str(table)):
+            self.assertTrue(model_runtime.mounted('/srv/model scratch\tx\\y'))
+            self.assertTrue(model_runtime.mounted('/srv/other'))
+            self.assertFalse(model_runtime.mounted('/srv/model'))
+            self.assertFalse(model_runtime.mounted('/srv/other/sub'))
+            self.assertFalse(model_runtime.mounted('/srv/model\\040scratch\\011x\\134y'))
+        with patch.object(model_runtime,'MOUNTINFO',str(self.root/'absent')):
+            self.assertTrue(model_runtime.mounted('/srv/other'))  # unknown never reads as gone
+
+    def test_unsearchable_scratch_still_mounted_is_killed_and_retried(self):
+        """After chown -R to the isolated user the runner cannot search scratch, so os.path.ismount
+        says False while the tmpfs is still mounted: the mount table must decide."""
+        state=self.root/'factory-tester-state-locked';state.mkdir()
+        table=self.root/'mountinfo'
+        table.write_text(f'97 22 0:45 / {state} rw - tmpfs tmpfs rw\n')
+        state.chmod(0)
+        self.addCleanup(lambda:state.exists() and state.chmod(0o700))
+        self.assertFalse(os.path.ismount(state))
+        commands=[]
+        def command(c,args,**kwargs):
+            commands.append(args[1])
+            if args[1]=='umount':
+                if commands.count('umount')==1:raise RuntimeError('sudo: exit 32\numount: target is busy')
+                table.write_text('');state.chmod(0o700)  # the tmpfs is gone
+        runtime=replace(self.runtime,command=command)
+        with patch.multiple(model_runtime,UNMOUNT_PAUSE_S=0,MOUNTINFO=str(table)):
+            runtime._remove_state(self.c,state,memory=True,user='pilot')
+        self.assertEqual(commands,['umount','pkill','umount'])
+        self.assertFalse(state.exists())
+
+    def test_umount_that_timed_out_but_completed_is_success(self):
+        """After a timed-out umount the kernel often finishes it: the retry would fail 'not mounted'.
+        Whether the path is still a mount point decides, not the error."""
+        for error in (subprocess.TimeoutExpired('umount',60),RuntimeError('sudo: exit 32\numount: not mounted')):
+            with self.subTest(error=type(error).__name__):
+                state=self.root/'factory-tester-state-done';state.mkdir()
+                commands=[]
+                def command(c,args,**kwargs):
+                    commands.append(args[1])
+                    if args[1]=='umount':raise error
+                runtime=replace(self.runtime,command=command)
+                with patch.object(model_runtime,'mounted',return_value=False):
+                    runtime._remove_state(self.c,state,memory=True,user='pilot')
+                self.assertEqual(commands,['umount'])
+                self.assertFalse(state.exists())
 
     def test_funded_invocation_continues_past_the_live_small_profile_stop(self):
         self.attempt.ceiling_usd = Decimal('40.792858')

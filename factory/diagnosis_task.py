@@ -182,6 +182,6 @@ def main(argv=None):
 
 if __name__ == '__main__':
     try: main()
-    except Exception:
-        # Neither source data nor exception strings belong in root-helper logs.
-        raise SystemExit('diagnosis task operation failed') from None
+    except Exception as error:
+        # Neither source data nor exception strings belong in root-helper logs; the class name is neither.
+        raise SystemExit('diagnosis task operation failed: ' + type(error).__name__) from None

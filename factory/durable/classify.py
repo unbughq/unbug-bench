@@ -94,6 +94,10 @@ _FIXED = {
     'diagnosis_cleanup_failed': (_I, 'infra:diagnosis_cleanup_failed'),
     'diagnosis_input_invalid': (_I, 'infra:diagnosis_input_invalid'),
     'diagnosis_result_invalid': (_I, 'infra:diagnosis_result_invalid'),
+    # The root helper's own answer: the model wrote no result, too much, or not a plain file.
+    'diagnosis_result_missing': (_I, 'infra:diagnosis_result_missing'),
+    'diagnosis_result_oversized': (_I, 'infra:diagnosis_result_oversized'),
+    'diagnosis_result_unsafe': (_I, 'infra:diagnosis_result_unsafe'),
     'diagnosis_schema_wait': (_I, 'infra:diagnosis_schema_wait'),
     'extension_snapshot_invalid': (_I, 'infra:extension_snapshot_invalid'),
     'factory_bug_held': (_I, 'infra:factory_bug_held'),

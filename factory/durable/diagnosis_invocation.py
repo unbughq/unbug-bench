@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -13,22 +14,30 @@ from carry_over import digest
 import diagnosis
 import diagnosis_task as task
 
+HELPER_LINE = re.compile(r'diagnosis task operation failed: \w+')
+
 
 def _helper(runner, c, operation, identity):
     # The private result must never pass through runner.sh's stdout logging.
     command = ['sudo', '--', 'python3', '-I', '-B',
                str(Path(runner.__file__).parent / 'diagnosis_task.py'),
                operation, c.case_id, identity]
+    # What the helper said becomes the stop's cause, so the sealed diagnostic's traceback shows it.
+    # Only diagnosis_task.py's fixed failure line passes, never raw bytes; the return code says the rest.
+    detail = ''
     try:
         process = subprocess.run(command, stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, timeout=120)
+                                 stderr=subprocess.PIPE, timeout=120)
+        said = [line for line in (process.stderr or b'').decode('utf-8', 'replace').splitlines()
+                if HELPER_LINE.fullmatch(line)][-3:]
+        detail = f'{operation}: returncode={process.returncode}; stderr={" | ".join(said)}'
         if process.returncode or len(process.stdout) > task.MAX_RESPONSE:
             raise ValueError()
         value = json.loads(process.stdout)
         if (not isinstance(value, dict) or set(value) != {
                 'schema_version', 'status', 'inputs_sha256', 'raw_sha256', 'raw_base64'} or
                 type(value['schema_version']) is not int or value['schema_version'] != 1 or
-                value['status'] != 'ok' or
+                not isinstance(value['status'], str) or
                 (value['inputs_sha256'] is not None and not diagnosis._sha(value['inputs_sha256'])) or
                 not diagnosis._sha(value['raw_sha256']) or
                 not isinstance(value['raw_base64'], str)):
@@ -36,9 +45,19 @@ def _helper(runner, c, operation, identity):
         raw = base64.b64decode(value['raw_base64'], validate=True)
         if len(raw) > task.MAX_RESULT or hashlib.sha256(raw).hexdigest() != value['raw_sha256']:
             raise ValueError()
-        return value, raw
-    except Exception:
-        raise BudgetError('diagnosis_result_invalid') from None
+    except Exception as error:
+        failed = RuntimeError(f'{detail or operation}; {type(error).__name__}')
+    else:
+        # A well-formed answer names why there is no result: one reason each, not one for all
+        # (f46dac-5 diagnosis attempt 5: a model that wrote nothing read as an invalid result).
+        status = value['status']
+        if status == 'ok': return value, raw
+        failed = RuntimeError(f'{operation}: status={status}')
+        if status == 'missing': raise BudgetError('diagnosis_result_missing') from failed
+        if status == 'oversized': raise BudgetError('diagnosis_result_oversized') from failed
+        if status == 'unsafe': raise BudgetError('diagnosis_result_unsafe') from failed
+        if status == 'input_invalid': raise BudgetError('diagnosis_input_invalid') from failed
+    raise BudgetError('diagnosis_result_invalid') from failed
 
 
 def _remove_tree(path):

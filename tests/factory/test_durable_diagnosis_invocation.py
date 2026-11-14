@@ -58,7 +58,7 @@ class InvocationTests(unittest.TestCase):
         operation, case, identity = command[6:]
         task.identities(case, identity)
         self.identity = identity
-        self.assertEqual(kwargs, dict(stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=120))
+        self.assertEqual(kwargs, dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120))
         self.events.append(operation)
         source = self.c.work / 'diagnosis' / identity
         manifest = json.loads((source / 'input.json').read_text())
@@ -71,8 +71,9 @@ class InvocationTests(unittest.TestCase):
         value = task._response(data=raw, inputs=digest(manifest['files'])
             if operation in ('prepare', 'collect') else None)
         value = self.mutate(operation, value)
-        wire = value if isinstance(value, bytes) else json.dumps(value).encode()
-        return SimpleNamespace(returncode=0, stdout=wire)
+        wire = value if isinstance(value, (bytes, SimpleNamespace)) else json.dumps(value).encode()
+        if isinstance(value, SimpleNamespace): return value
+        return SimpleNamespace(returncode=0, stdout=wire, stderr=b'')
 
     def model(self, c, models, prompt, cwd, name, *, user, before_attempt):
         self.events.append('model')
@@ -127,6 +128,30 @@ class InvocationTests(unittest.TestCase):
                 self.mutate = lambda op, value: corrupt(value) if op == 'collect' else value
                 with self.assertRaises(BudgetError): self.invoke()
                 self.assert_clean()
+
+    def test_collect_status_is_its_own_stop_with_the_helper_said_as_cause(self):
+        """f46dac-5 diagnosis attempt 5 (14 November): every non-ok collect read as
+        diagnosis_result_invalid, and the helper's stderr went to /dev/null."""
+        for status, reason in (('missing', 'diagnosis_result_missing'), ('oversized', 'diagnosis_result_oversized'),
+                               ('unsafe', 'diagnosis_result_unsafe'), ('input_invalid', 'diagnosis_input_invalid')):
+            with self.subTest(status=status):
+                self.events.clear()
+                self.mutate = lambda op, value: {**value, 'status': status} if op == 'collect' else value
+                with self.assertRaisesRegex(BudgetError, '^' + reason + '$') as caught:
+                    self.invoke()
+                self.assertIn('status=' + status, str(caught.exception.__cause__))
+                self.assert_clean()
+        self.events.clear()
+        failed = SimpleNamespace(returncode=1, stdout=b'', stderr=b'Traceback: /case/secret.py line 3\n'
+                                 b'diagnosis task operation failed: PermissionError\n')
+        self.mutate = lambda op, value: failed if op == 'collect' else value
+        with self.assertRaisesRegex(BudgetError, '^diagnosis_result_invalid$') as caught:
+            self.invoke()
+        cause = str(caught.exception.__cause__)
+        self.assertIn('returncode=1', cause)
+        self.assertIn('diagnosis task operation failed: PermissionError', cause)
+        self.assertNotIn('secret', cause)  # only the helper's fixed lines pass, never raw stderr
+        self.assert_clean()
 
     def test_rejects_oversized_bytes_even_with_valid_digest(self):
         self.raw = b'x' * (task.MAX_RESULT + 1)
