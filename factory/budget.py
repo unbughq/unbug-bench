@@ -1596,7 +1596,13 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model})
             if invocation in ledger.get('active', []): ledger['active'].remove(invocation)
             if not ledger.get('active'): ledger.pop('active', None)
-            if ledger.get('terminal_stop') in (None, 'running', 'complete'):
+            if isinstance(error, BudgetError) and str(error) == 'cancelled':
+                # This call's own cancel (its gate's cap, or a role_cancel) is not a ledger stop: peers stop only
+                # through the cancel object they themselves hold. Writing it here stopped the writer's concurrent
+                # repair when 2abb0a's early probe hit its cap (gates:9, 13 November). A failed kill still sticks
+                # (cancellation_failed, here or in the finally below).
+                if ledger.get('terminal_stop') == 'running' and not ledger.get('active'): ledger['terminal_stop'] = 'complete'
+            elif ledger.get('terminal_stop') in (None, 'running', 'complete'):
                 ledger['terminal_stop'] = str(error) if isinstance(error, BudgetError) else type(error).__name__
                 if getattr(error, 'provider_failure', None): ledger['provider_failure'] = error.provider_failure
                 if isinstance(error, BudgetError) and str(error) == 'process_error':
@@ -1613,8 +1619,9 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             with transaction():
                 ledger.setdefault('cleanup_errors', []).append({
                     'stage':'process_cancellation', 'error':type(cleanup_error).__name__})
-                # A failure on the success path is itself a stop; never return success.
-                if original is None: ledger['terminal_stop'] = 'cancellation_failed'
+                # A failed kill is itself a stop, on the success path or after an own cancel left none: an orphan
+                # process must block the next admission. Never return success.
+                if ledger.get('terminal_stop') in (None, 'running', 'complete'): ledger['terminal_stop'] = 'cancellation_failed'
             if original is None: raise BudgetError('cancellation_failed') from cleanup_error
         finally:
             if process is not None: process.stdout.close()
