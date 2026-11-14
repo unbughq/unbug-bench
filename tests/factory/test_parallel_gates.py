@@ -109,6 +109,27 @@ class Calibrators(unittest.TestCase):
              mock.patch.object(bench, "factory_memory_fits", return_value=False):
             self.assertFalse(run.parallel_calibrators(c), "memory still decides")
 
+    def test_a_silent_window_over_an_inventory_service_keeps_one_bench_slot(self):
+        # cae763, 14 November: bin/live_shop.py finds the service container by its compose service
+        # label alone, so another slot's copy made docker exec get two ids ("page not found") 3 of 3.
+        import bench
+        with tempfile.TemporaryDirectory() as tmp:
+            case = pathlib.Path(tmp)
+            c = types.SimpleNamespace(engine=object(), case=case,
+                                      args=types.SimpleNamespace(concurrent_roles=True, parallel_gates=True, bench_workers=2))
+            with mock.patch.object(bench, "load_scenario", return_value={}), \
+                 mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
+                 mock.patch.object(bench, "inventory_services", return_value=[{"name": "marketplace"}]), \
+                 mock.patch.object(bench, "factory_memory_fits", return_value=True):
+                self.assertTrue(run.parallel_calibrators(c), "no silent window: slots may run side by side")
+                window = case / "harbor" / "t" / "steps" / "quiet" / "window.json"
+                window.parent.mkdir(parents=True); window.write_text("{}")
+                self.assertFalse(run.parallel_calibrators(c))
+                self.assertIsNotNone(run.g10_overlap_reason(c))
+                self.assertIsNone(run.early_lane(c))
+                with mock.patch.object(bench, "inventory_services", return_value=[]):
+                    self.assertTrue(run.parallel_calibrators(c), "a silent window without services is safe")
+
     def test_the_flag_is_a_kept_engine_setting(self):
         self.assertIn("parallel_gates", run.ENGINE_SETTINGS)
         self.assertFalse(run.argument_parser().parse_args([]).parallel_gates)
