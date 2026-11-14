@@ -453,8 +453,9 @@ def provider_preflight(c, step=None):
     if not (pathlib.Path(c.case) / "statement.md").is_file():
         checks.insert(0, ("writer", c.models["builder"], "builder-provider-preflight"))
     at = 2 if checks[0][0] == "writer" else 1
+    # The call name carries the role (budget.invocation_role): the second reviewer's starts 'reviewer-2'.
     checks[at:at] = [('reviewer' if i == 0 else 'reviewer2', chain,
-                    'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
+                    'reviewer-provider-preflight' if i == 0 else f'reviewer-{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
     for role, chain, name in checks:
         # A calibrator never takes a free or Go plan lane (ModelRuntime._call): where its chain has one,

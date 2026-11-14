@@ -646,7 +646,7 @@ def _spending(ledger, models_used=None):
     ledger = ledger or {}
     roles = {}
     for name, model in (models_used or {}).items():
-        roles.setdefault(model, set()).add(invocation_role(name))
+        roles.setdefault(model, set()).add(_ledger_role(name))
     breakdown, events, event_roles = {}, {}, {}
     observed = [Decimal(0), Decimal(0), Decimal(0)]
     unpriced = len(ledger.get('unpriced_invocations', []))
@@ -677,7 +677,7 @@ def _spending(ledger, models_used=None):
         except BudgetError:
             unpriced += 1
             continue
-        role = invocation_role(row['call_name'])
+        role = _ledger_role(row['call_name'])
         breakdown[role] = breakdown.get(role, Decimal(0)) + gap
     model_total = sum(breakdown.values(), Decimal(0))
     waste, additive_waste = Decimal(0), Decimal(0)
@@ -837,10 +837,26 @@ def usage_coverage(ledger):
     except (BudgetError, ValueError, TypeError, KeyError, AttributeError, InvalidOperation): return None
 
 
+# A model call's name says whose model it uses (pin check, effort, accounting). Diagnosis runs on the first
+# reviewer's model (diagnosis_dispatch.reviewer). An unknown name is refused: it once fell through to
+# 'reviewer' and the second reviewer's calls failed the first reviewer's pin ('role family changed').
+CALL_ROLES = (('builder', 'writer'), ('attacker', 'stress_tester'), ('strong-calibrator', 'strong_calibrator'),
+              ('easy-calibrator', 'easy_calibrator'), ('reviewer-2', 'reviewer2'), ('reviewer', 'reviewer'),
+              ('diagnosis-', 'reviewer'))
+
+
 def invocation_role(name):
-    return ('writer' if name.startswith('builder') else 'stress_tester' if name.startswith('attacker') else
-            'strong_calibrator' if name.startswith('strong-calibrator') else 'easy_calibrator' if name.startswith('easy-calibrator') else
-            'reviewer2' if name.startswith('reviewer-2') else 'reviewer')
+    for prefix, role in CALL_ROLES:
+        if name.startswith(prefix) and (prefix != 'reviewer' or name == prefix or name[len(prefix)] == '-'):
+            return role
+    raise ValueError(f'unknown model call name: {name!r}')
+
+
+def _ledger_role(name):
+    """Accounting also reads names saved by older releases: those keep the old catch-all, so a
+    saved ledger's role totals never change."""
+    try: return invocation_role(name)
+    except ValueError: return 'reviewer'
 
 
 def require_case_budget(ledger, limit, configured_model=None):

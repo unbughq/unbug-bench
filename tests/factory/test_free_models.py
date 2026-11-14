@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory() as tmp:
     c = SimpleNamespace(work=root, card={'model_transition': {'kind': 'approved-paid-to-free'}})
     with mock.patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=run.BudgetError('provider_limit')) as call:
         try:
-            run.opencode(c, ['opencode/glm-5.3-flash-free'], 'synthetic', '.', 'fixture')
+            run.opencode(c, ['opencode/glm-5.3-flash-free'], 'synthetic', '.', 'reviewer-fixture')
         except run.BudgetError:
             pass
         else:
