@@ -3,8 +3,8 @@
 REGISTRY maps every reason the engine can record to one kind:
   case - a genuine case outcome (a gate failed, the writer validated, a diagnosis completed);
   wait - an expected provider, money or operator wait that parks cleanly;
-  bug  - a factory bug class, with fixed_in (a commit on main, or None while open) and test
-         (path::Class::name of the regression test that reproduces it, or None).
+  bug  - a factory bug class, with fixed_in (the commits on main that fix it, all needed; None while
+         open) and test (path::Class::name of the regression test that reproduces it, or None).
 Single reasons are listed one by one. Families that classify.py builds as a product of its own
 tables (preflight role x stop, cleanup stage x error, case limits, import and rejection codes)
 and the per-gate verdicts are generated, since a new member is the same class as its siblings.
@@ -28,8 +28,8 @@ from durable.classify import (CLEANUP_ERRORS, CLEANUP_STAGES, IMPORT_REASONS, PR
 CASE, WAIT = {"kind": "case"}, {"kind": "wait"}
 
 
-def bug(fixed_in: Optional[str] = None, test: Optional[str] = None) -> dict:
-    return {"kind": "bug", "fixed_in": fixed_in, "test": test}
+def bug(*fixed_in: str, test: Optional[str] = None) -> dict:
+    return {"kind": "bug", "fixed_in": fixed_in or None, "test": test}
 
 
 OPEN = bug()
@@ -49,21 +49,52 @@ REGISTRY = {
     "router:codex_limit": WAIT, "router:opencode_limit": WAIT, "router:openrouter_limit": WAIT,
     "router:outage": WAIT, "router:credential_expiring": WAIT, "infra:credentials_unavailable": WAIT,
     "infra:worker_slots_full": WAIT, "infra:worker_start_rate": WAIT, "infra:paused": WAIT,
-    "infra:deadline": WAIT, "infra:campaign_deadline": WAIT,
-    # -- factory bugs with a fix on main --
+    "infra:campaign_deadline": WAIT,
+    # -- factory bugs with a fix on main (fixes on parallel branches are all listed) --
     # 97d97b84: a writer-round case's diagnosis read a stress report that did not exist yet.
-    "diagnosis:processing_failed": bug("97d97b84d73135b916ebcc78c734715052cf755d",
+    "diagnosis:processing_failed": bug("97d97b84d73135b916ebcc78c734715052cf755d", test=
         "tests/factory/test_durable_diagnosis.py::DiagnosisTests::"
         "test_a_close_verdict_on_a_case_stopped_in_a_writer_round_gives_feedback"),
     # 0f818fe5: the diagnosis prompt carried the full inventory past Linux's one-argument limit.
-    "infra:prompt_too_large": bug("0f818fe5783950ec591cf6b24a93ef5807b948f6",
+    "infra:prompt_too_large": bug("0f818fe5783950ec591cf6b24a93ef5807b948f6", test=
         "tests/factory/test_model_call_maxima.py::MaximaTests::"
         "test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity"),
+    # aeabd48d: strategy calls broke on pinned worker bench images; 1d52c92d preflights the release pair.
+    "infra:runner_exception": bug("aeabd48dadb3f057fd6670f9fc9507d7376cbad1",
+                                  "1d52c92d7c196dadbe09bec2414782a94a3e4417", test=
+        "tests/factory/test_strategy_reuse.py::StrategyPrefixRecoveryTests::"
+        "test_pinned_worker_strategy_before_sharing_still_runs"),
+    # 2fcbaf66: writer findings handed to a fresh attempt instead of a cycle doomed to hit the deadline;
+    # 5694aea3: a deadline kill seals its diagnostic.
+    "infra:deadline": bug("2fcbaf669024fde16c7523a968f61abadbe27dea",
+                          "5694aea3968ced5844d6a67ed0e1db5cae75470e", test=
+        "tests/factory/test_stress_loop.py::StressLoopTests::"
+        "test_writer_hands_back_findings_instead_of_starting_a_doomed_cycle"),
+    # b58ea3ec, the latest of fe112d74, fa92e2eb, 956c9fa4: pilot homes removed in their own window.
+    "infra:diagnosis_cleanup_failed": bug("b58ea3ec6057c40f25f16c14eb55bc9de5a5d2e2", test=
+        "tests/factory/test_pilot_home_teardown.py::PilotHomeTeardown::"
+        "test_a_diagnosis_teardown_timeout_keeps_its_cause"),
+    # 8d1093d4: a silent writer route fails fast instead of stalling.
+    "infra:stalled": bug("8d1093d46b0f9028d048e680427cd4095d237bd2", test=
+        "tests/factory/test_silent_writer_route.py::SilentWriterRoute::"
+        "test_a_stalled_selection_call_moves_to_the_next_route"),
+    # 874b2727 (after f0f6e4e3, 0c2b545b): a live slot's seed IDs and a rebuilt slot's infra allowance.
+    # The gather class is still being fixed on fix/gather-live-slot-state.
+    "infra:execution_retries_exhausted": bug("874b2727a4b52d2d2d34c3908bf08a271ed4ea21", test=
+        "tests/factory/test_live_slot_fixture.py::LiveSlotFixtureTests::"
+        "test_rebuilt_slot_gets_a_fresh_infra_allowance"),
+    # f2c9199a: unknown code stops name themselves (infra:raw_<label>); only free text is left here.
+    "infra:unclassified_stop": bug("f2c9199aebed5ccb881b26a59d607f7adccc2544", test=
+        "tests/factory/test_durable_classify.py::SelfNamingStops::test_unknown_identifier_stops_name_themselves"),
     # -- factory bugs, open or in flight --
-    "infra:cancelled": OPEN,                        # in flight: branch fix/probe-cap-no-shared-stop
-    "admit:processing_failed": OPEN,                # in flight: branch fix/reviewer2-preflight-role
-    "infra:freshness_evidence_unavailable": OPEN,   # in progress
-    "infra:pool_failed": OPEN,   # 6ea112d fixed one cause (bounded_create arity); any acquire exception lands here
+    "infra:cancelled": OPEN,                        # in flight: fix/probe-cap-no-shared-stop
+    "admit:processing_failed": OPEN,                # in flight: fix/reviewer2-preflight-role
+    "infra:freshness_evidence_unavailable": OPEN,   # in flight: fix/freshness-expired-refetch
+    "infra:diagnosis_result_invalid": OPEN,         # in flight: fix/sweep-leftovers
+    "infra:pool_failed": OPEN,   # several causes; 6ea112d fixed one (bounded_create arity)
+    # Containment causes fixed by 0ec53bb0 and 3fd7d011; the scratch-unmount timeout is in flight on
+    # fix/sweep-leftovers.
+    "infra:cleanup_failed": OPEN,
     **{r: OPEN for r in (
         "admit:dedup_invalid", "admit:dedup_unavailable", "admit:idea_review_invalid",
         "admit:idea_review_unavailable", "admit:inputs_invalid", "admit:registry_invalid",
@@ -76,11 +107,9 @@ REGISTRY = {
         "infra:attempt_absent", "infra:attempt_busy", "infra:bad_frame", "infra:bad_result",
         "infra:bench_fingerprint_failed", "infra:bench_mismatch", "infra:blob_unavailable",
         "infra:card_write_failed", "infra:case_changed_during_review", "infra:classifier_unavailable",
-        "infra:cleanup_failed", "infra:cli_version", "infra:compute_approval_unverified", "infra:context_failed",
-        "infra:creation_limit", "infra:diagnosis_cleanup_failed", "infra:diagnosis_config_invalid",
-        "infra:diagnosis_input_invalid", "infra:diagnosis_loopback_failed", "infra:diagnosis_result_invalid",
-        "infra:diagnosis_schema_wait", "infra:dispatch_failed", "infra:execution_retries_exhausted",
-        "infra:extension_snapshot_invalid", "infra:factory_bug_held", "infra:free_route_mismatch",
+        "infra:cli_version", "infra:compute_approval_unverified", "infra:context_failed",
+        "infra:creation_limit", "infra:diagnosis_config_invalid",
+        "infra:diagnosis_input_invalid", "infra:diagnosis_loopback_failed", "infra:diagnosis_schema_wait", "infra:dispatch_failed", "infra:extension_snapshot_invalid", "infra:factory_bug_held", "infra:free_route_mismatch",
         "infra:freshness_repair_state_invalid", "infra:freshness_review_unavailable",
         "infra:freshness_statement_changed", "infra:freshness_unresolved", "infra:gate_error",
         "infra:invalid_execution", "infra:inventory_unavailable", "infra:ledger_error",
@@ -91,11 +120,11 @@ REGISTRY = {
         "infra:release_missing", "infra:release_unreadable", "infra:reservation_event_missing",
         "infra:reservation_spend_unknown", "infra:restore_failed", "infra:retry_completion_missing",
         "infra:roles_refused", "infra:route_feature_unsupported", "infra:router_unavailable",
-        "infra:router_unconfigured", "infra:runner_error", "infra:runner_exception", "infra:sealer_unavailable",
-        "infra:snapshot_failed", "infra:stalled", "infra:step_crashed", "infra:stop_without_failure",
+        "infra:router_unconfigured", "infra:runner_error", "infra:sealer_unavailable",
+        "infra:snapshot_failed", "infra:step_crashed", "infra:stop_without_failure",
         "infra:stress_category_output_changed", "infra:stress_category_state_invalid",
         "infra:stress_publication_not_quiescent", "infra:stress_validation_exhausted", "infra:sweep_failed",
-        "infra:sweep_incomplete", "infra:timeout", "infra:unclassified_stop", "infra:unpriced_usage",
+        "infra:sweep_incomplete", "infra:timeout", "infra:unpriced_usage",
         "infra:usage_monitor", "infra:usage_reservation_exceeded", "infra:usage_unknown",
         "infra:version_mismatch", "infra:warm_failed", "infra:warm_stopped", "infra:worker_create_failed",
         "infra:worker_create_unknown", "infra:worker_delete_failed", "infra:worker_delete_unconfirmed",
@@ -152,10 +181,17 @@ def audit(rows: Iterable[dict], commits: dict, contains: Optional[Callable[[str,
             out["open"].append(row)
         else:
             row.update(fixed_in=entry["fixed_in"], test=entry["test"])
-            has = None if row["commit"] is None or contains is None else contains(row["commit"], entry["fixed_in"])
+            has = None if row["commit"] is None or contains is None else _all(
+                contains(row["commit"], fix) for fix in entry["fixed_in"])
             if has is not False:   # False: a release from before the fix, expected to show the bug
                 out["regression" if has else "unchecked"].append(row)
     return out
+
+
+def _all(answers) -> Optional[bool]:
+    """True when every fix is in the release, False when any is not, None when git cannot tell."""
+    answers = list(answers)
+    return False if False in answers else None if None in answers else True
 
 
 def alerts(report: dict) -> dict:

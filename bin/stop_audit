@@ -29,7 +29,7 @@ def render(report: dict) -> str:
     lines = []
     for label in ("regression", "unknown", "unchecked", "open"):
         for r in report[label]:
-            extra = f" fixed_in {short(r['fixed_in'])} test {r['test']}" if "fixed_in" in r else ""
+            extra = f" fixed_in {','.join(map(short, r['fixed_in']))} test {r['test']}" if "fixed_in" in r else ""
             lines.append(f"{label.upper():<10} {r['reason']:<40} {r['count']:>4}x release {short(r['release'])} "
                          f"(commit {short(r['commit'])}) {len(r['cases'])} cases{extra}")
     for pv, rel in sorted(report["releases"].items(), key=lambda kv: kv[0] or ""):

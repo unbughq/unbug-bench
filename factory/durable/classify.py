@@ -108,6 +108,9 @@ _FIXED = {
     # exception it does not know into its class name, and these names miss _EXCEPTION's suffixes.
     "InvalidInfra": (_I, "infra:invalid_execution"),          # bin/run_validity.py: no valid verdict
     "InfrastructureExhausted": (_I, "infra:execution_retries_exhausted"),   # run_validity.retry
+    # run.gates_result's fallback stop when the gates stopped on infrastructure with no terminal_stop
+    # (recorded as infra:raw_infrastructure_exhausted on 12 attempts, 2026-11 stop audit).
+    "infrastructure_exhausted": (_I, "infra:execution_retries_exhausted"),
     "TimeoutExpired": (_I, "infra:timeout"),                 # subprocess timeout from run.py sh()
     # Router and route plumbing reached by any model call, the writer's included.
     "provider_wait_unsettled": (_I, "infra:provider_wait_unsettled"),        # model_router.await_lease
