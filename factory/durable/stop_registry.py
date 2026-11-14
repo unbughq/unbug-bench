@@ -223,17 +223,72 @@ def render(report: dict) -> list:
     return lines
 
 
-def result(report: dict, undecodable: int, now: float) -> dict:
-    """What bin/stop_audit --write records for the campaign guard (durable/guard.stop_audit_alerts)."""
+def result(report: dict, undecodable: int, now: float, violations: Iterable = ()) -> dict:
+    """What bin/stop_audit --write records for the campaign guard (durable/guard.stop_audit_alerts).
+    violations: (check, line) pairs from `invariants`."""
     lines = render(report)
+    violations = list(violations)
     return {"written_at": now,
+            "invariant": [line for _, line in violations],
+            "invariant_reasons": sorted({check for check, _ in violations}),
             "counts": {"attempts": sum(r["attempts"] for r in report["releases"].values()),
-                       "undecodable": undecodable, **{k: len(report[k]) for k in
+                       "undecodable": undecodable, "invariant": len(violations), **{k: len(report[k]) for k in
                                                       ("regression", "unknown", "unchecked", "open")}},
             "regression": [l for l in lines if l.startswith("REGRESSION")],
             "unknown": [l for l in lines if l.startswith("UNKNOWN")],
             "regression_reasons": sorted({r["reason"] for r in report["regression"]}),
             "unknown_reasons": sorted({r["reason"] for r in report["unknown"]})}
+
+
+# ---- invariants (pure) ----------------------------------------------------------------------
+
+STUCK_S = 2 * 3600.0
+# Statuses that should move by themselves; any other non-final status is a hold or a wait.
+MOVING = ("running", "pending_admission", "retrying_admission")
+
+
+def invariants(attempts: Iterable[dict], ledger: dict, budgets: dict, cases: Iterable[dict]) -> list:
+    """(check, line) for every violation of the live money and progress invariants.
+    attempts: decoded step attempts, not deduped. ledger: idempotency_key -> {state, waste, rebooked,
+    draws_case_money, paid, granted} (durable_ledger_attempt). budgets: batch -> {bound, spent, waste}
+    (observation._budget). cases: board rows (board.read_board) with batch, case, status, live, quiet_for_s."""
+    out, results = [], {}
+    for a in attempts:
+        ident = (a["case_id"], a["batch_id"], a["seq"], a["attempt"])
+        results.setdefault(ident, {})[(a["outcome"], a["reason"], a["paid_usd_micros"])] = a
+    for (case, batch, seq, attempt), seen in sorted(results.items(), key=lambda kv: str(kv[0])):
+        where = f"{batch} {case} seq {seq} attempt {attempt}"
+        if len(seen) > 1:   # 4) one attempt, two different recorded results
+            out.append(("attempt_recorded_twice", f"INVARIANT  attempt_recorded_twice  {where}: "
+                        + "; ".join(f"{o} {r} paid {p}" for o, r, p in sorted(seen, key=str))))
+        a = next(iter(seen.values()))
+        row = ledger.get(a["key"])
+        if row is None or row["state"] == "held":
+            if a["paid_usd_micros"] > 0 and row is None:
+                out.append(("spend_below_usage", f"INVARIANT  spend_below_usage  {where}: no ledger row, "
+                            f"reported paid {a['paid_usd_micros']}"))
+            continue   # still held: not settled yet
+        booked = row["granted"] if row["state"] == "lost" else row["paid"]
+        if booked < a["paid_usd_micros"]:   # 1) booked spend covers the paid usage the result reported
+            out.append(("spend_below_usage", f"INVARIANT  spend_below_usage  {where}: booked {booked} "
+                        f"< reported paid {a['paid_usd_micros']}"))
+        if (a["settles_as_waste"] and row["draws_case_money"] and row["state"] == "settled"
+                and not row["waste"] and not row["rebooked"] and row["paid"] > 0):   # 2) waste on case money
+            out.append(("waste_on_case_money", f"INVARIANT  waste_on_case_money  {where}: {a['reason']} "
+                        f"paid {row['paid']} booked to the case"))
+    for batch, b in sorted(budgets.items()):
+        if b["spent"] > b["bound"]:   # 1) booked spend per batch within its bound
+            out.append(("batch_over_bound", f"INVARIANT  batch_over_bound  {batch}: spent {b['spent']} "
+                        f"> bound {b['bound']}"))
+    for c in cases:   # 3) a live case with no attempt, wait or hold for over STUCK_S
+        b = budgets.get(c["batch"])
+        bound_free = b is not None and b["spent"] - b["waste"] < b["bound"]
+        quiet = c.get("quiet_for_s")
+        if (c.get("live") and quiet is not None and quiet > STUCK_S
+                and (c["status"] in MOVING or (c["status"] == "waiting_for_bound" and bound_free))):
+            out.append(("case_stuck", f"INVARIANT  case_stuck  {c['batch']} {c['case']}: {c['status']} "
+                        f"with no event for {int(quiet / 60)} minutes"))
+    return out
 
 
 # ---- readers --------------------------------------------------------------------------------
@@ -260,9 +315,19 @@ def decode(output: str, row_time: Optional[float] = None):
     if not isinstance(res.get("reason"), str):
         return None
     started = value.get("started_at")
+    step = si.get("step") if isinstance(si.get("step"), dict) else {}
+    usage = res.get("usage") if isinstance(res.get("usage"), dict) else {}
+    paid = usage.get("paid_usd_micros") if type(usage.get("paid_usd_micros")) is int else 0
     return {**{k: si.get(k) for k in ("case_id", "batch_id", "seq", "attempt", "plumbing_version")},
             "outcome": res.get("outcome"), "reason": res["reason"],
-            "started_at": started if isinstance(started, (int, float)) else row_time}
+            "started_at": started if isinstance(started, (int, float)) else row_time,
+            # contract.StepInput.idempotency_key: the ledger's key for this attempt
+            "key": f"{si.get('case_id')}/{si.get('seq')}/"
+                   f"{step.get('kind')}{':' + str(step['round']) if step.get('round') else ''}/{si.get('attempt')}",
+            "paid_usd_micros": paid,
+            # policy.settles_as_waste: broken runs go to the batch's waste line, never the case's money
+            "settles_as_waste": res.get("outcome") == "infra_error"
+                                or (res.get("outcome") == "provider_limit" and paid > 0)}
 
 
 def read_attempts(database_url: str, since: Optional[float] = None) -> tuple:
@@ -291,6 +356,38 @@ def read_attempts(database_url: str, since: Optional[float] = None) -> tuple:
     rows = [r for r in decoded if isinstance(r, dict)
             and (since is None or r["started_at"] is None or r["started_at"] >= since)]
     return rows, sum(r is UNDECODABLE for r in decoded)
+
+
+def read_invariant_inputs(config: dict) -> tuple:
+    """(ledger rows by key, budgets by batch, live board rows), read-only. Budgets and case rows reuse
+    observation._budget and board.read_board; per-attempt rows need this one query (the board sums per case)."""
+    import sqlalchemy as sa
+    from durable.board import read_board
+    from durable.ledger import ATTEMPTS, REBOOKED
+    from durable.observation import _budget, readonly, readonly_engine
+    a = ATTEMPTS.c
+    engine = readonly_engine(config)
+    try:
+        with engine.connect() as conn:
+            conn = readonly(conn)
+            with conn.begin():
+                if conn.dialect.name == "postgresql":
+                    conn.execute(sa.text("SET LOCAL statement_timeout = '30s'"))
+                rebooked = set(conn.execute(sa.select(REBOOKED.c.idempotency_key)).scalars())
+                ledger = {r.idempotency_key: {"batch": r.batch_id, "state": r.state, "waste": r.waste,
+                                              "rebooked": r.idempotency_key in rebooked,
+                                              "draws_case_money": r.draws_case_money,
+                                              "paid": int(r.paid_usd_micros), "granted": int(r.granted_usd_micros)}
+                          for r in conn.execute(sa.select(a.idempotency_key, a.batch_id, a.state, a.waste,
+                                                          a.draws_case_money, a.paid_usd_micros,
+                                                          a.granted_usd_micros))}
+    finally:
+        engine.dispose()
+    board = read_board(config, live_only=True)
+    if board["unavailable"]:
+        raise RuntimeError("board sections unavailable: " + ", ".join(board["unavailable"]))
+    batches = sorted({row["batch"] for row in ledger.values()})
+    return ledger, {b: _budget(config, b) for b in batches}, board["cases"]
 
 
 def release_commits(work: Optional[Path], release_map: Optional[Path] = None) -> dict:
@@ -334,5 +431,6 @@ def git_contains(repo: Path) -> Callable[[str, str], Optional[bool]]:
     return contains
 
 
-__all__ = ["REGISTRY", "PREFIXES", "lookup", "audit", "render", "result", "decode", "read_attempts",
+__all__ = ["REGISTRY", "PREFIXES", "lookup", "audit", "render", "result", "invariants", "decode", "read_attempts",
+           "read_invariant_inputs",
            "release_commits", "git_contains"]

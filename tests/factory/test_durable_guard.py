@@ -859,6 +859,13 @@ class StopAuditAlertTests(unittest.TestCase):
                                "Stop audit: fixed bugs came back: infra:example_fixed; "
                                "unclassified stops: infra:raw_key_error. Run bin/stop_audit."})
 
+    def test_broken_invariants_alert_like_regressions(self):
+        out = self.alerts(self.result(invariant=["INVARIANT  case_stuck  b-1 case-1: running"],
+                                      invariant_reasons=["case_stuck", "waste_on_case_money", "Not A Check!"]))
+        self.assertEqual(out, {"stop_audit:invariant:case_stuck,waste_on_case_money":
+                               "Stop audit: invariants broken: case_stuck, waste_on_case_money. Run bin/stop_audit."})
+        self.assertEqual(list(self.alerts(self.result(invariant_reasons="case_stuck"))), ["stop_audit:unreadable"])
+
     def test_mostly_undecodable_outputs_alert(self):
         self.assertEqual(self.alerts(self.result(counts={"attempts": 5, "undecodable": 5})), {})
         out = self.alerts(self.result(counts={"attempts": 4, "undecodable": 6}))

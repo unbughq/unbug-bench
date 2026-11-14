@@ -694,6 +694,7 @@ STOP_AUDIT_FILE = "stop-audit.json"   # <state_dir>/stop-audit.json, written by 
 STOP_AUDIT_STALE_S = 1800.0   # bin/stop_audit writes every 10 minutes (unbug-stop-audit.timer)
 STOP_AUDIT_MAX_BYTES = 64 * 1024
 STOP_AUDIT_REASON = re.compile(r"[a-z][a-z0-9]*:[a-z][a-z_]{0,60}")
+STOP_AUDIT_CHECK = re.compile(r"[a-z][a-z_]{0,40}")   # stop_registry.invariants' check names
 
 
 def stop_audit_alerts(path, now: float) -> dict:
@@ -720,8 +721,13 @@ def stop_audit_alerts(path, now: float) -> dict:
         if not all(type(n) is int and n >= 0 for n in (attempts, undecodable)):
             raise ValueError("counts")
         # Reason codes only, so nothing else from a user-written file reaches an alert.
-        found = {kind: sorted(r for r in data[kind + "_reasons"] if isinstance(r, str)
+        # invariant_reasons is optional, so a result written before invariant checks still reads.
+        if not isinstance(data.get("invariant_reasons", []), list):
+            raise ValueError("invariant_reasons")
+        found = {kind: sorted(r for r in data.get(kind + "_reasons", []) if isinstance(r, str)
                               and STOP_AUDIT_REASON.fullmatch(r)) for kind in ("regression", "unknown")}
+        found["invariant"] = sorted(r for r in data.get("invariant_reasons", []) if isinstance(r, str)
+                                    and STOP_AUDIT_CHECK.fullmatch(r))
         stale = now - written > STOP_AUDIT_STALE_S
         minutes = int((now - written) / 60) if stale else 0
     except FileNotFoundError:
@@ -741,6 +747,9 @@ def stop_audit_alerts(path, now: float) -> dict:
     if parts:   # keyed by the reasons, so a new one alerts again
         out["stop_audit:" + ",".join(found["regression"] + found["unknown"])] = \
             "Stop audit: " + "; ".join(parts) + ". Run bin/stop_audit."
+    if found["invariant"]:
+        out["stop_audit:invariant:" + ",".join(found["invariant"])] = \
+            ("Stop audit: invariants broken: " + ", ".join(found["invariant"]) + ". Run bin/stop_audit.")
     return out
 
 

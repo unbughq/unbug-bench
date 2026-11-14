@@ -12,11 +12,14 @@ judges each reason against factory/durable/stop_registry.py:
   OPEN        a bug reason with no fix yet, or one that collects several causes
   UNKNOWN     a reason the registry does not know
   UNCHECKED   a fixed bug on a release whose commit, or its ancestry in --repo, is unknown
+  INVARIANT   a live money or progress invariant broken (stop_registry.invariants): booked spend
+              below reported usage or a batch over its bound, waste on a case's own money, a live
+              case stuck over 2 hours, or one attempt recorded with two results
 --repo defaults to $UNBUG_STOP_AUDIT_REPO (a plain clone of a git bundle of main is enough).
 --write records the result atomically as JSON at <state_dir>/stop-audit.json (the config's state_dir,
 where the campaign guard reads it; or at a given path). control/campaign/unbug-stop-audit.timer runs
 this every 10 minutes as `user`.
-Exit 3 if any REGRESSION or UNKNOWN; any other non-zero exit is the audit itself failing.
+Exit 3 if any REGRESSION, UNKNOWN or INVARIANT; any other non-zero exit is the audit itself failing.
 """
 import argparse
 from datetime import datetime
@@ -29,7 +32,8 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "factory"))
 from durable.guard import STOP_AUDIT_FILE  # noqa: E402
 from durable.runtime import load_config  # noqa: E402
-from durable.stop_registry import audit, git_contains, read_attempts, release_commits, render, result  # noqa: E402
+from durable.stop_registry import (audit, git_contains, invariants, read_attempts, read_invariant_inputs,  # noqa: E402
+                                   release_commits, render, result)
 from durable.workers import _atomic_json  # noqa: E402
 
 
@@ -60,14 +64,19 @@ def main(argv=None) -> int:
     rows, undecodable = read_attempts(config["database_url"], since)
     release_map = args.release_map or Path(config["state_dir"]) / "releases/release-commits.json"
     report = audit(rows, release_commits(args.releases, release_map), git_contains(args.repo) if args.repo else None)
+    try:
+        violations = invariants(rows, *read_invariant_inputs(config))
+    except Exception as error:   # a check that cannot run is reported, never passed silently
+        violations = [("invariants_unchecked", f"INVARIANT  invariants_unchecked  {type(error).__name__}")]
     if args.write:
         path = Path(config["state_dir"]) / STOP_AUDIT_FILE if args.write is True else args.write
-        _atomic_json(path, result(report, undecodable, now))
+        _atomic_json(path, result(report, undecodable, now, violations))
     elif args.json:
-        print(json.dumps({**report, "undecodable": undecodable}, sort_keys=True))
+        print(json.dumps({**report, "undecodable": undecodable, "invariant": [l for _, l in violations]},
+                         sort_keys=True))
     else:
-        print("\n".join(render(report) + [f"UNDECODABLE {undecodable} outputs"]))
-    return FINDINGS if report["regression"] or report["unknown"] else 0
+        print("\n".join([l for _, l in violations] + render(report) + [f"UNDECODABLE {undecodable} outputs"]))
+    return FINDINGS if report["regression"] or report["unknown"] or violations else 0
 
 
 if __name__ == "__main__":

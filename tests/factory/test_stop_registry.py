@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "factory"))
 from durable import classify  # noqa: E402
 from durable.contract import REASON  # noqa: E402
-from durable.stop_registry import REGISTRY, UNDECODABLE, audit, bug, decode, lookup, result  # noqa: E402
+from durable.stop_registry import REGISTRY, UNDECODABLE, audit, bug, decode, invariants, lookup, result  # noqa: E402
 
 # A quoted reason literal anywhere in the factory or the campaign controller.
 LITERAL = re.compile(r"""["'](%s)["']""" % REASON.pattern)
@@ -156,7 +156,8 @@ class AuditTests(unittest.TestCase):
         encode = lambda v: base64.b64encode(pickle.dumps(v)).decode()
         self.assertEqual(decode(encode(record)), {"case_id": "case-1", "batch_id": "b-1", "seq": 3, "attempt": 2,
                          "plumbing_version": "p", "outcome": "infra_error", "reason": "infra:cancelled",
-                         "started_at": 5.0})
+                         "started_at": 5.0, "key": "case-1/3/writer/2", "paid_usd_micros": 0,
+                         "settles_as_waste": True})
         self.assertIsNone(decode(encode({"started": False, "action": "stale_preparation"})))
         self.assertIsNone(decode(encode("not a dict")))
         # No recorded start (a lease that never started): the row's own DBOS time stands in.
@@ -168,6 +169,77 @@ class AuditTests(unittest.TestCase):
         for refused in (encode(collections.OrderedDict(a=1)), encode({"input": Path("/"), "result": {}}),
                         "not base64!", base64.b64encode(b"not a pickle").decode()):
             self.assertIs(decode(refused), UNDECODABLE, refused)
+
+
+def attempt(*, key="case-1/2/writer:1/1", seq=2, outcome="ok", reason="writer:validated", paid=500, waste=False):
+    return {"case_id": "case-1", "batch_id": "b-1", "seq": seq, "attempt": 1, "outcome": outcome, "reason": reason,
+            "paid_usd_micros": paid, "key": key, "settles_as_waste": waste}
+
+
+def booked(*, state="settled", paid=500, granted=1000, waste=False, rebooked=False, case_money=True):
+    return {"state": state, "paid": paid, "granted": granted, "waste": waste, "rebooked": rebooked,
+            "draws_case_money": case_money}
+
+
+class InvariantTests(unittest.TestCase):
+    """Each live invariant from fake attempt, ledger, budget and board rows."""
+    BUDGET = {"b-1": {"bound": 10_000, "spent": 5_000, "waste": 1_000}}
+
+    def checks(self, attempts=(), ledger=None, budgets=None, cases=()):
+        key = "case-1/2/writer:1/1"
+        return [c for c, _ in invariants(list(attempts), {key: booked()} if ledger is None else ledger,
+                                         self.BUDGET if budgets is None else budgets, list(cases))]
+
+    def test_a_consistent_batch_breaks_nothing(self):
+        self.assertEqual(self.checks([attempt()]), [])
+
+    def test_booked_spend_below_reported_usage(self):
+        self.assertEqual(self.checks([attempt(paid=900)]), ["spend_below_usage"])
+        self.assertEqual(self.checks([attempt(paid=900)], ledger={}), ["spend_below_usage"])   # never booked
+        lost = {"case-1/2/writer:1/1": booked(state="lost", paid=0, granted=1000)}
+        self.assertEqual(self.checks([attempt(paid=900)], ledger=lost), [])                    # lost books the grant
+        held = {"case-1/2/writer:1/1": booked(state="held", paid=0)}
+        self.assertEqual(self.checks([attempt(paid=900)], ledger=held), [])                    # not settled yet
+
+    def test_a_batch_over_its_bound(self):
+        over = {"b-1": {"bound": 10_000, "spent": 10_001, "waste": 0}}
+        self.assertEqual(self.checks(budgets=over), ["batch_over_bound"])
+
+    def test_waste_booked_to_the_case_s_own_money(self):
+        broken = attempt(outcome="infra_error", reason="infra:stalled", waste=True)
+        self.assertEqual(self.checks([broken]), ["waste_on_case_money"])
+        for fine in (booked(waste=True), booked(rebooked=True), booked(case_money=False)):
+            self.assertEqual(self.checks([broken], ledger={"case-1/2/writer:1/1": fine}), [])
+
+    def test_a_live_case_stuck_over_two_hours(self):
+        case = lambda status, quiet: {"batch": "b-1", "case": "case-1", "status": status, "live": True,
+                                      "quiet_for_s": quiet}
+        self.assertEqual(self.checks(cases=[case("running", 7300)]), ["case_stuck"])
+        self.assertEqual(self.checks(cases=[case("running", 7000)]), [])
+        self.assertEqual(self.checks(cases=[case("held", 99_999)]), [])                 # a hold is not stuck
+        self.assertEqual(self.checks(cases=[case("waiting_for_bound", 7300)]), ["case_stuck"])   # 4000 real < bound
+        spent = {"b-1": {"bound": 10_000, "spent": 11_000, "waste": 1_000}}               # real spend at the bound
+        self.assertEqual(self.checks(budgets=spent, cases=[case("waiting_for_bound", 7300)]), ["batch_over_bound"])
+
+    def test_one_attempt_recorded_with_two_results(self):
+        self.assertEqual(self.checks([attempt(), attempt()]), [])                       # read twice, same result
+        twice = self.checks([attempt(), attempt(outcome="infra_error", reason="infra:cancelled")])
+        self.assertEqual(twice, ["attempt_recorded_twice"])
+
+    def test_decode_gives_the_ledger_key_and_the_waste_rule(self):
+        record = {"input": {"case_id": "case-1", "batch_id": "b-1", "seq": 2, "attempt": 1, "plumbing_version": "p",
+                            "step": {"kind": "writer", "round": 1}},
+                  "result": {"outcome": "provider_limit", "reason": "router:quota",
+                             "usage": {"calls": 1, "paid_usd_micros": 7, "list_usd_micros": 9}}}
+        row = decode(base64.b64encode(pickle.dumps(record)).decode())
+        self.assertEqual((row["key"], row["paid_usd_micros"], row["settles_as_waste"]), ("case-1/2/writer:1/1", 7, True))
+        record["input"]["step"] = {"kind": "admit", "round": 0}
+        self.assertEqual(decode(base64.b64encode(pickle.dumps(record)).decode())["key"], "case-1/2/admit/1")
+
+    def test_violations_reach_the_result_file(self):
+        written = result(audit([], {}, None), 0, 1.0, [("case_stuck", "INVARIANT  case_stuck  b-1 case-1: x")])
+        self.assertEqual((written["invariant_reasons"], written["invariant"], written["counts"]["invariant"]),
+                         (["case_stuck"], ["INVARIANT  case_stuck  b-1 case-1: x"], 1))
 
 
 if __name__ == "__main__":
