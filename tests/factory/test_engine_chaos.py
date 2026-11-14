@@ -198,8 +198,39 @@ def scenario_for(seed):
     if rng.random() < .3:
         sc["disabled_patches"].append("factory_bug_release_wait")   # holds end the workflow
     sc["restarts"] = sorted(rng.uniform(0.3, 5.0) for _ in range(rng.choice([0, 0, 1, 1, 2])))
+    profile = ("mixed", "holds", "money")[seed % 3]
+    if profile == "holds":   # a step that keeps failing on infra, a diagnosis, a hold, then resumes
+        n_step = rng.choice(["writer:1", "stress:1", "gates:1", "writer:2", "gates:2"])
+        reason = rng.choice(["infra:stalled", "infra:invalid_execution", "router:quota", "writer:unchanged_repair"])
+        spec.pop("money_bound_usd_micros", None)
+        sc.pop("lost_start_any", None)
+        sc.pop("dead_any", None)
+        for attempt in range(1, 13):
+            if attempt > 4 and rng.random() < .3:
+                continue   # a resumed rerun may get through
+            if reason == "router:quota":
+                script[f"1/{n_step}/{attempt}"] = {"outcome": "infra_error", "reason": "infra:stalled", "paid": 700}
+            elif reason == "writer:unchanged_repair" and n_step.startswith("writer"):
+                script[f"1/{n_step}/{attempt}"] = {"outcome": "exhausted", "reason": reason, "paid": 700}
+            else:
+                script[f"1/{n_step}/{attempt}"] = {"outcome": "infra_error", "reason": reason.replace(
+                    "writer:unchanged_repair", "infra:stalled"), "paid": rng.choice([0, 700])}
+        for attempt in range(1, 13):
+            script[f"1/diagnosis/{attempt}"] = rng.choice([{"verdict": "factory_bug"}, {"verdict": "factory_bug"},
+                                                           {"verdict": "close_to_passing"},
+                                                           {"outcome": "infra_error", "reason": "infra:stalled"}])
+        sc["disabled_patches"] = ["factory_bug_release_wait"]
+        sc["resume"] = {"override": rng.random() < .5, "extra": rng.random() < .3, "times": 4,
+                        "kill_at": rng.choice([None, rng.uniform(1.0, 4.0)])}
+        return sc
+    if profile == "money":   # cases contend for a small bound; no phantom waste from lost attempts
+        spec["max_cases_started"] = spec["target_sealed"] = 2
+        spec["money_bound_usd_micros"] = rng.choice([2_500_000, 4_000_000, 60 * M])
+        sc.pop("lost_start_any", None)
+        sc.pop("dead_any", None)
     if rng.random() < .35:
-        sc["resume"] = {"override": rng.random() < .5, "extra": rng.random() < .3, "times": rng.randint(1, 3)}
+        sc["resume"] ={"override": rng.random() < .5, "extra": rng.random() < .3, "times": rng.randint(1, 3),
+                     "kill_at": rng.choice([None, rng.uniform(1.0, 4.0)])}
     return sc
 
 
@@ -236,14 +267,25 @@ def run_seed(sc, timeout=75):
             if not any(s in ("held", "retired") for c, s in statuses.items() if c.startswith(case)):
                 break
             batch = f"b-r{i}"
-            s2 = {"spec": {"batch_id": batch, "max_cases_started": 1, "max_infra_retries_per_step": 2},
+            # The same limits as the stopped batch: a resume under other limits diverges by design.
+            limits = {k: v for k, v in sc["spec"].items() if k in ("max_infra_retries_per_step", "max_writer_rounds", "step_deadline_s")}
+            s2 = {"spec": {"batch_id": batch, "max_cases_started": 1, **limits},
                   "resume_of": case, "script": sc["script"], "timing": TIMING, "grace_s": 0.2,
-                  "disabled_patches": ["factory_bug_release_wait"], "actions": []}
+                  "disabled_patches": sc["disabled_patches"],
+                  "actions": []}   # engine_main addresses actions by batch case number, not a resumed case
             if resume["override"]:
                 s2["override"] = f"chaos override {i}"
             if resume["extra"]:
                 s2["case_money_extra"] = {"usd_micros": 10 * M, "reason": f"chaos extra {i}"}
             r2 = ChaosRun(s2, workdir=r.work)
+            if resume.get("kill_at"):   # a controller restart inside the resumed run
+                p = r2.spawn()
+                try:
+                    p.wait(timeout=resume["kill_at"])
+                except Exception:
+                    p.send_signal(signal.SIGKILL)
+                    p.wait()
+                    notes.append(f"resume {i} killed at {resume['kill_at']:.2f}s")
             out = finish(r2, time.monotonic() + timeout)
             out["resume"] = {"batch": batch, "override": s2.get("override")}
             outs.append(out)
