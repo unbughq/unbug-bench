@@ -437,6 +437,31 @@ class AttemptBudget(unittest.TestCase):
         self.assertEqual(sorted(r['state'] for r in ledger['invocation_reservations'].values()), ['settled', 'settled'])
         self.assertEqual(budget.outstanding_reservations(ledger), 0)
 
+    def test_parallel_freshness_searches_are_both_funded_within_the_grant(self):
+        """14 November (86b100-r11): GATES' freshness top-up runs the builder's and the attacker's
+        searches at once. The builder's counted as the uncapped writer, reserved the whole ordinary pool,
+        and the attacker's search was refused grant_insufficient. Both are now capped."""
+        paid = 'openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model'] = paid
+        self.c.router_accounts = NO_GO
+        self.store.capacities['openrouter-key'] = 4
+        self.attempt.ceiling_usd = Decimal('40')
+        window = Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD))
+        both, windows = threading.Barrier(2, timeout=5), {}
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started'] = True
+            windows[name] = Decimal(str(c.model_lease.max_usd))
+            both.wait()                                   # both searches hold their reservations at once
+            state = model_call_gate.Allowance(c.model_lease)
+            state.close(); c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
+                ThreadPoolExecutor(2) as pool:
+            calls = [pool.submit(self.runtime.call, self.c, [paid], 'x', self.root, name)
+                     for name in ('builder-freshness', 'attacker-freshness')]
+            self.assertEqual([f.result(timeout=10) for f in calls], [0, 0])
+        self.assertEqual(windows, {'builder-freshness': window, 'attacker-freshness': window})
+
     def test_a_non_final_codex_stress_call_books_at_most_the_cheap_window(self):
         """22e434-5 (11 November): a Codex attacker refused mid-turn after $0.17 of reported usage. Its
         receipt was non-final, so settlement booked its whole funded window ($48.68 of a $49.40 grant)

@@ -538,7 +538,10 @@ class ModelRuntime:
                         # Keep one qualified reviewer window outside the parent's hold.
                         funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
                         if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
-                    window = call_window(role, requested)
+                    # A writer's freshness search is not its long session: capped like every other call, or
+                    # it reserved the whole ordinary pool and the attacker's search beside it was refused
+                    # (86b100-r11, 14 November: $0.98 spent, gates:3 stopped engine:money at G2).
+                    window = call_window('freshness' if '-freshness' in name else role, requested)
                     if window is not None: funding = min(funding, window)
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)
