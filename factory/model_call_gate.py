@@ -33,6 +33,9 @@ ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN
     'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
 BETAS = 'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,effort-2025-11-24'
 HEADROOM = Decimal('0.000001')
+# Free 4xx rejections in a row (not 429) after which a call stops as upstream_rejected: a permanent one
+# (a prompt too long, a bad request) settles at $0 and would otherwise be retried until the step timeout.
+MAX_REJECTIONS = 3
 _RETAINED = []  # Unresolved firewall cleanup must never release a reusable port.
 BODY_FIELDS = {'model', 'max_tokens', 'messages', 'system', 'tools', 'tool_choice',
     'stream', 'stop_sequences', 'temperature', 'top_p', 'top_k', 'thinking',
@@ -186,13 +189,23 @@ class Allowance:
         self.deadline = deadline
         self.closed = False
         self.paid_failure = None
+        self.rejections, self.rejected = 0, threading.Event()
         self.active, self.connections = {}, {}
         self.forwarded = self.validated = self.unknown = self.unsupported = 0
         self.settled = [Decimal(0), 0, 0]
         self.retained = [Decimal(0), 0, 0]
 
     def is_set(self):
-        return self.paid_failure is not None or self.exhaustion.is_set() or (self.cancel is not None and self.cancel.is_set())
+        return (self.paid_failure is not None or self.exhaustion.is_set() or self.rejected.is_set()
+                or (self.cancel is not None and self.cancel.is_set()))
+
+    def rejection(self, status):
+        """Count a free rejection; MAX_REJECTIONS in a row (429s excluded, they park as quota) stop the call."""
+        with self.condition:
+            if status == 429: return
+            self.rejections += 1
+            if self.rejections >= MAX_REJECTIONS:
+                self.rejected.set(); self.condition.notify_all()
 
     def _held(self):
         return [self.retained[i] + sum(v[i] for v in self.active.values()) for i in range(3)]
@@ -353,6 +366,15 @@ class Usage:
                 or sum(self.counts.get(k, 0) for k in CLAUDE_GATE_FIELDS[:3]) > self.profile['context']):
             return None
         return self.counts | ({'inference_geo': self.geo} if self.geo is not None else {})
+
+    def rejected(self):
+        """Whether a 4xx answer is Anthropic's own JSON error and nothing else: no model output or
+        usage arrived. Only then was nothing billed; any other 4xx body keeps its hold."""
+        if self.streaming or self.invalid or self.started or self.counts: return False
+        try: body = _json(self.body)
+        except (ValueError, TypeError, RecursionError): return False
+        return (isinstance(body, dict) and body.get('type') == 'error' and isinstance(body.get('error'), dict)
+                and 'usage' not in body and 'content' not in body)
 
 
 OPENROUTER_FIELDS = {'model', 'messages', 'tools', 'tool_choice', 'stream', 'stream_options',
@@ -613,7 +635,7 @@ class Handler(BaseHTTPRequestHandler):
         for key in ('User-Agent', 'x-app'):
             if self.headers.get(key): headers[key] = self.headers[key]
         connection = http.client.HTTPSConnection('openrouter.ai' if paid else 'api.anthropic.com', timeout=gate.remaining())
-        usage, sent, parser = None, False, None
+        usage, sent, parser, rejected_status = None, False, None, None
         try:
             with gate.state.lock:
                 if gate.state.closed: return
@@ -639,7 +661,15 @@ class Handler(BaseHTTPRequestHandler):
             while chunk := response.read1(65536):
                 parser.feed(chunk)
                 self.wfile.write(chunk); self.wfile.flush()
-            if response.status == 200 and response.getheader('Content-Encoding', 'identity') == 'identity': usage = parser.final()
+            identity_encoded = response.getheader('Content-Encoding', 'identity') == 'identity'
+            if response.status == 200 and identity_encoded: usage = parser.final()
+            elif not paid and 400 <= response.status < 500 and identity_encoded and parser.rejected():
+                # Anthropic rejected it (a 429 rate or usage limit, a bad request) with its JSON error and
+                # no model output: nothing is billed. Holding its worst case ($9.52 on Opus 5.5) booked
+                # phantom spend on every quota stop and exhausted a $12.50 window at the first 429.
+                # Any other 4xx body, and every 5xx, stays unknown.
+                usage = dict.fromkeys(CLAUDE_GATE_FIELDS, 0)
+                rejected_status = response.status
         except (OSError, ValueError, http.client.HTTPException):
             if not sent:
                 try: self.error(502, 'api_error', 'upstream_unavailable')
@@ -649,6 +679,9 @@ class Handler(BaseHTTPRequestHandler):
             connection.close()
             with gate.state.lock: gate.state.connections.pop(connection, None)
             known = gate.state.finish(identity, usage)
+            if rejected_status is not None and known: gate.state.rejection(rejected_status)
+            elif known:
+                with gate.state.lock: gate.state.rejections = 0
             if paid_id is not None:
                 # Complete before downstream EOF; late completion after close
                 # cannot refund centrally. Failed RPC leaves the entire hold.
@@ -848,3 +881,5 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
             raise error from None
         if gate.state.exhaustion.is_set() and str(failure) != 'cancellation_failed':
             raise BudgetError('model_call_cap') from None
+        if gate.state.rejected.is_set() and str(failure) != 'cancellation_failed':
+            raise BudgetError('upstream_rejected') from None

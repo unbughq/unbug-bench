@@ -73,6 +73,8 @@ _FIXED = {
     "model_unavailable": (_I, "router:model_unavailable"),
     "zero_tokens": (_I, "router:zero_tokens"),
     "refusal": (_I, "router:refusal"),
+    # model_call_gate.MAX_REJECTIONS free 4xx rejections in a row: a permanent bad request, not money.
+    "upstream_rejected": (_I, "router:upstream_rejected"),
     "admission_registry_unavailable": (_I, "admit:registry_unavailable"),
     "selection_board_unavailable": (_I, "admit:selection_board_unavailable"),
     "admission_dedup_unavailable": (_I, "admit:dedup_unavailable"),
@@ -83,6 +85,7 @@ _FIXED = {
     "admission_second_opinion_invalid": (_I, "admit:second_opinion_invalid"),
     "freshness_evidence_unavailable": (_I, "infra:freshness_evidence_unavailable"),
     "freshness_review_unavailable": (_I, "infra:freshness_review_unavailable"),
+    "freshness_refresh_stalled": (_I, "infra:freshness_refresh_stalled"),   # a re-run search refreshed no row
     "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
     "freshness_statement_changed": (_I, "infra:freshness_statement_changed"),
     "freshness_unresolved": (_I, "infra:freshness_unresolved"),
@@ -91,6 +94,10 @@ _FIXED = {
     'diagnosis_cleanup_failed': (_I, 'infra:diagnosis_cleanup_failed'),
     'diagnosis_input_invalid': (_I, 'infra:diagnosis_input_invalid'),
     'diagnosis_result_invalid': (_I, 'infra:diagnosis_result_invalid'),
+    # The root helper's own answer: the model wrote no result, too much, or not a plain file.
+    'diagnosis_result_missing': (_I, 'infra:diagnosis_result_missing'),
+    'diagnosis_result_oversized': (_I, 'infra:diagnosis_result_oversized'),
+    'diagnosis_result_unsafe': (_I, 'infra:diagnosis_result_unsafe'),
     'diagnosis_schema_wait': (_I, 'infra:diagnosis_schema_wait'),
     'extension_snapshot_invalid': (_I, 'infra:extension_snapshot_invalid'),
     'factory_bug_held': (_I, 'infra:factory_bug_held'),
@@ -108,6 +115,9 @@ _FIXED = {
     # exception it does not know into its class name, and these names miss _EXCEPTION's suffixes.
     "InvalidInfra": (_I, "infra:invalid_execution"),          # bin/run_validity.py: no valid verdict
     "InfrastructureExhausted": (_I, "infra:execution_retries_exhausted"),   # run_validity.retry
+    # run.gates_result's fallback stop when the gates stopped on infrastructure with no terminal_stop
+    # (recorded as infra:raw_infrastructure_exhausted on 12 attempts, 2026-11 stop audit).
+    "infrastructure_exhausted": (_I, "infra:execution_retries_exhausted"),
     "TimeoutExpired": (_I, "infra:timeout"),                 # subprocess timeout from run.py sh()
     # Router and route plumbing reached by any model call, the writer's included.
     "provider_wait_unsettled": (_I, "infra:provider_wait_unsettled"),        # model_router.await_lease

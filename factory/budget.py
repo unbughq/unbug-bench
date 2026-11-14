@@ -422,10 +422,11 @@ def _settle_leaf(ledger, receipt, wait_id=None):
     if gate is not None: bound = min(bound, gate)
     estimate = (max(Decimal(0), bound - booked).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
                 if not receipt['final_usage_known'] else Decimal(0))
-    if row.get('route') in GO_ROUTES:
-        # A Go plan call's unseen tail is still paid by the plan, so it books no money ("book Go
-        # at cost", founder 2026-11-09). Booking its whole maximum as case money is what filled
-        # cae763-2's and 22e434-3's $50 with no real spend.
+    if row.get('route') in GO_ROUTES or row.get('route') in CODEX_PRICES:
+        # A Go plan or Codex subscription call's unseen tail is still paid by the plan, so it books
+        # no money ("book Go at cost", founder 2026-11-09). Booking its whole maximum as case money
+        # is what filled cae763-2's and 22e434-3's $50 with no real spend, and 22e434-5's (three
+        # Codex refusals and an expired Codex login at $12.50 each, 11-12 November).
         estimate = Decimal(0)
     if row['state'] == 'estimated' and not receipt['final_usage_known']:
         # An estimate is already a ceiling (closed gate or maximum). Non-final
@@ -645,7 +646,7 @@ def _spending(ledger, models_used=None):
     ledger = ledger or {}
     roles = {}
     for name, model in (models_used or {}).items():
-        roles.setdefault(model, set()).add(invocation_role(name))
+        roles.setdefault(model, set()).add(_ledger_role(name))
     breakdown, events, event_roles = {}, {}, {}
     observed = [Decimal(0), Decimal(0), Decimal(0)]
     unpriced = len(ledger.get('unpriced_invocations', []))
@@ -676,7 +677,7 @@ def _spending(ledger, models_used=None):
         except BudgetError:
             unpriced += 1
             continue
-        role = invocation_role(row['call_name'])
+        role = _ledger_role(row['call_name'])
         breakdown[role] = breakdown.get(role, Decimal(0)) + gap
     model_total = sum(breakdown.values(), Decimal(0))
     waste, additive_waste = Decimal(0), Decimal(0)
@@ -836,10 +837,26 @@ def usage_coverage(ledger):
     except (BudgetError, ValueError, TypeError, KeyError, AttributeError, InvalidOperation): return None
 
 
+# A model call's name says whose model it uses (pin check, effort, accounting). Diagnosis runs on the first
+# reviewer's model (diagnosis_dispatch.reviewer). An unknown name is refused: it once fell through to
+# 'reviewer' and the second reviewer's calls failed the first reviewer's pin ('role family changed').
+CALL_ROLES = (('builder', 'writer'), ('attacker', 'stress_tester'), ('strong-calibrator', 'strong_calibrator'),
+              ('easy-calibrator', 'easy_calibrator'), ('reviewer-2', 'reviewer2'), ('reviewer', 'reviewer'),
+              ('diagnosis-', 'reviewer'))
+
+
 def invocation_role(name):
-    return ('writer' if name.startswith('builder') else 'stress_tester' if name.startswith('attacker') else
-            'strong_calibrator' if name.startswith('strong-calibrator') else 'easy_calibrator' if name.startswith('easy-calibrator') else
-            'reviewer2' if name.startswith('reviewer-2') else 'reviewer')
+    for prefix, role in CALL_ROLES:
+        if name.startswith(prefix) and (prefix != 'reviewer' or name == prefix or name[len(prefix)] == '-'):
+            return role
+    raise ValueError(f'unknown model call name: {name!r}')
+
+
+def _ledger_role(name):
+    """Accounting also reads names saved by older releases: those keep the old catch-all, so a
+    saved ledger's role totals never change."""
+    try: return invocation_role(name)
+    except ValueError: return 'reviewer'
 
 
 def require_case_budget(ledger, limit, configured_model=None):
@@ -1596,7 +1613,13 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model})
             if invocation in ledger.get('active', []): ledger['active'].remove(invocation)
             if not ledger.get('active'): ledger.pop('active', None)
-            if ledger.get('terminal_stop') in (None, 'running', 'complete'):
+            if isinstance(error, BudgetError) and str(error) == 'cancelled':
+                # This call's own cancel (its gate's cap, or a role_cancel) is not a ledger stop: peers stop only
+                # through the cancel object they themselves hold. Writing it here stopped the writer's concurrent
+                # repair when 2abb0a's early probe hit its cap (gates:9, 13 November). A failed kill still sticks
+                # (cancellation_failed, here or in the finally below).
+                if ledger.get('terminal_stop') == 'running' and not ledger.get('active'): ledger['terminal_stop'] = 'complete'
+            elif ledger.get('terminal_stop') in (None, 'running', 'complete'):
                 ledger['terminal_stop'] = str(error) if isinstance(error, BudgetError) else type(error).__name__
                 if getattr(error, 'provider_failure', None): ledger['provider_failure'] = error.provider_failure
                 if isinstance(error, BudgetError) and str(error) == 'process_error':
@@ -1613,8 +1636,9 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             with transaction():
                 ledger.setdefault('cleanup_errors', []).append({
                     'stage':'process_cancellation', 'error':type(cleanup_error).__name__})
-                # A failure on the success path is itself a stop; never return success.
-                if original is None: ledger['terminal_stop'] = 'cancellation_failed'
+                # A failed kill is itself a stop, on the success path or after an own cancel left none: an orphan
+                # process must block the next admission. Never return success.
+                if ledger.get('terminal_stop') in (None, 'running', 'complete'): ledger['terminal_stop'] = 'cancellation_failed'
             if original is None: raise BudgetError('cancellation_failed') from cleanup_error
         finally:
             if process is not None: process.stdout.close()

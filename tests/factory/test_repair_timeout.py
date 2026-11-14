@@ -1,19 +1,14 @@
 """Replay collected canary metadata; never reconstruct or read real search rows."""
-import copy
-import hashlib
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
-import types
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import budget
-import run
 
 
 class RepairTimeoutTests(unittest.TestCase):
@@ -23,29 +18,9 @@ class RepairTimeoutTests(unittest.TestCase):
         self.assertEqual((info['searches'], info['invalid_evidence'], info['unresolved_hits']), (49, 44, 1))
         self.assertEqual(info['invalid_evidence_reasons'], {'evidence_expired': 27, 'invalid_app_version': 17})
         self.assertEqual(info['counted'], {'builder_web': 0, 'builder_github': 0, 'attacker': 5})
-        with tempfile.TemporaryDirectory() as temp:
-            work = Path(temp); case = work / 'case'; case.mkdir()
-            # Placeholder statement only. Replay G2's real aggregate, no invented evidence rows.
-            (case / 'statement.md').write_bytes(b'synthetic identity')
-            state = {**card['freshness_repair'], 'statement_sha256': hashlib.sha256(b'synthetic identity').hexdigest()}
-            path = work / 'freshness-repair.json'; path.write_text(json.dumps(state))
-            c = types.SimpleNamespace(work=work, case=case, card=copy.deepcopy(card),
-                args=types.SimpleNamespace(resume=card['case']))
-            with patch.object(run, 'g2', return_value=(False, info)), patch.object(run, 'freshness_topup') as topup:
-                with self.assertRaisesRegex(budget.BudgetError, 'freshness_evidence_unavailable'):
-                    run.ensure_freshness(c)
-                topup.assert_not_called()
-            # Explicit restore reset, not an ensure_freshness exemption.
-            state['attempts'] = 0; path.write_text(json.dumps(state))
-            with patch.object(run, 'g2', return_value=(False, info)), \
-                 patch.object(run, 'freshness_lines', return_value=[]), \
-                 patch.object(run, 'freshness_topup', side_effect=budget.BudgetError('timeout')) as topup:
-                with self.assertRaisesRegex(budget.BudgetError, '^timeout$'): run.ensure_freshness(c)
-            topup.assert_called_once_with(c, reverify_timeout=1200)
-            self.assertEqual(json.loads(path.read_text())['attempts'], 1)
-            ledger = card['continuation_budget']
-            with self.assertRaisesRegex(budget.BudgetError, 'budget_exhausted'): budget.require_case_budget(ledger, 50)
-            self.assertEqual(budget.case_spending(ledger)['known_spent_usd'], 27.072383602)
+        ledger = card['continuation_budget']
+        with self.assertRaisesRegex(budget.BudgetError, 'budget_exhausted'): budget.require_case_budget(ledger, 50)
+        self.assertEqual(budget.case_spending(ledger)['known_spent_usd'], 27.072383602)
 
     def stream(self, driver, events, model, **kwargs):
         with tempfile.TemporaryDirectory() as temp:

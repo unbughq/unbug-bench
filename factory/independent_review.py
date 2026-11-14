@@ -21,7 +21,7 @@ def review(c, r, gate, inputs, instruction, validate):
     if copied != binding['inputs']: raise InvalidInfra('review inputs changed')
     journal = directory / 'reviews.json'
     state = json.loads(journal.read_text()) if journal.exists() else {}
-    for chain in c.models['reviewers']:
+    for index, chain in enumerate(c.models['reviewers']):
         family = r.family(chain[0])
         if family in blocked: continue
         blocked.add(family)
@@ -39,7 +39,8 @@ def review(c, r, gate, inputs, instruction, validate):
         state[family] = {'status': 'running', 'output': output.name, 'model': chain[0]}
         atomic_results(journal, state)
         code = r.model_call(c, chain, instruction + '\nWrite the JSON verdict to ' + str(output) + '.',
-                            directory, 'reviewer-' + gate.lower())
+                            directory,
+                            ('reviewer-' if index == 0 else f'reviewer-{index + 1}-') + gate.lower())
         if {name: tree_digest(directory / name) for name in inputs} != copied:
             raise InvalidInfra('reviewer changed input evidence')
         try: result = None if code else validate(json.loads(output.read_text()))

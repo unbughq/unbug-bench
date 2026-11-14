@@ -410,6 +410,17 @@ so it is the $50 ceiling less the import spend and less what every earlier batch
 (the ledger holds only batch spend, never the import's, so nothing is counted twice). A recorded
 attempt replays from its key whatever case money its job now carries.
 
+A diagnosed step whose last three infra attempts (pauses and deadline stops aside) all stopped on one
+reason, with no attempt reaching a verdict, is a `factory_bug` decided in code: the DIAGNOSIS step
+writes that verdict without a model call (`steps/diagnosis.py` `repeated_infra_stop`), since the step
+cannot run whatever the case is like. Stops the case itself can cause (`_CASE_CAUSED`: a flagged public
+hit no reviewer settles, search rows with real defects) still go to the agent. Expired or unretrieved
+rows a re-run search did not refresh stop `infra:freshness_refresh_stalled`, which stays a factory bug:
+nothing yet tells our retrieval outage from a dead link there. The
+resulting hold resumes on its own only for a GATES, writer or stress step
+(`FACTORY_BUG_RESUMABLE_INFRA`, below); a held step of any other kind, such as SEAL, needs an operator
+override to resume.
+
 A case held by a `factory_bug` diagnosis resumes the same way, but only when the diagnosed step
 stopped on a factory check rather than a scientific result (`FACTORY_BUG_RESUMABLE`: today a
 writer's `writer:unchanged_repair` or `writer:output_capped`), or when it is a GATES, writer or stress step
@@ -533,9 +544,20 @@ Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
 geography stays conservatively priced, while explicit global usage releases it.
 Engine invocations request a quote bounded by their currently uncommitted attempt
 funding. OpenRouter qualification-sized default windows are replaced by this
-funded window (at most $50, and at most $12.50 for every role but the writer on every family,
-Codex and Claude included, so four such calls fit one grant at once and a non-final receipt, which
-books its whole window, cannot exhaust it); explicit Claude profile ceilings remain binding.
+funded window (at most $50; for every role but the writer, `model_runtime.call_window`: $12.50 on
+every family except Claude, whose cap is $12.50 plus the one request hold its gate keeps before
+forwarding, $9.52 on Opus 5.5, so $22.02 funds $12.50 of real spend). An unconfirmed receipt then costs
+a grant at most: an OpenRouter call its whole window ($12.50); the unseen tail of an OpenCode Go plan call, or of a
+`codex/` call on the ChatGPT subscription (`codex-auth.json`, routes in `token_prices.CODEX_PRICES`), is paid by
+its plan and books $0, so only what it reported is booked (a Codex-family model reached through OpenRouter is paid
+per request and keeps its gate bound, founder 2026-11-14); a Claude call its closed gate's
+bound, real spend plus the holds of requests still unconfirmed (usually one, $9.52), never its whole
+window. Explicit Claude profile ceilings remain binding. A Claude gate settles a 4xx at $0 only when
+Anthropic answered with its JSON `{"type":"error"}` body and no model output or usage arrived (a 429
+rate or usage limit, a bad request: rejected before any model work); any other 4xx body, and every 5xx,
+keeps its whole hold. After `model_call_gate.MAX_REJECTIONS` (3) such free rejections in a row, 429s
+excluded, the call stops as `router:upstream_rejected`, so a permanent bad request cannot run to the
+step timeout; a 429 quota still parks as `router:quota`.
 A reservation is marked launched before its model process can start; a pending one never
 launched spent nothing, so spend accounting and crash reconciliation settle it at $0, while
 admission still counts it.
@@ -547,8 +569,9 @@ wallet spending limit including all retained charges. Restart applies an explici
 limit transactionally without resetting settled or uncertain spending; live wallet
 credit is checked separately on every paid request (a refused request still records the balance it saw).
 A paid route whose ceiling cannot cover one more request's hold is also refused at lease time as a
-`credit` wait; current holds are under the guard's $1 margin, so with the guard running its stop
-usually comes first. An older request waiting only on such routes does not hold back newer requests
+`credit` wait; current holds are under the guard's $1 margin. Within that margin the guard pauses new
+attempts (degraded) until the ceiling is raised; steps in flight keep running, and their paid calls
+end as clean `router:credit` waits. Only router spend past its ceiling is a hard stop. An older request waiting only on such routes does not hold back newer requests
 for that pool. Without this setting, the
 historical first-use qualification ceiling remains fixed across restarts.
 An unconfirmed paid request books its whole hold until the provider says otherwise.

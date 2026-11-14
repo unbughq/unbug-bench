@@ -279,12 +279,115 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(state['completed_defects'], 0)
         self.assertEqual(len(self.calls), 4)
 
-    def test_ineffective_completed_refresh_spends_defects(self):
+    def test_ineffective_refresh_is_a_retryable_stall_not_a_defect(self):
+        # A refresh that re-ran no search is a retrieval outage: it stops this attempt with its own
+        # infra reason, and it never spends the defect bound that would block every later refresh.
         self.searches(True)
         self.cli(lambda *a: None)
-        with self.assertRaisesRegex(budget.BudgetError, 'freshness_evidence_unavailable'): run.g2(self.c)
-        self.assertEqual(json.loads((self.work/'freshness-repair.json').read_text())['completed_defects'], 2)
-        self.assertEqual(len(self.calls), 4)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        self.assertEqual(json.loads((self.work/'freshness-repair.json').read_text())['completed_defects'], 0)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_expired_and_unretrieved_rows_are_refreshed_after_spent_defects(self):
+        # case-import-f46dac-5-1, 11-14 November: two earlier repairs had spent the defect bound, so
+        # every writer round stopped freshness_evidence_unavailable on 78 expired and 4 retrieval-failed
+        # rows without re-running a single search, and the rows only grew older.
+        rows = self.searches(True)
+        rows[0]['retrieved'] = rows[-1]['retrieved'] = False
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        atomic_json(self.work / 'freshness-repair.json', {'version': 2, 'completed_defects': 2, 'pending': None,
+            'statement_sha256': hashlib.sha256((self.case / 'statement.md').read_bytes()).hexdigest()})
+        self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        def emit(c, text, name, cwd):
+            who = name.split('-')[0]
+            rows = [json.loads(line) for line in (Path(cwd) / 'freshness.jsonl').read_text().splitlines()]
+            for row in rows:
+                if row['who'] == who: row.update(at=datetime.now(timezone.utc).isoformat(), retrieved=True)
+            (Path(cwd) / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        self.cli(emit)
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 2)
+
+    def test_new_valid_searches_count_as_refresh_progress(self):
+        # A top-up opened because searches were short appends a real search and one that came back
+        # unretrieved: it made progress, so it is not a stall; the next refresh retrieves the row.
+        rows = self.searches()
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows[1:]))
+        self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        def emit(c, text, name, cwd):
+            path = Path(cwd) / 'freshness.jsonl'
+            current = [json.loads(line) for line in path.read_text().splitlines()]
+            if len(self.calls) == 1:
+                current += [{**rows[0], 'query': 'new web query', 'url': 'https://github.com/medusajs/medusa/issues/90'},
+                            {**rows[0], 'query': 'unretrieved web query', 'retrieved': False,
+                             'url': 'https://github.com/medusajs/medusa/issues/91'}]
+            else:
+                for row in current: row['retrieved'] = True
+            path.write_text(''.join(json.dumps(r)+'\n' for r in current))
+        self.cli(emit)
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertEqual([name for name, _, _ in self.calls], ['builder-freshness'] * 2)
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 0)
+
+    def test_an_unretrieved_row_with_spare_searches_stalls_after_one_useless_refresh(self):
+        # Every top-up may add spare searches. With G2's minimum already met they are no progress on
+        # the unretrieved row: one refresh that fixed nothing stalls.
+        rows = self.searches()
+        dead = {**rows[0], 'query': 'dead link query', 'retrieved': False,
+                'url': 'https://github.com/medusajs/medusa/issues/404'}
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows + [dead]))
+        def emit(c, text, name, cwd):
+            path = Path(cwd) / 'freshness.jsonl'
+            extra = [{**rows[0], 'query': f'spare query {len(self.calls)} {i}',
+                      'url': f'https://github.com/medusajs/medusa/issues/{200 + 10 * len(self.calls) + i}'} for i in range(2)]
+            path.write_text(path.read_text() + ''.join(json.dumps(r)+'\n' for r in extra))
+        self.cli(emit)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        self.assertEqual([name for name, _, _ in self.calls], ['builder-freshness'])
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 0)
+
+    def short_builder_and_unretrieved_attacker_row(self, builder_adds):
+        """Builder short of web searches; one attacker row stays unretrieved. The attacker always adds
+        two spare searches; the builder adds one valid web search only if builder_adds."""
+        rows = self.searches()
+        dead = {**rows[-1], 'query': 'unretrieved attacker query', 'retrieved': False,
+                'url': 'https://github.com/medusajs/medusa/issues/404'}
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows[1:] + [dead]))
+        self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        def emit(c, text, name, cwd):
+            path, n = Path(cwd) / 'freshness.jsonl', len(self.calls)
+            source = rows[0] if name.startswith('builder') else rows[-1]
+            extra = [] if name.startswith('builder') and not builder_adds else [
+                {**source, 'query': f'{name} spare {n} {i}',
+                 'url': f'https://github.com/medusajs/medusa/issues/{300 + 10 * n + i}'}
+                for i in range(1 if name.startswith('builder') else 2)]
+            path.write_text(path.read_text() + ''.join(json.dumps(r)+'\n' for r in extra))
+        self.cli(emit)
+
+    def test_spare_searches_of_another_role_do_not_rescue_a_short_role(self):
+        # A role still short after its top-up is a real defect, not a refresh: the attacker's spares do
+        # not count for it, and two such top-ups spend the defect bound.
+        self.short_builder_and_unretrieved_attacker_row(builder_adds=False)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_evidence_unavailable$'): run.g2(self.c)
+        self.assertEqual(sorted(name for name, _, _ in self.calls), ['attacker-freshness'] * 2 + ['builder-freshness'] * 2)
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 2)
+
+    def test_valid_searches_added_by_the_short_role_are_progress(self):
+        self.short_builder_and_unretrieved_attacker_row(builder_adds=True)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        # The builder's new search was progress, so a second refresh ran; it fixed nothing and stalled.
+        self.assertEqual(sorted(name for name, _, _ in self.calls),
+                         ['attacker-freshness', 'attacker-freshness', 'builder-freshness'])
+
+    def test_a_real_defect_still_stops_after_spent_defects(self):
+        rows = self.searches(True)
+        rows[0]['app_version'] = 'not a version'
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        atomic_json(self.work / 'freshness-repair.json', {'version': 2, 'completed_defects': 2, 'pending': None,
+            'statement_sha256': hashlib.sha256((self.case / 'statement.md').read_bytes()).hexdigest()})
+        self.cli(lambda *a: self.fail('a spent defect bound buys no more repairs'))
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_evidence_unavailable$'): run.g2(self.c)
 
     def stress_setup(self, emit):
         self.patch(run, 'g1', return_value=(True, {'problems': []}))

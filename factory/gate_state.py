@@ -290,8 +290,10 @@ def fingerprint(c, gate, bench):
 
 
 def inventory(c, bench):
-    """Files a gate may cite as evidence. Bench progress files are live status, never evidence.
+    """Files a gate may cite as evidence. Bench state (slot_state.is_state: progress, overrides,
+    receipts, seed IDs, temporaries) is never evidence; the evidence gather (run_artifacts) uses the same rule.
     While two lanes run, `evidence_scope(kind, relative)` keeps each gate to its own files."""
+    import slot_state
     paths = {}
     scope = getattr(c, "evidence_scope", None)
     # A mid-gate snapshot moves bench results into c.work/bench-results; load looks in both.
@@ -300,7 +302,7 @@ def inventory(c, bench):
     roots += [("work", p) for p in c.work.glob("review-*") if p.is_dir()]
     for kind, root in roots:
         for p in root.rglob("*") if root.exists() else []:
-            if p.is_file() and not p.name.startswith(".") and not p.name.startswith("bench-progress-"):
+            if p.is_file() and not slot_state.is_state(p.relative_to(root).as_posix()):
                 base = c.work if kind == "work" else (c.work / "bench-results" if root == c.work / "bench-results" else bench / "results")
                 relative = p.relative_to(base).as_posix()
                 if scope is None or scope(kind, relative): paths[(kind, relative)] = p

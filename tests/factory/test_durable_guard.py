@@ -663,14 +663,38 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.tick()["phase"], "stopped")
         self.assertEqual(self.f.deleted, ["bx_aaaaaaaa"])
 
-    def test_real_router_spend_stops_when_the_ledger_reads_low(self):
-        """Live on 6 November the ledger booked $0.91 for an attempt the router charged $4.91."""
+    def test_router_spend_at_its_ceiling_pauses_new_attempts_and_keeps_steps_in_flight(self):
+        """The router refuses every paid request past its ceiling itself (a clean router:credit wait), so
+        reaching it spends nothing more. A hard stop there gave steps in flight 10 minutes, then deleted
+        their workers: hours-long Claude and Codex steps that cost no router money were lost as waste.
+        Near the ceiling the guard now pauses new attempts until it is raised (router restart)."""
         self.f.money = {"spent": 1, "bound": 2, "held": 0}
         guard = self.f.guard(router=lambda: (49.2, 49.95))   # short of it, as the router never quite reaches it
         self.f.clock += 60
         out = guard.run()
-        self.assertEqual((out["phase"], out["hard_stop"]), ("stopped", "money_ceiling"))
+        self.assertEqual((out["phase"], out["hard_stop"], out["failed_checks"]), ("degraded", None, ["router_spend"]))
         self.assertEqual(out["router_spent_usd"], 49.2)
+        self.assertEqual(self.f.deleted, [])
+        paused = [m for m in self.f.sent if "at its ceiling; new attempts paused" in m]
+        self.assertEqual(len(paused), 1)                                  # at once, not after 15 minutes
+        for _ in range(20):                                               # and only once, no generic alert
+            self.f.clock += 60
+            self.f.guard(router=lambda: (49.2, 49.95)).run()
+        self.assertEqual([m for m in self.f.sent if "at its ceiling" in m], paused)
+        self.assertFalse(any("keeps failing" in m for m in self.f.sent))
+        self.f.clock += 60
+        out = self.f.guard(router=lambda: (49.2, 80.0)).run()                # raised: resumes
+        self.assertEqual((out["failed_checks"], out["hard_stop"]), ([], None))
+        self.assertFalse(degraded(self.f.state_dir))
+
+    def test_real_router_spend_past_its_ceiling_stops_when_the_ledger_reads_low(self):
+        """Live on 6 November the ledger booked $0.91 for an attempt the router charged $4.91. Spend the
+        router let past its own ceiling is a breach: still a hard stop."""
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        guard = self.f.guard(router=lambda: (50.2, 49.95))
+        self.f.clock += 60
+        out = guard.run()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("stopped", "money_ceiling"))
 
     def test_router_books_are_read_for_real(self):
         db = self.f.state_dir / "router.sqlite3"
@@ -728,7 +752,7 @@ class GuardTests(unittest.TestCase):
                  "unavailable": [], "spend_usd_micros": {"spent": 0, "held": 0, "waste": 0}}
         line = next(l for l in render_board(board).splitlines() if l.startswith("Router paid"))
         self.assertIn("$40.50 of $50.00 ceiling (81%); provider credit $23.00; burning $", line)
-        self.assertIn("guard stop in ~", line)
+        self.assertIn("guard pause in ~", line)
 
     def test_router_below_its_ceiling_changes_nothing_and_unreadable_only_degrades(self):
         self.f.money = {"spent": 1, "bound": 2, "held": 0}
@@ -829,6 +853,76 @@ class GuardTests(unittest.TestCase):
 
     def test_check_failed_detail_is_scrubbed(self):
         self.assertEqual(CheckFailed("x", "from 1.2.3.4").detail, "from [ip]")
+
+
+class StopAuditAlertTests(unittest.TestCase):
+    """The guard reads bin/stop_audit's result file only; whatever is there, it alerts and never raises."""
+
+    def alerts(self, content=None, now=NOW, make=None):
+        from durable.guard import STOP_AUDIT_FILE, stop_audit_alerts
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / STOP_AUDIT_FILE
+            if content is not None:
+                path.write_text(content if isinstance(content, str) else json.dumps(content))
+            if make is not None:
+                make(path)
+            return stop_audit_alerts(path, now)
+
+    @staticmethod
+    def result(**fields):
+        return {"written_at": NOW - 600, "counts": {"attempts": 10, "undecodable": 0}, "regression": [],
+                "unknown": [], "regression_reasons": [], "unknown_reasons": [], **fields}
+
+    def test_a_fresh_clean_result_raises_nothing(self):
+        self.assertEqual(self.alerts(self.result()), {})
+
+    def test_regressions_and_unknown_reasons_alert_once_keyed_by_reason(self):
+        out = self.alerts(self.result(written_at=NOW - 60, regression_reasons=["infra:example_fixed"],
+                                      unknown_reasons=["infra:raw_key_error", "not a reason /etc/passwd"]))
+        self.assertEqual(out, {"stop_audit:infra:example_fixed,infra:raw_key_error":
+                               "Stop audit: fixed bugs came back: infra:example_fixed; "
+                               "unclassified stops: infra:raw_key_error. Run bin/stop_audit."})
+
+    def test_broken_invariants_alert_like_regressions(self):
+        out = self.alerts(self.result(invariant=["INVARIANT  batch_over_bound  b-1: held 0 + spent 2 > bound 1"],
+                                      invariant_reasons=["batch_over_bound", "waste_on_case_money", "Not A Check!"]))
+        self.assertEqual(out, {"stop_audit:invariant:batch_over_bound,waste_on_case_money":
+                               "Stop audit: invariants broken: batch_over_bound, waste_on_case_money. "
+                               "Run bin/stop_audit."})
+        self.assertEqual(list(self.alerts(self.result(invariant_reasons="batch_over_bound"))),
+                         ["stop_audit:unreadable"])
+
+    def test_mostly_undecodable_outputs_alert(self):
+        self.assertEqual(self.alerts(self.result(counts={"attempts": 5, "undecodable": 5})), {})
+        out = self.alerts(self.result(counts={"attempts": 4, "undecodable": 6}))
+        self.assertEqual(list(out), ["stop_audit:undecodable"])
+        self.assertIn("can't read step results: 6 of 10", out["stop_audit:undecodable"])
+
+    def test_missing_stale_or_corrupt_results_alert_instead_of_raising(self):
+        import os
+        self.assertEqual(list(self.alerts()), ["stop_audit:missing"])
+        stale = self.alerts(self.result(written_at=NOW - 3600))
+        self.assertEqual(list(stale), ["stop_audit:stale"])
+        self.assertIn("60 minutes old", stale["stop_audit:stale"])
+        unreadable = ["{not json", "[]", "null", json.dumps({}), json.dumps(self.result(written_at="yesterday")),
+                      "{" + '"written_at": 1e999' + "}", json.dumps(self.result(written_at=float("inf"))),
+                      json.dumps(self.result(written_at=float("nan"))),
+                      json.dumps(self.result(regression_reasons=7)), json.dumps(self.result(unknown_reasons="x")),
+                      json.dumps(self.result(regression={})), json.dumps(self.result(counts={"attempts": 1})),
+                      json.dumps(self.result(counts={"attempts": -1, "undecodable": 0})),
+                      json.dumps(self.result(regression_reasons=["infra:x"] * 20000))]   # over 64 KiB
+        for corrupt in unreadable:
+            self.assertEqual(list(self.alerts(corrupt, now=NOW)), ["stop_audit:unreadable"], corrupt[:60])
+        self.assertEqual(list(self.alerts(self.result(), now=float("inf"))), ["stop_audit:unreadable"])
+        # A finite but absurd time cannot overflow or switch the stale alert off.
+        self.assertEqual(list(self.alerts(self.result(written_at=-1e308))), ["stop_audit:stale"])
+
+        def link(path):   # a symlink to a good result is refused, never followed
+            (path.parent / "real.json").write_text(json.dumps(self.result()))
+            path.symlink_to(path.parent / "real.json")
+        self.assertEqual(list(self.alerts(make=link)), ["stop_audit:unreadable"])
+        self.assertEqual(list(self.alerts(make=lambda path: os.mkfifo(path))), ["stop_audit:unreadable"])
+        self.assertEqual(list(self.alerts(make=lambda path: path.mkdir())), ["stop_audit:unreadable"])
 
 
 if __name__ == "__main__":

@@ -200,6 +200,9 @@ class RealStops(unittest.TestCase):
         'diagnosis_cleanup_failed:': ("infra_error", 'infra:diagnosis_cleanup_failed'),
         'diagnosis_input_invalid': ("infra_error", 'infra:diagnosis_input_invalid'),
         'diagnosis_result_invalid': ("infra_error", 'infra:diagnosis_result_invalid'),
+        'diagnosis_result_missing': ("infra_error", 'infra:diagnosis_result_missing'),
+        'diagnosis_result_oversized': ("infra_error", 'infra:diagnosis_result_oversized'),
+        'diagnosis_result_unsafe': ("infra_error", 'infra:diagnosis_result_unsafe'),
         'diagnosis_schema_wait': ("infra_error", 'infra:diagnosis_schema_wait'),
         'extension_snapshot_invalid': ("infra_error", 'infra:extension_snapshot_invalid'),
         'factory_bug_held': ("infra_error", 'infra:factory_bug_held'),
@@ -222,6 +225,7 @@ class RealStops(unittest.TestCase):
         'admission_second_opinion_invalid': ("infra_error", 'admit:second_opinion_invalid'),
         'freshness_evidence_unavailable': ("infra_error", 'infra:freshness_evidence_unavailable'),
         'freshness_review_unavailable': ("infra_error", 'infra:freshness_review_unavailable'),
+        'freshness_refresh_stalled': ("infra_error", 'infra:freshness_refresh_stalled'),
         'freshness_repair_state_invalid': ("infra_error", 'infra:freshness_repair_state_invalid'),
         'freshness_statement_changed': ("infra_error", 'infra:freshness_statement_changed'),
         'freshness_unresolved': ("infra_error", 'infra:freshness_unresolved'),
@@ -256,6 +260,7 @@ class RealStops(unittest.TestCase):
         "provider_routes_exhausted": ("provider_limit", "router:provider_wait"),
         "provider_wait_deadline": ("infra_error", "infra:deadline"),
         "refusal:": ("infra_error", "router:refusal"),
+        "upstream_rejected": ("infra_error", "router:upstream_rejected"),
         "reservation_already_invoked": ("infra_error", "infra:ledger_error"),
         "reservation_mismatch": ("infra_error", "infra:ledger_error"),
         "resume_while_active": ("infra_error", "infra:ledger_error"),
@@ -417,6 +422,15 @@ class RealStops(unittest.TestCase):
             c = classify(stop, step=StepKind.WRITER, now=NOW)
             self.assertEqual(c, Classified(Outcome.INFRA_ERROR, reason), stop)
             self.assertIn(c.reason, PUBLISHED_REASONS, stop)
+
+    def test_the_gates_fallback_stop_is_the_retries_exhausted_reason(self):
+        # run.gates_result stops with "infrastructure_exhausted" when the card has no terminal_stop;
+        # it fell through to infra:raw_infrastructure_exhausted (stop audit, 2026-11-14).
+        for stop in ("infrastructure_exhausted", "Budget stopped: infrastructure_exhausted"):
+            self.assertEqual(classify(stop, step=StepKind.GATES, now=NOW),
+                             classify("InfrastructureExhausted", step=StepKind.GATES, now=NOW), stop)
+        self.assertEqual(classify("infrastructure_exhausted", step=StepKind.GATES, now=NOW),
+                         Classified(Outcome.INFRA_ERROR, "infra:execution_retries_exhausted"))
 
 
 class RetryAt(unittest.TestCase):

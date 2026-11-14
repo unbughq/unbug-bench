@@ -6,7 +6,7 @@ import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import argparse, json, pathlib, sys, tempfile
+import argparse, json, pathlib, sys, tempfile, time
 from unittest import mock
 sys.path.insert(0, str((pathlib.Path(__file__).resolve().parents[2] / "factory")))
 import run
@@ -88,7 +88,8 @@ with tempfile.TemporaryDirectory() as tmp, mock.patch.object(run, 'BENCH', _TEST
         assert run.find_guard(fc, "repaired", case / "scenarios/S7b") == case / "scenarios/S7a/examples/repaired"
     with tempfile.TemporaryDirectory() as t:  # G2 top-up: one call, only for the role that logged too few searches
         fc = types.SimpleNamespace(case=pathlib.Path(t) / "case", work=pathlib.Path(t), card={}, args=argparse.Namespace(source="port", runs=1, scenario_runs=1),
-                                   models={"builder": ["claude/x"], "attacker": ["opencode-go/y"]})
+                                   models={"builder": ["claude/x"], "attacker": ["opencode-go/y"]},
+                                   engine=types.SimpleNamespace(deadline_monotonic=time.monotonic() + 600))  # the attempt's deadline
         fc.case.mkdir()
         from test_admission import evidence
         serial = iter(range(100))

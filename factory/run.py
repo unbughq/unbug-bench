@@ -453,8 +453,9 @@ def provider_preflight(c, step=None):
     if not (pathlib.Path(c.case) / "statement.md").is_file():
         checks.insert(0, ("writer", c.models["builder"], "builder-provider-preflight"))
     at = 2 if checks[0][0] == "writer" else 1
+    # The call name carries the role (budget.invocation_role): the second reviewer's starts 'reviewer-2'.
     checks[at:at] = [('reviewer' if i == 0 else 'reviewer2', chain,
-                    'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
+                    'reviewer-provider-preflight' if i == 0 else f'reviewer-{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
     for role, chain, name in checks:
         # A calibrator never takes a free or Go plan lane (ModelRuntime._call): where its chain has one,
@@ -529,20 +530,13 @@ def finish_freshness_repair(c):
     if changed: raise BudgetError('freshness_statement_changed')
 
 
-def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_completed=None):
+def freshness_topup(c, *, completed_roles=(), role_completed=None):
     """One short call per role short of the G2 search minimum (models skip the logging duty)."""
     from admission import search_evidence_error
-    from registry import atomic_json
     finish_freshness_repair(c)
     counts_before = freshness_counts(c)
-    if under_engine(c):
-        # Busy searching is not a stall. The attempt's deadline, call limits and grant bound it.
-        deadline = c.engine.deadline_monotonic
-    else:
-        if reverify_timeout is None:
-            reverify_timeout = min(1200, max(300, 60 * sum(
-                search_evidence_error(row) is not None for row in freshness_lines(c))))
-        deadline = time.monotonic() + min(reverify_timeout, getattr(c.args, 'agent_timeout', 1200))
+    # Busy searching is not a stall. The attempt's deadline, call limits and grant bound it.
+    deadline = c.engine.deadline_monotonic
     def role_state(who):
         n = freshness_counts(c)
         errors = [{"row": i + 1, "reason": reason} for i, row in enumerate(freshness_lines(c))
@@ -687,54 +681,8 @@ def _freshness_searches(c, plans, deadline, role_completed):
 
 def ensure_freshness(c):
     """Refresh the admitted idea; Engine attempts retain completed roles and judgments."""
-    if under_engine(c):
-        from ordinary_freshness import ensure
-        return ensure(sys.modules[__name__], c)
-    from registry import atomic_json
-    finish_freshness_repair(c)
-    statement = c.case / 'statement.md'
-    original = statement.read_bytes() if statement.is_file() else None
-    digest = hashlib.sha256(original or b'').hexdigest()
-    path = c.work / 'freshness-repair.json'
-    state = jload(path, {})
-    if path.exists() and (not isinstance(state, dict) or state.get('version') != 1 or
-            not isinstance(state.get('statement_sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', state['statement_sha256']) or
-            type(state.get('attempts')) is not int or not 0 <= state['attempts'] <= 2):
-        raise BudgetError('freshness_repair_state_invalid')
-    unchanged = state.get('statement_sha256') == digest
-    if not unchanged:
-        state = {'version': 1, 'statement_sha256': digest, 'attempts': 0}
-    while True:
-        ok, info = g2(c)
-        c.card['admission_freshness'] = info
-        c.card['freshness_repair'] = dict(state)
-        if ok or info.get('outcome') == 'public_match': return ok, info
-        c.card['admission'] = {'status': 'evidence_incomplete', 'screen': info.get('outcome', 'evidence_incomplete')}
-        if info.get('outcome') == 'review_unresolved': raise BudgetError('freshness_review_unavailable')
-        reasons = info.get('invalid_evidence_reasons') or {}
-        if ((getattr(c.args, 'resume', None) or under_engine(c)) and unchanged and
-                set(reasons) == {'evidence_expired'} and reasons['evidence_expired'] > 0 and
-                getattr(c, 'freshness_reverify_statement', None) != digest):
-            # One re-search per restore, independent of the two real-defect repairs.
-            c.freshness_reverify_statement = digest
-            c.card['freshness_reverify'] = {'expired': reasons['evidence_expired'],
-                'at': datetime.datetime.now(datetime.timezone.utc).isoformat()}
-            # A minute per expired row, minimum five minutes, twenty minutes total.
-            freshness_topup(c, reverify_timeout=min(1200, max(300, 60 * reasons['evidence_expired'])))
-            continue
-        if (set(reasons) == {'evidence_expired'} and
-                getattr(c, 'freshness_reverify_statement', None) == digest):
-            raise BudgetError('freshness_evidence_unavailable')
-        if state['attempts'] >= 2: raise BudgetError('freshness_evidence_unavailable')
-        without_ids = lambda rows: [{k: v for k, v in row.items() if k != '_search_id'} for row in rows]
-        before = without_ids(freshness_lines(c))
-        state['attempts'] += 1
-        atomic_json(path, state)  # reserve before calls; interruption cannot reset the allowance
-        c.card['freshness_repair'] = dict(state)
-        freshness_topup(c, reverify_timeout=min(1200, max(300, 60 * info.get('invalid_evidence', 0))))
-        if without_ids(freshness_lines(c)) == before:
-            state['attempts'] = 2  # no progress: stop instead of paying for the same request again
-            atomic_json(path, state)
+    from ordinary_freshness import ensure
+    return ensure(sys.modules[__name__], c)
 
 
 def open_statements(c, encrypted_files):
@@ -2458,13 +2406,14 @@ def helper_try_authority(c, role, exposure, tries):
     all start at once. The rest run here, one at a time, as today. A try's worst case is one call window
     (the serial funding cap) plus, for the exam, the owner reviewer window held outside it."""
     from decimal import Decimal
-    from model_runtime import CHEAP_CALL_WINDOW_USD, UNCAPPED_ROLES
+    from model_runtime import call_window
     accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
     def widest(model):
         return max((Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)), default=None)
     per_try = widest(c.models[role][0])
     if per_try is None: return Decimal(0), 0
-    if role not in UNCAPPED_ROLES: per_try = min(per_try, Decimal(str(CHEAP_CALL_WINDOW_USD)))
+    window = call_window(role, c.models[role][0])
+    if window is not None: per_try = min(per_try, window)
     if exposure == "exam":
         owner = widest(c.models["reviewers"][0][0])
         if owner is None: return Decimal(0), 0

@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import threading
+import time
 import types
 import io
 import re
@@ -25,7 +26,9 @@ class FanoutTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name); case = root / 'case'; case.mkdir()
         (case / 'statement.md').write_text('bug'); (case / 'case.json').write_text(json.dumps({'app': {'version': '2.19.0 (x)'}}))
-        self.c = types.SimpleNamespace(case=case, work=root, card={}, models={'builder': ['claude/x'], 'attacker': ['opencode-go/y']},
+        self.c = types.SimpleNamespace(case=case, work=root, card={},
+            # The engine's attempt deadline bounds freshness work, as in production.
+            engine=types.SimpleNamespace(deadline_monotonic=time.monotonic() + 3600), models={'builder': ['claude/x'], 'attacker': ['opencode-go/y']},
             args=types.SimpleNamespace(source='port', runs=1, scenario_runs=1, agent_timeout=1200, freshness_fanout=True))
         self.calls, self.searches, self.prompts = [], [], {}
         self.lock = threading.Lock()

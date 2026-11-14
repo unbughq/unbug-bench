@@ -443,6 +443,10 @@ class WireProtocolTests(unittest.TestCase):
         result = h.poll(si).result
         self.assertEqual(result.reason, "infra:cancelled")
         self.assertEqual((result.usage.calls, result.usage.paid_usd_micros), (1, 1_000_000))
+        # The engine settles on that usage (as waste), not on the attempt's whole grant.
+        from durable.policy import settles_as_waste, settles_lost
+        self.assertFalse(settles_lost(result))
+        self.assertTrue(settles_as_waste(result))
 
     def test_first_wins_result_write(self):
         with tempfile.TemporaryDirectory() as tmp:

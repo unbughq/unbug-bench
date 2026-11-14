@@ -13,12 +13,30 @@ import pathlib
 import shlex
 import sys
 import tempfile
+import time
 import types
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str((pathlib.Path(__file__).resolve().parents[2] / "factory")))
 import admission
+import ordinary_freshness
 import run
+
+
+def ENGINE():
+    """The engine's attempt deadline, the only bound on a freshness top-up."""
+    return types.SimpleNamespace(deadline_monotonic=time.monotonic() + 3600)
+
+
+def engine_topups(test):
+    """Only the top-up sees the engine deadline; the rest of the test keeps its own context."""
+    real = run.freshness_topup
+    def topup(c, **kwargs):
+        c.engine = ENGINE()
+        try: return real(c, **kwargs)
+        finally: del c.engine
+    mocked = patch.object(run, 'freshness_topup', topup)
+    mocked.start(); test.addCleanup(mocked.stop)
 
 
 def evidence(who, kind, i, **more):
@@ -44,7 +62,7 @@ class AdmissionTests(unittest.TestCase):
         start(self)
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         root = pathlib.Path(self.tmp.name); case = root / "case"; case.mkdir()
-        self.c = types.SimpleNamespace(work=root, case=case, case_id="case-new", card={}, seed=42,
+        self.c = types.SimpleNamespace(work=root, case=case, case_id="case-new", card={}, seed=42, batch_deadline="2999-01-01T00:00:00Z",
             args=argparse.Namespace(dry_run=False, source="hunt", rounds=1, runs=10, scenario_runs=3, resume=None),
             models={"builder": ["claude/writer"], "attacker": ["deepseek/attacker"],
                     "easy_calibrator": ["glm/easy"], "reviewers": [["minimax/reviewer"]]})
@@ -84,7 +102,7 @@ class AdmissionTests(unittest.TestCase):
                     pathlib.Path(request["result_path"]).write_text(json.dumps(verdict)); return 0
                 with patch.object(run, "prior_statements", return_value={"case-old": str(earlier)}), \
                      patch.object(run, "model_call", compare), patch.object(run, "opencode") as builder, \
-                     patch.object(run, "g2", return_value=(mode != "public", {"outcome": "public_match"} if mode == "public" else {})):
+                     patch.object(run, "ensure_freshness", return_value=(mode != "public", {"outcome": "public_match"} if mode == "public" else {})):
                     try: run.statement_precheck(c)
                     except run.BudgetError:
                         self.assertIn(mode, ("malformed", "unavailable"))
@@ -125,6 +143,7 @@ class AdmissionTests(unittest.TestCase):
             self.assertFalse(run.g2(self.c)[0])
 
     def test_invalid_search_evidence_is_repaired_without_reselecting(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c
         c.args.agent_timeout = 14400
         broken = [{**self.rows[i % len(self.rows)], "retrieved": False} for i in range(20)]
@@ -135,7 +154,7 @@ class AdmissionTests(unittest.TestCase):
             calls.append(name)
             self.assertIn("retrieval_failed", text)
             self.assertGreater(kwargs["timeout"], 300)
-            self.assertLessEqual(kwargs["timeout"], 1200)
+            self.assertAlmostEqual(kwargs["timeout"], kwargs["deadline"] - time.monotonic(), delta=5)   # the attempt deadline
             scratch_write(cwd, [{**row, 'retrieved': True} for row in scratch_rows(cwd)])
             return 0
         with patch.object(run, "prior_statements", return_value={}), patch.object(run, "opencode", repair), \
@@ -150,25 +169,26 @@ class AdmissionTests(unittest.TestCase):
         self.assertTrue(all(type(v) is int for counts in c.card['freshness_topup'].values() for v in counts.values()))
 
     def test_unrepaired_search_evidence_pauses_same_idea_and_cannot_reset_on_resume(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c
         rows = [{**r, "retrieved": False} for r in self.rows]
         (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, rows)))
         before = (c.case / "statement.md").read_bytes()
         with patch.object(run, "prior_statements", return_value={}), \
              patch.object(run, "opencode", return_value=0) as model:
-            with self.assertRaisesRegex(run.BudgetError, "freshness_evidence_unavailable"):
+            # Unretrieved rows need a re-run search, not a repair: a refresh that re-ran nothing is a
+            # retryable stall, and a later attempt tries again without spending the defect bound.
+            with self.assertRaisesRegex(run.BudgetError, "^freshness_refresh_stalled$"):
                 run.statement_precheck(c)
-            self.assertLessEqual(model.call_count, 4)
-            calls = model.call_count
-            # A fresh Python context must not restart the repair allowance.
+            self.assertEqual(model.call_count, 2)
             resumed = types.SimpleNamespace(**vars(c))
-            with self.assertRaisesRegex(run.BudgetError, "freshness_evidence_unavailable"):
+            with self.assertRaisesRegex(run.BudgetError, "^freshness_refresh_stalled$"):
                 run.statement_precheck(resumed)
-            self.assertEqual(model.call_count, calls)
+            self.assertEqual(model.call_count, 4)
+        self.assertEqual(json.loads((c.work / "freshness-repair.json").read_text())["completed_defects"], 0)
         self.assertEqual((c.case / "statement.md").read_bytes(), before)
         self.assertEqual(c.card["candidate_attempts"], 1)
         self.assertNotIn("rejected_candidates", c.card)
-        self.assertEqual(c.card["admission"]["status"], "evidence_incomplete")
         self.assertEqual(c.card["admission_freshness"]["invalid_evidence_reasons"], {"retrieval_failed": 8})
 
     def test_search_validation_reports_specific_reasons_without_exposing_contents(self):
@@ -206,11 +226,11 @@ class AdmissionTests(unittest.TestCase):
              patch.object(run, 'opencode', return_value=0) as model:
             with self.assertRaisesRegex(run.BudgetError, 'freshness_review_unavailable'):
                 run.statement_precheck(c)
-            self.assertEqual(model.call_count, 1)
-        self.assertEqual(c.card['admission']['status'], 'evidence_incomplete')
+            self.assertEqual(model.call_count, 1 + ordinary_freshness.REVIEW_REASKS)
         self.assertEqual(c.card['admission_freshness']['unresolved_hits'], 1)
 
     def test_evidence_repair_cannot_change_the_selected_bug(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c; original = (c.case / 'statement.md').read_bytes()
         rows = [{**r, 'retrieved': False} for r in self.rows]
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
@@ -225,6 +245,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual([{k: v for k, v in row.items() if k != '_search_id'} for row in run.freshness_lines(c)], rows)
 
     def test_interrupted_evidence_repair_preserves_flagged_searches(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c; rows = [{**r, 'retrieved': False} for r in self.rows];rows[0]['hit'] = True
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
         def interrupt(*args, **kwargs):
@@ -234,7 +255,8 @@ class AdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(run.BudgetError, 'provider_limit'):
                 run.ensure_freshness(c)
         self.assertTrue(any(row.get('hit') is True for row in run.freshness_lines(c)))
-        self.assertEqual(json.loads((c.work / 'freshness-repair.json').read_text())['attempts'], 1)
+        state = json.loads((c.work / 'freshness-repair.json').read_text())
+        self.assertEqual((state['completed_defects'], state['pending']['phase']), (0, 'pending'))
 
     def test_unresolved_applicability_is_not_a_confirmed_public_match(self):
         c = self.c; self.rows[0]['hit'] = True
@@ -251,6 +273,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(c.card['admission_freshness']['confirmed_hits'], 0)
 
     def test_each_repair_call_preserves_new_flags_and_failed_history(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c
         rows = [{**r, 'retrieved': False} for r in self.rows[:6]]
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
@@ -275,11 +298,12 @@ class AdmissionTests(unittest.TestCase):
             scratch_write(cwd, [row for row in scratch_rows(cwd) if row['retrieved']])
             return 0
         with patch.object(run, 'opencode', delete_failed):
-            with self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
+            with self.assertRaisesRegex(run.BudgetError, '^freshness_refresh_stalled$'):
                 run.ensure_freshness(c)
         self.assertTrue(any(row['retrieved'] is False for row in run.freshness_lines(c)))
 
     def test_invalid_flagged_evidence_is_repaired_before_review(self):
+        engine_topups(self)   # the review that follows runs outside the engine, as this test always did
         c = self.c; rows = [dict(r) for r in self.rows]
         rows[0].update(hit=True, retrieved=False, app_version='unknown')
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
@@ -311,6 +335,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertFalse((c.work / 'freshness-inflight.json').exists())
 
     def test_repair_cannot_replace_a_historical_flagged_result(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c; rows = [dict(r) for r in self.rows]
         rows[0].update(hit=True, retrieved=False)
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
@@ -322,9 +347,10 @@ class AdmissionTests(unittest.TestCase):
         with patch.object(run, 'opencode', replace): run.freshness_topup(c)
         kept = run.freshness_lines(c)
         self.assertTrue(any(r['url'] == rows[0]['url'] and r['query'] == rows[0]['query'] and r['hit'] for r in kept))
-        self.assertFalse(run.g2(c)[0])
+        self.assertFalse(run._g2(c)[0])
 
     def test_statement_mutation_keeps_new_public_flags_for_resume(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c; rows = [{**r, 'retrieved': False} for r in self.rows]
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
         discovered = evidence('builder', 'web', 99, hit=True)
@@ -337,6 +363,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertTrue(any(r['url'] == discovered['url'] and r['hit'] for r in run.freshness_lines(c)))
 
     def test_missing_or_malformed_search_identity_can_be_repaired(self):
+        self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c; rows = [dict(r) for r in self.rows]
         rows[0].update(url='http://[malformed', who='writer', kind='WEB', query='')
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))

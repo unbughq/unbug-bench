@@ -51,6 +51,17 @@ CHEAP_CALL_WINDOW_USD = 12.5
 UNCAPPED_ROLES = ('writer',)
 
 
+def call_window(role, model):
+    """The most one call of this role on this model may reserve, or None (the writer keeps its funded
+    window). A Claude gate holds each request's worst case ($9.520896 on Opus 5.5) before forwarding it,
+    so a flat $12.50 cut a Claude attacker off (model_call_cap) after $3.04 of real spend (22e434-5,
+    13 November): a Claude window is the cheap spend plus that one hold. Other gated holds are cents."""
+    from decimal import Decimal
+    if role in UNCAPPED_ROLES: return None
+    hold = model_call_gate.request_hold(model) if model in model_call_gate.CLAUDE_PROFILES else None
+    return Decimal(str(CHEAP_CALL_WINDOW_USD)) + (hold or 0)
+
+
 def accounting_work(c):
     """Comparison keeps scientific scratch separate from the owning ledger receipts."""
     return getattr(c, 'accounting_work', c.work)
@@ -386,6 +397,23 @@ OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.AC
 # output, and a stall moves them to the chain's next route, which later calls of the role also skip.
 SHORT_CALL_PREFIXES = ('builder-selection', 'builder-provider-preflight')
 SHORT_CALL_NO_PROGRESS_MINUTES = 10
+# Model scratch tmpfs unmount: each try, the pause between tries, and the budget after which no new
+# try starts. Not a hard bound: a last try, a user kill and the removal can each still run up to
+# UNMOUNT_TRY_S past it, still well inside the engine's 900 s poll grace.
+UNMOUNT_TRY_S, UNMOUNT_PAUSE_S, UNMOUNT_TOTAL_S = 60, 5, 300
+MOUNTINFO = '/proc/self/mountinfo'
+
+
+def mounted(path):
+    """Whether path is a mount point, by the kernel's own table: it needs no access to the path.
+    os.path.ismount lstats path/.., which an isolated user's chown -R makes unsearchable, and it
+    then answers False for a tmpfs that is still mounted."""
+    target = os.fsencode(os.path.abspath(path))
+    try: table = pathlib.Path(MOUNTINFO).read_bytes()
+    except OSError: return True  # unknown: never remove anything under a possible mount
+    unescape = lambda field: re.sub(rb'\\([0-7]{3})', lambda m: bytes([int(m[1], 8)]), field)
+    return any(len(fields := line.split(b' ')) > 4 and unescape(fields[4]) == target
+               for line in table.splitlines())
 
 
 def short_call(name):
@@ -430,9 +458,28 @@ class ModelRuntime:
             import processes
             cleanup = copy.copy(c)
             cleanup.role_cancel = None
-            with processes.deadline(30, independent=True):
-                self.command(cleanup, ['sudo', 'umount', '--', str(scratch)], check=not allow_absent)
-                shutil.rmtree(scratch)
+            # A paid call's result is kept only if its tmpfs really goes. One umount under a 30 s limit
+            # threw away a $48.70 writer call (fresh-1110b, 11 November: TimeoutExpired), so retry a slow
+            # or busy unmount (see UNMOUNT_TOTAL_S). A contained call's cgroup is already killed and
+            # empty here (ContainedCall.stop); an isolated user's leftovers are killed before each retry.
+            # A timed-out umount often completes in the kernel anyway, so whether the path is still a
+            # mount point, not the error text, decides. Never a lazy unmount: the mount is either gone
+            # or the call fails as cleanup_failed.
+            end = time.monotonic() + UNMOUNT_TOTAL_S
+            while True:
+                try:
+                    with processes.deadline(max(1.0, min(UNMOUNT_TRY_S, end - time.monotonic())), independent=True):
+                        self.command(cleanup, ['sudo', 'umount', '--', str(scratch)], check=not allow_absent)
+                    break
+                except (RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    # run.sh raises RuntimeError on a non-zero exit; processes.run raises TimeoutExpired.
+                    if not mounted(scratch): break
+                    if time.monotonic() + UNMOUNT_PAUSE_S >= end: raise
+                    if user:
+                        with processes.deadline(UNMOUNT_TRY_S, independent=True):
+                            self.command(cleanup, ['sudo', 'pkill', '-KILL', '-u', user])
+                    time.sleep(UNMOUNT_PAUSE_S)
+            shutil.rmtree(scratch)
         else:
             self.cleanup(scratch, sudo=bool(user))
 
@@ -491,8 +538,8 @@ class ModelRuntime:
                         # Keep one qualified reviewer window outside the parent's hold.
                         funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
                         if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
-                    if role not in UNCAPPED_ROLES:
-                        funding = min(funding, Decimal(str(CHEAP_CALL_WINDOW_USD)))
+                    window = call_window(role, requested)
+                    if window is not None: funding = min(funding, window)
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)
                 except model_router.ProviderWait as error:
