@@ -162,6 +162,25 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(self.store.rpc('status', {})['leases'], [])
         self.assertEqual(self.store.rpc('status', {})['health'], {})
 
+    def test_a_worker_without_the_builder_login_waits_for_the_second_account_reset(self):
+        # 2abb0a, 14 November: workers are never sent claude-token, yet asked for it while the second
+        # account was out of quota, so the router leased it and the gate stopped on a fake credential fault.
+        c, secrets, _ = self.context()
+        c.card['roles']['writer']['model'] = 'claude/claude-opus-5-5'
+        (secrets / 'claude-token').unlink()
+        blocked = self.store.rpc('acquire', dict(paid_protocol=1, id=uuid.uuid4().hex, model='claude/claude-opus-5-5',
+            accounts=['claude-factory-token-2'], role='writer', deadline=time.time() + 86400))
+        reset = time.time() + 3600
+        self.observe(blocked, 'quota', reset_at=reset); self.finish(blocked, 'interrupted')
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), \
+             patch.object(router, '_rpc', self.store.rpc), patch.object(router, 'SECRETS', secrets), \
+             patch.object(router, 'WAIT_SECONDS', 0):
+            with self.assertRaises(router.ProviderWait) as caught:
+                router.await_lease('writer', c)
+        self.assertEqual((caught.exception.wait.reason, caught.exception.wait.account),
+                         ('quota', 'claude-factory-token-2'))
+        self.assertAlmostEqual(caught.exception.wait.retry_after, reset, delta=1)
+
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
         go, target, source = router.CHAINS[0]
         choices = router.routes(source)
