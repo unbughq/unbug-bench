@@ -83,6 +83,7 @@ _FIXED = {
     "admission_second_opinion_invalid": (_I, "admit:second_opinion_invalid"),
     "freshness_evidence_unavailable": (_I, "infra:freshness_evidence_unavailable"),
     "freshness_review_unavailable": (_I, "infra:freshness_review_unavailable"),
+    "freshness_refresh_stalled": (_I, "infra:freshness_refresh_stalled"),   # a re-run search refreshed no row
     "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
     "freshness_statement_changed": (_I, "infra:freshness_statement_changed"),
     "freshness_unresolved": (_I, "infra:freshness_unresolved"),

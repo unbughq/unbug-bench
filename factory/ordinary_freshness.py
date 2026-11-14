@@ -4,10 +4,12 @@ import time
 import hashlib
 import shutil
 import uuid
+import datetime
 
 from admission import search_evidence_error
 from budget import BudgetError
 import freshness_retrieval as retrieval
+from freshness_fanout import REPAIRABLE as REFRESH   # expired or failed retrieval: a re-run search fixes it
 from ordinary_retry import check, backoff, digest, read, transport
 from registry import atomic_json
 from run_validity import InvalidInfra
@@ -75,7 +77,7 @@ def obtain(c, rows, directory, *, flagged):
 
 
 def ensure(run, c):
-    """Only completed bad metadata work spends the defect bound; expiry is refresh."""
+    """Only completed bad metadata work spends the defect bound; expiry and failed retrieval are refresh."""
     run.finish_freshness_repair(c)
     statement = (c.case / 'statement.md').read_bytes()
     key = hashlib.sha256(statement).hexdigest()
@@ -96,24 +98,34 @@ def ensure(run, c):
         atomic_json(path, state)
         c.card['freshness_repair'] = dict(state)
     def metadata():
+        """(errors, defect): the rows' G2 errors, and whether anything but a refresh is missing."""
         rows = run.freshness_lines(c)
         errors = [search_evidence_error(r) for r in rows]
+        # A row that is only old or unretrieved needs its search re-run, not a repair: judge the
+        # rest of it as if refreshed. G2 itself still rejects it until the re-run really happens.
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        rows = [{**r, 'at': now, 'retrieved': True} if e in REFRESH else r for r, e in zip(rows, errors)]
         found = {v for r in rows if (v := run.own_search(c, r)) is not None}
         enough = (sum(w == 'builder' and k == 'web' for w,k,q in found) >= 3 and
                   sum(w == 'builder' and k == 'github' for w,k,q in found) >= 3 and
                   sum(w == 'attacker' for w,k,q in found) >= 2)
-        return errors, enough
+        return errors, any(search_evidence_error(r) for r in rows) or not enough
     def finish():
         pending = state['pending']
         if not pending or pending['phase'] != 'completed': return
-        errors, enough = metadata()
-        if any(errors) or not enough: state['completed_defects'] += 1
+        errors, defect = metadata()
+        if defect: state['completed_defects'] += 1
         pending['charged'] = True
         state['pending'] = None
         state['last_topup'] = digest(run.freshness_lines(c))
         save()
-        if (any(errors) or not enough) and state['completed_defects'] >= 2:
+        if defect and state['completed_defects'] >= 2:
             raise BudgetError('freshness_evidence_unavailable')
+        # A refresh is never charged as a defect, so it is bounded by progress instead: one that
+        # re-ran no search is a retrieval outage (retryable infra), not a forever-repeated stop.
+        before = sum(e is not None for e in pending.get('targeted_errors') or ())
+        if not defect and any(errors) and sum(e is not None for e in errors) >= before:
+            raise BudgetError('freshness_refresh_stalled')
     save()
     failures = 0
     while True:
@@ -151,13 +163,12 @@ def ensure(run, c):
                                         if (r.get('hit') is True or r.get('ambiguous') is True) and 'url' in r}
             c.card['freshness_reasks'] = c.freshness_reask
             continue
-        errors, enough = metadata()
-        expiry_only = any(errors) and all(e in (None, 'evidence_expired') for e in errors)
-        if state['completed_defects'] >= 2 and not expiry_only and (any(errors) or not enough):
+        errors, defect = metadata()
+        if state['completed_defects'] >= 2 and defect:
             raise BudgetError('freshness_evidence_unavailable')
         # Do not repeatedly buy alternatives when transport is the only problem.
         signature = digest(run.freshness_lines(c))
-        if info.get('unfetched_searches') and not any(errors) and enough and state.get('last_topup') == signature:
+        if info.get('unfetched_searches') and not any(errors) and not defect and state.get('last_topup') == signature:
             failures += 1
             backoff(c, failures)
             c.freshness_refetch_urls = set(c.freshness_unfetched)

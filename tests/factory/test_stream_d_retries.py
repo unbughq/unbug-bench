@@ -279,12 +279,44 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(state['completed_defects'], 0)
         self.assertEqual(len(self.calls), 4)
 
-    def test_ineffective_completed_refresh_spends_defects(self):
+    def test_ineffective_refresh_is_a_retryable_stall_not_a_defect(self):
+        # A refresh that re-ran no search is a retrieval outage: it stops this attempt with its own
+        # infra reason, and it never spends the defect bound that would block every later refresh.
         self.searches(True)
         self.cli(lambda *a: None)
-        with self.assertRaisesRegex(budget.BudgetError, 'freshness_evidence_unavailable'): run.g2(self.c)
-        self.assertEqual(json.loads((self.work/'freshness-repair.json').read_text())['completed_defects'], 2)
-        self.assertEqual(len(self.calls), 4)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        self.assertEqual(json.loads((self.work/'freshness-repair.json').read_text())['completed_defects'], 0)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_expired_and_unretrieved_rows_are_refreshed_after_spent_defects(self):
+        # case-import-f46dac-5-1, 11-14 November: two earlier repairs had spent the defect bound, so
+        # every writer round stopped freshness_evidence_unavailable on 78 expired and 4 retrieval-failed
+        # rows without re-running a single search, and the rows only grew older.
+        rows = self.searches(True)
+        rows[0]['retrieved'] = rows[-1]['retrieved'] = False
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        atomic_json(self.work / 'freshness-repair.json', {'version': 2, 'completed_defects': 2, 'pending': None,
+            'statement_sha256': hashlib.sha256((self.case / 'statement.md').read_bytes()).hexdigest()})
+        self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        def emit(c, text, name, cwd):
+            who = name.split('-')[0]
+            rows = [json.loads(line) for line in (Path(cwd) / 'freshness.jsonl').read_text().splitlines()]
+            for row in rows:
+                if row['who'] == who: row.update(at=datetime.now(timezone.utc).isoformat(), retrieved=True)
+            (Path(cwd) / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        self.cli(emit)
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 2)
+
+    def test_a_real_defect_still_stops_after_spent_defects(self):
+        rows = self.searches(True)
+        rows[0]['app_version'] = 'not a version'
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        atomic_json(self.work / 'freshness-repair.json', {'version': 2, 'completed_defects': 2, 'pending': None,
+            'statement_sha256': hashlib.sha256((self.case / 'statement.md').read_bytes()).hexdigest()})
+        self.cli(lambda *a: self.fail('a spent defect bound buys no more repairs'))
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_evidence_unavailable$'): run.g2(self.c)
 
     def stress_setup(self, emit):
         self.patch(run, 'g1', return_value=(True, {'problems': []}))
