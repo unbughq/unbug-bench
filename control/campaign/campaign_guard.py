@@ -9,7 +9,7 @@ import sys
 root = Path(os.environ.get('UNBUG_CAMPAIGN_ROOT', Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'factory'))
 from durable.guard import (CHECKPOINT_GRACE_S, LOW_CREDIT_USD, CheckFailed, Guard, read_starts, router_spend,
-                           stop_audit_alerts, webhook)
+                           STOP_AUDIT_FILE, stop_audit_alerts, webhook)
 from durable import preflight
 from durable.workers import BoatCli, BoatPool, ReleaseStore
 
@@ -59,7 +59,7 @@ router = lambda: router_spend(os.environ.get('UNBUG_ROUTER_DB', '/home/user/.unb
 Guard(request, state / 'guard', boat=cli.probe, rpc=rpc, service=Service(),
       ours=lambda row: pool._live(row) and pool._ours(row) is not None, count=count, delete=pool._delete_raw,
       router=router, preflight=lambda now: {**preflight.warnings(request, now, router=router),
-                                             **stop_audit_alerts(state / 'stop-audit.json', now)},
+                                             **stop_audit_alerts(state / STOP_AUDIT_FILE, now)},
       checkpoint_grace_s=float(os.environ.get('UNBUG_CHECKPOINT_GRACE_S', CHECKPOINT_GRACE_S)),
       low_credit_usd=float(os.environ.get('UNBUG_LOW_CREDIT_USD', LOW_CREDIT_USD)),
       notify=webhook(url) if url else None).run(cleanup='--cleanup' in sys.argv)

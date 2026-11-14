@@ -13,9 +13,10 @@ judges each reason against factory/durable/stop_registry.py:
   UNKNOWN     a reason the registry does not know
   UNCHECKED   a fixed bug on a release whose commit, or its ancestry in --repo, is unknown
 --repo defaults to $UNBUG_STOP_AUDIT_REPO (a plain clone of a git bundle of main is enough).
---write records the result atomically as JSON for the campaign guard, which only reads that file
-(control/campaign/unbug-stop-audit.timer runs this every 10 minutes as `user`).
-Exit 1 if any REGRESSION or UNKNOWN.
+--write records the result atomically as JSON at <state_dir>/stop-audit.json (the config's state_dir,
+where the campaign guard reads it; or at a given path). control/campaign/unbug-stop-audit.timer runs
+this every 10 minutes as `user`.
+Exit 3 if any REGRESSION or UNKNOWN; any other non-zero exit is the audit itself failing.
 """
 import argparse
 from datetime import datetime
@@ -26,9 +27,13 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "factory"))
+from durable.guard import STOP_AUDIT_FILE  # noqa: E402
 from durable.runtime import load_config  # noqa: E402
 from durable.stop_registry import audit, git_contains, read_attempts, release_commits, render, result  # noqa: E402
 from durable.workers import _atomic_json  # noqa: E402
+
+
+FINDINGS = 3   # REGRESSION or UNKNOWN; distinct from a crash (1) so the timer unit can tell them apart
 
 
 def main(argv=None) -> int:
@@ -45,7 +50,8 @@ def main(argv=None) -> int:
     window.add_argument("--last-hours", type=float, help="only attempts started in the last N hours")
     out = parser.add_mutually_exclusive_group()
     out.add_argument("--json", action="store_true", help="print the full report as JSON")
-    out.add_argument("--write", type=Path, help="write the guard's result JSON here, atomically")
+    out.add_argument("--write", type=Path, nargs="?", const=True, metavar="PATH",
+                     help="write the guard's result JSON atomically (default <state_dir>/stop-audit.json)")
     args = parser.parse_args(argv)
     now = time.time()
     since = (args.since.timestamp() if args.since else
@@ -55,12 +61,13 @@ def main(argv=None) -> int:
     release_map = args.release_map or Path(config["state_dir"]) / "releases/release-commits.json"
     report = audit(rows, release_commits(args.releases, release_map), git_contains(args.repo) if args.repo else None)
     if args.write:
-        _atomic_json(args.write, result(report, undecodable, now))
+        path = Path(config["state_dir"]) / STOP_AUDIT_FILE if args.write is True else args.write
+        _atomic_json(path, result(report, undecodable, now))
     elif args.json:
         print(json.dumps({**report, "undecodable": undecodable}, sort_keys=True))
     else:
         print("\n".join(render(report) + [f"UNDECODABLE {undecodable} outputs"]))
-    return 1 if report["regression"] or report["unknown"] else 0
+    return FINDINGS if report["regression"] or report["unknown"] else 0
 
 
 if __name__ == "__main__":

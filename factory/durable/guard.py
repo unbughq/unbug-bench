@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import time
 from typing import Callable, Optional
 import urllib.request
@@ -689,7 +690,9 @@ def webhook(url: str) -> Callable:
     return send
 
 
+STOP_AUDIT_FILE = "stop-audit.json"   # <state_dir>/stop-audit.json, written by bin/stop_audit --write
 STOP_AUDIT_STALE_S = 1800.0   # bin/stop_audit writes every 10 minutes (unbug-stop-audit.timer)
+STOP_AUDIT_MAX_BYTES = 64 * 1024
 STOP_AUDIT_REASON = re.compile(r"[a-z][a-z0-9]*:[a-z][a-z_]{0,60}")
 
 
@@ -697,22 +700,42 @@ def stop_audit_alerts(path, now: float) -> dict:
     """The stop audit's alerts from the result bin/stop_audit --write left at path: a fixed bug that came
     back or an unclassified stop, or the audit not running. Reads one JSON file; never raises."""
     try:
-        data = json.loads(Path(path).read_text())
-        written = data["written_at"]
-        if type(written) not in (int, float):
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("not a regular file")
+            raw = os.read(fd, STOP_AUDIT_MAX_BYTES + 1)
+        finally:
+            os.close(fd)
+        if len(raw) > STOP_AUDIT_MAX_BYTES:
+            raise ValueError("too large")
+        data = json.loads(raw)
+        written, counts = data["written_at"], data["counts"]
+        if type(written) not in (int, float) or not math.isfinite(written) or not math.isfinite(now - written):
             raise ValueError("written_at")
+        if not all(isinstance(data[k], list) for k in ("regression", "unknown", "regression_reasons",
+                                                        "unknown_reasons")):
+            raise ValueError("list fields")
+        attempts, undecodable = counts["attempts"], counts["undecodable"]
+        if not all(type(n) is int and n >= 0 for n in (attempts, undecodable)):
+            raise ValueError("counts")
         # Reason codes only, so nothing else from a user-written file reaches an alert.
-        found = {kind: sorted(r for r in data.get(kind + "_reasons") or [] if isinstance(r, str)
+        found = {kind: sorted(r for r in data[kind + "_reasons"] if isinstance(r, str)
                               and STOP_AUDIT_REASON.fullmatch(r)) for kind in ("regression", "unknown")}
+        stale = now - written > STOP_AUDIT_STALE_S
+        minutes = int((now - written) / 60) if stale else 0
     except FileNotFoundError:
         return {"stop_audit:missing": "The stop audit is not running: it has written no result. "
                                       "Check unbug-stop-audit.timer."}
     except Exception:
         return {"stop_audit:unreadable": "The stop audit's result is unreadable. Run bin/stop_audit by hand."}
     out = {}
-    if now - written > STOP_AUDIT_STALE_S:
-        out["stop_audit:stale"] = (f"The stop audit is not running: its result is {int((now - written) / 60)} "
+    if stale:
+        out["stop_audit:stale"] = (f"The stop audit is not running: its result is {minutes} "
                                    "minutes old. Check unbug-stop-audit.timer.")
+    if undecodable * 2 > attempts + undecodable:
+        out["stop_audit:undecodable"] = (f"The stop audit can't read step results: {undecodable} of "
+                                         f"{attempts + undecodable} recorded outputs did not decode.")
     parts = ([f"fixed bugs came back: {', '.join(found['regression'])}"] if found["regression"] else []) + \
             ([f"unclassified stops: {', '.join(found['unknown'])}"] if found["unknown"] else [])
     if parts:   # keyed by the reasons, so a new one alerts again

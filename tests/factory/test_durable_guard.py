@@ -834,34 +834,62 @@ class GuardTests(unittest.TestCase):
 class StopAuditAlertTests(unittest.TestCase):
     """The guard reads bin/stop_audit's result file only; whatever is there, it alerts and never raises."""
 
-    def alerts(self, content=None, now=NOW):
-        from durable.guard import stop_audit_alerts
+    def alerts(self, content=None, now=NOW, make=None):
+        from durable.guard import STOP_AUDIT_FILE, stop_audit_alerts
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "stop-audit.json"
+            path = Path(tmp) / STOP_AUDIT_FILE
             if content is not None:
                 path.write_text(content if isinstance(content, str) else json.dumps(content))
+            if make is not None:
+                make(path)
             return stop_audit_alerts(path, now)
 
+    @staticmethod
+    def result(**fields):
+        return {"written_at": NOW - 600, "counts": {"attempts": 10, "undecodable": 0}, "regression": [],
+                "unknown": [], "regression_reasons": [], "unknown_reasons": [], **fields}
+
     def test_a_fresh_clean_result_raises_nothing(self):
-        self.assertEqual(self.alerts({"written_at": NOW - 600, "regression_reasons": [], "unknown_reasons": []}), {})
+        self.assertEqual(self.alerts(self.result()), {})
 
     def test_regressions_and_unknown_reasons_alert_once_keyed_by_reason(self):
-        out = self.alerts({"written_at": NOW - 60, "regression_reasons": ["infra:prompt_too_large"],
-                           "unknown_reasons": ["infra:raw_key_error", "not a reason /etc/passwd"]})
-        self.assertEqual(out, {"stop_audit:infra:prompt_too_large,infra:raw_key_error":
-                               "Stop audit: fixed bugs came back: infra:prompt_too_large; "
+        out = self.alerts(self.result(written_at=NOW - 60, regression_reasons=["infra:example_fixed"],
+                                      unknown_reasons=["infra:raw_key_error", "not a reason /etc/passwd"]))
+        self.assertEqual(out, {"stop_audit:infra:example_fixed,infra:raw_key_error":
+                               "Stop audit: fixed bugs came back: infra:example_fixed; "
                                "unclassified stops: infra:raw_key_error. Run bin/stop_audit."})
 
+    def test_mostly_undecodable_outputs_alert(self):
+        self.assertEqual(self.alerts(self.result(counts={"attempts": 5, "undecodable": 5})), {})
+        out = self.alerts(self.result(counts={"attempts": 4, "undecodable": 6}))
+        self.assertEqual(list(out), ["stop_audit:undecodable"])
+        self.assertIn("can't read step results: 6 of 10", out["stop_audit:undecodable"])
+
     def test_missing_stale_or_corrupt_results_alert_instead_of_raising(self):
+        import os
         self.assertEqual(list(self.alerts()), ["stop_audit:missing"])
-        stale = self.alerts({"written_at": NOW - 3600, "regression_reasons": [], "unknown_reasons": []})
+        stale = self.alerts(self.result(written_at=NOW - 3600))
         self.assertEqual(list(stale), ["stop_audit:stale"])
         self.assertIn("60 minutes old", stale["stop_audit:stale"])
-        for corrupt in ("{not json", "[]", "null", json.dumps({"written_at": "yesterday"}), json.dumps({}),
-                        json.dumps({"written_at": NOW, "regression_reasons": 7})):
-            out = self.alerts(corrupt)
-            self.assertTrue(set(out) <= {"stop_audit:unreadable"}, corrupt)
-        self.assertEqual(list(self.alerts("{not json")), ["stop_audit:unreadable"])
+        unreadable = ["{not json", "[]", "null", json.dumps({}), json.dumps(self.result(written_at="yesterday")),
+                      "{" + '"written_at": 1e999' + "}", json.dumps(self.result(written_at=float("inf"))),
+                      json.dumps(self.result(written_at=float("nan"))),
+                      json.dumps(self.result(regression_reasons=7)), json.dumps(self.result(unknown_reasons="x")),
+                      json.dumps(self.result(regression={})), json.dumps(self.result(counts={"attempts": 1})),
+                      json.dumps(self.result(counts={"attempts": -1, "undecodable": 0})),
+                      json.dumps(self.result(regression_reasons=["infra:x"] * 20000))]   # over 64 KiB
+        for corrupt in unreadable:
+            self.assertEqual(list(self.alerts(corrupt, now=NOW)), ["stop_audit:unreadable"], corrupt[:60])
+        self.assertEqual(list(self.alerts(self.result(), now=float("inf"))), ["stop_audit:unreadable"])
+        # A finite but absurd time cannot overflow or switch the stale alert off.
+        self.assertEqual(list(self.alerts(self.result(written_at=-1e308))), ["stop_audit:stale"])
+
+        def link(path):   # a symlink to a good result is refused, never followed
+            (path.parent / "real.json").write_text(json.dumps(self.result()))
+            path.symlink_to(path.parent / "real.json")
+        self.assertEqual(list(self.alerts(make=link)), ["stop_audit:unreadable"])
+        self.assertEqual(list(self.alerts(make=lambda path: os.mkfifo(path))), ["stop_audit:unreadable"])
+        self.assertEqual(list(self.alerts(make=lambda path: path.mkdir())), ["stop_audit:unreadable"])
 
 
 if __name__ == "__main__":

@@ -48,7 +48,8 @@ class RegistryTests(unittest.TestCase):
     def test_reasons_that_collect_several_causes_are_never_marked_fixed(self):
         for reason in ("infra:execution_retries_exhausted", "infra:deadline", "infra:unclassified_stop",
                        "infra:runner_exception", "infra:stalled", "infra:diagnosis_cleanup_failed",
-                       "diagnosis:processing_failed", "infra:pool_failed", "infra:cleanup_failed"):
+                       "diagnosis:processing_failed", "infra:pool_failed", "infra:cleanup_failed",
+                       "infra:prompt_too_large"):
             self.assertIsNone(REGISTRY[reason]["fixed_in"], reason)
 
     def test_every_named_regression_test_exists(self):

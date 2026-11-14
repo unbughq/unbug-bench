@@ -56,12 +56,13 @@ REGISTRY = {
     # -- factory bugs with a fix on main --
     # fixed_in only where the reason maps one-to-one to the cause the fix fixed; a reason that collects
     # several causes stays open (its fixes in a comment), or a new cause would read as a regression.
-    # 0f818fe5: the diagnosis prompt carried the full inventory past Linux's one-argument limit, and any
-    # call over that limit now stops prompt_too_large before launch.
-    "infra:prompt_too_large": bug("0f818fe5783950ec591cf6b24a93ef5807b948f6", test=
+    # None qualifies today.
+    # -- factory bugs whose reason collects several causes: open, with the fixes so far --
+    # Any role's prompt over Linux's one-argument limit; 0f818fe5 created the reason and fixed the diagnosis
+    # prompt (it carried the full inventory), so other roles reaching it are new causes, not regressions.
+    "infra:prompt_too_large": bug(test=
         "tests/factory/test_model_call_maxima.py::MaximaTests::"
         "test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity"),
-    # -- factory bugs whose reason collects several causes: open, with the fixes so far --
     # Fallback for any diagnosis exception that cannot name itself; 97d97b84 fixed the missing stress report.
     "diagnosis:processing_failed": bug(test=
         "tests/factory/test_durable_diagnosis.py::DiagnosisTests::"
@@ -265,8 +266,10 @@ def decode(output: str, row_time: Optional[float] = None):
 
 
 def read_attempts(database_url: str, since: Optional[float] = None) -> tuple:
-    """(attempt rows, undecodable count) from one bounded, read-only transaction. Rows whose own DBOS time
-    is before `since` are left out in SQL; then attempts started before it are dropped."""
+    """(attempt rows, undecodable count) from one bounded, read-only transaction. With `since`, SQL keeps
+    rows whose completed_at_epoch_ms is in the window (a plain range, so an index applies); rows with no
+    completed_at (written before DBOS recorded it) are dropped, not scanned. Then attempts that started
+    before `since` are dropped too."""
     import sqlalchemy as sa
     url = sa.engine.make_url(database_url)
     if url.drivername == "postgresql":
@@ -276,10 +279,9 @@ def read_attempts(database_url: str, since: Optional[float] = None) -> tuple:
         with engine.connect() as conn:
             conn.execute(sa.text("SET TRANSACTION READ ONLY"))
             conn.execute(sa.text("SET LOCAL statement_timeout = '30s'"))
-            at = "COALESCE(completed_at_epoch_ms, started_at_epoch_ms)"
-            window = "" if since is None else f" AND ({at} IS NULL OR {at} >= :since_ms)"
+            window = "" if since is None else " AND completed_at_epoch_ms >= :since_ms"
             found = conn.execute(sa.text(
-                f"SELECT output, {at} / 1000.0 FROM dbos.operation_outputs "
+                "SELECT output, completed_at_epoch_ms / 1000.0 FROM dbos.operation_outputs "
                 "WHERE function_name = 'DBOS.getResult' AND workflow_uuid LIKE 'case-%@%' "
                 "AND output IS NOT NULL" + window),
                 {} if since is None else {"since_ms": int(since * 1000)}).all()
