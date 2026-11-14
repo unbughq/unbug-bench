@@ -370,6 +370,33 @@ class AttemptBudget(unittest.TestCase):
         # The case is not money-exhausted: the next attacker call is still funded.
         self.assertGreater(Decimal(budget.available_invocation_funding(self.ledger, self.attempt)), 30)
 
+    def test_a_failed_codex_call_books_only_the_usage_codex_reported(self):
+        """22e434-5 stress:2 (11-12 November): three Codex cybersecurity refusals (attempts 1, 11, 12) and one
+        expired Codex login with no request at all (attempt 6) each booked the whole $12.50 window as case
+        money ($50 in all), so the stress step ended stress:money. Codex runs on the subscription, which pays
+        its unseen tail as the Go plan does ("book Go at cost", founder 2026-11-09): only what Codex's own
+        log reported is booked."""
+        codex = 'codex/gpt-6.1-sol'
+        self.store.capacities['codex-auth.json'] = 1
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started'] = True
+            row = c.invocation_reservation
+            with budget.ledger_transaction(self.ledger) as ledger:
+                event = {'id': row['invocation_id'] + ':request-0', 'cost': 0, 'priced': 'subscription',
+                         'estimated_subscription_cost_usd': 0.1664484, 'calls': 17,
+                         'invocation': name, 'invocation_id': row['invocation_id'], 'lease_id': row['lease_id']}
+                ledger['events'].append(event)
+                ledger['invocation_reservations'][row['lease_id']]['event_ids'].append(event['id'])
+            raise budget.BudgetError('refusal:' + codex)
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport), \
+                patch.object(model_router, '_credential_ready', return_value=True), \
+                self.assertRaises(model_router.ProviderWait):
+            self.runtime.call(self.c, [codex], 'x', self.root, 'attacker-1', deadline=time.monotonic() + 2)
+        ledger = json.loads(self.ledger.read_text())
+        row = next(iter(ledger['invocation_reservations'].values()))
+        self.assertEqual(Decimal(row['estimated_gap_usd']), 0)
+        self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])), Decimal('0.1664484'))
+
     def test_writer_keeps_the_funded_window_and_stress_and_a_reviewer_are_capped(self):
         """An in-flight role finishes (FACTORY.md section 4): a long writer session keeps the whole
         funded window; stress and review calls are capped at CHEAP_CALL_WINDOW_USD."""
