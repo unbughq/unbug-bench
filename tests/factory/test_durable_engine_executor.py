@@ -521,6 +521,22 @@ class Settle(Setup):
         self.assertEqual(s["cases"]["case-t-1"]["spent"], 300)                # only the OK attempt
         self.assertEqual(s["batches"]["b-t"]["waste"], 7 + 7 + 3 * 5_000_000)   # lost books the whole grant
 
+    def test_a_cancelled_attempt_that_reports_usage_books_that_usage_as_waste(self):
+        # case-import-2abb0a-2-1: a GATES attempt with a $61.76 grant was cancelled after 148 calls
+        # and $5.54 of real spend. Booking its whole grant stranded the batch at waiting_for_bound.
+        ex = self.ex(None)
+        si = self.si(attempt=1)
+        ex.reserve(si, request=61_760_000, case_limit=225_000_000, draws_case_money=True)
+        reported = StepResult(Outcome.INFRA_ERROR, "infra:cancelled", Usage(148, 5_539_236, 5_539_236))
+        self.assertEqual(ex.settle(si, reported), "waste")
+        # A cancel with no usage (a tombstone, or a worker that never saw the attempt) stays lost.
+        si2 = self.si(attempt=2)
+        ex.reserve(si2, request=5_000_000, case_limit=225_000_000, draws_case_money=True)
+        self.assertEqual(ex.settle(si2, StepResult(Outcome.INFRA_ERROR, "infra:cancelled")), "lost")
+        s = self.ledger.snapshot()
+        self.assertEqual(s["batches"]["b-t"]["waste"], 5_539_236 + 5_000_000)
+        self.assertEqual(s["cases"]["case-t-1"]["spent"], 0)              # waste never touches the case
+
     def test_seam_errors_carry_no_content(self):
         class Leaky(FakeLedger):
             def reserve(self, *a, **k):
