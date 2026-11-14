@@ -214,21 +214,24 @@ class DiagnosisTests(unittest.TestCase):
                                                                       json.dumps(rows).encode())))
 
     def test_a_step_stopping_on_one_infra_reason_is_a_factory_bug_without_a_model_call(self):
-        # f46dac-5-1, 11-14 November: every writer round stopped infra:freshness_evidence_unavailable with
-        # its gates passing; the agent said close_to_passing and policy retired it as making no progress.
-        same = ('infra_error', 'infra:freshness_evidence_unavailable')
+        # f46dac-5-1, 11-14 November: every writer round stopped on expired freshness rows with its gates
+        # passing; the agent said close_to_passing and policy retired it as making no progress.
+        same = ('infra_error', 'infra:freshness_refresh_stalled')
         self.history([('provider_limit', 'router:claude_limit'), ('infra_error', 'router:opencode_error'),
                       same, ('infra_error', 'infra:paused'), same, same])
         result, outputs = self.execute(expected_calls=0)
         self.assertEqual((result.outcome, result.verdict), (k.Outcome.OK, k.Verdict.FACTORY_BUG))
         self.assertIsNone(result.feedback)
         report = json.loads(self.opened(result.report, outputs))
-        self.assertEqual(report['factory_bug']['component'], 'infra:freshness_evidence_unavailable')
+        self.assertEqual(report['factory_bug']['component'], 'infra:freshness_refresh_stalled')
 
-    def test_mixed_or_too_few_infra_stops_still_ask_the_agent(self):
-        same = ('infra_error', 'infra:freshness_evidence_unavailable')
+    def test_mixed_too_few_or_case_caused_infra_stops_still_ask_the_agent(self):
+        same = ('infra_error', 'infra:freshness_refresh_stalled')
+        # A stop the case itself can cause is the agent's to judge, however often it repeats.
+        case = [[('infra_error', reason)] * 3 for reason in ('infra:freshness_review_unavailable',
+                'infra:freshness_evidence_unavailable', 'infra:freshness_unresolved')]
         for reasons in ([same, same], [same, ('infra_error', 'router:opencode_error'), same],
-                        [same, same, same, ('exhausted', 'writer:money')]):
+                        [same, same, same, ('exhausted', 'writer:money')], *case):
             with self.subTest(reasons=reasons):
                 self.history(reasons)
                 result, _ = self.execute()

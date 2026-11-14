@@ -121,10 +121,13 @@ def ensure(run, c):
         save()
         if defect and state['completed_defects'] >= 2:
             raise BudgetError('freshness_evidence_unavailable')
-        # A refresh is never charged as a defect, so it is bounded by progress instead: one that
-        # re-ran no search is a retrieval outage (retryable infra), not a forever-repeated stop.
-        before = sum(e is not None for e in pending.get('targeted_errors') or ())
-        if not defect and any(errors) and sum(e is not None for e in errors) >= before:
+        # A refresh is never charged as a defect, so it is bounded by progress instead: fewer invalid
+        # rows or more valid searches. One that made neither is a retrieval outage (retryable infra),
+        # not a forever-repeated stop.
+        valid = lambda rows: len({v for r in rows if isinstance(r, dict) and (v := run.own_search(c, r)) is not None})
+        fixed = sum(e is not None for e in errors) < sum(e is not None for e in pending.get('targeted_errors') or ())
+        added = valid(run.freshness_lines(c)) > valid(pending.get('before_rows') or ())
+        if not defect and any(errors) and not fixed and not added:
             raise BudgetError('freshness_refresh_stalled')
     save()
     failures = 0

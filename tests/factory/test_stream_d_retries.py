@@ -309,6 +309,27 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 2)
 
+    def test_new_valid_searches_count_as_refresh_progress(self):
+        # A top-up opened because searches were short appends a real search and one that came back
+        # unretrieved: it made progress, so it is not a stall; the next refresh retrieves the row.
+        rows = self.searches()
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows[1:]))
+        self.patch(retrieval, 'fetch', lambda url, **kw: ({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        def emit(c, text, name, cwd):
+            path = Path(cwd) / 'freshness.jsonl'
+            current = [json.loads(line) for line in path.read_text().splitlines()]
+            if len(self.calls) == 1:
+                current += [{**rows[0], 'query': 'new web query', 'url': 'https://github.com/medusajs/medusa/issues/90'},
+                            {**rows[0], 'query': 'unretrieved web query', 'retrieved': False,
+                             'url': 'https://github.com/medusajs/medusa/issues/91'}]
+            else:
+                for row in current: row['retrieved'] = True
+            path.write_text(''.join(json.dumps(r)+'\n' for r in current))
+        self.cli(emit)
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertEqual([name for name, _, _ in self.calls], ['builder-freshness'] * 2)
+        self.assertEqual(run.jload(self.work / 'freshness-repair.json')['completed_defects'], 0)
+
     def test_a_real_defect_still_stops_after_spent_defects(self):
         rows = self.searches(True)
         rows[0]['app_version'] = 'not a version'

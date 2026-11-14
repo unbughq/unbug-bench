@@ -27,7 +27,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         start(self)
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         work = pathlib.Path(tmp.name); case = work / 'case'; case.mkdir()
-        self.c = types.SimpleNamespace(work=work, case=case, case_id='case-test', card={},
+        self.c = types.SimpleNamespace(work=work, case=case, case_id='case-test', card={}, batch_deadline='2999-01-01T00:00:00Z',
             args=types.SimpleNamespace(resume='case-test', dry_run=False, agent_timeout=14400,
                                        source='hunt', runs=1, scenario_runs=1),
             models={'builder': ['claude/writer'], 'attacker': ['deepseek/tester'],
@@ -246,70 +246,6 @@ class FreshnessRestoreTests(unittest.TestCase):
                  'attempts': attempts}
         (self.c.work / 'freshness-repair.json').write_text(json.dumps(state))
         return state
-
-    def refresh(self, c, models, text, cwd, name, **kwargs):
-        self.assertGreater(kwargs['timeout'], 300)
-        self.assertLessEqual(kwargs['timeout'], 1200)
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        rows = [json.loads(line) for line in (pathlib.Path(cwd) / 'freshness.jsonl').read_text().splitlines()]
-        who = 'builder' if name.startswith('builder') else 'attacker'
-        for row in rows:
-            if row['who'] == who: row['at'] = now
-        (pathlib.Path(cwd) / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
-        return 0
-
-    def test_restore_expiry_research_does_not_consume_defect_allowance(self):
-        self.addCleanup(offline_router()[0].close)
-        state = self.expire()
-        with patch.object(run, 'opencode', self.refresh):
-            self.assertTrue(run.ensure_freshness(self.c)[0])
-        self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
-        self.assertEqual(self.c.card['freshness_reverify']['expired'], 26)
-        self.assertTrue(self.c.card['freshness_reverify']['at'])
-
-    def test_expiry_reverify_is_bounded_once_per_restore_and_retryable_after_timeout(self):
-        self.addCleanup(offline_router()[0].close)
-        state = self.expire()
-        with patch.object(run, 'opencode', side_effect=run.BudgetError('timeout')) as call:
-            with self.assertRaisesRegex(run.BudgetError, '^timeout$'): run.ensure_freshness(self.c)
-            with self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'): run.ensure_freshness(self.c)
-        self.assertEqual(call.call_count, 2)   # both roles search at once, so both were asked before the stop
-        self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
-        resumed = types.SimpleNamespace(**{k: v for k, v in vars(self.c).items() if k != 'freshness_reverify_statement'})
-        with patch.object(run, 'opencode', self.refresh): self.assertTrue(run.ensure_freshness(resumed)[0])
-
-    def test_unsuccessful_expiry_research_does_not_spend_unused_defect_attempts(self):
-        self.addCleanup(offline_router()[0].close)
-        state = self.expire(attempts=0)
-        with patch.object(run, 'opencode', return_value=0) as call, \
-             self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
-            run.ensure_freshness(self.c)
-        self.assertEqual(call.call_count, 2)  # one call for each role, one shared deadline
-        self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
-
-    def test_expiry_roles_share_twenty_minute_wall_budget(self):
-        self.addCleanup(offline_router()[0].close)
-        self.expire()
-        with patch.object(run.time, 'monotonic', return_value=1000), \
-             patch.object(run, 'opencode', return_value=0) as call, \
-             self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
-            run.ensure_freshness(self.c)
-        # Both roles start together under the one deadline.
-        self.assertEqual([item.kwargs['timeout'] for item in call.call_args_list], [1200, 1200])
-
-    def test_expiry_does_not_reset_defects_or_changed_statement(self):
-        self.addCleanup(offline_router()[0].close)
-        for defect in ('retrieval', 'statement', 'not_resume'):
-            with self.subTest(defect=defect):
-                self.expire()
-                if defect == 'retrieval': self.rows[0]['retrieved'] = False; self.save()
-                if defect == 'statement': (self.c.case / 'statement.md').write_text('Changed bug')
-                if defect == 'not_resume': self.c.args.resume = None
-                with patch.object(run, 'opencode', return_value=0) as call, \
-                     self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
-                    run.ensure_freshness(self.c)
-                if defect != 'statement': call.assert_not_called()
-                self.assertNotIn('freshness_reverify', self.c.card)
 
     def test_expiry_research_keeps_case_budget_boundary(self):
         self.addCleanup(offline_router()[0].close)

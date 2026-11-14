@@ -55,14 +55,20 @@ def _feedback(c, runner):
 # A step whose last attempts all stopped on this many identical infra reasons is a factory bug.
 REPEATED_INFRA_STOPS = 3
 _NOT_FAULTS = ('infra:paused', 'infra:deadline')   # policy.PAUSE_REASONS and DEADLINE_REASON
+# Infra stops the case itself can cause: a flagged public hit no reviewer settles, or search rows with
+# real defects (an expired or unretrieved row stops infra:freshness_refresh_stalled instead). The agent
+# judges these.
+_CASE_CAUSED = ('infra:freshness_review_unavailable', 'infra:freshness_evidence_unavailable',
+                'infra:freshness_unresolved')
 
 
 def repeated_infra_stop(history):
     """The engine history's diagnosed step (its last row) when its last REPEATED_INFRA_STOPS infra
     attempts all stopped on one reason and none of its attempts reached a gate verdict: the step cannot
-    run, whatever the case is like. None otherwise. f46dac-5-1 (11-14 November) stopped every writer
-    round infra:freshness_evidence_unavailable with its gates passing; the diagnosis agent called it
-    close_to_passing and policy retired it, as an extension needs progress."""
+    run, whatever the case is like. None otherwise, and for a reason the case can cause (_CASE_CAUSED).
+    f46dac-5-1 (11-14 November) stopped every writer round on expired freshness rows with its gates
+    passing; the diagnosis agent called it close_to_passing and policy retired it, as an extension
+    needs progress."""
     rows = [h for h in history if isinstance(h, dict)] if isinstance(history, list) else []
     if not rows: return None
     last = rows[-1]
@@ -72,7 +78,7 @@ def repeated_infra_stop(history):
              if h.get('outcome') == Outcome.INFRA_ERROR.value and h.get('reason') not in _NOT_FAULTS]
     tail = infra[-REPEATED_INFRA_STOPS:]
     if (last.get('outcome') == Outcome.INFRA_ERROR.value and len(tail) == REPEATED_INFRA_STOPS
-            and len(set(tail)) == 1 and isinstance(tail[0], str) and tail[0]):
+            and len(set(tail)) == 1 and isinstance(tail[0], str) and tail[0] and tail[0] not in _CASE_CAUSED):
         return last.get('step'), tail[0]
     return None
 

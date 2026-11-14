@@ -687,54 +687,8 @@ def _freshness_searches(c, plans, deadline, role_completed):
 
 def ensure_freshness(c):
     """Refresh the admitted idea; Engine attempts retain completed roles and judgments."""
-    if under_engine(c):
-        from ordinary_freshness import ensure
-        return ensure(sys.modules[__name__], c)
-    from registry import atomic_json
-    finish_freshness_repair(c)
-    statement = c.case / 'statement.md'
-    original = statement.read_bytes() if statement.is_file() else None
-    digest = hashlib.sha256(original or b'').hexdigest()
-    path = c.work / 'freshness-repair.json'
-    state = jload(path, {})
-    if path.exists() and (not isinstance(state, dict) or state.get('version') != 1 or
-            not isinstance(state.get('statement_sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', state['statement_sha256']) or
-            type(state.get('attempts')) is not int or not 0 <= state['attempts'] <= 2):
-        raise BudgetError('freshness_repair_state_invalid')
-    unchanged = state.get('statement_sha256') == digest
-    if not unchanged:
-        state = {'version': 1, 'statement_sha256': digest, 'attempts': 0}
-    while True:
-        ok, info = g2(c)
-        c.card['admission_freshness'] = info
-        c.card['freshness_repair'] = dict(state)
-        if ok or info.get('outcome') == 'public_match': return ok, info
-        c.card['admission'] = {'status': 'evidence_incomplete', 'screen': info.get('outcome', 'evidence_incomplete')}
-        if info.get('outcome') == 'review_unresolved': raise BudgetError('freshness_review_unavailable')
-        reasons = info.get('invalid_evidence_reasons') or {}
-        if ((getattr(c.args, 'resume', None) or under_engine(c)) and unchanged and
-                set(reasons) == {'evidence_expired'} and reasons['evidence_expired'] > 0 and
-                getattr(c, 'freshness_reverify_statement', None) != digest):
-            # One re-search per restore, independent of the two real-defect repairs.
-            c.freshness_reverify_statement = digest
-            c.card['freshness_reverify'] = {'expired': reasons['evidence_expired'],
-                'at': datetime.datetime.now(datetime.timezone.utc).isoformat()}
-            # A minute per expired row, minimum five minutes, twenty minutes total.
-            freshness_topup(c, reverify_timeout=min(1200, max(300, 60 * reasons['evidence_expired'])))
-            continue
-        if (set(reasons) == {'evidence_expired'} and
-                getattr(c, 'freshness_reverify_statement', None) == digest):
-            raise BudgetError('freshness_evidence_unavailable')
-        if state['attempts'] >= 2: raise BudgetError('freshness_evidence_unavailable')
-        without_ids = lambda rows: [{k: v for k, v in row.items() if k != '_search_id'} for row in rows]
-        before = without_ids(freshness_lines(c))
-        state['attempts'] += 1
-        atomic_json(path, state)  # reserve before calls; interruption cannot reset the allowance
-        c.card['freshness_repair'] = dict(state)
-        freshness_topup(c, reverify_timeout=min(1200, max(300, 60 * info.get('invalid_evidence', 0))))
-        if without_ids(freshness_lines(c)) == before:
-            state['attempts'] = 2  # no progress: stop instead of paying for the same request again
-            atomic_json(path, state)
+    from ordinary_freshness import ensure
+    return ensure(sys.modules[__name__], c)
 
 
 def open_statements(c, encrypted_files):

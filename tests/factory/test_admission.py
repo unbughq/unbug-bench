@@ -18,6 +18,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str((pathlib.Path(__file__).resolve().parents[2] / "factory")))
 import admission
+import ordinary_freshness
 import run
 
 
@@ -44,7 +45,7 @@ class AdmissionTests(unittest.TestCase):
         start(self)
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         root = pathlib.Path(self.tmp.name); case = root / "case"; case.mkdir()
-        self.c = types.SimpleNamespace(work=root, case=case, case_id="case-new", card={}, seed=42,
+        self.c = types.SimpleNamespace(work=root, case=case, case_id="case-new", card={}, seed=42, batch_deadline="2999-01-01T00:00:00Z",
             args=argparse.Namespace(dry_run=False, source="hunt", rounds=1, runs=10, scenario_runs=3, resume=None),
             models={"builder": ["claude/writer"], "attacker": ["deepseek/attacker"],
                     "easy_calibrator": ["glm/easy"], "reviewers": [["minimax/reviewer"]]})
@@ -84,7 +85,7 @@ class AdmissionTests(unittest.TestCase):
                     pathlib.Path(request["result_path"]).write_text(json.dumps(verdict)); return 0
                 with patch.object(run, "prior_statements", return_value={"case-old": str(earlier)}), \
                      patch.object(run, "model_call", compare), patch.object(run, "opencode") as builder, \
-                     patch.object(run, "g2", return_value=(mode != "public", {"outcome": "public_match"} if mode == "public" else {})):
+                     patch.object(run, "ensure_freshness", return_value=(mode != "public", {"outcome": "public_match"} if mode == "public" else {})):
                     try: run.statement_precheck(c)
                     except run.BudgetError:
                         self.assertIn(mode, ("malformed", "unavailable"))
@@ -156,19 +157,19 @@ class AdmissionTests(unittest.TestCase):
         before = (c.case / "statement.md").read_bytes()
         with patch.object(run, "prior_statements", return_value={}), \
              patch.object(run, "opencode", return_value=0) as model:
-            with self.assertRaisesRegex(run.BudgetError, "freshness_evidence_unavailable"):
+            # Unretrieved rows need a re-run search, not a repair: a refresh that re-ran nothing is a
+            # retryable stall, and a later attempt refreshes again without spending the defect bound.
+            with self.assertRaisesRegex(run.BudgetError, "^freshness_refresh_stalled$"):
                 run.statement_precheck(c)
-            self.assertLessEqual(model.call_count, 4)
-            calls = model.call_count
-            # A fresh Python context must not restart the repair allowance.
+            self.assertEqual(model.call_count, 2)
             resumed = types.SimpleNamespace(**vars(c))
-            with self.assertRaisesRegex(run.BudgetError, "freshness_evidence_unavailable"):
+            with self.assertRaisesRegex(run.BudgetError, "^freshness_refresh_stalled$"):
                 run.statement_precheck(resumed)
-            self.assertEqual(model.call_count, calls)
+            self.assertEqual(model.call_count, 4)
+        self.assertEqual(json.loads((c.work / "freshness-repair.json").read_text())["completed_defects"], 0)
         self.assertEqual((c.case / "statement.md").read_bytes(), before)
         self.assertEqual(c.card["candidate_attempts"], 1)
         self.assertNotIn("rejected_candidates", c.card)
-        self.assertEqual(c.card["admission"]["status"], "evidence_incomplete")
         self.assertEqual(c.card["admission_freshness"]["invalid_evidence_reasons"], {"retrieval_failed": 8})
 
     def test_search_validation_reports_specific_reasons_without_exposing_contents(self):
@@ -206,8 +207,7 @@ class AdmissionTests(unittest.TestCase):
              patch.object(run, 'opencode', return_value=0) as model:
             with self.assertRaisesRegex(run.BudgetError, 'freshness_review_unavailable'):
                 run.statement_precheck(c)
-            self.assertEqual(model.call_count, 1)
-        self.assertEqual(c.card['admission']['status'], 'evidence_incomplete')
+            self.assertEqual(model.call_count, 1 + ordinary_freshness.REVIEW_REASKS)
         self.assertEqual(c.card['admission_freshness']['unresolved_hits'], 1)
 
     def test_evidence_repair_cannot_change_the_selected_bug(self):
@@ -234,7 +234,8 @@ class AdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(run.BudgetError, 'provider_limit'):
                 run.ensure_freshness(c)
         self.assertTrue(any(row.get('hit') is True for row in run.freshness_lines(c)))
-        self.assertEqual(json.loads((c.work / 'freshness-repair.json').read_text())['attempts'], 1)
+        state = json.loads((c.work / 'freshness-repair.json').read_text())
+        self.assertEqual((state['completed_defects'], state['pending']['phase']), (0, 'pending'))
 
     def test_unresolved_applicability_is_not_a_confirmed_public_match(self):
         c = self.c; self.rows[0]['hit'] = True
@@ -275,7 +276,7 @@ class AdmissionTests(unittest.TestCase):
             scratch_write(cwd, [row for row in scratch_rows(cwd) if row['retrieved']])
             return 0
         with patch.object(run, 'opencode', delete_failed):
-            with self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
+            with self.assertRaisesRegex(run.BudgetError, '^freshness_refresh_stalled$'):
                 run.ensure_freshness(c)
         self.assertTrue(any(row['retrieved'] is False for row in run.freshness_lines(c)))
 
