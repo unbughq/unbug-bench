@@ -137,6 +137,26 @@ class BudgetTests(unittest.TestCase):
         with self.assertRaisesRegex(BudgetError, '^cancelled$'):  # a run-level cancel still stops every call holding it
             self.run_script(emit(event('after-cancel')), concurrent=True, cancel=own)
 
+    def test_own_timeout_does_not_stop_concurrent_peers(self):
+        # 2abb0a gates:9/3 (14 November): the early probe's strong tester hit its own 30-minute cap,
+        # wrote 'timeout' as the ledger's stop, and the concurrent G8 review then died in shared_stop:
+        # ENGINE STOPPED timeout, a 78-minute gate run lost though the probe is only a label.
+        from concurrent.futures import ThreadPoolExecutor
+        ready = self.root / 'peer-ready'
+        def peer():
+            code = f'import pathlib,time; pathlib.Path({str(ready)!r}).touch(); time.sleep(1)\n' + emit(event('peer'))
+            return run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
+                                self.root / 'peer-transcript', self.ledger, 5, containment=False, concurrent=True)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(peer)
+            deadline = time.monotonic() + 3
+            while not ready.exists() and time.monotonic() < deadline: time.sleep(.01)
+            self.assertTrue(ready.exists())
+            with self.assertRaisesRegex(BudgetError, '^timeout$'):
+                self.run_script('import time; time.sleep(5)', concurrent=True, timeout=0.2)
+            self.assertEqual(future.result(timeout=5).returncode, 0)
+        self.assertEqual(self.data()['terminal_stop'], 'complete')
+
     def test_own_cancel_with_failed_kill_stays_sticky(self):
         # An own cancel leaves no ledger stop, but a process it could not kill must still block admission.
         import threading
