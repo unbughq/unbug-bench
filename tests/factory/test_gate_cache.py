@@ -153,5 +153,18 @@ class EvidenceCacheTests(unittest.TestCase):
         _, gate = self.early_lane_g4(owner=False)
         gate.assert_called_once()
 
+    def test_a_review_the_side_lane_renames_mid_listing_is_not_a_crash(self):
+        """cae763 (14 November): G16's inventory listed review-1/verdict.json, then the G8 lane's
+        review() renamed review-1 before G16 read it; G16 crashed FileNotFoundError."""
+        review = self.c.work / 'review-1'; review.mkdir(); (review / 'verdict.json').write_text('{}')
+        listed = gate_state.inventory
+        def inventory(c, bench):
+            paths = listed(c, bench)
+            if review.exists(): review.rename(self.c.work / 'review-superseded-1-1')
+            return paths
+        with patch.object(gate_state, 'inventory', inventory), patch.object(run, 'BENCH', self.root), \
+                patch.object(run, 'g4', return_value=(True, {'broke': '3/10'})):
+            self.assertEqual(run.checked_gate(self.c, 'G4'), (True, {'broke': '3/10'}))
+
 
 if __name__ == '__main__': unittest.main()
