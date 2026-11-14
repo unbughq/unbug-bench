@@ -137,6 +137,26 @@ class BudgetTests(unittest.TestCase):
         with self.assertRaisesRegex(BudgetError, '^cancelled$'):  # a run-level cancel still stops every call holding it
             self.run_script(emit(event('after-cancel')), concurrent=True, cancel=own)
 
+    def test_own_cancel_with_failed_kill_stays_sticky(self):
+        # An own cancel leaves no ledger stop, but a process it could not kill must still block admission.
+        import threading
+        import budget
+        pid = self.root / 'orphan-pid'
+        def reap():
+            try: os.kill(int(pid.read_text()), signal.SIGKILL)
+            except (OSError, ValueError): pass
+        self.addCleanup(reap)
+        own = threading.Event()
+        code = f'import os,pathlib,time; pathlib.Path({str(pid)!r}).write_text(str(os.getpid())); time.sleep(30)'
+        threading.Timer(.5, own.set).start()
+        with patch.object(budget.os, 'killpg', side_effect=ProcessLookupError):  # the kill does nothing
+            with self.assertRaisesRegex(BudgetError, '^cancelled$'):
+                self.run_script(code, concurrent=True, cancel=own, timeout=20)
+        reap()
+        self.assertEqual(self.data()['terminal_stop'], 'cancellation_failed')
+        with self.assertRaisesRegex(BudgetError, 'Budget ledger stopped: cancellation_failed'):
+            self.run_script(emit(event('next')))
+
     def test_concurrent_cap_resume_waits_for_peer_cleanup(self):
         from concurrent.futures import ThreadPoolExecutor
         ready = self.root / 'peer-ready'
