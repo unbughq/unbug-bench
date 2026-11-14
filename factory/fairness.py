@@ -47,8 +47,9 @@ def review_attempts(c, r, gate, folder):
     attempts = r.jload(c.work / folder / "results.json", [])
     if not isinstance(attempts, list) or not attempts:
         raise InvalidInfra("missing calibration evidence")
-    # A try that already ended capped or unknown makes the review inconclusive whatever the missing
-    # tries show, so do not buy replacements for them first (same None as the loop below would reach).
+    # A try that already ended capped (call limit, or time limit without a cleanly checked fix) or
+    # unknown makes the review inconclusive whatever the missing tries show, so do not buy
+    # replacements for them first (same None as the loop below would reach).
     for original in attempts:
         workspace = pathlib.Path(original["workspace"]).resolve()
         workspace.relative_to(c.work.resolve())
@@ -112,10 +113,12 @@ def review_attempts(c, r, gate, folder):
             attempt.update(errors=0, bench_crash=None, checked_runs=len(values),
                            solved_runs=sum(v['solved'] for v in values), solved=all(v['solved'] for v in values))
             attempt['artifacts'] = tree_digest(workspace)
-            if 'scientific_outcome' in attempt:
-                attempt['scientific_outcome'] = scientific_outcome(attempt)
+        # Reviewers see the current label, never a pre-2026-11-14 "capped" on a graded time-limit fix.
+        if 'scientific_outcome' in attempt:
+            attempt['scientific_outcome'] = scientific_outcome(attempt)
         attempt_summary([attempt])
-        # Caps/unknown stops cannot prove wrong_fix, even if a model says so.
+        # Caps/unknown stops cannot prove wrong_fix, even if a model says so; a fix handed in at the
+        # time limit and checked cleanly is a demonstrated failure (founder 2026-11-14).
         # Do not spend reviewer families or turn this into infrastructure failure.
         if scientific_outcome(attempt) not in ('solved', 'demonstrated_failure'):
             return None
@@ -153,7 +156,8 @@ def review_attempts(c, r, gate, folder):
         "judge, owner questions/answers and transcripts. Reference code is not the definition of correctness. "
         "Classify wrong_fix (concrete error against the promise), missing_info (necessary fact unavailable "
         "in supplied material AND owner channel), or judge_too_narrow (valid behavior rejected by a specific "
-        "judge condition). Runtime failure, capped or missing submission never proves wrong_fix. "
+        "judge condition). Runtime failure, a call-limit cap or missing submission never proves wrong_fix; "
+        "a fix handed in at the time limit is judged like any other. "
         'If evidence is insufficient write {"inconclusive":true,"reason":"specific missing evidence"}. '
         'Otherwise write {"tries":[{"try":1,"label":"wrong_fix|missing_info|judge_too_narrow",'
         '"finding":"concrete explanation","evidence":"specific retained evidence"}]}.')
