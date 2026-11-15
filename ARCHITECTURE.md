@@ -198,7 +198,8 @@ not review copies, not another gate's details) and, once G10 has overlapped, not
 until the pipeline exits. A pass that gate-cache holds is not also a step receipt
 (`durable.checkpoints.gate_call`); every other pass and every failure is. Both bind `gate_state.inputs`,
 where a model stage's `agent_timeout` is the step's own deadline under the engine (`EngineStep.deadline_s`),
-not the attempt's remaining time, so a retry matches. The receipt folder hashes
+not the attempt's remaining time, so a retry matches; the stress binding (`judge_dependencies`, which names
+the category state folder) takes it from the same `gate_state.agent_timeout`. The receipt folder hashes
 the verdict-path files; `invalid-runs-compat.json` `verdict_code_pins` lets a release reviewed as
 changing no verdict keep its predecessor's folder (`from`: the digest in use; recompute after any
 change to those files), and a stale pin changes nothing. The same digest is the helper job's release. The writer step records fixed

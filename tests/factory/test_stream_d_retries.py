@@ -534,6 +534,26 @@ class RetryTests(unittest.TestCase):
         for p,data in before.items(): self.assertEqual(p.read_bytes(),data)
         self.assertTrue(run.jload(self.work/'attacks/round-1.json')['complete'])
 
+    def test_category_progress_survives_an_attempt_with_less_time_left(self):
+        """run.context_for_step sets args.agent_timeout to the attempt's remaining time, and the stress
+        binding (attack_binding, gate_state.judge_dependencies) held it: the category state folder was new
+        on every engine attempt, so finished categories ran again."""
+        killed = [False]
+        def emit(config, value):
+            if config['category'] == 'fairness' and not killed[0]:
+                killed[0] = True
+                raise runtime_fixture.Killed()
+        self.stress_setup(emit)
+        self.c.args.agent_timeout = 5_000.0   # as context_for_step: this attempt's remaining time
+        with self.assertRaises(runtime_fixture.Killed): self.stress_round(self.c, {})
+        first = len(self.calls)
+        self.fresh_context()
+        self.c.args.agent_timeout = 3_000.0
+        self.stress_round(self.c, copy.deepcopy(self.c.card))
+        self.assertEqual(len(list(self.work.glob('attacks/round-1-categories/*/state.json'))), 1)
+        self.assertEqual(len(self.calls) - first, 2)   # the killed category and the one after it, nothing finished
+        self.assertTrue(run.jload(self.work/'attacks/round-1.json')['complete'])
+
     def test_no_progress_is_operational_exhaustion_and_blocker_wins(self):
         def emit(config, value):
             value.update(category_complete=False, completed_subchecks=[], unfinished_validation=['authored diagnostic needed'])

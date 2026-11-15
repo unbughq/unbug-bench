@@ -174,6 +174,13 @@ def dependency_files(c, patterns, bench, *, include_pool=False):
     return dependencies
 
 
+def agent_timeout(c):
+    """The agent_timeout an identity holds. Under the engine args.agent_timeout is the attempt's remaining
+    time (run.context_for_step), new on every attempt; the step's own deadline is the setting."""
+    engine = getattr(c, "engine", None)
+    return engine.deadline_s if hasattr(engine, "deadline_s") else getattr(c.args, "agent_timeout", 14400)
+
+
 def judge_dependencies(c, bench, *, calibration=False):
     """Exact portable stress/calibration dependency inventory; no whole manifest."""
     patterns = MEASURE + STRATEGY + MODEL + ("bin/run_validity.py", "*.md", "harbor/**", "factory/case_contract.py", "factory/attack_findings.py")
@@ -188,6 +195,7 @@ def judge_dependencies(c, bench, *, calibration=False):
                 ("agent_timeout", 14400), ("max_role_calls", 400), ("max_total_calls", 1000),
                 ("max_cost", 5), ("no_progress_minutes", 45), ("max_zero_tokens", 3),
                 ("concurrent_roles", True))}, seed=getattr(c, "seed", None))
+        result["settings"]["agent_timeout"] = agent_timeout(c)
     return result
 
 
@@ -218,10 +226,7 @@ def inputs(c, gate, bench):
         "args": {key: getattr(c.args, key, default) for key, default in settings.items()},
         "environment": environment("UNBUG_JUDGE", "UNBUG_FACTORY_SLOT", "MEDUSA_DEPS_IMAGE"),
     }
-    if "agent_timeout" in settings and hasattr(getattr(c, "engine", None), "deadline_s"):
-        # Under the engine args.agent_timeout is the attempt's remaining time (run.context_for_step), new
-        # on every attempt; the step's own deadline is the setting. A CLI run keeps its real value.
-        identity["args"]["agent_timeout"] = c.engine.deadline_s
+    if "agent_timeout" in settings: identity["args"]["agent_timeout"] = agent_timeout(c)
     if gate in MODEL_STAGES:
         import run
         prompt_roles = ("pilot", "reviewer") if gate in {"G10", "G16", "G17"} else ("reviewer",)
