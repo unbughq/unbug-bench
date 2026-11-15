@@ -166,5 +166,40 @@ class EvidenceCacheTests(unittest.TestCase):
                 patch.object(run, 'g4', return_value=(True, {'broke': '3/10'})):
             self.assertEqual(run.checked_gate(self.c, 'G4'), (True, {'broke': '3/10'}))
 
+    def test_a_bench_gate_does_not_cite_what_the_side_lane_wrote_beside_it(self):
+        """G8 writes review-1 and gate-details/G8.json while G4 runs beside it. G4 cited them, and the
+        next attempt's review() renames review-1 (run.review), so G4 missed: 'evidence file missing'."""
+        def g4(c):
+            review = c.work / 'review-1'; review.mkdir(exist_ok=True); (review / 'verdict.json').write_text('{}')
+            (c.work / 'gate-details').mkdir(exist_ok=True); (c.work / 'gate-details/G8.json').write_text('{}')
+            (c.work / 'gate-details/G4.json').write_text('{"own": true}')
+            result = self.root / 'results/runs/g4/checkpoint.json'; result.parent.mkdir(parents=True, exist_ok=True)
+            result.write_text('{}')
+            return True, {'broke': '3/10'}
+        with patch.object(run, 'BENCH', self.root), patch.object(run, 'g4', g4):
+            self.assertEqual(run.checked_gate(self.c, 'G4'), (True, {'broke': '3/10'}))
+        record = json.loads((self.c.work / 'gate-cache/G4.json').read_text())
+        self.assertEqual(sorted(e['path'] for e in record['evidence']), ['gate-details/G4.json', 'runs/g4/checkpoint.json'])
+        (self.c.work / 'review-1').rename(self.c.work / 'review-superseded-1-1')
+        (self.c.work / 'gate-details/G8.json').write_text('{"findings": []}')
+        self.assertEqual(gate_state.load(self.c, 'G4', self.root), {'broke': '3/10'})
+
+    def test_a_record_saved_before_this_change_still_loads(self):
+        """Live batches hold records in the on-disk format origin/main a1375820 writes, including
+        evidence a lane wrote beside the gate. They keep loading while their files are intact."""
+        result = self.root / 'results/runs/g4/checkpoint.json'; result.parent.mkdir(parents=True); result.write_text('{}')
+        review = self.c.work / 'review-1'; review.mkdir(); (review / 'verdict.json').write_text('{"v": 1}')
+        inputs = gate_state.inputs(self.c, 'G4', self.root)
+        record = {'fingerprint_version': 3, 'inputs': inputs,
+                  'signature': hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest(),
+                  'info': {'broke': '3/10'}, 'scientific_version': gate_state.scientific_version(self.c, 'G4', self.root),
+                  'evidence': [{'kind': 'bench', 'path': 'runs/g4/checkpoint.json', 'sha256': gate_state.digest(result)},
+                               {'kind': 'work', 'path': 'review-1/verdict.json', 'sha256': gate_state.digest(review / 'verdict.json')}]}
+        (self.c.work / 'gate-cache').mkdir(); (self.c.work / 'gate-cache/G4.json').write_text(json.dumps(record))
+        with patch.object(run, 'BENCH', self.root), patch.object(run, 'g4') as gate:
+            ok, info = run.checked_gate(self.c, 'G4')
+        gate.assert_not_called()
+        self.assertTrue(ok); self.assertTrue(info['reused_verified_evidence'])
+
 
 if __name__ == '__main__': unittest.main()

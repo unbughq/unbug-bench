@@ -190,7 +190,12 @@ leave out the router, runtime, call gate and ordinary-retry files that only mode
 effects key on. Every gate-cache miss logs the changed identity field names (never case file names). Otherwise the serial order G15, G3,
 G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
-case edited during that lane fails the step as infrastructure. The writer step records fixed
+case edited during that lane fails the step as infrastructure. Meanwhile each gate-cache pass outside
+the side lane is published at once as the last snapshot plus its record and evidence
+(`durable.checkpoints.progress`, `worker_step.overlay`), so a killed attempt restarts after it; a gate
+cites only its own work files (`gate_state.owned`: not review copies, not another gate's details).
+A G4-G16 pass lives only in `gate-cache`; step receipts (`durable.checkpoints.gate_call`) keep
+failures and the other gates' passes, and pass receipts saved before still replay. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
 progress and the card's `phase_times`. Before another writer call and its checks in the same
 attempt, the round compares the time left with 1.25 times the longest cycle finished in this round (carried in the handback across attempts) plus 15 minutes;

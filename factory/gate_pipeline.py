@@ -86,6 +86,11 @@ class GatePipeline:
             return False, {'problems': [str(error)]}
         if reusable and ok and signature == gate_state.fingerprint(c, gate, self.bench):
             gate_state.save(c, gate, info, signature, before, self.bench)
+            # Published now, not at the next quiescent point, which a lane beside this gate may delay for
+            # hours. Side-lane passes are kept at the join: the next review() renames their evidence.
+            if getattr(c, "engine", None) is not None and gate not in self.side_gates:
+                from durable.checkpoints import progress
+                progress(c, gate, self.bench)
         return ok, info
 
 
@@ -180,11 +185,10 @@ class GatePipeline:
     def early_parallel(self, c, lane, rest, on_rejection):
         """G15 on this thread; the other early gates and the saved-cheat sample on lane's bench instance."""
         self.log(c, "+".join(rest + ["saved-cheats"]), f"early start (beside G15, bench instance {lane.factory_slot})")
-        # Each gate cites only its own lane's files: the lane's bench instance and its gates' details.
+        # Each gate cites only its own lane's bench instance; gate_state.owned keeps its work files its own.
         own = f"factory-slots/{lane.factory_slot}/"
-        details = tuple(f"gate-details/{gate}" for gate in rest)
-        lane.evidence_scope = lambda kind, rel: rel.startswith(own) if kind == "bench" else not rel.startswith("gate-details/G15")
-        c.evidence_scope = lambda kind, rel: not rel.startswith(own) if kind == "bench" else not rel.startswith(details)
+        lane.evidence_scope = lambda kind, rel: kind != "bench" or rel.startswith(own)
+        c.evidence_scope = lambda kind, rel: kind != "bench" or not rel.startswith(own)
         pool = ThreadPoolExecutor(max_workers=1)
         try:
             with self.section(c):
