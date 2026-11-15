@@ -518,7 +518,7 @@ class RouterTests(unittest.TestCase):
         receipt=json.loads((c.work/stopped.exception.wait.call_id).read_text())
         self.assertFalse(receipt['final_usage_known'])
 
-    def stalled_call(self, router_down):
+    def stalled_call(self, router_down=False, refused_healthy=False):
         """cae763 gates:8/1-1, 15 November: the worker froze from its last renewal (02:17:58) until
         02:37:02; the router stayed up, its sweep expired the lease at 02:37:01 and refused the next renewal."""
         c, secrets, _ = self.context()
@@ -529,7 +529,8 @@ class RouterTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
         def execute(context, *args, **kwargs):
-            clock[0] = router.epoch('2026-11-15T02:37:02Z')
+            if refused_healthy: server.token = 'rotated-token'   # a refusal with no clock advance: not a stall
+            else: clock[0] = router.epoch('2026-11-15T02:37:02Z')
             if router_down: server.shutdown(); server.server_close()
             self.assertTrue(context.role_cancel.wait(5))
             raise budget.BudgetError('cancelled')
@@ -546,6 +547,8 @@ class RouterTests(unittest.TestCase):
         from durable.contract import Outcome, StepKind
         result, _ = classify_wait(stopped.exception, step=StepKind.GATES, now=clock[0])
         self.assertIs(result.outcome, Outcome.INFRA_ERROR)
+        receipt = json.loads((c.work / stopped.exception.wait.call_id).read_text())
+        self.assertEqual(receipt['failure_reason'], stopped.exception.wait.reason)
         return stopped.exception.wait.reason, result.reason
 
     def test_a_refused_renewal_after_a_worker_stall_is_a_worker_stall(self):
@@ -553,6 +556,9 @@ class RouterTests(unittest.TestCase):
 
     def test_an_unreachable_router_after_a_stall_stays_router_unavailable(self):
         self.assertEqual(self.stalled_call(router_down=True), ('router_unavailable', 'infra:router_unavailable'))
+
+    def test_a_refusal_within_the_lease_from_a_healthy_worker_stays_router_unavailable(self):
+        self.assertEqual(self.stalled_call(refused_healthy=True), ('router_unavailable', 'infra:router_unavailable'))
 
     def test_receipt_write_error_still_releases_lease(self):
         c,secrets,_=self.context()

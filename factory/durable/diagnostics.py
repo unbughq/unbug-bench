@@ -16,7 +16,9 @@ from decimal import Decimal, InvalidOperation
 from durable.artifacts import AgeSealer
 from durable.contract import Ref, ArtifactKind
 
-REASONS = {'quota', 'rate', 'credit', 'outage', 'credential_expiring', 'unbounded_route', 'router_unavailable', 'capacity'}
+# model_router.REASONS plus its worker-only LEASE_LOST reason worker_stalled.
+REASONS = {'quota', 'rate', 'credit', 'outage', 'credential_expiring', 'unbounded_route', 'router_unavailable', 'capacity',
+           'worker_stalled'}
 STOPS = {'provider_wait', 'process_error', 'claude_error', 'codex_error', 'opencode_error',
          'budget_exhausted', 'cost_limit', 'timeout', 'stalled', 'zero_tokens'}
 HINTS = {'authentication': r'authentication|invalid api key|oauth token.*expired|unauthorized',

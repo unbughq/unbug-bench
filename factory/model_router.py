@@ -983,6 +983,8 @@ def running(lease, cancel):
             try: renew_once()
             except (RouterUnavailable, ValueError) as error:
                 # The router refusing a lease our renewals let lapse is a worker stall (cae763, 15 November), not an outage.
+                # ponytail: wall clock, like the router's expiry; a clock jump over LEASE_SECONDS can swap the label
+                # (only the label). Compare the router's returned expires_at if that ever matters.
                 if isinstance(error, RouterRejected) and time.time() - renewed[0] > LEASE_SECONDS:
                     lost.reason = 'worker_stalled'
                 lost.set(); cancel.set(); return

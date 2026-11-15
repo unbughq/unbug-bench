@@ -674,7 +674,7 @@ class ModelRuntime:
                                 and not context.model_cap_used['unknown_requests']
                                 and not context.model_cap_used['in_flight_requests']),
                             'outcome': outcome,
-                            'failure_reason': failure.get('reason') if failure and failure.get('reason') in model_router.REASONS else None,
+                            'failure_reason': failure.get('reason') if failure and failure.get('reason') in model_router.REASONS | set(model_router.LEASE_LOST) else None,
                             'source_stop': failure.get('source_stop') if failure else None})
                         # Process-start evidence first: accounting below may raise.
                         receipt_row.update(outcome=outcome, call_id=receipt)

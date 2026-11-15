@@ -385,6 +385,7 @@ def classify_wait(error, *, step, now, prior=()):
         if record not in waits: waits.append(record)
     active = [row for row in waits if not row.get('historical')]
     reasons = {row['reason'] for row in active}
+    # Deliberate: router_unavailable outranks worker_stalled, so a stall while the router is also down stays an operational wait.
     fault = next((r for r in ('credential_expiring', 'unbounded_route', 'router_unavailable', 'worker_stalled') if r in reasons), None)
     original = next((row['source_stop'] for row in reversed(waits) if 'source_stop' in row), None)
     reason = fault or waits[-1]['reason']
