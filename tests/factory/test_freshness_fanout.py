@@ -143,6 +143,19 @@ class FanoutTests(unittest.TestCase):
         self.assertEqual(len(rows), 12 + 6)   # one re-run row per old builder query
         self.assertNotIn('builder-freshness', self.calls)   # nothing left for the agentic repair
 
+    def test_an_unretrieved_search_page_row_is_rerun_and_superseded(self):
+        # case f46dac: an unflagged html.duckduckgo.com row logged retrieved:false. Fan-out re-runs its
+        # query; the new row's result page replaces it, with no paid agentic top-up.
+        self.expired_rows()
+        rows = run.freshness_lines(self.c)
+        dead = {**rows[0], 'url': 'https://html.duckduckgo.com/html/?q=old+builder+web+0', 'retrieved': False}
+        (self.c.case / 'freshness.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in [dead, *rows[1:]]))
+        run.freshness_topup(self.c, completed_roles=('attacker',))
+        self.assertIn(('web', dead['query']), self.searches)
+        after = self.rows()
+        self.assertTrue(any(r['url'] == dead['url'] and gone for r, gone in zip(after, admission.superseded(after))))
+        self.assertNotIn('builder-freshness', self.calls)
+
     def test_an_amended_rows_note_counts_the_flagged_results(self):
         self.expired_rows()
         self.scores = lambda listing: {listing[0]['id']: 'unsure'}

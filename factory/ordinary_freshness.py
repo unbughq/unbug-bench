@@ -6,7 +6,7 @@ import shutil
 import uuid
 import datetime
 
-from admission import REFRESH, search_evidence_error, superseded
+from admission import REFRESH, rerun_url, search_evidence_error, superseded
 from budget import BudgetError
 import freshness_retrieval as retrieval
 from ordinary_retry import check, backoff, digest, read, transport
@@ -144,8 +144,8 @@ def ensure(run, c):
         # rest of it as if refreshed (an unretrieved result has no note or scope yet; the re-run writes
         # them, as freshness_fanout assumes). G2 itself still rejects it until the re-run really happens.
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        rows = [{**r, 'at': now, 'retrieved': True, 'note': r.get('note') or 'x', 'version_scope': r.get('version_scope') or 'x'}
-                if e in REFRESH else r for r, e in zip(rows, errors)]
+        rows = [{**r, 'at': now, 'retrieved': True, 'note': r.get('note') or 'x', 'version_scope': r.get('version_scope') or 'x',
+                 'url': rerun_url(r)} if e in REFRESH else r for r, e in zip(rows, errors)]
         found = {v for r in rows if (v := run.own_search(c, r)) is not None}
         enough = (sum(w == 'builder' and k == 'web' for w,k,q in found) >= 3 and
                   sum(w == 'builder' and k == 'github' for w,k,q in found) >= 3 and
