@@ -236,12 +236,16 @@ def reserve_step(si: dict, request: int, case_limit: int, draws: bool) -> dict:
 
 @DBOS.step()
 def call_hold_step(si: dict) -> int:
-    """Read after the grant is reserved: unreadable INPUTS give 0 (the $1 minimum alone), so the
-    caller always goes on to start or release that grant, never leaving it held."""
+    """Unreadable INPUTS give 0: the $1 minimum alone, as before the hold was checked."""
     try:
         return _ex().call_hold(step_input_from_record(si))
     except Exception:
         return 0
+
+
+@DBOS.step(**SEAM)
+def batch_left_step(batch_id: str) -> int:
+    return _ex().batch_left(batch_id)
 
 
 @DBOS.step(**SEAM)
@@ -881,6 +885,17 @@ def attempt_workflow(job: dict) -> dict:
     si = replace(si, plumbing_version=plumbing, bench_version=bench)
     if si.step.kind is StepKind.ADMIT:
         si = replace(si, registry=Ref(**latest_registry_step(si.batch_id, job["initial_registry"])))
+    # A step that cannot fund one request of its dearest model waits for the bound unstarted, instead of
+    # doing its setup and stopping on money (18681d, 15 November). It parks before reserving when the batch
+    # cannot fund it, so no other case sees that money taken (a cheap writer reserving meanwhile got $0 and
+    # slept). SEAL makes no model call (run.engine_seal), so it always starts. Workflows recorded before the
+    # patch keep the $1 minimum alone. The admission probe and the prepared-attempt workflow pass no hold:
+    # both belong to the V2 queue, which start_batch leaves off ("queue_v2": False), and nothing enqueues a
+    # prepared attempt yet; they need it before V2 is on.
+    hold = (call_hold_step(to_record(si)) if si.step.kind is not StepKind.SEAL and DBOS.patch("afford_one_call")
+            else 0)
+    if hold and batch_left_step(si.batch_id) <= hold:
+        return {"started": False, "action": Action.WAIT_FOR_BOUND.value}
     grant = Grant(**reserve_step(to_record(si), job["request"], job["case_limit"], job["draws"]))
     # A case waiting for a slot or funding has not yet begun admission. Record
     # the cutoff after reserve (which may block), before provisioning a worker.
@@ -890,23 +905,17 @@ def attempt_workflow(job: dict) -> dict:
         release_unstarted_step(to_record(si))
         DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id}, topic=CASE_EVENT)
         return {"started": False, "action": Action.STOP_ADMISSION.value, "reason": "infra:deadline"}
-    # A BATCH grant that cannot fund one request of this step's dearest model waits for the bound
-    # unstarted, instead of doing its setup and stopping on money (18681d, 15 November). SEAL makes no
-    # model call (run.engine_seal), so it always starts: a case that passed every gate never waits here.
-    # Workflows recorded before the patch keep the $1 minimum alone. The admission probe and the
-    # prepared-attempt workflow pass no hold: both belong to the V2 queue, which start_batch leaves off
-    # ("queue_v2": False), and nothing enqueues a prepared attempt yet; they need it before V2 is on.
-    hold = (call_hold_step(to_record(si)) if grant.limited_by is LimitedBy.BATCH and si.step.kind is not StepKind.SEAL
-            and DBOS.patch("afford_one_call") else 0)
+    # Another case may have reserved since the check above: a BATCH grant at or below the hold still waits.
     early = decide_grant(si.step, grant, call_hold=hold)
     if early is not None:
         release_unstarted_step(to_record(si))
         # A sub-minimum BATCH grant was everything the batch had left, so it cut no other case's
         # grant: its release wakes nobody (else two capped cases could wake each other forever).
-        # Known and left (review of afford_one_call): a grant now held back below one call's hold is
-        # above $1, and a case that reserved while it was held may wait for a later settle to wake it.
+        # A grant of $1 or more held back by the hold may have cut another case's, so it wakes them;
+        # a case whose hold that money cannot fund parks again at the check above, waking nobody.
         DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id,
-                                "unstarted": early is Action.WAIT_FOR_BOUND}, topic=CASE_EVENT)
+                                "unstarted": early is Action.WAIT_FOR_BOUND
+                                and grant.amount_usd_micros < MIN_GRANT_USD_MICROS}, topic=CASE_EVENT)
         return {"started": False, "grant": to_record(grant), "action": early.value}
     si = replace(si, money_ceiling_usd_micros=grant.amount_usd_micros)
     if job["prev"] is not None:

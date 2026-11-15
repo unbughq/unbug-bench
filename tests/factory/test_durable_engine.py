@@ -743,8 +743,8 @@ class Money(unittest.TestCase):
                       "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})   # it resumed on the raise
-        short = [x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/2/writer:1/1"]
-        self.assertEqual([(x["amount"], x["label"]) for x in short], [(9_480_000, "batch")])
+        # It parked before reserving: the batch's $9.48 was never taken from another case.
+        self.assertFalse([x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/2/writer:1/1"])
         starts = [x for x in r.worker_log() if x["op"] == "start"]
         self.assertEqual([x["key"] for x in starts if x["ceiling"] <= hold], [])   # never started below one hold
         self.assertEqual(steps(r, 1)[:2], ["admit", "writer:1"])
@@ -780,11 +780,33 @@ class Money(unittest.TestCase):
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
         self.assertEqual(start(r, f"{C1}/2/writer:1/1")["ceiling"], 5 * M)
-        short = [x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/3/stress:1/1"]
-        self.assertEqual([x["label"] for x in short], ["batch"])
-        self.assertLess(short[0]["amount"], 9_520_896)
+        self.assertFalse([x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/3/stress:1/1"])
         self.assertFalse([x for x in r.worker_log() if x["op"] == "start" and x["key"] == f"{C1}/3/stress:1/1"])
         self.assertIn(f"{C1}/3/stress:1/2", [x["key"] for x in r.starts(1)])
+
+    def test_a_step_that_cannot_fund_its_hold_takes_no_money_from_a_cheap_writer(self):
+        # Review of afford_one_call: the batch has $8 left. Case 1's stress round (a Claude reviewer, $9.52 hold)
+        # reserved all of it, then read its hold and parked; case 2's cheap writer, reserving meanwhile, got $0
+        # and waited; the parked release woke nobody, so case 2 slept with $8 free until the bound was raised.
+        # A step whose hold the batch cannot fund now parks without reserving: case 2 runs on the $8.
+        live = {"dry_run": False, "models": {
+            "builder": ["opencode-go/glm-5.3-flash"], "attacker": ["opencode/minimax-m3.1-flash-free"],
+            "reviewers": [["claude/claude-opus-5-5"], ["opencode-go/mimo-v2.6-pro"]],
+            "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/deepseek-v4.1-flash-free"]}}
+        # Both admissions done, case 1's writer holds the batch, so case 2's writer waits; it spends all but $8.003
+        # and settles, waking case 2, whose writer reserves two seconds later, while case 1's stress round holds.
+        r, out = run({"inputs": live, "spec": {"target_sealed": 2, "max_cases_started": 2, "case_money_usd_micros": 20 * M,
+                                               "money_bound_usd_micros": 20 * M},
+                      "script": {"1/writer:1/*": {"paid": 20 * M - 2000 - 8_003_000, "dur": 3.0}},
+                      "call_hold_delay_s": {"1/3/stress:1/1": 6.0},
+                      "case_reserve_delay_s": {"1/2/writer:1/1": 1.0, **{f"2/2/writer:1/{n}": 2.0 for n in range(1, 8)}},
+                      "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]}, timeout=180)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed", C2: "sealed"})
+        raised = next(x["t"] for x in r.ledger_log() if x["op"] == "raise_bound")
+        writer = next(x for x in r.starts(2) if "/writer:1/" in x["key"])
+        self.assertLess(writer["t"], raised)   # it ran on the $8 the stress round could not use
+        self.assertFalse([x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/3/stress:1/1"])
 
     def test_bound_raised_wakes_a_waiting_case(self):
         r, out = run({"spec": {"money_bound_usd_micros": 500_000},
