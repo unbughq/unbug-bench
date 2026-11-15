@@ -15,31 +15,43 @@ from run_validity import InvalidInfra
 
 
 REVIEW_REASKS = 2   # extra reviewer asks per attempt after an unresolved G2 review
-# G2 cycles in a row a flagged hit may stay behind a bot wall with no archive copy before G2 stops and
-# the case goes to diagnosis. 18681d (14-15 November) retried one such page to the batch deadline: ~$213.
+# G2 cycles in a row held by the same access failures with the same evidence and result. 18681d (15
+# November 09:30-12:44) ran 39 such cycles on one flagged page answering 429 with no archive copy.
+STALLED = 'g2-stalled.json'   # in run.SNAPSHOT_RETAINED, so the count survives a new worker
+# A real bot wall with no archive copy belongs to the page: G2 stops for a person after this many cycles.
 SOURCE_BLOCKED_CYCLES = 3
-# Only real walls count. 429, 5xx and network errors are transient or can be our own rate limit, so they
-# are left to the deadline and the other stops.
 WALLS = ('http_401', 'http_403', 'http_451')
+# 429, 5xx and network errors can be our own outage or rate limit (0cc00438): G2 waits this long on one
+# unchanged hold before it stops as our own retryable infra stall.
+STALLED_SECONDS = 30 * 60
 
 
-def source_blocked(c):
-    """Count consecutive held cycles per flagged URL in the work dir (survives resume); raise once one
-    reaches the bound. A URL that came back, or found an archive copy, drops out of the count."""
-    path = c.work / 'g2-source-blocked.json'
-    before = read(path, {})
-    counts = {r['url']: {'failure': r['live_failure'], 'cycles': before.get(r['url'], {}).get('cycles', 0) + 1}
-              for r in getattr(c, 'freshness_retrieval', [])
-              if r.get('live_failure') in WALLS and r.get('archive_available') is False}
-    atomic_json(path, counts)
-    blocked = [{'url': url, 'failure': v['failure'], 'cycles': v['cycles']}
-               for url, v in counts.items() if v['cycles'] >= SOURCE_BLOCKED_CYCLES]
-    if blocked:
-        c.card['freshness_source_blocked'] = {'sources': blocked, 'note':
-            'G2 stopped: ' + '; '.join(f"{b['url']} answered {b['failure']} on {b['cycles']} cycles in a row "
-                                       'with no archive copy' for b in blocked)
-            + '; the page is behind a bot wall. Someone must open it, or rule the claim does not need it.'}
-        raise BudgetError('freshness_source_blocked')
+def stalled(run, c, info):
+    """Track the held cycle's evidence and result; stop when the same hold has lasted SOURCE_BLOCKED_CYCLES
+    cycles behind a wall with no archive copy, or STALLED_SECONDS otherwise. Anything new starts again."""
+    receipts = getattr(c, 'freshness_retrieval', [])
+    signature = digest({'rows': run.freshness_lines(c), 'info': info,
+                        'flagged': retrieval.judgment_projection(receipts)})
+    before = read(c.work / STALLED, {})
+    if not isinstance(before, dict): raise BudgetError('ordinary_retry_state_invalid')
+    if before.get('signature') != signature: before = {'cycles': 0, 'since': time.time()}
+    elif type(before.get('cycles')) is not int or type(before.get('since')) not in (int, float):
+        raise BudgetError('ordinary_retry_state_invalid')
+    state = {'signature': signature, 'cycles': before['cycles'] + 1, 'since': before['since']}
+    atomic_json(c.work / STALLED, state)
+    held = [{'url': r['url'], 'failure': r['live_failure'], 'archive': r['archive_available']}
+            for r in receipts if retrieval.access_failure(r)]
+    walled = any(h['failure'] in WALLS and h['archive'] is False for h in held)
+    minutes = (time.time() - state['since']) / 60
+    if walled and state['cycles'] < SOURCE_BLOCKED_CYCLES or not walled and minutes < STALLED_SECONDS / 60: return
+    c.card['freshness_stalled'] = {'cycles': state['cycles'], 'minutes': round(minutes), 'sources': held, 'note':
+        f"G2 stopped: held {state['cycles']} cycles ({round(minutes)} min) with no new information by "
+        + '; '.join(f"{h['url']} ({h['failure']}, archive {h['archive']})" for h in held)
+        + ('. A page is behind a bot wall with no archive copy: someone must open it, or rule the claim does '
+           'not need it.' if walled else '. Only rate limits, server or network errors: retried as our own infra stall.')}
+    if not walled:   # each retry of our own stall gets its own STALLED_SECONDS
+        atomic_json(c.work / STALLED, {**state, 'since': time.time()})
+    raise BudgetError('freshness_source_blocked' if walled else 'freshness_refresh_stalled')
 
 
 def semantic_binding(binding, rows):
@@ -102,7 +114,8 @@ def obtain(c, rows, directory, *, flagged):
 
 def ensure(run, c):
     """Only completed bad metadata work spends the defect bound; expiry and failed retrieval are refresh."""
-    c.card.pop('freshness_source_blocked', None)   # set only by the stop that raises with it
+    c.card.pop('freshness_stalled', None)   # set only by the stop that raises with it
+    c.card.pop('freshness_source_blocked', None)   # its name in cards saved before 16 November
     run.finish_freshness_repair(c)
     statement = (c.case / 'statement.md').read_bytes()
     key = hashlib.sha256(statement).hexdigest()
@@ -168,6 +181,7 @@ def ensure(run, c):
         finish()
         pending = state['pending']
         if pending:
+            (c.work / STALLED).unlink(missing_ok=True)   # the hold count is of held cycles in a row
             def role_done(who):
                 pending['roles'].append(who); save()
             run.freshness_topup(c, completed_roles=pending['roles'], role_completed=role_done)
@@ -175,12 +189,16 @@ def ensure(run, c):
             continue
         ok, info = run._g2(c)
         c.card['admission_freshness'] = info
+        # A flagged page held while other pages answer; an outage of ours keeps backoff and the deadline.
+        held = info.get('transport_pending') and not info.get('all_transport_failed')
+        if ok or info.get('outcome') == 'public_match' or not held:
+            (c.work / STALLED).unlink(missing_ok=True)   # the hold count is of held cycles in a row
         if ok or info.get('outcome') == 'public_match':
             c.freshness_refetch_urls = set()
-            (c.work / 'g2-source-blocked.json').unlink(missing_ok=True)
+            (c.work / 'g2-source-blocked.json').unlink(missing_ok=True)   # the bot-wall count before 16 Nov
             return ok, info
         if info.get('transport_pending') or info.get('all_transport_failed'):
-            if info.get('transport_pending'): source_blocked(c)   # set from this cycle's flagged receipts
+            if held: stalled(run, c, info)
             failures += 1
             backoff(c, failures)
             # Don't reuse a held access-failure snapshot for the next HTTP cycle.

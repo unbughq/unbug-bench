@@ -55,8 +55,6 @@ _WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"), "capacity":
          "router_unavailable": (_I, "infra:router_unavailable"),
          # The router refused a lease the worker's renewals let lapse: a worker stall, an ordinary infra retry.
          "worker_stalled": (_I, "infra:worker_stalled")}
-FAILURE_STOPS = frozenset({"process_error", "claude_error", "codex_error", "opencode_error",
-                           "refusal", "zero_tokens", "timeout", "stalled", "credential_expiring", "model_unavailable"})
 
 # Exact stop heads (the text before the first ":"), after the runner wrapper is removed.
 _FIXED = {
@@ -87,11 +85,13 @@ _FIXED = {
     "admission_second_opinion_invalid": (_I, "admit:second_opinion_invalid"),
     "freshness_evidence_unavailable": (_I, "infra:freshness_evidence_unavailable"),
     "freshness_review_unavailable": (_I, "infra:freshness_review_unavailable"),
-    "freshness_refresh_stalled": (_I, "infra:freshness_refresh_stalled"),   # a re-run search refreshed no row
+    # A re-run search refreshed no row, or G2 stayed held 30 minutes on the same 429/5xx/network
+    # failures (ordinary_freshness.stalled).
+    "freshness_refresh_stalled": (_I, "infra:freshness_refresh_stalled"),
     "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
     "freshness_statement_changed": (_I, "infra:freshness_statement_changed"),
     "freshness_unresolved": (_I, "infra:freshness_unresolved"),
-    # A flagged hit stayed behind an access failure with no archive copy (ordinary_freshness.source_blocked).
+    # G2 stayed held 3 cycles behind a 401/403/451 wall with no archive copy (ordinary_freshness.stalled).
     "freshness_source_blocked": (_I, "infra:freshness_source_blocked"),
     # Runner and plumbing faults: broken runs, retried.
     'case_changed_during_review': (_I, 'infra:case_changed_during_review'),
@@ -213,6 +213,8 @@ PREFLIGHT_STOPS = {"process_error": "process", "claude_error": "claude", "codex_
                    "opencode_error": "opencode", "refusal": "refusal", "zero_tokens": "zero_tokens",
                    "timeout": "timeout", "stalled": "stalled", "credential_expiring": "credential",
                    "model_unavailable": "model"}
+# The CLI stops a provider wait may name as its source_stop: the same CLI stops a preflight names.
+FAILURE_STOPS = frozenset(PREFLIGHT_STOPS)
 
 # diagnosis_invocation.invoke's cleanup after a diagnosis that itself succeeded: the stage that
 # failed and the class of its error, as fixed codes ("infra:dcf_<stage>_<class>").
