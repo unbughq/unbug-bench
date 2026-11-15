@@ -274,6 +274,7 @@ class Worker:
             processes.prepare_model_containment(self.home)
         c.engine.prepare_models = prepare_models
         c.engine_checkpoint = lambda: self.publish_checkpoint(step_input, c, sealer, case_key, runner)
+        c.engine.publish_progress = lambda files: self.publish_progress(step_input, c, sealer, case_key, files)
         c.stress_checkpoint = lambda: checkpoint(c)
 
     def bind_helpers(self, step_input, c):
@@ -292,13 +293,25 @@ class Worker:
         """Publish durable ciphertext before exposing its authenticated reference."""
         from registry import atomic_json
         atomic_json(c.work / "scorecard.json", c.card)
-        ref, ciphertext = sealer.seal(case_key, ArtifactKind.CASE_SNAPSHOT, snapshot_bytes(c, runner))
+        plaintext = snapshot_bytes(c, runner)
+        self._publish(step_input, sealer, case_key, plaintext)
+        c.engine.snapshot_base, c.engine.progress_gates = plaintext, set()
+        return True
+
+    def publish_progress(self, step_input, c, sealer, case_key, files):
+        """The last snapshot plus finished gates' files {member: path} (durable.checkpoints.progress)."""
+        base = getattr(c.engine, "snapshot_base", None)
+        if base is None: return False
+        self._publish(step_input, sealer, case_key, overlay(base, files))
+        return True
+
+    def _publish(self, step_input, sealer, case_key, plaintext):
+        ref, ciphertext = sealer.seal(case_key, ArtifactKind.CASE_SNAPSHOT, plaintext)
         attempt = self.paths(step_input.idempotency_key)["attempt"]
         out = attempt / "out"
         out.mkdir(parents=True, exist_ok=True)
         self._atomic_bytes(out / blob_name(ref), ciphertext)
         self._atomic_bytes(attempt / "checkpoint.json", json.dumps(to_record(ref)).encode())
-        return True
 
     def _atomic_bytes(self, path, value):
         fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".checkpoint-")
@@ -613,6 +626,7 @@ class Worker:
         if before["total"] is None:
             return fail("infra:usage_unknown")
         self.bind_checkpoint(step_input, c, sealer, case_key, runner)
+        c.engine.snapshot_base = snapshot   # what a progress publication adds to until the first checkpoint
         self.bind_helpers(step_input, c)
         out = runner.run_step(c, step_input, feedback=feedback, ruling=ruling)
         usage = usage_since(before, c.ledger, step_input.money_ceiling_usd_micros)
@@ -677,6 +691,19 @@ def snapshot_bytes(c, runner):
     with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
         for relative in runner.retained_paths(c):
             tar.add(c.work / relative, arcname=pathlib.PurePath(relative).as_posix())
+    return buffer.getvalue()
+
+
+def overlay(snapshot, files):
+    """snapshot_bytes output with `files` {member name: path} added or replacing members of that name."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=io.BytesIO(snapshot), mode="r:*") as old, \
+            tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.PAX_FORMAT) as new:
+        for member in old:
+            if member.name not in files:
+                new.addfile(member, old.extractfile(member) if member.isfile() else None)
+        for name, path in sorted(files.items()):
+            new.add(path, arcname=name, recursive=False)
     return buffer.getvalue()
 
 

@@ -516,9 +516,12 @@ class EarlyLane(unittest.TestCase):
         _, c, _ = early(self, {"G15": g15, "G5": g5})
         mine, theirs = scopes["G15"], scopes["G5"]
         self.assertTrue(mine("bench", "runs/x/checkpoint.json")); self.assertTrue(mine("bench", "factory-slots/1/runs/x"))
-        self.assertFalse(mine("bench", "factory-slots/2/runs/x")); self.assertFalse(mine("work", "gate-details/G5.json"))
+        self.assertFalse(mine("bench", "factory-slots/2/runs/x"))
         self.assertTrue(theirs("bench", "factory-slots/2/runs/x")); self.assertFalse(theirs("bench", "runs/x"))
-        self.assertFalse(theirs("work", "gate-details/G15.json")); self.assertTrue(theirs("work", "gate-details/G5.json"))
+        # Work files belong to the gate that wrote them, whatever thread (gate_state.owned).
+        self.assertFalse(gate_state.owned("G15", "work", "gate-details/G5.json"))
+        self.assertFalse(gate_state.owned("G5", "work", "gate-details/G15.json"))
+        self.assertTrue(gate_state.owned("G5", "work", "gate-details/G5.json"))
         self.assertFalse(hasattr(c, "evidence_scope"), "the foreground scope ends with the lanes")
 
     def test_a_failing_g15_and_a_failing_g5_are_both_reported_in_serial_order(self):
@@ -585,6 +588,163 @@ class EarlyLane(unittest.TestCase):
             early(self, {"G15": g15, "G5": lambda c: (_ for _ in ()).throw(RuntimeError("bench died"))})
         self.assertEqual(finished, ["G15"])
 
+
+class PassThroughSealer:
+    """The worker's publication path without age: the 'ciphertext' is the snapshot itself."""
+    def seal(self, key, kind, plaintext):
+        from durable.contract import Ref
+        import hashlib
+        return Ref(hashlib.sha256(plaintext).hexdigest(), kind), plaintext
+
+    def open(self, key, ref, ciphertext):
+        return ciphertext
+
+
+KILL_RUNNER = "".join(f"def {g}(c):\n    return '{g}'\n" for g in (
+    "g1", "g2", "g4", "g5", "g6", "g7", "g10", "make_pilots", "calibrate", "family", "jload", "calibration_identity"))
+
+
+class KilledGateRun(unittest.TestCase):
+    """cae763 (15 Nov 03:26, a frozen sandbox) and 18681d (removed by the 06:00 cleanup): a GATES attempt
+    killed while a lane ran beside the bench gates restored the G1 snapshot, and every retry showed
+    "gate cache miss" for gates it had passed. Real pipeline, gate cache, step receipts, worker
+    publication and restore; synthetic gate bodies and a pass-through sealer."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.root = pathlib.Path(self.tmp.name)
+        runner = self.root / "run.py"; runner.write_text(KILL_RUNNER)
+        patch = mock.patch.object(gate_state, "RUNNER", runner); patch.start(); self.addCleanup(patch.stop)
+
+    def attempt(self, attempt, gates, bodies, *, snapshot=None, overlap=False):
+        """One GATES attempt on its own worker home and bench root; returns (c, worker, step input)."""
+        from durable.contract import ArtifactKind, Ref, Step, StepInput, StepKind
+        from durable.worker_step import Worker, restore
+        home = self.root / f"worker-{attempt}"
+        bench = home / "bench"; (bench / "results").mkdir(parents=True)
+        si = StepInput("b-test", "case-test", 5, Step(StepKind.GATES, 1), attempt, "a" * 64, "b" * 64,
+                       Ref("c" * 64, ArtifactKind.INPUTS), Ref("d" * 64, ArtifactKind.CASE_SNAPSHOT), 600, 5_000_000)
+        work = home / "work"
+        if snapshot is None:
+            (work / "case" / "base").mkdir(parents=True)
+            (work / "case" / "statement.md").write_text("promise")
+            (work / "case" / "base" / "judge.py").write_text("judge")
+            (work / "scorecard.json").write_text("{}")
+        else:
+            restore(snapshot, work)
+        c = types.SimpleNamespace(
+            work=work, case=work / "case", seed=7, manifest0="bench", models={}, t0=time.time() - 1,
+            args=types.SimpleNamespace(dry_run=False, resume=None, bench_workers=2, no_early_probe=True, runs=10,
+                                       scenario_runs=3, rehearse_only=False, agent_timeout=600),
+            card={"gates": {}, "failed_gate": None}, prepared_factory_slots=4 if overlap else 1)
+        c.engine = types.SimpleNamespace(key=si.idempotency_key, source_binding={
+            "plumbing": "p1", "bench": "b1", "feedback": None, "ruling": None})
+        worker = Worker(home)
+        worker.bind_checkpoint(si, c, PassThroughSealer(), b"k" * 32, run)
+        if snapshot is not None: c.engine.snapshot_base = snapshot
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(run, "GATES", gates))
+            stack.enter_context(mock.patch.object(run, "BENCH", bench))
+            for name in ("log", "public_progress", "update_case_budget", "case_budget_boundary", "g10_money_headroom"):
+                stack.enter_context(mock.patch.object(run, name))
+            stack.enter_context(mock.patch.object(run, "g10_overlap_reason", return_value=None if overlap else "serial"))
+            stack.enter_context(mock.patch.object(run, "parallel_gates", return_value=True))
+            for gate in gates:
+                stack.enter_context(mock.patch.object(run, gate.lower(), bodies.get(gate, lambda c: (True, {}))))
+            run.run_gates(c)
+        return c, worker, si
+
+    def bench_gate(self, gate, ran, done=None):
+        def body(c):
+            ran.append(gate)
+            result = run.BENCH / "results" / "runs" / gate.lower() / "checkpoint.json"
+            result.parent.mkdir(parents=True, exist_ok=True); result.write_text(json.dumps({"gate": gate}))
+            if done is not None: done.set()
+            return True, {"runs": "10/10"}
+        return body
+
+    def lane_until_killed(self, worker_si, last_done, last_gate, killed):
+        """A lane gate still running when the attempt dies: it waits until `last_gate` has passed and been
+        published (or 5 s), then keeps the snapshot a SIGKILL would leave behind."""
+        def body(c):
+            import tarfile, io
+            worker, si = worker_si()
+            self.assertTrue(last_done.wait(10))
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                ref = worker.read_checkpoint(si.idempotency_key)
+                if ref is not None:
+                    from durable.worker_step import blob_name
+                    blob = (worker.paths(si.idempotency_key)["attempt"] / "out" / blob_name(ref)).read_bytes()
+                    killed["snapshot"] = blob
+                    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:*") as tar:
+                        if f"gate-cache/{last_gate}.json" in tar.getnames(): break
+                time.sleep(0.05)
+            return True, {}
+        return body
+
+    def kill_and_retry(self, gates, bench_gates, lane_gate, last_before_kill, *, overlap=False):
+        ran, done, killed, bound = [], threading.Event(), {}, {}
+        bodies = {g: self.bench_gate(g, ran, done if g == last_before_kill else None) for g in bench_gates}
+        bodies[lane_gate] = self.lane_until_killed(lambda: (bound["worker"], bound["si"]), done, last_before_kill, killed)
+        original = __import__("durable.worker_step", fromlist=["Worker"]).Worker.bind_checkpoint
+        def bind(worker, si, *args):
+            bound.update(worker=worker, si=si); return original(worker, si, *args)
+        with mock.patch("durable.worker_step.Worker.bind_checkpoint", bind):
+            first, _, _ = self.attempt(1, gates, bodies, overlap=overlap)
+        self.assertIsNone(first.card["failed_gate"])
+        self.assertEqual(set(first.card["gates"].values()), {"pass"})
+        self.assertEqual(ran, bench_gates)
+        self.assertIn("snapshot", killed)
+        ran.clear()
+        retry, _, _ = self.attempt(2, gates, {g: self.bench_gate(g, ran) for g in bench_gates},
+                                   snapshot=killed["snapshot"], overlap=overlap)
+        return retry, ran
+
+    def test_bench_gates_passed_beside_the_lane_survive_the_kill(self):
+        """G2 still running beside G4 and G5 (the foreground waits for it before recording G5)."""
+        retry, ran = self.kill_and_retry(["G1", "G4", "G5", "G2", "G6"], ["G4", "G5", "G6"], "G2", "G5")
+        self.assertEqual(ran, ["G6"], "the retry starts at the first gate it had not passed")
+        self.assertIsNone(retry.card["failed_gate"])
+        for gate in ("G4", "G5"):
+            self.assertTrue(retry.card["gate_results"][gate].get("reused_verified_evidence"), gate)
+
+    def test_bench_gates_passed_beside_g10_survive_the_kill(self):
+        """G10 overlapping G6 and G7: a kill before it joins kept nothing since the lane join."""
+        retry, ran = self.kill_and_retry(["G1", "G6", "G7", "G10"], ["G6", "G7"], "G10", "G7", overlap=True)
+        self.assertEqual(ran, [])
+        for gate in ("G6", "G7"):
+            self.assertTrue(retry.card["gate_results"][gate].get("reused_verified_evidence"), gate)
+
+
+    def test_g6_and_g7_do_not_cite_g10s_tester_instances(self):
+        """G10 writes its testers' results on instances bench_workers and +1 while G6 and G7 run. Those are
+        not G6/G7 evidence (a resumed G10 rewrites them), so their records still load after G10 moves on."""
+        wrote = threading.Event()
+        def g10(c):
+            for slot in (2, 3):
+                result = run.BENCH / "results" / "factory-slots" / str(slot) / "runs" / "g10" / "checkpoint.json"
+                result.parent.mkdir(parents=True, exist_ok=True); result.write_text("try 1")
+            wrote.set(); time.sleep(0.3)
+            return True, {"strong": "1/3"}
+        def bench(gate):
+            def body(c):
+                self.assertTrue(wrote.wait(5))
+                result = run.BENCH / "results" / "runs" / gate.lower() / "checkpoint.json"
+                result.parent.mkdir(parents=True, exist_ok=True); result.write_text(gate)
+                return True, {"runs": "10/10"}
+            return body
+        c, _, _ = self.attempt(1, ["G1", "G6", "G7", "G10"], {"G6": bench("G6"), "G7": bench("G7"), "G10": g10}, overlap=True)
+        self.assertEqual(set(c.card["gates"].values()), {"pass"})
+        self.assertFalse(hasattr(c, "evidence_scope"), "the scope ends with G10")
+        for gate in ("G6", "G7"):
+            cited = [e["path"] for e in json.loads((c.work / "gate-cache" / f"{gate}.json").read_text())["evidence"]]
+            self.assertEqual(cited, [f"runs/{gate.lower()}/checkpoint.json"], gate)
+        for tried in c.work.glob("bench-results/factory-slots/*/runs/g10/checkpoint.json"):
+            tried.write_text("try 2")
+        bench_root = self.root / "worker-1" / "bench"
+        for gate in ("G6", "G7"):
+            self.assertEqual(gate_state.load(c, gate, bench_root), {"runs": "10/10"}, gate)
 
 class WriterPhases(unittest.TestCase):
     def test_phases_are_public_stages(self):
