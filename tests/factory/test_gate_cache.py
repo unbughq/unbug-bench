@@ -253,4 +253,34 @@ class EvidenceCacheTests(unittest.TestCase):
         self.assertEqual(published[-1], ['bench-results/runs/g5/checkpoint.json', 'gate-cache/G5.json'])
         self.assertEqual(self.c.engine.progress_gates, {'G5'})
 
+    def test_a_g8_pass_survives_the_next_engine_attempt(self):
+        """cae763 (14 November): run.context_for_step sets args.agent_timeout to the attempt's remaining
+        time, and G8/G9/G16 identity held it, so their passes (founder-ruled ones included) were re-rolled
+        on every engine attempt, in gate-cache and in the step record alike. A CLI run keeps its timeout."""
+        import time
+        from durable.contract import ArtifactKind, Ref, Step, StepInput, StepKind
+        p = patch.object(gate_state, 'RUNNER', pathlib.Path(run.__file__)); p.start(); self.addCleanup(p.stop)
+        def attempt(n, remaining):
+            si = StepInput('b-test', 'case-test', 3, Step(StepKind.GATES, 1), n, '1' * 64, '2' * 64,
+                           Ref('1' * 64, ArtifactKind.INPUTS), Ref('2' * 64, ArtifactKind.CASE_SNAPSHOT), 21_600.0, 10_000_000)
+            with patch.dict(os.environ, {'UNBUG_DURABLE_DEADLINE_EPOCH': str(time.time() + remaining)}):
+                self.c.engine = run.EngineStep(si, 0)
+            self.c.args.agent_timeout = max(0.001, self.c.engine.deadline_monotonic - time.monotonic())   # as context_for_step
+        def save():
+            before = gate_state.digests(self.c, self.root)
+            (self.c.work / 'gate-details').mkdir(exist_ok=True)
+            (self.c.work / 'gate-details/G8.json').write_text(json.dumps({'timeout': self.c.args.agent_timeout}))
+            self.assertTrue(gate_state.save(self.c, 'G8', {'panel': 'pass'}, gate_state.fingerprint(self.c, 'G8', self.root),
+                                            before, self.root))
+            return gate_state.inputs(self.c, 'G8', self.root)
+        attempt(1, 5_000)
+        binding = save()
+        attempt(2, 3_000)
+        self.assertEqual(gate_state.load(self.c, 'G8', self.root), {'panel': 'pass'})
+        self.assertEqual(gate_state.inputs(self.c, 'G8', self.root), binding)   # the step record's binding too
+        del self.c.engine
+        self.c.args.agent_timeout = 14_400; save()
+        self.c.args.agent_timeout = 7_200
+        self.assertIsNone(gate_state.load(self.c, 'G8', self.root))
+
 if __name__ == '__main__': unittest.main()

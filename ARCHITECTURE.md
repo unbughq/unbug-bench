@@ -196,7 +196,9 @@ the side lane is published at once as the last snapshot plus its record and evid
 keeps), so a killed attempt restarts after it. A gate cites only its own work files (`gate_state.owned`:
 not review copies, not another gate's details) and, once G10 has overlapped, not G10's tester instances
 until the pipeline exits. A pass that gate-cache holds is not also a step receipt
-(`durable.checkpoints.gate_call`); every other pass and every failure is. The receipt folder hashes
+(`durable.checkpoints.gate_call`); every other pass and every failure is. Both bind `gate_state.inputs`,
+where a model stage's `agent_timeout` is the step's own deadline under the engine (`EngineStep.deadline_s`),
+not the attempt's remaining time, so a retry matches. The receipt folder hashes
 the verdict-path files; `invalid-runs-compat.json` `verdict_code_pins` lets a release reviewed as
 changing no verdict keep its predecessor's folder (`from`: the digest in use; recompute after any
 change to those files), and a stale pin changes nothing. The same digest is the helper job's release. The writer step records fixed

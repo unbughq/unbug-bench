@@ -218,6 +218,10 @@ def inputs(c, gate, bench):
         "args": {key: getattr(c.args, key, default) for key, default in settings.items()},
         "environment": environment("UNBUG_JUDGE", "UNBUG_FACTORY_SLOT", "MEDUSA_DEPS_IMAGE"),
     }
+    if "agent_timeout" in settings and hasattr(getattr(c, "engine", None), "deadline_s"):
+        # Under the engine args.agent_timeout is the attempt's remaining time (run.context_for_step), new
+        # on every attempt; the step's own deadline is the setting. A CLI run keeps its real value.
+        identity["args"]["agent_timeout"] = c.engine.deadline_s
     if gate in MODEL_STAGES:
         import run
         prompt_roles = ("pilot", "reviewer") if gate in {"G10", "G16", "G17"} else ("reviewer",)
