@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""A silent OpenCode hang whose log says 'usage limit exceeded' stops as provider_limit, not a 45-minute stall."""
+"""A silent OpenCode hang whose log reports a usage limit (Go: 'usage limit exceeded'; free tier: 'Free usage limit
+reached') on an ERROR line stops as provider_limit, not a 45-minute stall."""
 
 # Keep direct execution and unittest discovery independent of the working directory.
 import sys
@@ -38,6 +39,16 @@ with tempfile.TemporaryDirectory() as d:
     assert stop == 'provider_limit:opencode/minimax-m3.1-flash-free' and time.monotonic() - t < 10, stop
     assert err.provider_failure['reason'] == 'quota', err.provider_failure
 print('PASS silent free usage limit stops as a provider quota, not a stall')
+
+# Case text in an INFO line (a writer grepping "usage limit" on a promotion case) is not a provider limit.
+with tempfile.TemporaryDirectory() as d:
+    d = pathlib.Path(d); log = d / 'opencode/log'; log.mkdir(parents=True)
+    cmd = ['sh', '-c', f'sleep 1; echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%S.000Z) level=INFO message=evaluate command=\\"grep -rn usage limit src\\"" >> {log}/opencode.log; sleep 30']
+    try: run_budgeted(cmd, d, {**os.environ, 'XDG_DATA_HOME': str(d)}, d / 't', d / 'l.json', 60,
+                      containment=False, progress_timeout=4, configured_model='opencode-go/x'); stop = 'none'
+    except BudgetError as e: stop = str(e)
+    assert stop == 'stalled', stop
+print('PASS an INFO line mentioning usage limit is not a provider limit')
 
 # An isolated tester's log dir is private to its own Unix user: the check must skip it, never crash (2026-10-20).
 with tempfile.TemporaryDirectory() as d:
