@@ -705,14 +705,42 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(self.c.card['freshness_stalled']['sources'],
                          [{'url': held, 'failure': 'http_429', 'archive': False}])
 
-    def test_the_identical_cycle_count_survives_a_new_worker(self):
-        url, cycles = self.bot_wall(99, cancel_after=ordinary_freshness.SOURCE_BLOCKED_CYCLES - 1)
-        with self.assertRaisesRegex(budget.BudgetError, '^cancelled$'): run.g2(self.c)
-        # A new worker gets only the retained snapshot of the work dir (the engine supplies the ledger).
+    def new_worker(self):
+        """A new worker gets only the retained snapshot of the work dir (the engine supplies the ledger)."""
         for path in self.work.iterdir():
             if path.name != 'ledger.json' and not any(fnmatch.fnmatch(path.name, p) for p in run.SNAPSHOT_RETAINED):
                 shutil.rmtree(path) if path.is_dir() else path.unlink()
-        self.fresh_context()
+        return self.fresh_context()
+
+    def test_each_retry_of_our_own_stall_gets_its_own_wait(self):
+        url, cycles = self.bot_wall(99, status=429, minutes=5.3, cancel_after=8)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        self.assertEqual(cycles[0], 6)
+        # The engine's retry: its first held cycles continue (a 45-minute rate limit can still lift),
+        # until the stand-in deadline.
+        self.new_worker()
+        with self.assertRaisesRegex(budget.BudgetError, '^cancelled$'): run.g2(self.c)
+        self.assertEqual(cycles[0], 8)
+
+    def test_a_walled_hit_with_an_archive_copy_is_our_own_stall_after_30_minutes(self):
+        held, live, cycles, requests = self.held_http(minutes=15)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        self.assertEqual(cycles[0], 2)
+        self.assertEqual(self.c.card['freshness_stalled']['sources'],
+                         [{'url': held, 'failure': 'http_403', 'archive': True}])
+
+    def test_an_outage_of_ours_that_also_holds_a_flagged_hit_keeps_the_deadline(self):
+        # Every page answers 429, one of them a flagged hit: G2 backs off to the deadline (here the
+        # fixture's kill after 3 cycles, 30 minutes in), as before the stall cap.
+        self.held_http(archive=False, broad=True, held_status=429, minutes=15, flagged=1)
+        with self.assertRaises(runtime_fixture.Killed): run.g2(self.c)
+        self.assertNotIn('freshness_stalled', self.c.card)
+        self.assertFalse((self.work / ordinary_freshness.STALLED).exists())
+
+    def test_the_identical_cycle_count_survives_a_new_worker(self):
+        url, cycles = self.bot_wall(99, cancel_after=ordinary_freshness.SOURCE_BLOCKED_CYCLES - 1)
+        with self.assertRaisesRegex(budget.BudgetError, '^cancelled$'): run.g2(self.c)
+        self.new_worker()
         with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
         self.assertEqual(cycles[0], ordinary_freshness.SOURCE_BLOCKED_CYCLES - 1)   # stopped on its first cycle
 
@@ -906,11 +934,12 @@ class RetryTests(unittest.TestCase):
             ordinary_retry.projection({'hits':[{'url':'https://github.com/medusajs',
                 'resolved':True,'retrieved':True,'same_bug':False}]},'freshness')
 
-    def held_http(self, *, archive=True, broad=False, recover=False, held_status=403, live_status=200, minutes=0):
+    def held_http(self, *, archive=True, broad=False, recover=False, held_status=403, live_status=200, minutes=0,
+                  flagged=None):
         rows = self.searches()
         for index, row in enumerate(rows):
             row['url'] = f'https://github.com/medusajs/medusa/issues/{index + 1}'
-            row['hit'] = not broad and index < 2
+            row['hit'] = index < (flagged if flagged is not None else 0 if broad else 2)
         (self.case/'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
         held, live = rows[0]['url'], rows[1]['url']
         clock, cycles, requests = [0.0], [0], []

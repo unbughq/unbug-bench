@@ -35,6 +35,8 @@ def stalled(run, c, info):
     before = read(c.work / STALLED, {})
     if not isinstance(before, dict): raise BudgetError('ordinary_retry_state_invalid')
     if before.get('signature') != signature: before = {'cycles': 0, 'since': time.time()}
+    elif type(before.get('cycles')) is not int or type(before.get('since')) not in (int, float):
+        raise BudgetError('ordinary_retry_state_invalid')
     state = {'signature': signature, 'cycles': before['cycles'] + 1, 'since': before['since']}
     atomic_json(c.work / STALLED, state)
     held = [{'url': r['url'], 'failure': r['live_failure'], 'archive': r['archive_available']}
@@ -47,6 +49,8 @@ def stalled(run, c, info):
         + '; '.join(f"{h['url']} ({h['failure']}, archive {h['archive']})" for h in held)
         + ('. A page is behind a bot wall with no archive copy: someone must open it, or rule the claim does '
            'not need it.' if walled else '. Only rate limits, server or network errors: retried as our own infra stall.')}
+    if not walled:   # each retry of our own stall gets its own STALLED_SECONDS
+        atomic_json(c.work / STALLED, {**state, 'since': time.time()})
     raise BudgetError('freshness_source_blocked' if walled else 'freshness_refresh_stalled')
 
 
@@ -185,13 +189,16 @@ def ensure(run, c):
             continue
         ok, info = run._g2(c)
         c.card['admission_freshness'] = info
-        if ok or info.get('outcome') == 'public_match' or not info.get('transport_pending'):
+        # A flagged page held while other pages answer; an outage of ours keeps backoff and the deadline.
+        held = info.get('transport_pending') and not info.get('all_transport_failed')
+        if ok or info.get('outcome') == 'public_match' or not held:
             (c.work / STALLED).unlink(missing_ok=True)   # the hold count is of held cycles in a row
         if ok or info.get('outcome') == 'public_match':
             c.freshness_refetch_urls = set()
+            (c.work / 'g2-source-blocked.json').unlink(missing_ok=True)   # the bot-wall count before 16 Nov
             return ok, info
         if info.get('transport_pending') or info.get('all_transport_failed'):
-            if info.get('transport_pending'): stalled(run, c, info)
+            if held: stalled(run, c, info)
             failures += 1
             backoff(c, failures)
             # Don't reuse a held access-failure snapshot for the next HTTP cycle.
