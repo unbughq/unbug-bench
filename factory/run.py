@@ -184,14 +184,15 @@ def public_progress(c, stage, status, elapsed_seconds=None, reused=False):
 
 
 @contextlib.contextmanager
-def writer_phase(c, phase, **where):
-    """Time one fixed writer-step phase: public progress (codes and seconds only) and the card.
+def writer_phase(c, phase, step="writer", **where):
+    """Time one fixed phase of a writer step (or the stress step's freshness): public progress
+    (codes and seconds only) and the card.
 
     The card keeps every occurrence (round, call) so time to seal can be split into model
     time and check time; public progress keeps the latest per phase.
     """
     started, status = time.time(), "interrupted"
-    public_progress(c, "phase:writer:" + phase, "running")
+    public_progress(c, f"phase:{step}:{phase}", "running")
     try:
         yield
         status = "completed"
@@ -202,9 +203,9 @@ def writer_phase(c, phase, **where):
         raise
     finally:
         elapsed = max(0.0, time.time() - started)
-        public_progress(c, "phase:writer:" + phase, status, elapsed)
+        public_progress(c, f"phase:{step}:{phase}", status, elapsed)
         rows = c.card.setdefault("phase_times", [])
-        rows.append({"step": "writer", "phase": phase, "status": status, **where,
+        rows.append({"step": step, "phase": phase, "status": status, **where,
                      "started_at": datetime.datetime.fromtimestamp(started, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
                      "seconds": round(elapsed, 1)})
         del rows[:-400]
@@ -3261,7 +3262,7 @@ def _writer_round_start(c, receipt_path, n):
 
 
 # A writer call plus its checks is started only when this much of its predecessor's time, plus the
-# reserve (freshness and the step's final snapshot), is left in the attempt.
+# reserve (the step's final snapshot), is left in the attempt.
 WRITER_CYCLE_MARGIN, WRITER_CYCLE_RESERVE_S = 1.25, 900.0
 
 
@@ -3432,9 +3433,6 @@ def engine_writer_round(c, n, feedback):
             with writer_phase(c, "early_checks", round=n, call=call):
                 problems = early_checks(c)
         if not problems:
-            if not c.args.dry_run:
-                with writer_phase(c, "freshness", round=n, call=call):
-                    ensure_freshness(c)
             atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                        "report": f"round-{n}.json", "round_start": start, "awaiting_stress": True})
             return {"outcome": Outcome.OK, "reason": "writer:validated"}
@@ -3466,7 +3464,13 @@ def engine_stress_round(c, n):
     pending = jload(c.work / "attack-state.json", None)
     if isinstance(pending, dict) and pending.get("handback") is not None:
         return infra("writer_handback_pending")  # an engine without writer_handback_retry advanced a handback
-    if (c.card.get("admission_freshness") or {}).get("outcome") == "public_match":
+    public = lambda: (c.card.get("admission_freshness") or {}).get("outcome") == "public_match"
+    if not public() and not c.args.dry_run:
+        # Not in the writer round, whose handback estimate cannot count it. Reruns on every stress attempt,
+        # mostly from cache; flagged hits skip that cache and rely on the retained review verdict (confirm_hits).
+        with writer_phase(c, "freshness", step="stress", round=n):
+            ensure_freshness(c)
+    if public():
         return {"outcome": Outcome.OK, "reason": "stress:public_match"}
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)

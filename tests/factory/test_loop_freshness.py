@@ -57,7 +57,8 @@ class LoopFreshnessTests(unittest.TestCase):
         self.requested_urls = None
         self.reviewed_rows = []
         self.answer_limit = None
-        for name, value in (("engine_prepare_bench", None), ("early_review", None)):
+        # The stress step's own freshness check (run above as G2, and passing) is not under test here.
+        for name, value in (("engine_prepare_bench", None), ("early_review", None), ("ensure_freshness", (True, {}))):
             patch.object(run, name, return_value=value).start()
         self.addCleanup(patch.stopall)
 
