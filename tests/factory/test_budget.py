@@ -321,6 +321,22 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(self.data()['terminal_stop'], 'usage_unknown')
         self.assertIsNone(case_spending(self.data())['spent_usd'])
 
+    def test_a_call_after_unknown_usage_is_refused_before_its_process_starts(self):
+        # Re-review: once a local failure left the case's usage unknown, a new call must not start its process
+        # only to be stopped by check_limits. require_case_budget refuses it at admission (budget_exhausted).
+        from budget import case_spending
+        def started(): raise BudgetError('call_limit')
+        with self.assertRaisesRegex(BudgetError, '^call_limit$'):
+            self.run_script('import time; time.sleep(60)', driver='codex', concurrent=True, on_started=started)
+        self.assertIsNone(case_spending(self.data())['spent_usd'])
+        marker = self.root / 'started'
+        for concurrent in (True, False):
+            with self.subTest(concurrent=concurrent):
+                with self.assertRaisesRegex(BudgetError, '^budget_exhausted$'):
+                    self.run_script(f'open({str(marker)!r}, "w").close()', concurrent=concurrent)
+                self.assertFalse(marker.exists())
+                self.assertEqual(self.data()['terminal_stop'], 'complete')
+
     def test_a_serial_calls_own_failure_still_stops_the_ledger(self):
         # A serial call is the whole session: whatever its label, its failure is the ledger's stop.
         with self.assertRaisesRegex(BudgetError, '^call_limit$'):
