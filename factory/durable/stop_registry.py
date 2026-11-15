@@ -110,6 +110,9 @@ REGISTRY = {
     # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve.
     # One reason, several causes (our outage, or the case's dead links), so it stays open.
     "infra:freshness_refresh_stalled": OPEN,
+    # A flagged public hit behind a bot wall with no archive copy: the source is unreachable, not our
+    # bug. The card's freshness_source_blocked names the URL and failure for a person to open or rule out.
+    "infra:freshness_source_blocked": CASE,
     # Three free 4xx rejections in a row on one call (a permanent bad request); a real stop, not a wait.
     "router:upstream_rejected": OPEN,
     # The diagnosis run left no usable result: missing, oversized, unsafe, or unreadable.

@@ -636,6 +636,63 @@ class RetryTests(unittest.TestCase):
         flagged = json.loads((self.case / 'freshness.jsonl').read_text().splitlines()[0])['url']
         self.assertIn(flagged, set().union(*refetch))   # a re-ask re-fetches held pages, not old receipts
 
+    def bot_wall(self, walled_cycles, status=403):
+        """18681d (14-15 Nov): a flagged hit answers 403 with no Wayback copy for `walled_cycles` G2
+        cycles, then 200. A fake clock runs obtain()'s 120 s live window; the case's cancel event, set
+        after 8 G2 cycles, stands in for the batch deadline that ended the real run."""
+        rows = self.searches()
+        rows[0]['hit'] = True
+        (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        url, cycles, clock = rows[0]['url'], [0], [0.0]
+        def fetch(target, **kw):
+            if target.startswith('https://archive.org/'):
+                return {'url':target,'final_url':target,'status':200}, b'{"archived_snapshots": {}}'
+            walled = target == url and cycles[0] < walled_cycles
+            return ({'url':target,'final_url':target,'status':status if walled else 200},
+                    b'authored bot wall' if walled else HTTP['body'].encode())
+        self.patch(retrieval, 'fetch', fetch)
+        real_time = ordinary_freshness.time
+        self.patch(ordinary_freshness, 'time', SimpleNamespace(time=real_time.time, monotonic=lambda: clock[0]))
+        def backoff(c, failures=1, *, deadline=None):
+            clock[0] += 60
+            if deadline is None:   # ensure()'s wait between G2 cycles
+                cycles[0] += 1
+                if cycles[0] >= 8: c.role_cancel.set()
+            ordinary_retry.check(c)
+        self.patch(ordinary_freshness, 'backoff', backoff)
+        def emit(c, text, name):
+            # A live clearance: it agrees with a reachable receipt and not with a walled one.
+            self.answer_path(text).write_text(json.dumps({'hits':[{
+                'url':url,'resolved':True,'same_bug':False,'retrieved':True,'app_version':'2.19.0',
+                'version_scope':'authored applicability','retrieved_from':'live','archive_checked':False,
+                'archive_available':None,'archive_snapshot_url':None,'live_failure':None,'why':'authored review'}]}))
+        self.cli(emit)
+        return url, cycles
+
+    def test_a_bot_walled_hit_with_no_archive_stops_g2_for_a_person(self):
+        url, cycles = self.bot_wall(99)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
+        self.assertEqual(cycles[0], ordinary_freshness.SOURCE_BLOCKED_CYCLES - 1)
+        blocked = self.c.card['freshness_source_blocked']
+        self.assertEqual(blocked['sources'], [{'url': url, 'failure': 'http_403',
+                                               'cycles': ordinary_freshness.SOURCE_BLOCKED_CYCLES}])
+        self.assertIn(url, blocked['note']); self.assertIn('http_403', blocked['note'])
+        # The count is in the work dir, so a resumed attempt that is still walled stops after one cycle.
+        self.assertEqual(run.jload(self.work / 'g2-source-blocked.json', {})[url]['cycles'],
+                         ordinary_freshness.SOURCE_BLOCKED_CYCLES)
+
+    def test_a_rate_limited_hit_is_left_to_the_deadline(self):
+        # 429 may be our own rate limit: not counted as a wall, so the stand-in deadline ends it.
+        self.bot_wall(99, status=429)
+        with self.assertRaisesRegex(budget.BudgetError, '^cancelled$'): run.g2(self.c)
+        self.assertNotIn('freshness_source_blocked', self.c.card)
+        self.assertEqual(run.jload(self.work / 'g2-source-blocked.json', {}), {})
+
+    def test_a_hit_walled_once_then_reachable_still_passes(self):
+        self.bot_wall(1)
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertFalse((self.work / 'g2-source-blocked.json').exists())
+
     def test_dedup_and_panel_callers_use_retained_schema_repair(self):
         self.c.models['easy_calibrator'] = self.c.models['reviewers'][0]
         self.c.models['reviewers'] = [*self.c.models['reviewers'], self.c.models['builder']]  # G8/G9: two reviewers
