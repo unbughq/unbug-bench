@@ -124,6 +124,9 @@ REGISTRY = {
     "infra:diagnosis_result_oversized": OPEN,
     "infra:diagnosis_result_unsafe": OPEN,
     "infra:pool_failed": OPEN,   # several causes; 6ea112d fixed one (bounded_create arity)
+    # model_router.running(): the router refused a renewal that came after the lease had lapsed (cae763,
+    # 15 November). The stall's cause (host, process, thread starvation) is not known, so it stays open.
+    "infra:worker_stalled": OPEN,
     # Containment causes fixed by 0ec53bb0 and 3fd7d011; the scratch-unmount timeout is in flight on
     # fix/sweep-leftovers.
     "infra:cleanup_failed": OPEN,
