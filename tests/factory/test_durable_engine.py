@@ -730,6 +730,84 @@ class Money(unittest.TestCase):
         self.assertEqual(steps(r, int(sealed.rsplit("-", 1)[1])), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
         self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
 
+    def test_a_batch_grant_below_one_call_hold_parks_unstarted_until_the_bound_is_raised(self):
+        # 18681d (15 November): the batch had $9.48 left; one Claude request holds $9.520896 before it
+        # is forwarded. Each attempt was admitted (over $1), did its setup and stopped on money, then
+        # woke on another case's settle and started again: 17 times. Here ADMIT leaves the batch $9.48,
+        # so writer:1 is granted that, BATCH-limited; its first call would hold one request.
+        from durable.runtime import largest_call_hold
+        live = {"dry_run": False, "models": {}}
+        hold = largest_call_hold(json.dumps(live))
+        r, out = run({"inputs": live, "spec": {"max_cases_started": 1, "money_bound_usd_micros": 20 * M},
+                      "script": {"1/admit/1": {"paid": 20 * M - 9_480_000}, "1/writer:1/1": {"paid": hold + 1}},
+                      "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})   # it resumed on the raise
+        # It parked before reserving: the batch's $9.48 was never taken from another case.
+        self.assertFalse([x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/2/writer:1/1"])
+        starts = [x for x in r.worker_log() if x["op"] == "start"]
+        self.assertEqual([x["key"] for x in starts if x["ceiling"] <= hold], [])   # never started below one hold
+        self.assertEqual(steps(r, 1)[:2], ["admit", "writer:1"])
+
+    def test_a_workflow_recorded_before_the_afford_patch_starts_on_the_old_minimum(self):
+        # The same run, recorded before afford_one_call: the patch is off, so writer:1 starts on $9.48.
+        live = {"dry_run": False, "models": {}}
+        r, out = run({"inputs": live, "spec": {"max_cases_started": 1, "money_bound_usd_micros": 20 * M},
+                      "script": {"1/admit/1": {"paid": 20 * M - 9_480_000}}, "disabled_patches": ["afford_one_call"]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(start(r, f"{C1}/2/writer:1/1")["ceiling"], 9_480_000)
+
+    def test_seal_starts_on_batch_money_below_one_call_hold(self):
+        # SEAL makes no model call (run.engine_seal): a case that passed every gate seals on what is left.
+        live = {"dry_run": False, "models": {}}
+        r, out = run({"inputs": live, "spec": {"max_cases_started": 1, "money_bound_usd_micros": 30 * M},
+                      "script": {"1/gates:1/1": {"paid": 30 * M - 3 * 1000 - 9_480_000}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(start(r, f"{C1}/5/seal/1")["ceiling"], 9_480_000)
+
+    def test_a_cheap_writer_starts_below_a_claude_reviewers_hold_and_its_stress_round_waits(self):
+        # The hold is the step's own models: a Go-plan writer and a free stress tester hold nothing, so
+        # writer:1 starts on $5; the stress round's reviews run the Claude reviewer, so it waits for the bound.
+        live = {"dry_run": False, "models": {
+            "builder": ["opencode-go/glm-5.3-flash"], "attacker": ["opencode/minimax-m3.1-flash-free"],
+            "reviewers": [["claude/claude-opus-5-5"], ["opencode-go/mimo-v2.6-pro"]],
+            "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/deepseek-v4.1-flash-free"]}}
+        r, out = run({"inputs": live, "spec": {"max_cases_started": 1, "money_bound_usd_micros": 20 * M},
+                      "script": {"1/admit/1": {"paid": 15 * M}},
+                      "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(start(r, f"{C1}/2/writer:1/1")["ceiling"], 5 * M)
+        self.assertFalse([x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/3/stress:1/1"])
+        self.assertFalse([x for x in r.worker_log() if x["op"] == "start" and x["key"] == f"{C1}/3/stress:1/1"])
+        self.assertIn(f"{C1}/3/stress:1/2", [x["key"] for x in r.starts(1)])
+
+    def test_a_step_that_cannot_fund_its_hold_takes_no_money_from_a_cheap_writer(self):
+        # Review of afford_one_call: the batch has $8 left. Case 1's stress round (a Claude reviewer, $9.52 hold)
+        # reserved all of it, then read its hold and parked; case 2's cheap writer, reserving meanwhile, got $0
+        # and waited; the parked release woke nobody, so case 2 slept with $8 free until the bound was raised.
+        # A step whose hold the batch cannot fund now parks without reserving: case 2 runs on the $8.
+        live = {"dry_run": False, "models": {
+            "builder": ["opencode-go/glm-5.3-flash"], "attacker": ["opencode/minimax-m3.1-flash-free"],
+            "reviewers": [["claude/claude-opus-5-5"], ["opencode-go/mimo-v2.6-pro"]],
+            "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/deepseek-v4.1-flash-free"]}}
+        # Both admissions done, case 1's writer holds the batch, so case 2's writer waits; it spends all but $8.003
+        # and settles, waking case 2, whose writer reserves two seconds later, while case 1's stress round holds.
+        r, out = run({"inputs": live, "spec": {"target_sealed": 2, "max_cases_started": 2, "case_money_usd_micros": 20 * M,
+                                               "money_bound_usd_micros": 20 * M},
+                      "script": {"1/writer:1/*": {"paid": 20 * M - 2000 - 8_003_000, "dur": 3.0}},
+                      "call_hold_delay_s": {"1/3/stress:1/1": 6.0},
+                      "case_reserve_delay_s": {"1/2/writer:1/1": 1.0, **{f"2/2/writer:1/{n}": 2.0 for n in range(1, 8)}},
+                      "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]}, timeout=180)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed", C2: "sealed"})
+        raised = next(x["t"] for x in r.ledger_log() if x["op"] == "raise_bound")
+        writer = next(x for x in r.starts(2) if "/writer:1/" in x["key"])
+        self.assertLess(writer["t"], raised)   # it ran on the $8 the stress round could not use
+        self.assertFalse([x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/3/stress:1/1"])
+
     def test_bound_raised_wakes_a_waiting_case(self):
         r, out = run({"spec": {"money_bound_usd_micros": 500_000},
                       "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]})

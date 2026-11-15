@@ -624,6 +624,37 @@ class AttemptBudget(unittest.TestCase):
         row = next(iter(json.loads(self.ledger.read_text())['invocation_reservations'].values()))
         self.assertEqual(Decimal(row['maximum_usd']), Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD)) + hold)
 
+    def test_a_call_whose_request_hold_does_not_fit_is_refused_before_it_is_leased(self):
+        """18681d (15 November): $9.48 was left against the $9.520896 a Claude request holds. The call was
+        leased and launched anyway and stopped on money, after its run's setup work. An uncapped writer
+        call is refused the same way: it could not forward a single request either."""
+        self.attempt.ceiling_usd = Decimal('9.48')
+        transport = Mock()
+        with patch.object(model_runtime.ModelRuntime, '_invoke', transport):
+            for name in ('builder-1', 'attacker-1'):
+                with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient'):
+                    self.runtime.call(self.c, [ROUTE], 'x', self.root, name, deadline=time.monotonic() + 3)
+        transport.assert_not_called()
+        self.assertEqual(json.loads(self.ledger.read_text()).get('invocation_reservations', {}), {})
+
+    def test_an_excluded_free_route_does_not_lower_the_hold_a_call_must_fund(self):
+        """The free and Go lanes of a call (no request hold) were excluded earlier in the attempt (stalled):
+        only the gated OpenRouter route is left, whose request holds $0.1769472. On $0.10 it is refused
+        before it is leased; counting the excluded lanes' zero hold would have leased it."""
+        model = 'opencode/minimax-m3.1-flash-free'
+        self.c.card['roles']['writer']['model'] = model
+        self.store.capacities['openrouter-key'] = 4
+        self.attempt.ceiling_usd = Decimal('0.10')
+        routes = model_router._bounded_routes(model, model_router.ACCOUNTS)
+        gated = [r for r in routes if model_call_gate.request_hold(r['route'])]
+        self.assertEqual([r['route'] for r in gated], ['openrouter/minimax/minimax-m3.1-flash'])
+        self.c.stalled_routes = {'writer': {r['pool'] + '/' + r['route'] for r in routes if r not in gated}}
+        transport = Mock()
+        with patch.object(model_runtime.ModelRuntime, '_invoke', transport):
+            with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient'):
+                self.runtime.call(self.c, [model], 'x', self.root, 'builder-1', deadline=time.monotonic() + 3)
+        transport.assert_not_called()
+
     def test_cheap_windows_never_exceed_the_case_grant(self):
         paid = 'openrouter/minimax/minimax-m3.1-flash'
         self.c.card['roles']['writer']['model'] = paid

@@ -207,10 +207,17 @@ def gates_money_extension(step: Step) -> int:
     return int(CLAUDE_CALL_USD * 1_000_000) * G10_STRONG_TRIES
 
 
-def decide_grant(step: Step, grant: Grant, *, minimum: int = MIN_GRANT_USD_MICROS) -> Optional[Action]:
+def decide_grant(step: Step, grant: Grant, *, minimum: int = MIN_GRANT_USD_MICROS,
+                 call_hold: int = 0) -> Optional[Action]:
     """Before an attempt starts. None: start it. A sub-minimum CASE grant gives up without
     starting, because the case's own money never comes back; a sub-minimum BATCH grant waits
-    for a settle or BOUND_RAISED; a NOTHING grant is the whole request and always starts."""
+    for a settle or BOUND_RAISED; a NOTHING grant is the whole request and always starts.
+    A BATCH grant must also fund one request of the batch's dearest gated model (call_hold, its
+    gate's hold before forwarding): 18681d started 17 times on $9.48 against a $9.52 hold and
+    stopped on money each time. A CASE grant keeps the $1 minimum: an uncapped writer on a cheap
+    model may still finish on it."""
+    if grant.limited_by is LimitedBy.BATCH and grant.amount_usd_micros <= call_hold:
+        return Action.WAIT_FOR_BOUND
     if grant.amount_usd_micros >= minimum or grant.limited_by is LimitedBy.NOTHING:
         return None
     if grant.limited_by is LimitedBy.BATCH:

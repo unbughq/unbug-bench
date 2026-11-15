@@ -138,12 +138,23 @@ def check_role_swap(roles):
     return roles
 
 
-def largest_call_hold(inputs_plaintext, swapped=()):
+# The INPUTS `models` (card keys) whose calls a step of this kind makes: a writer round's freshness
+# searches run the builder and the attacker; a stress round's reviews run every reviewer; a diagnosis
+# runs on the first reviewer. Not counted: G2's reviewer confirmation inside a writer round's freshness,
+# which runs only on a flagged hit. ADMIT and GATES call every role, so they count every model.
+STEP_MODELS = {"writer": lambda m: [m["builder"], m["attacker"]],
+               "stress": lambda m: [m["attacker"], *m["reviewers"]],
+               "diagnosis": lambda m: [m["reviewers"][0]]}
+
+
+def largest_call_hold(inputs_plaintext, swapped=(), step=None):
     """Micro-USD of the largest single-request hold among the batch's gated model routes.
 
     Explicit INPUTS models are used as given; without them every rotation family may be
     chosen. A resume's swapped models (`swapped`) count too. None for an opaque, dry-run or
-    ungated batch: nothing to compare.
+    ungated batch: nothing to compare. `step` (a StepKind value) counts only that step's models
+    (STEP_MODELS) when the batch names them; a rotation batch picks its roles in ADMIT, unseen
+    here, so it counts every family, and a swapped model counts whatever its role.
     """
     import math
     from model_call_gate import request_hold
@@ -156,6 +167,11 @@ def largest_call_hold(inputs_plaintext, swapped=()):
     models = value.get("models")
     if isinstance(models, dict) and models:   # empty models mean the rotation, as in ADMIT
         chains = [chain for role, chain in models.items() if role != "reviewers"] + list(models.get("reviewers") or [])
+        if step in STEP_MODELS:
+            try:
+                chains = STEP_MODELS[step](models)
+            except (KeyError, IndexError, TypeError):
+                pass   # a model this step needs is not named: count every model
         routes = [chain[0] for chain in chains if isinstance(chain, list) and chain and isinstance(chain[0], str)]
     else:
         import model_runtime

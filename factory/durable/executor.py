@@ -304,6 +304,19 @@ class Executor:
         batch = _call("engine:ledger_failed", self.ledger.balance, batch_id)
         return case["remaining"] >= minimum and batch["remaining"] >= minimum
 
+    def batch_left(self, batch_id: str) -> int:
+        """What the batch bound has left, holds and spend taken out (as Ledger.reserve counts it). Read-only."""
+        return _call("engine:ledger_failed", self.ledger.balance, batch_id)["remaining"]
+
+    def call_hold(self, si: StepInput) -> int:
+        """Micro-USD one request of this step's dearest gated model holds before it is forwarded
+        (runtime.largest_call_hold), 0 when nothing is gated. Read-only."""
+        from durable.runtime import largest_call_hold
+        key = _call("engine:keys_failed", self.keys.scope_key, si.batch_id)
+        blob = _call("engine:store_failed", self.store.get_sealed, si.batch_id, si.inputs)
+        plaintext = _call("engine:sealer_failed", self.sealer.open, key, si.inputs, blob)
+        return largest_call_hold(plaintext, (si.roles or {}).values(), si.step.kind.value) or 0
+
     def open_batch(self, batch_id: str, bound: int) -> None:
         _call("engine:ledger_failed", self.ledger.open, batch_id, bound)
 

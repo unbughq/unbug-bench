@@ -541,12 +541,12 @@ def make_spec(**kw):
     return BatchSpec(**{**base, **kw})
 
 
-def seed_batch(fakes, spec_kw):
+def seed_batch(fakes, spec_kw, inputs=b"inputs: app pin and promise"):
     """Seal the batch INPUTS and initial registry with the batch key, as WP8's launch would."""
     keys, sealer, store = fakes["keys"], fakes["sealer"], fakes["store"]
     batch_id = spec_kw.get("batch_id", "b-t")
     bk = keys.scope_key(batch_id)
-    inputs, ct = sealer.seal(bk, ArtifactKind.INPUTS, b"inputs: app pin and promise")
+    inputs, ct = sealer.seal(bk, ArtifactKind.INPUTS, inputs)
     store.put_sealed(batch_id, inputs, ct)
     registry, ct = sealer.seal(bk, ArtifactKind.STATEMENT_REGISTRY, b"registry: empty")
     store.put_sealed(batch_id, registry, ct)
@@ -597,10 +597,13 @@ def engine_main(workdir):
             time.sleep(scenario['pool_acquire_delay_s'])
             return acquire(*args)
         fakes['pool'].acquire = slow_acquire
-    if scenario.get('reserve_delay_s'):   # {"<seq>/<step>/<attempt>": seconds}, any case: orders reservations
+    if scenario.get('reserve_delay_s') or scenario.get('case_reserve_delay_s'):
+        # {"<seq>/<step>/<attempt>": seconds}, any case, and {"<case>/<seq>/<step>/<attempt>": seconds}: orders reservations
         reserve = fakes['ledger'].reserve
         def delayed_reserve(batch_id, case_id, key, *args, **kw):
-            time.sleep(scenario['reserve_delay_s'].get(key.split('/', 1)[1], 0))
+            rest = key.split('/', 1)[1]
+            time.sleep(scenario.get('reserve_delay_s', {}).get(rest, 0)
+                       + scenario.get('case_reserve_delay_s', {}).get(f"{case_number(case_id)}/{rest}", 0))
             return reserve(batch_id, case_id, key, *args, **kw)
         fakes['ledger'].reserve = delayed_reserve
     if scenario.get('later_case_lease_fails'):   # [delay_s, reason]: every case but the first to lease fails
@@ -630,8 +633,14 @@ def engine_main(workdir):
         if not fixed.exists():
             fixed.write_text(repr(time.time() + scenario["deadline_in"]))
         spec_kw["deadline_epoch"] = float(fixed.read_text())
-    spec, registry = seed_batch(fakes, spec_kw)
+    # "inputs": a real INPUTS document (e.g. a live, non-dry-run batch, whose model calls hold money).
+    spec, registry = seed_batch(fakes, spec_kw, *([json.dumps(scenario["inputs"]).encode()] if "inputs" in scenario else []))
     class FaultInjectingExecutor(Executor):
+        def call_hold(self, si):
+            # {"<case>/<seq>/<step>/<attempt>": seconds}: a slow read of a step's call hold, to order reservations
+            time.sleep(scenario.get("call_hold_delay_s", {}).get(f"{case_number(si.case_id)}/{si.idempotency_key.split('/', 1)[1]}", 0))
+            return super().call_hold(si)
+
         def _poll(self, lease, step_input):
             fault = work / "executor-fault-fired"
             if scenario.get("raise_after_start") == step_input.idempotency_key and not fault.exists():

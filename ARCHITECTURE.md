@@ -550,7 +550,16 @@ those maxima; unbounded routes are refused. This requires live qualification. Lo
 attempts book the grant as infrastructure waste; broken runs charge the batch's
 waste line, not the case. Ordinary work draws on case and batch money; diagnosis,
 extensions and post-diagnosis work draw only on the batch bound. Batch exhaustion
-waits without holding a concurrency slot. Zero-cost genuine provider limits wait
+waits without holding a concurrency slot, and so does a batch grant that cannot fund one request of
+the step's dearest gated model (`runtime.largest_call_hold`, $9.52 on Opus 5.5; `policy.decide_grant`):
+it waits unstarted rather than doing its setup and stopping on money (18681d restarted 17 times on $9.48).
+A writer, stress or diagnosis step counts only its own models when INPUTS name them
+(`runtime.STEP_MODELS`); ADMIT, GATES and rotation batches count every model; SEAL calls none and always starts.
+The step parks before reserving, so no other case sees that money taken. Known limits: a writer round's G2
+reviewer confirmation (only on a flagged hit) is not counted, and a step that can fund one hold but spends
+past its grant mid-step still stops on money and restarts on the next wake.
+A model call whose funding is below its cheapest route's request hold is refused before it is leased
+(`budget_exhausted:grant_insufficient`). Zero-cost genuine provider limits wait
 without an attempt-count cutoff; they never retire a case merely for recurring.
 A GATES request also covers every strong-calibrator try (`policy.gates_money_extension`, three whole Claude
 reservations; spend is unchanged), and before G6 `run.g10_money_headroom` raises the money stop if those calls cannot be

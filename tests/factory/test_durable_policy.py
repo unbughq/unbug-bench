@@ -186,6 +186,15 @@ class Settlements(unittest.TestCase):
         # NOTHING means the whole (small) request was granted: start.
         self.assertIsNone(decide_grant(writer, Grant(low, LimitedBy.NOTHING)))
 
+    def test_a_batch_grant_must_fund_one_call_hold(self):
+        # 18681d (15 November): $9.48 of batch money against a $9.520896 Claude request hold restarted 17 times.
+        writer, hold = Step(StepKind.WRITER, 2), 9_520_896
+        self.assertIs(decide_grant(writer, Grant(9_480_000, LimitedBy.BATCH), call_hold=hold), Action.WAIT_FOR_BOUND)
+        self.assertIs(decide_grant(GATES, Grant(hold, LimitedBy.BATCH), call_hold=hold), Action.WAIT_FOR_BOUND)
+        self.assertIsNone(decide_grant(writer, Grant(hold + 1, LimitedBy.BATCH), call_hold=hold))
+        # Case money is unchanged: a cheap writer call may still finish on it.
+        self.assertIsNone(decide_grant(writer, Grant(9_480_000, LimitedBy.CASE), call_hold=hold))
+
     def test_deadlines(self):
         self.assertEqual(deadline_s(GATES, SPEC), GATES_DEADLINE_S)
         self.assertEqual(GATES_DEADLINE_S, 43_200.0)
