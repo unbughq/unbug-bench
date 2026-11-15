@@ -78,13 +78,14 @@ class Timing:
 
 # Rechecks (seconds of waiting) of a router or credential wait while the case keeps its worker: at 2, 4 and 8 minutes.
 OPERATIONAL_RECHECK_S = (120.0, 120.0, 240.0)
+CREDIT_REASON = "router:credit"   # parks until a top-up (_Case.wait_for_credit), under the credit_park patch
 
 
 class _Runtime:
     executor: Optional[Executor] = None
     timing: Timing = Timing()
     admission_paused = staticmethod(lambda: False)
-    router_clear = staticmethod(lambda: False)   # no router wired: a quota hold never resumes by itself
+    router_clear = staticmethod(lambda **kw: False)   # no router wired: a quota hold never resumes by itself
     draining = threading.Event()
     lock = threading.Lock()
     busy = 0     # attempt workflows running in this process
@@ -314,10 +315,13 @@ def hold_clear_step(kind: str, batch_id: str, case_id: str, case_limit: int) -> 
     """Whether a hold of this kind may resume without a release (auto_resume_kind): a provider
     limit once the router reports no blocked pool, a money stop once the case and the batch have
     money for another call as booked now: a poll never rebooks anything, so a case that really spent
-    its money stays held (the resume itself books the diagnosed attempts as waste)."""
+    its money stays held (the resume itself books the diagnosed attempts as waste). "credit": no
+    pool blocked for credit (a case parked on router:credit, _Case.wait_for_credit)."""
     try:   # an unreadable router or ledger is "not yet": the hold keeps waiting and the next poll asks again
         if kind == "quota":
             return bool(_RT.router_clear())
+        if kind == "credit":
+            return bool(_RT.router_clear(credit_only=True))
         return _ex().money_allows(batch_id, case_id, case_limit, MIN_GRANT_USD_MICROS)
     except Exception:
         return False
@@ -1420,6 +1424,9 @@ class _Case:
                 continue
             if action is Action.SLEEP:
                 seconds = wait_seconds(result.retry_at, now_step())
+                if result.reason == CREDIT_REASON and DBOS.patch("credit_park"):
+                    self.wait_for_credit(seconds)
+                    continue
                 # A short wait keeps its worker: releasing it made every retry create a new one,
                 # and on 8 November the 15-minute rate waits of five cases spent the campaign's
                 # whole creation allowance. Only a wait past release_worker_after_sleep_s releases it.
@@ -1507,6 +1514,24 @@ class _Case:
                 self.release_worker()
         self.status = "running"
         return True
+
+    def wait_for_credit(self, seconds: float) -> None:
+        """Founder 15 November: out of credit, stop cleanly and resume where it stopped once credit is
+        back. The attempt has settled (its unspent hold released, nothing booked as waste) and its
+        snapshot keeps every passed gate. Park without a worker for the attempt's own backoff, then
+        until the router shows no credit block (it lifts one on a top-up, model_router.lift_credit):
+        one retry, never counted or diagnosed. A refusal with no block (the router's own ceiling)
+        retries after the backoff, as it did before."""
+        self.release_worker()
+        if self.replaying:
+            return
+        self.status = "waiting_for_credit"
+        self.card()
+        DBOS.sleep(seconds)
+        while not hold_clear_step("credit", self.batch_id, self.case_id, 0):
+            DBOS.sleep(_RT.timing.wake_poll_s)
+        self.status = "running"
+        self.card()
 
     def wait_for_release(self, failed_releases: list) -> None:
         """Park without a worker, slot or hold; a previously failed release cannot retry."""
@@ -2298,7 +2323,7 @@ class Engine:
 
     def __init__(self, *, system_database_url: str, executor: Executor, timing: Timing = Timing(),
                  environ: Optional[Mapping[str, str]] = None, pool_size: int = 40,
-                 admission_paused=lambda: False, router_clear=lambda: False):
+                 admission_paused=lambda: False, router_clear=lambda **kw: False):
         self.url, self.executor, self.timing = system_database_url, executor, timing
         self.admission_paused, self.router_clear = admission_paused, router_clear
         self.environ = os.environ if environ is None else environ

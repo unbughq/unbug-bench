@@ -230,7 +230,7 @@ class Runtime:
                                      renewing=lambda lease: guard_renewing(self.state, boat_id(lease.worker_id)))
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
                                  admission_paused=lambda: guard_degraded(self.state),
-                                 router_clear=lambda: router_clear(config.get("router_db") or _router_db()))
+                                 router_clear=lambda **kw: router_clear(config.get("router_db") or _router_db(), **kw))
         except Exception:
             self.close()
             raise

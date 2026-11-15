@@ -368,6 +368,12 @@ def _paid_charge(profile, usage):
     except (KeyError, TypeError, ValueError, InvalidOperation): return None
 
 
+def _hold(route):
+    """What one request of a gated route holds before it is forwarded: its whole window."""
+    profile = GATED_OPENROUTER[route]
+    return _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
+
+
 class Store:
     """One short SQLite transaction per RPC; no process-local availability cache."""
     def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None,
@@ -452,6 +458,10 @@ class Store:
             result = None
             if operation == 'paid_reserve':
                 result = self._paid_reserve(db, data, credit, fetched_at, started)
+                if 'short' in result:
+                    old = health.get(result['short'], {})
+                    health[result.pop('short')] = dict(old, reason='credit', observed_at=now,
+                                                       blocked_until=max(now, old.get('blocked_until', 0)))
             elif operation == 'paid_settle':
                 result = self._paid_settle(db, data, now)
             elif operation == 'status':
@@ -612,8 +622,7 @@ class Store:
         if route['route'] not in GATED_OPENROUTER: return False
         account = db.execute('SELECT ceiling FROM paid_account WHERE id=1').fetchone()
         if not account or type(account[0]) is not int: return False
-        profile = GATED_OPENROUTER[route['route']]
-        hold = _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
+        hold = _hold(route['route'])
         try: total, _ = _paid_counts(db, now - CREDIT_OVERLAP)
         except ValueError: return False   # paid_reserve refuses a broken ledger itself
         return total + hold > account[0]
@@ -643,14 +652,42 @@ class Store:
         # low-credit alert sees the balance that refused it (it read the last granted one).
         if account: db.execute('UPDATE paid_account SET credit=? WHERE id=1', (credit,))
         profile = GATED_OPENROUTER[lease['route']]
-        hold = _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
+        hold = _hold(lease['route'])
         total, outstanding = _paid_counts(db, fetched_at - CREDIT_OVERLAP)
-        if total + hold > ceiling or outstanding + hold > credit: return denied('credit')
+        # The balance itself is short: the pool waits for a top-up (lift_credit), not a backoff.
+        if outstanding + hold > credit: return dict(denied('credit'), short=lease['pool'])
+        if total + hold > ceiling: return denied('credit')
         db.execute('INSERT OR REPLACE INTO paid_account VALUES (1,?,?)', (ceiling, credit))
         frozen = dict(profile, price_source=lease['price_source'])
         db.execute('INSERT INTO paid_requests (id,lease_id,route,profile,hold,charge,state,settled_at,usage) VALUES (?,?,?,?,?,?,?,?,?)',
             (data['request_id'], data['lease_id'], lease['route'], json.dumps(frozen), hold, hold, 'pending', None, None))
         return dict(granted=True)
+
+    def lift_credit(self):
+        """Lift the paid pool's credit block once the balance pays one request of the dearest gated
+        route on top of the holds in flight (paid_reserve's own test), so the cases parked on it
+        (engine wait_for_credit) wake once after a top-up. Never inside the block's backoff: a 402 the
+        balance disagreed with backs off further each time (observe keeps counting failures until a
+        call finishes done), so the two cannot flap. Only this pool has a balance reader; another
+        pool's credit block still needs observe(healthy=True). reconcile_forever calls it."""
+        now = self.clock()
+        def due(row):
+            value = json.loads(row[0]) if row else {}
+            return value.get('reason') == 'credit' and value.get('blocked_until', 0) <= now
+        read = lambda db: db.execute("SELECT value FROM health WHERE pool='openrouter-key'").fetchone()
+        with closing(sqlite3.connect(self.path, timeout=10)) as db:
+            if not due(read(db)) or not self.credit_reader: return
+        try: credit = _nano(self.credit_reader(), ROUND_FLOOR)
+        except Exception: return   # an unreadable balance keeps the block
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            db.execute('PRAGMA synchronous=FULL')
+            db.execute('BEGIN IMMEDIATE')
+            row = read(db)
+            if not due(row): return
+            _, outstanding = _paid_counts(db, now - CREDIT_OVERLAP)
+            if outstanding + max(map(_hold, GATED_OPENROUTER)) > credit: return
+            value = dict(json.loads(row[0]), reason=None, blocked_until=0, observed_at=now)
+            db.execute("INSERT OR REPLACE INTO health VALUES ('openrouter-key', ?)", (json.dumps(value),))
 
     def _paid_settle(self, db, data, now):
         row = db.execute('SELECT lease_id,profile,hold,state,usage FROM paid_requests WHERE id=?', (data['request_id'],)).fetchone()
@@ -1044,6 +1081,8 @@ def reconcile_forever(store, stopped=None, interval=RECONCILE_SECONDS):
     while not stopped.wait(interval):
         try: store.reconcile(cost_reader=generation_cost, usage_reader=account_usage)
         except Exception: pass  # The next pass tries again; unknown rows keep their holds meanwhile.
+        try: store.lift_credit()
+        except Exception: pass  # The next pass tries again; the block keeps its cases parked meanwhile.
 
 
 def main():

@@ -663,7 +663,7 @@ def engine_main(workdir):
                        "listener_poll_s": 0.05, **scenario.get("timing", {})})
     engine = Engine(system_database_url=scenario.get("database_url", f"sqlite:///{work}/sys.sqlite"), executor=ex,
                     timing=timing, admission_paused=lambda: degraded(work / "state"),
-                    router_clear=lambda: (work / "router-clear").exists())
+                    router_clear=lambda **kw: (work / "router-clear").exists())
     engine.launch()
     if "drain_s" in scenario:
         stop_on_signal(lambda: engine.drain(scenario["drain_s"]))

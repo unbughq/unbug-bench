@@ -600,6 +600,12 @@ The router's operator configuration may set `paid_ceiling_usd`, an absolute shar
 wallet spending limit including all retained charges. Restart applies an explicit
 limit transactionally without resetting settled or uncertain spending; live wallet
 credit is checked separately on every paid request (a refused request still records the balance it saw).
+A balance too short for a request's hold, or a provider 402, blocks the paid pool for `credit`. The
+router's reconcile loop lifts that block (`Store.lift_credit`) once the balance pays one request of the
+dearest gated route on top of the holds in flight, and never inside a 402's backoff, which doubles on each
+repeat. A step that ends `router:credit` settles (unspent hold released, no waste), keeps its snapshot,
+and parks without its worker as `waiting_for_credit` (engine `wait_for_credit`, patch `credit_park`):
+after its backoff it retries once the router shows no credit block, uncounted and never diagnosed.
 A paid route whose ceiling cannot cover one more request's hold is also refused at lease time as a
 `credit` wait; current holds are under the guard's $1 margin. Within that margin the guard pauses new
 attempts (degraded) until the ceiling is raised; steps in flight keep running, and their paid calls

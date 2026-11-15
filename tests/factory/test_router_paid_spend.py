@@ -157,6 +157,58 @@ class PaidTests(unittest.TestCase):
         self.credit = None
         self.assertFalse(self.reserve(lease)[1]['granted'])
 
+    def credit_clear(self):
+        from durable.guard import router_clear
+        return router_clear(self.path, credit_only=True)   # what a case parked on router:credit polls
+
+    def test_a_low_credit_refusal_parks_the_pool_until_a_top_up_lifts_it_once(self):
+        """The router's own pre-check refusal (the gate's 503 shared_paid_spend_wait) used to leave no
+        trace: the case slept 15 minutes and tried again, and again, holding its worker."""
+        self.credit = Decimal('.2299999999')          # below one request's $0.23 hold
+        lease = admit(self.store)
+        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))
+        self.store.rpc('finish', dict(lease_id=lease.lease_id, outcome='interrupted', receipt=None))
+        self.assertFalse(self.credit_clear())          # the parked case keeps waiting...
+        waiting = uuid.uuid4().hex                     # ...and no other call starts on the pool
+        self.assertEqual(admit(self.store, identity=waiting)['reason'], 'credit')
+        self.store.rpc('cancel', {'id': waiting})      # that call parks too (await_lease cancels its request)
+        self.store.lift_credit()
+        self.assertFalse(self.credit_clear())          # still short: nothing to wake for
+        self.credit = Decimal('100')                   # the operator tops up
+        self.store.lift_credit()
+        self.assertTrue(self.credit_clear())
+        lease = admit(self.store)
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        for _ in range(3):                             # it stays clear: one wake, not a loop of them
+            self.store.lift_credit()
+            self.assertTrue(self.credit_clear())
+
+    def test_a_provider_402_block_lifts_on_a_top_up_after_its_backoff_and_backs_off_if_it_recurs(self):
+        def refused(n):
+            lease = admit(self.store)
+            self.store.rpc('observe', dict(pool=None, healthy=False, observation_id=f'402-{n}',
+                                           lease_id=lease.lease_id, reason='credit', reset_at=None))
+            self.store.rpc('finish', dict(lease_id=lease.lease_id, outcome='interrupted', receipt=None))
+        refused(1)
+        self.store.lift_credit()
+        self.assertFalse(self.credit_clear())          # inside its 15-minute backoff
+        self.now[0] += 901
+        self.credit = None                             # an unreadable balance never lifts it
+        self.store.lift_credit()
+        self.assertFalse(self.credit_clear())
+        self.credit = Decimal('100')
+        self.store.lift_credit()
+        self.assertTrue(self.credit_clear())
+        # The provider refuses again although the balance reads enough: the next lift waits twice as
+        # long, so a reader that disagrees with the provider cannot wake the cases every minute.
+        refused(2)
+        self.now[0] += 901
+        self.store.lift_credit()
+        self.assertFalse(self.credit_clear())
+        self.now[0] += 900
+        self.store.lift_credit()
+        self.assertTrue(self.credit_clear())
+
     def unknown_holds(self, n):
         self.credit = Decimal('100')
         for _ in range(n):
@@ -173,6 +225,7 @@ class PaidTests(unittest.TestCase):
         lease = admit(self.store)
         self.assertFalse(self.reserve(lease)[1]['granted'])   # inside the billing window: still counted
         self.now[0] += 901                            # past the window
+        self.store.lift_credit()                      # the router's next pass lifts the refusal's block
         lease = admit(self.store)
         self.assertTrue(self.reserve(lease)[1]['granted'])
         self.assertEqual(self.status()['total_usd'], '3.680000000')   # spend history keeps every hold
