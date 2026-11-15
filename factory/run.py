@@ -184,14 +184,15 @@ def public_progress(c, stage, status, elapsed_seconds=None, reused=False):
 
 
 @contextlib.contextmanager
-def writer_phase(c, phase, **where):
-    """Time one fixed writer-step phase: public progress (codes and seconds only) and the card.
+def writer_phase(c, phase, step="writer", **where):
+    """Time one fixed phase of a writer step (or the stress step's freshness): public progress
+    (codes and seconds only) and the card.
 
     The card keeps every occurrence (round, call) so time to seal can be split into model
     time and check time; public progress keeps the latest per phase.
     """
     started, status = time.time(), "interrupted"
-    public_progress(c, "phase:writer:" + phase, "running")
+    public_progress(c, f"phase:{step}:{phase}", "running")
     try:
         yield
         status = "completed"
@@ -202,9 +203,9 @@ def writer_phase(c, phase, **where):
         raise
     finally:
         elapsed = max(0.0, time.time() - started)
-        public_progress(c, "phase:writer:" + phase, status, elapsed)
+        public_progress(c, f"phase:{step}:{phase}", status, elapsed)
         rows = c.card.setdefault("phase_times", [])
-        rows.append({"step": "writer", "phase": phase, "status": status, **where,
+        rows.append({"step": step, "phase": phase, "status": status, **where,
                      "started_at": datetime.datetime.fromtimestamp(started, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
                      "seconds": round(elapsed, 1)})
         del rows[:-400]
@@ -3466,7 +3467,10 @@ def engine_stress_round(c, n):
         return infra("writer_handback_pending")  # an engine without writer_handback_retry advanced a handback
     public = lambda: (c.card.get("admission_freshness") or {}).get("outcome") == "public_match"
     if not public() and not c.args.dry_run:
-        ensure_freshness(c)  # here, not in the writer round, whose handback estimate cannot count it
+        # Not in the writer round, whose handback estimate cannot count it. Reruns on every stress attempt,
+        # mostly from cache; flagged hits skip that cache and rely on the retained review verdict (confirm_hits).
+        with writer_phase(c, "freshness", step="stress", round=n):
+            ensure_freshness(c)
     if public():
         return {"outcome": Outcome.OK, "reason": "stress:public_match"}
     engine_prepare_bench(c)

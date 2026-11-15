@@ -59,9 +59,19 @@ class WriterDeadline(unittest.TestCase):
         self.assertEqual(result, {'outcome': Outcome.OK, 'reason': 'writer:validated'})
         h.ensure_freshness.assert_not_called()
         self.assertLessEqual(now[0], deadline)
-        # The next step, STRESS, runs it in its own window before any attack, and a public match still
-        # skips the attack (GATES then fails G2).
+        # The next step, STRESS, runs it in its own timed window before any attack.
         order = []
+        h.ensure_freshness.side_effect = lambda c: order.append('freshness')
+        def attack(c, n, report, receipt, completed):
+            order.append('attack')
+            report.write_text('{}')
+        with patch.object(run, 'stress_categories', attack), patch.object(run, 'attack_report', return_value=None):
+            run.engine_stress_round(h.c, 6)
+        self.assertEqual(order, ['freshness', 'attack'])
+        self.assertEqual([(r['step'], r['status']) for r in h.c.card['phase_times'] if r['phase'] == 'freshness'],
+                         [('stress', 'completed')])
+        # A public match still skips the attack (GATES then fails G2).
+        order.clear()
         h.ensure_freshness.side_effect = lambda c: (order.append('freshness'),
             c.card.__setitem__('admission_freshness', {'outcome': 'public_match'}))[-1]
         with patch.object(run, 'stress_categories', lambda *a: order.append('attack')):
