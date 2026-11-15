@@ -192,10 +192,14 @@ G4, G5, saved cheats is kept. Any snapshot requested while two threads work on t
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. Meanwhile each gate-cache pass outside
 the side lane is published at once as the last snapshot plus its record and evidence
-(`durable.checkpoints.progress`, `worker_step.overlay`), so a killed attempt restarts after it; a gate
-cites only its own work files (`gate_state.owned`: not review copies, not another gate's details).
-A G4-G16 pass lives only in `gate-cache`; step receipts (`durable.checkpoints.gate_call`) keep
-failures and the other gates' passes, and pass receipts saved before still replay. The writer step records fixed
+(`durable.checkpoints.progress`, `worker_step.overlay`; each publication re-verifies every gate it
+keeps), so a killed attempt restarts after it. A gate cites only its own work files (`gate_state.owned`:
+not review copies, not another gate's details) and, while G10 overlaps, not G10's tester instances. A
+bench gate's pass that gate-cache holds is not also a step receipt (`durable.checkpoints.gate_call`);
+every other pass and every failure is. G8, G9 and G16 keep step receipts because their cache identity
+holds `args.agent_timeout`, the attempt's remaining deadline under the engine. The receipt folder hashes
+the verdict-path files; `invalid-runs-compat.json` `verdict_code_pins` lets a release reviewed as
+changing no verdict keep its predecessor's folder, and a stale pin changes nothing. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
 progress and the card's `phase_times`. Before another writer call and its checks in the same
 attempt, the round compares the time left with 1.25 times the longest cycle finished in this round (carried in the handback across attempts) plus 15 minutes;

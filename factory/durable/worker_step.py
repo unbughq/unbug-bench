@@ -295,7 +295,7 @@ class Worker:
         atomic_json(c.work / "scorecard.json", c.card)
         plaintext = snapshot_bytes(c, runner)
         self._publish(step_input, sealer, case_key, plaintext)
-        c.engine.snapshot_base, c.engine.progress_files = plaintext, {}
+        c.engine.snapshot_base, c.engine.progress_gates = plaintext, set()
         return True
 
     def publish_progress(self, step_input, c, sealer, case_key, files):

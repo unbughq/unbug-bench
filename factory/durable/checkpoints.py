@@ -60,18 +60,23 @@ def progress(c, gate, bench):
     bench gates (G2/G8/G9, or G10 from G6) held back each pass and a killed attempt restored the
     snapshot from before it. This publishes the last snapshot again with only the pass record and its
     evidence added (gate_state.record_files): files no other thread writes, which a retry re-verifies
-    against current inputs (gate_state.load). Nothing else is read while the other thread runs.
+    against current inputs (gate_state.load). Nothing else is read while the other thread runs. Every
+    gate kept since the last snapshot is re-verified here; one whose files moved or changed is dropped.
     """
     publish = getattr(getattr(c, 'engine', None), 'publish_progress', None)
     if publish is None or not _unsettled(c): return False
     import gate_state
-    files = gate_state.record_files(c, gate, bench)
-    if not files: return False
     with _PROGRESS_LOCK:
-        kept = c.engine.__dict__.setdefault('progress_files', {})
-        kept.update(files)
+        kept = c.engine.__dict__.setdefault('progress_gates', set())
+        kept.add(gate)
+        files = {}
+        for name in sorted(kept):
+            found = gate_state.record_files(c, name, bench)
+            if found: files.update(found)
+            else: kept.discard(name)
+        if not files: return False
         try:
-            return publish(dict(kept))
+            return publish(files)
         except Exception:   # the deferred snapshot still follows at the join; the gate's outcome stands
             traceback.print_exc()
             return False
@@ -123,15 +128,22 @@ BENCH_VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'd
 MODEL_CODE = ('ordinary_retry.py', 'model_runtime.py', 'model_router.py', 'model_call_gate.py')
 VERDICT_CODE = BENCH_VERDICT_CODE + MODEL_CODE
 _VERDICT_DIGEST = {}
+# A verdict-path release reviewed as changing no verdict names its digest ("to") and its predecessor's
+# ("from") under `verdict_code_pins`, like release_pins: it keeps that release's receipt folder. Any other
+# edit of these files (a stale pin included) changes the digest and starts afresh, as before.
+COMPAT = Path(__file__).resolve().parents[1] / 'invalid-runs-compat.json'
 
 
 def verdict_code(model=True):
     if model not in _VERDICT_DIGEST:
         root = Path(__file__).resolve().parents[1]
         names = VERDICT_CODE if model else BENCH_VERDICT_CODE
-        _VERDICT_DIGEST[model] = hashlib.sha256(json.dumps(
+        digest = hashlib.sha256(json.dumps(
             {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names},
             sort_keys=True).encode()).hexdigest()
+        try: pin = json.loads(COMPAT.read_text())['verdict_code_pins']['model' if model else 'bench']
+        except (OSError, ValueError, KeyError, TypeError): pin = None
+        _VERDICT_DIGEST[model] = pin['from'] if isinstance(pin, dict) and pin.get('to') == digest else digest
     return _VERDICT_DIGEST[model]
 
 
@@ -285,9 +297,12 @@ def gate_call(c, gate, invoke, binding):
         if saved['binding'] == binding and (saved['ok'] or saved.get('plumbing') == plumbing):
             return saved['ok'], saved['info']
     ok, info = invoke()
-    # Such a pass lives in gate-cache alone (gate_state: inputs and evidence, across steps). A pass
-    # receipt saved here before still replays above; failures stay, so a crash cannot re-roll a verdict.
-    if ok and gate in REUSABLE: return ok, info
+    # A bench gate's pass that gate-cache holds (GatePipeline.check: saved or reused) lives there alone,
+    # across steps. Every other pass is kept here, and so are failures, so a crash cannot re-roll a
+    # verdict. Model stages keep theirs here too: their cache identity holds args.agent_timeout, which
+    # under the engine is the attempt's remaining deadline, so their gate-cache never matches a retry.
+    if ok and gate in REUSABLE and gate not in MODEL_STAGES and gate in getattr(c, 'gate_cached', ()):
+        return ok, info
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_json(path, {'binding': binding, 'ok': ok, 'info': info, 'plumbing': plumbing})
     return ok, info

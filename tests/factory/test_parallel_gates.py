@@ -717,6 +717,35 @@ class KilledGateRun(unittest.TestCase):
             self.assertTrue(retry.card["gate_results"][gate].get("reused_verified_evidence"), gate)
 
 
+    def test_g6_and_g7_do_not_cite_g10s_tester_instances(self):
+        """G10 writes its testers' results on instances bench_workers and +1 while G6 and G7 run. Those are
+        not G6/G7 evidence (a resumed G10 rewrites them), so their records still load after G10 moves on."""
+        wrote = threading.Event()
+        def g10(c):
+            for slot in (2, 3):
+                result = run.BENCH / "results" / "factory-slots" / str(slot) / "runs" / "g10" / "checkpoint.json"
+                result.parent.mkdir(parents=True, exist_ok=True); result.write_text("try 1")
+            wrote.set(); time.sleep(0.3)
+            return True, {"strong": "1/3"}
+        def bench(gate):
+            def body(c):
+                self.assertTrue(wrote.wait(5))
+                result = run.BENCH / "results" / "runs" / gate.lower() / "checkpoint.json"
+                result.parent.mkdir(parents=True, exist_ok=True); result.write_text(gate)
+                return True, {"runs": "10/10"}
+            return body
+        c, _, _ = self.attempt(1, ["G1", "G6", "G7", "G10"], {"G6": bench("G6"), "G7": bench("G7"), "G10": g10}, overlap=True)
+        self.assertEqual(set(c.card["gates"].values()), {"pass"})
+        self.assertFalse(hasattr(c, "evidence_scope"), "the scope ends with G10")
+        for gate in ("G6", "G7"):
+            cited = [e["path"] for e in json.loads((c.work / "gate-cache" / f"{gate}.json").read_text())["evidence"]]
+            self.assertEqual(cited, [f"runs/{gate.lower()}/checkpoint.json"], gate)
+        for tried in c.work.glob("bench-results/factory-slots/*/runs/g10/checkpoint.json"):
+            tried.write_text("try 2")
+        bench_root = self.root / "worker-1" / "bench"
+        for gate in ("G6", "G7"):
+            self.assertEqual(gate_state.load(c, gate, bench_root), {"runs": "10/10"}, gate)
+
 class WriterPhases(unittest.TestCase):
     def test_phases_are_public_stages(self):
         for phase in public_progress.PHASES:

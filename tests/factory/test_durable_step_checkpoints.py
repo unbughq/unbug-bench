@@ -48,14 +48,13 @@ class ReleaseScope(unittest.TestCase):
         ran = []
         def gate():
             ran.append(1); return True, {'ok': True}
-        # G1 and G11 keep their passes here; the gate cache holds the others' (see the test below).
-        self.assertEqual(cp.gate_call(ctx(), 'G1', gate, 'binding'), (True, {'ok': True}))
-        self.assertEqual(cp.gate_call(ctx(plumbing='p2'), 'G1', gate, 'binding'), (True, {'ok': True}))
+        self.assertEqual(cp.gate_call(ctx(), 'G4', gate, 'binding'), (True, {'ok': True}))
+        self.assertEqual(cp.gate_call(ctx(plumbing='p2'), 'G4', gate, 'binding'), (True, {'ok': True}))
         self.assertEqual(len(ran), 1)                     # reused across the plumbing release
-        cp.gate_call(ctx(plumbing='p2'), 'G1', gate, 'changed-binding')
+        cp.gate_call(ctx(plumbing='p2'), 'G4', gate, 'changed-binding')
         self.assertEqual(len(ran), 2)                     # its own binding still decides
         for change in ({'bench': 'b2'}, {'feedback': 'f'}, {'ruling': 'r'}):
-            cp.gate_call(ctx(**change), 'G1', gate, 'binding')
+            cp.gate_call(ctx(**change), 'G4', gate, 'binding')
         self.assertEqual(len(ran), 5)                     # bench, feedback and ruling still scope it
         # A saved failure replays only under the release that recorded it (the next may be its fix).
         def failing():
@@ -67,32 +66,54 @@ class ReleaseScope(unittest.TestCase):
         self.assertEqual(len(ran), 7)
         # A change to the verdict-path code starts afresh even for passes.
         with patch.object(cp, 'verdict_code', return_value='other'):
-            cp.gate_call(ctx(plumbing='p5'), 'G1', gate, 'binding')
+            cp.gate_call(ctx(plumbing='p5'), 'G4', gate, 'binding')
         self.assertEqual(len(ran), 8)
 
-    def test_a_cached_gate_pass_has_one_home(self):
-        """A G4-G16 pass is reused from gate-cache (gate_state: inputs and evidence, across steps). The
-        step receipt kept a second copy that no snapshot carried while a lane ran; it now keeps only
-        failures, so a crash cannot re-roll a failed verdict. A pass receipt written before this change
-        (live batches) still replays under its exact binding."""
+    def test_a_cached_bench_pass_has_one_home(self):
+        """A G4-G7/G13-G15 pass that gate-cache holds (GatePipeline.check marks c.gate_cached) is not
+        also a step record. A pass it does not hold, a model stage's pass and a failure still are."""
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        c = types.SimpleNamespace(work=Path(tmp.name), card={}, gate_cached={'G4', 'G16'}, engine=types.SimpleNamespace(
+            key='b-test/case-test/3/gates:1/1', source_binding={'plumbing': 'p1', 'bench': 'b1', 'feedback': None, 'ruling': None}))
+        passing = lambda: (True, {'ok': True})
+        for gate, model in (('G4', False), ('G5', False), ('G16', True), ('G11', True)):
+            cp.gate_call(c, gate, passing, 'binding')
+        cp.gate_call(c, 'G6', lambda: (False, {'problems': ['x']}), 'binding')
+        c.gate_cached.add('G6')
+        records = lambda model: sorted(p.name for p in cp.directory(c, model=model).glob('gate-*.json'))
+        self.assertEqual(records(False), ['gate-G5.json', 'gate-G6.json'])
+        self.assertEqual(records(True), ['gate-G11.json', 'gate-G16.json'])
+
+    def test_a_pinned_release_keeps_the_previous_receipt_folder(self):
+        """The folder name hashes the verdict-path files, so a release editing them moves every live case
+        to a fresh folder. A reviewed pin (invalid-runs-compat.json verdict_code_pins) maps this release's
+        digest to its predecessor's; a stale pin changes nothing."""
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         work = Path(tmp.name)
-        c = types.SimpleNamespace(work=work, card={}, engine=types.SimpleNamespace(
-            key='b-test/case-test/3/gates:1/1', source_binding={'plumbing': 'p1', 'bench': 'b1', 'feedback': None, 'ruling': None}))
+        c = types.SimpleNamespace(work=work / 'w', card={}, engine=types.SimpleNamespace(
+            key='b-test/case-test/3/gates:1/2', source_binding={'plumbing': 'p2', 'bench': 'b1', 'feedback': None, 'ruling': None}))
+        compat = work / 'compat.json'
+        def folder(pins):
+            compat.write_text(json.dumps({'verdict_code_pins': pins}))
+            cp._VERDICT_DIGEST.clear()
+            with patch.object(cp, 'COMPAT', compat):
+                return cp.directory(c, model=False), cp.verdict_code(False)
+        self.addCleanup(cp._VERDICT_DIGEST.clear)
+        fresh, digest = folder({})
+        old, _ = folder({'bench': {'from': 'previous-release', 'to': 'other'}})
+        self.assertEqual(old, fresh, 'a stale pin changes nothing')
+        with patch.object(cp, 'verdict_code', return_value='previous-release'):
+            previous = cp.directory(c, model=False)
+        previous.mkdir(parents=True)   # a pass and a failure the previous release recorded (attempt 1)
+        (previous / 'gate-G1.json').write_text(json.dumps({'binding': 'b', 'ok': True, 'info': {'kept': 1}, 'plumbing': 'p1'}))
+        (previous / 'gate-G5.json').write_text(json.dumps({'binding': 'b', 'ok': False, 'info': {}, 'plumbing': 'p1'}))
+        pinned, _ = folder({'bench': {'from': 'previous-release', 'to': digest}})
+        self.assertEqual(pinned, previous)
         ran = []
-        passing = lambda: (ran.append('pass'), (True, {'ok': True}))[1]
-        failing = lambda: (ran.append('fail'), (False, {'problems': ['x']}))[1]
-        cp.gate_call(c, 'G4', passing, 'binding')
-        cp.gate_call(c, 'G4', passing, 'binding')
-        self.assertEqual(ran, ['pass', 'pass'])           # the gate cache, inside invoke, reuses it
-        self.assertFalse((cp.directory(c, model=False) / 'gate-G4.json').exists())
-        cp.gate_call(c, 'G5', failing, 'binding')
-        cp.gate_call(c, 'G5', passing, 'binding')
-        self.assertEqual(ran, ['pass', 'pass', 'fail'])   # a failure replays under its release
-        old = cp.directory(c, model=False) / 'gate-G6.json'
-        old.write_text(json.dumps({'binding': 'binding', 'ok': True, 'info': {'cheats': '0/24'}, 'plumbing': 'p0'}))
-        self.assertEqual(cp.gate_call(c, 'G6', passing, 'binding'), (True, {'cheats': '0/24'}))
-        self.assertEqual(len(ran), 3)
+        with patch.object(cp, 'COMPAT', compat):
+            self.assertEqual(cp.gate_call(c, 'G1', lambda: self.fail('kept pass repeated'), 'b'), (True, {'kept': 1}))
+            cp.gate_call(c, 'G5', lambda: (ran.append(1), (True, {}))[1], 'b')
+        self.assertEqual(ran, [1], 'a failure still replays only under the release that recorded it')
 
 
 @unittest.skipUnless(shutil.which('age'), 'requires local age CLI')
@@ -132,7 +153,7 @@ class Checkpoints(unittest.TestCase):
         def gate():
             (c.work / 'gate-evidence').write_text('verified')
             return True, {'verified': True}
-        cp.gate_call(c, 'G11', gate, 'unchanged-case')
+        cp.gate_call(c, 'G4', gate, 'unchanged-case')
         cp.checkpoint(c)
 
     def recover(self):
@@ -151,7 +172,7 @@ class Checkpoints(unittest.TestCase):
         (recovered / 'answer').unlink()  # caller restores the pre-call workspace
         never = lambda: self.fail('completed work repeated')
         self.assertEqual(cp.model_call(c, ['local/test'], recovered, 'builder-1', never, text='deterministic prompt'), 0)
-        self.assertEqual(cp.gate_call(c, 'G11', never, 'unchanged-case'), (True, {'verified': True}))
+        self.assertEqual(cp.gate_call(c, 'G4', never, 'unchanged-case'), (True, {'verified': True}))
         self.assertEqual((recovered / 'answer').read_text(), 'completed model artifact')
         self.assertEqual((recovered / 'answer').stat().st_mode & 0o777, 0o750)
         ledger = json.loads(c.ledger.read_text())

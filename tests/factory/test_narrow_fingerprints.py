@@ -69,7 +69,7 @@ class Receipts(unittest.TestCase):
     def test_gate_call_keys_bench_gates_without_model_code_and_model_stages_with_it(self):
         with tempfile.TemporaryDirectory() as d:
             c = self.ctx(d)
-            cp.gate_call(c, 'G4', lambda: (False, {}), 'b')   # a G4 pass lives in gate-cache alone
+            cp.gate_call(c, 'G4', lambda: (True, {}), 'b')
             cp.gate_call(c, 'G10', lambda: (True, {}), 'b')
             self.assertTrue((cp.directory(c, model=False) / 'gate-G4.json').is_file())
             self.assertTrue((cp.directory(c) / 'gate-G10.json').is_file())

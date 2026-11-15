@@ -66,8 +66,11 @@ class GatePipeline:
         """Reuse verified evidence or execute a gate and retain its supporting artifacts."""
         reusable = gate in gate_state.REUSABLE and hasattr(c, "manifest0") and hasattr(c, "case")
         if reusable:
+            held = c.__dict__.setdefault("gate_cached", set())   # passes gate-cache holds (checkpoints.gate_call)
+            held.discard(gate)
             cached = gate_state.load(c, gate, self.bench)
             if cached is not None:
+                held.add(gate)
                 if gate in ("G8", "G9"):
                     c.card["reviewers_fairness" if gate == "G8" else "reviewers_realism"] = cached.get("approve")
                 if gate == "G7": c.card["flakiness_rerun"] = {k: v for k, v in cached.items() if k != "reused_verified_evidence"}
@@ -85,7 +88,7 @@ class GatePipeline:
         except CaseProblem as error:
             return False, {'problems': [str(error)]}
         if reusable and ok and signature == gate_state.fingerprint(c, gate, self.bench):
-            gate_state.save(c, gate, info, signature, before, self.bench)
+            if gate_state.save(c, gate, info, signature, before, self.bench): c.gate_cached.add(gate)
             # Published now, not at the next quiescent point, which a lane beside this gate may delay for
             # hours. Side-lane passes are kept at the join: the next review() renames their evidence.
             if getattr(c, "engine", None) is not None and gate not in self.side_gates:
@@ -401,6 +404,9 @@ class GatePipeline:
                         self.log(c, "G10", "serial:", reason)
                     else:
                         c.calibrator_slot_offset = a.bench_workers
+                        # G6-G7 cite neither G10's tester instances (as early_parallel) nor what they hold.
+                        testers = tuple(f"factory-slots/{n}/" for n in (a.bench_workers, a.bench_workers + 1))
+                        c.evidence_scope = lambda kind, rel: kind != "bench" or not rel.startswith(testers)
                         c.role_cancel = threading.Event()
                         g10_started = time.time()
                         self.log(c, "G10", "start (overlapping bench gates)")
@@ -468,5 +474,6 @@ class GatePipeline:
                 if lane["section"] is not None:
                     lane["section"].__exit__(None, None, None); lane["section"] = None
                 if side_pool is not None: side_pool.shutdown(wait=True)
+                if g10_started is not None: c.__dict__.pop("evidence_scope", None)
 
 

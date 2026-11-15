@@ -332,8 +332,9 @@ def owned(gate, kind, rel):
 
 
 def save(c, gate, info, signature, before, bench):
+    """True when the pass record was written."""
     if gate not in REUSABLE:
-        return
+        return False
     evidence = [{"kind": kind, "path": rel, "sha256": sha256}
                 for (kind, rel), sha256 in digests(c, bench).items()
                 if before.get((kind, rel)) != sha256 and owned(gate, kind, rel)]
@@ -348,7 +349,7 @@ def save(c, gate, info, signature, before, bench):
         evidence = [{"kind": "work", "path": p.relative_to(c.work).as_posix(), "sha256": digest(p)}
                     for p in c.work.glob("review-[0-9]/verdict.json") if p.is_file()]
     if not evidence:
-        return  # A summary without supporting evidence cannot authorize later reuse.
+        return False  # A summary without supporting evidence cannot authorize later reuse.
     directory = c.work / "gate-cache"
     directory.mkdir(exist_ok=True)
     record = {"fingerprint_version": VERSION, "inputs": inputs(c, gate, bench),
@@ -356,6 +357,7 @@ def save(c, gate, info, signature, before, bench):
               "scientific_version": scientific_version(c, gate, bench)}
     if gate == "G16": record["calibration_identity"] = calibration_binding(c)
     atomic_json(directory / f"{gate}.json", record)
+    return True
 
 
 def record_files(c, gate, bench):

@@ -202,4 +202,55 @@ class EvidenceCacheTests(unittest.TestCase):
         self.assertTrue(ok); self.assertTrue(info['reused_verified_evidence'])
 
 
+    def engine(self):
+        self.c.engine = types.SimpleNamespace(key='b-test/case-test/3/gates:1/1', source_binding={
+            'plumbing': 'p1', 'bench': 'b1', 'feedback': None, 'ruling': None})
+
+    def test_a_pass_the_gate_cache_did_not_save_is_kept_in_the_step_record(self):
+        """A pass with no evidence of its own is not saved in gate-cache (gate_state.save returns False);
+        it is kept as a step record instead of nowhere. One gate-cache saved is not kept twice."""
+        from durable import checkpoints as cp
+        self.engine()
+        def gate_call(body):
+            with patch.object(run, 'BENCH', self.root), patch.object(run, 'g4', body):
+                pipeline = run._gate_pipeline()
+                return cp.gate_call(self.c, 'G4', lambda: pipeline.check(self.c, 'G4'), 'binding')
+        record = cp.directory(self.c, model=False) / 'gate-G4.json'
+        self.assertEqual(gate_call(lambda c: (True, {'broke': '3/10'})), (True, {'broke': '3/10'}))
+        self.assertFalse((self.c.work / 'gate-cache/G4.json').exists())
+        self.assertTrue(record.is_file())
+        self.assertEqual(gate_call(lambda c: self.fail('kept pass repeated')), (True, {'broke': '3/10'}))
+        record.unlink()
+        def writes(c):
+            result = self.root / 'results/runs/g4/checkpoint.json'; result.parent.mkdir(parents=True, exist_ok=True)
+            result.write_text('{}'); return True, {'broke': '4/10'}
+        self.assertEqual(gate_call(writes), (True, {'broke': '4/10'}))
+        self.assertTrue((self.c.work / 'gate-cache/G4.json').exists())
+        self.assertFalse(record.exists())
+
+    def test_a_kept_pass_whose_files_moved_is_dropped_from_later_publications(self):
+        """Every partial publication re-verifies the gates kept since the last snapshot. A kept G4 whose
+        evidence vanished made each later publication fail (overlay: FileNotFoundError, printed only)."""
+        import io, tarfile
+        from durable import checkpoints as cp
+        from durable.worker_step import overlay
+        self.runner.write_text(self.runner.read_text() + 'def g5(c):\n    return helper(c)\n')
+        for gate in ('G4', 'G5'):
+            before = gate_state.digests(self.c, self.root)
+            result = self.root / 'results/runs' / gate.lower() / 'checkpoint.json'
+            result.parent.mkdir(parents=True, exist_ok=True); result.write_text(gate)
+            self.assertTrue(gate_state.save(self.c, gate, {'gate': gate}, gate_state.fingerprint(self.c, gate, self.root), before, self.root))
+        base = io.BytesIO()
+        with tarfile.open(fileobj=base, mode='w:gz'): pass
+        published = []
+        def publish(files):
+            published.append(sorted(files)); return overlay(base.getvalue(), files) is not None
+        self.engine(); self.c.engine.publish_progress = publish
+        with cp.concurrent_section(self.c):
+            self.assertTrue(cp.progress(self.c, 'G4', self.root))
+            (self.root / 'results/runs/g4/checkpoint.json').unlink()
+            self.assertTrue(cp.progress(self.c, 'G5', self.root))
+        self.assertEqual(published[-1], ['bench-results/runs/g5/checkpoint.json', 'gate-cache/G5.json'])
+        self.assertEqual(self.c.engine.progress_gates, {'G5'})
+
 if __name__ == '__main__': unittest.main()
