@@ -351,6 +351,13 @@ OpenCode provider and one model only, no outside config and no self-update. A ca
 either, since behind the wall it reaches only a gate's port: it takes its chain's OpenRouter route, and a
 chain with none is refused up front as `unbounded_route`. A full or failing lane hands an unwalled call to
 the next route in its chain.
+What a failed call stops is its stop label's scope in `durable/stop_registry.py` `STOPS`. A concurrent call's
+call-scope failure stays with it (its `reroute` moves it to the next route, or it fails alone) and its peers run
+on; a case-scope one (the case's money, a ledger that no longer adds up, a process that outlived its call, a
+pause) stops the shared budget ledger and every call on it, as does any label with no entry (only an unlisted
+exception class name stays local). A serial call's failure always stops the ledger. An unreserved call also
+stops once a peer left the case's usage unknown (`usage_unknown`). A test scans the factory for raised or written
+stop labels and fails on any without an entry, or any it cannot read that has no stated reason.
 A usage-limit (quota) failure on an OpenCode Go account is published as that account's router health
 block until its reset, even when it came from an unstructured CLI line, so later calls skip the exhausted
 account instead of retrying it per call. The failed call itself moves on inside its attempt, to the same

@@ -55,8 +55,6 @@ _WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"), "capacity":
          "router_unavailable": (_I, "infra:router_unavailable"),
          # The router refused a lease the worker's renewals let lapse: a worker stall, an ordinary infra retry.
          "worker_stalled": (_I, "infra:worker_stalled")}
-FAILURE_STOPS = frozenset({"process_error", "claude_error", "codex_error", "opencode_error",
-                           "refusal", "zero_tokens", "timeout", "stalled", "credential_expiring", "model_unavailable"})
 
 # Exact stop heads (the text before the first ":"), after the runner wrapper is removed.
 _FIXED = {
@@ -215,6 +213,8 @@ PREFLIGHT_STOPS = {"process_error": "process", "claude_error": "claude", "codex_
                    "opencode_error": "opencode", "refusal": "refusal", "zero_tokens": "zero_tokens",
                    "timeout": "timeout", "stalled": "stalled", "credential_expiring": "credential",
                    "model_unavailable": "model"}
+# The CLI stops a provider wait may name as its source_stop: the same CLI stops a preflight names.
+FAILURE_STOPS = frozenset(PREFLIGHT_STOPS)
 
 # diagnosis_invocation.invoke's cleanup after a diagnosis that itself succeeded: the stage that
 # failed and the class of its error, as fixed codes ("infra:dcf_<stage>_<class>").

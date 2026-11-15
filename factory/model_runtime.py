@@ -423,14 +423,13 @@ def short_call(name):
 
 
 def call_failure_reason(label, route, name=''):
-    """A per-call failure that moves this call to its chain's next route, or None (the step fails).
-    A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
-    if short_call(name) and label == 'stalled': return 'outage'
-    if label.startswith('provider_limit'): return 'quota'
-    if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
-    if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
-    if route in FREE_ROUTES and label in ('missing_usage', 'invalid_usage', 'free_route_mismatch'): return 'outage'
-    return None
+    """A per-call failure that moves this call to its chain's next route, or None (the step fails): the
+    label's reroute in durable/stop_registry.py STOPS."""
+    from durable.stop_registry import stop
+    reroute = stop(label)['reroute']
+    if reroute == 'outage_if_short': return 'outage' if short_call(name) else None
+    if reroute == 'outage_if_free': return 'outage' if route in FREE_ROUTES else None
+    return reroute
 
 
 @dataclass(frozen=True)

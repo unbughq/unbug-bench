@@ -1,4 +1,5 @@
 """The stop registry covers every recordable reason, and the stop audit's verdicts from fake attempts."""
+import ast
 import base64
 import pickle
 from pathlib import Path
@@ -64,6 +65,189 @@ class RegistryTests(unittest.TestCase):
             if entry["kind"] == "bug" and entry["fixed_in"]:
                 for fix in entry["fixed_in"]:
                     self.assertRegex(fix, r"^[0-9a-f]{40}$", reason)
+
+
+# Stop arguments the scan cannot read as a label, each with why that is safe. Keyed by file and argument source.
+# The key is the innermost expression the scan could not read.
+UNREAD_STOPS = {
+    # Copies of a stop already raised or written elsewhere: its label was scanned where it was made.
+    ("factory/budget.py", "ledger.get('terminal_stop')"): "shared_stop re-raises the ledger's own stop",
+    ("factory/budget.py", "str(previous)"): "admission refused after an earlier stop (wrapped)",
+    ("factory/budget.py", "str(error)"): "a raised error's own label (or class name), copied",
+    ("factory/run.py", "hosted[i]['stopped']"): "a hosted call's stop, raised by its own run_budgeted",
+    ("factory/run.py", "interruption_label(error)"): "calibration.interruption_label: a raised stop's head",
+    ("factory/g11_review.py", "interruption_label(error)"): "calibration.interruption_label: a raised stop's head",
+    # model_runtime.pinned_cli's pre-launch CLI version check, never inside run_budgeted: classify._CLI_VERSION
+    # names the whole family infra:cli_version, and no route takes it.
+    ("factory/model_runtime.py", "f'{kind}_cli_not_{want}'"): "infra:cli_version family, raised before launch",
+}
+
+
+class Unread(Exception):
+    pass
+
+
+def _text(node):
+    """The whole constant text of a string expression, or None."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr) and all(isinstance(v, ast.Constant) for v in node.values):
+        return "".join(v.value for v in node.values)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _text(node.left), _text(node.right)
+        return None if left is None or right is None else left + right
+    return None
+
+
+def _prefix(node):
+    """The constant text a string expression starts with."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        lead = ""
+        for v in node.values:
+            if not isinstance(v, ast.Constant): break
+            lead += v.value
+        return lead
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _text(node.left)
+        return _prefix(node.left) if left is None else left + _prefix(node.right)
+    return ""
+
+
+def stop_labels(root: Path = ROOT) -> tuple:
+    """({label head: first source line}, {(file, expression): line} of what it could not read), for every stop
+    label the factory raises or writes as a stop: the text of BudgetError(...) or ContainmentError(...), and any
+    value written to a terminal_stop. A constant, a constant head before ":" ('refusal:' + model,
+    f"provider_preflight_failed:{role}:..."), a wrapper ("Budget stopped: " + cause), `a if c else b`, a local name
+    assigned such values, or a parameter's default and same-module call arguments are read; anything else is
+    unread, and fails the test unless UNREAD_STOPS says why it is safe."""
+    found, unread = {}, {}
+    for path in [*(root / "factory").rglob("*.py"), root / "bin/processes.py"]:
+        tree = ast.parse(path.read_text(), str(path))
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+        def assigned(name, node):
+            """Values a name holds at node: its assignments in the functions around it, innermost first, else a
+            parameter's default and the arguments same-module calls pass it."""
+            while node in parents:
+                node = parents[node]
+                if not isinstance(node, (*functions, ast.Module)):
+                    continue
+                values = [a.value for a in ast.walk(node) if isinstance(a, ast.Assign)
+                          and any(isinstance(t, ast.Name) and t.id == name for t in a.targets)]
+                if values:
+                    return values
+                if isinstance(node, functions):
+                    args = node.args.posonlyargs + node.args.args
+                    if name in [a.arg for a in args]:
+                        index = [a.arg for a in args].index(name)
+                        defaults = dict(zip([a.arg for a in args][len(args) - len(node.args.defaults):],
+                                            node.args.defaults))
+                        if name not in defaults:
+                            raise Unread(name)
+                        calls = [c for c in ast.walk(tree) if isinstance(c, ast.Call)
+                                 and getattr(c.func, "id", getattr(c.func, "attr", None)) == node.name]
+                        return [defaults[name], *(c.args[index] for c in calls if len(c.args) > index),
+                                *(k.value for c in calls for k in c.keywords if k.arg == name)]
+            raise Unread(name)
+
+        def heads(node):
+            if isinstance(node, ast.Constant) and node.value is None:
+                return set()   # no stop (budget.py's cause when no limit is hit)
+            if isinstance(node, ast.IfExp):
+                return heads(node.body) | heads(node.orelse)
+            if isinstance(node, ast.Name):
+                return set().union(*(heads(v) for v in assigned(node.id, node)))
+            wrapper = next((w for w in classify._WRAPPERS if _prefix(node).startswith(w)), None)
+            if (wrapper and isinstance(node, ast.BinOp) and _text(node.left) == wrapper):
+                return heads(node.right)   # "Budget stopped: " + cause: the label is cause's
+            text = _text(node)
+            lead = (text if text is not None else _prefix(node))[len(wrapper or ""):]
+            if text is None and ":" not in lead:
+                raise Unread(ast.unparse(node))
+            return {lead.partition(":")[0]}
+
+        for node in ast.walk(tree):
+            values = []
+            if isinstance(node, ast.Call):
+                func = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+                if func in ("BudgetError", "ContainmentError") and node.args:
+                    values.append(node.args[0])
+                values += [k.value for k in node.keywords if k.arg == "terminal_stop"]
+                if (func == "setdefault" and len(node.args) == 2 and isinstance(node.args[0], ast.Constant)
+                        and node.args[0].value == "terminal_stop"):
+                    values.append(node.args[1])
+            elif isinstance(node, ast.Assign):
+                if any(isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant)
+                       and t.slice.value == "terminal_stop" for t in node.targets):
+                    values.append(node.value)
+            where = f"{path.relative_to(root)}:{node.lineno}" if values else None
+            for value in values:
+                try:
+                    for head in heads(value):
+                        found.setdefault(head, where)
+                except Unread as error:
+                    key = (str(path.relative_to(root)), str(error))
+                    unread.setdefault(key, where)
+    return found, unread
+
+
+class StopScopeTests(unittest.TestCase):
+    def test_every_raised_or_written_stop_label_declares_its_scope(self):
+        from durable.stop_registry import STOPS
+        labels, unread = stop_labels()
+        for seen in ("opencode_error", "provider_preflight_failed", "extension_snapshot_changed", "cost_limit"):
+            self.assertIn(seen, labels)   # the scan itself still reads constants, f-heads, defaults, wrappers
+        self.assertEqual({k: v for k, v in unread.items() if k not in UNREAD_STOPS}, {},
+                         "the scan cannot read these stop labels: name them, or add a reason to UNREAD_STOPS")
+        self.assertEqual(set(UNREAD_STOPS) - set(unread), set(), "these UNREAD_STOPS entries are stale")
+        missing = {label: where for label, where in labels.items() if label not in STOPS}
+        self.assertEqual(missing, {}, "give these a scope in factory/durable/stop_registry.py STOPS")
+
+    def test_every_scope_is_call_or_case_and_every_reroute_a_router_reason(self):
+        from durable.stop_registry import STOPS
+        from model_router import REASONS
+        for label, entry in STOPS.items():
+            self.assertIn(entry["scope"], ("call", "case"), label)
+            self.assertIn(entry["reroute"], (None, "outage_if_short", "outage_if_free", *REASONS), label)
+
+    def test_a_label_reads_by_its_head_and_an_unknown_label_fails_closed(self):
+        from durable.stop_registry import stop
+        self.assertEqual(stop("provider_limit:claude/claude-opus-5-5"), {"scope": "call", "reroute": "quota"})
+        self.assertEqual(stop("budget_exhausted:grant_insufficient")["scope"], "case")
+        self.assertEqual(stop("never_given_a_scope"), {"scope": "case", "reroute": None})
+        self.assertEqual(stop("KeyError", exception=True), {"scope": "call", "reroute": None})
+        self.assertEqual(stop("PauseRequested", exception=True)["scope"], "case")
+        # A ledger another call already stopped is not this call's provider error: no next route.
+        self.assertEqual(stop("Budget ledger stopped: opencode_error"), {"scope": "case", "reroute": None})
+
+    def test_the_scan_reads_every_label_shape_and_reports_what_it_cannot(self):
+        # The review's probe (15 November): each shape a new stop label can take is either read or reported.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "factory").mkdir(); (root / "bin").mkdir()
+            (root / "bin/processes.py").write_text("")
+            (root / "factory/probe.py").write_text(
+                "from budget import BudgetError\n"
+                "def a(): raise BudgetError('new_label')\n"
+                "def b(): raise BudgetError(f'new_fstring')\n"
+                "def c(x): raise BudgetError(f'{x}_new_lead')\n"
+                "def d(reason): raise BudgetError(reason)\n"
+                "def e(): raise BudgetError('new_concat_' + 'x')\n"
+                "def f():\n    label = 'new_via_name'\n    raise BudgetError(label)\n"
+                "def g(ledger): ledger.update(terminal_stop='new_kw')\n"
+                "def i(): raise BudgetError(f'new_nocolon_{1}')\n"
+                "def j(model): raise BudgetError('new_head:' + model)\n"
+                "def k(label='new_default'): raise BudgetError(label)\n"
+                "def m(): k('new_passed')\n"
+                "def n(cause): raise BudgetError('Budget stopped: ' + cause)\n")
+            found, unread = stop_labels(root)
+        self.assertEqual(set(found), {"new_label", "new_fstring", "new_concat_x", "new_via_name", "new_kw",
+                                      "new_head", "new_default", "new_passed"})
+        self.assertEqual({e for _, e in unread}, {"f'{x}_new_lead'", "reason", "f'new_nocolon_{1}'", "cause"})
 
 
 class AuditTests(unittest.TestCase):
