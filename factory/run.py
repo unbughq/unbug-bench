@@ -1866,6 +1866,7 @@ def _g2(c):
             c.card["public_search"] = {k: receipt[k] for k in ("binding", "checked_at", "expires_at")}
         return cached
     flagged = [x for x in lines if x.get("hit") is True or x.get("ambiguous") is True]
+    c.freshness_retrieval = []   # only this cycle's receipts may decide how a held G2 stops
     c.freshness_confirmed_hits = 0
     c.freshness_transport_pending = False
     c.freshness_review_summary = {'unreachable_hits': 0, 'archived_hits': 0, 'unreachable_rows': []}
@@ -2963,7 +2964,7 @@ SNAPSHOT_RETAINED = (
     "attack-state.json", "attacks", "diagnostic-budgets", "infra-attempts.json", "selection-rejections.json", "fixes",
     "prototype.json", "public-search.json", "freshness-verdict.json", "freshness-repair.json",
     "freshness-inflight.json", "freshness-restored.jsonl", "idea-realism.json", "idea-realism-second.json", "dedup-second.json", "statements",
-    "ordinary-retries", "stress-publication.json", "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints",
+    "ordinary-retries", "g2-stalled.json", "stress-publication.json", "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints",
     "helper-tries", "helper-results", "helper-ledger.jsonl")   # finished helper work and its booked spend
 FEEDBACK_VERSION = 1
 
