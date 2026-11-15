@@ -384,7 +384,7 @@ OPENROUTER_FIELDS = {'model', 'messages', 'tools', 'tool_choice', 'stream', 'str
 REASONING_EFFORTS = {'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'}
 
 
-def openrouter_body(raw, route):
+def openrouter_body(raw, route, bound_reasoning=False):
     body = _json(raw)
     if not isinstance(body, dict) or set(body) - OPENROUTER_FIELDS or body.get('model') != route.partition('/')[2]:
         raise ValueError('unsupported request')
@@ -408,9 +408,17 @@ def openrouter_body(raw, route):
         if key in reasoning and type(reasoning[key]) is not bool: raise ValueError('invalid reasoning flag')
     if 'effort' in reasoning and reasoning['effort'] not in REASONING_EFFORTS: raise ValueError('invalid effort')
     if 'reasoning_effort' in body and body['reasoning_effort'] not in REASONING_EFFORTS: raise ValueError('invalid effort')
+    # Reasoning shares max_tokens with the answer, so a quarter is left for the answer: f46dac-5's
+    # diagnosis (14 November) reasoned 31,999 of 32,000 tokens and never wrote its result. A caller's
+    # bound is lowered to that. Only a diagnosis gets one added (bound_reasoning): sending max_tokens
+    # turns reasoning on, and nothing records which models reason by default. An effort or disabled
+    # reasoning is the caller's choice (OpenRouter takes effort or max_tokens, not both).
+    room = max(1, body['max_tokens'] * 3 // 4)
     if 'max_tokens' in reasoning:
         if type(reasoning['max_tokens']) is not int or reasoning['max_tokens'] < 1: raise ValueError('invalid reasoning bound')
-        reasoning['max_tokens'] = min(reasoning['max_tokens'], body['max_tokens'])
+        reasoning['max_tokens'] = min(reasoning['max_tokens'], room)
+    elif bound_reasoning and not ('effort' in reasoning or 'reasoning_effort' in body or reasoning.get('enabled') is False):
+        body['reasoning'] = reasoning | {'max_tokens': room}
     for key in ('temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p'):
         if key in body and (type(body[key]) not in (int, float) or not math.isfinite(body[key])):
             raise ValueError('invalid sampling')
@@ -596,7 +604,7 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < size <= 16 * 1024 * 1024: raise ValueError()
             raw = self.rfile.read(size)
             if len(raw) != size: raise ValueError()
-            body = openrouter_body(raw, gate.route) if paid else request_body(raw, gate.route)
+            body = openrouter_body(raw, gate.route, gate.bound_reasoning) if paid else request_body(raw, gate.route)
         except (ValueError, TypeError, RecursionError):
             with gate.state.lock:
                 if not gate.state.closed: gate.state.unsupported += 1
@@ -698,6 +706,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class Gate:
+    bound_reasoning = False   # set for a diagnosis call (model_runtime) before its model starts
+
     def __init__(self, lease, token, timeout, cancel=None):
         self.route, self.upstream_token = lease.route, token
         self.token = secrets.token_urlsafe(32) if lease.route in GATED_OPENROUTER else token
