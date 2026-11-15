@@ -229,6 +229,7 @@ class RealStops(unittest.TestCase):
         'freshness_repair_state_invalid': ("infra_error", 'infra:freshness_repair_state_invalid'),
         'freshness_statement_changed': ("infra_error", 'infra:freshness_statement_changed'),
         'freshness_unresolved': ("infra_error", 'infra:freshness_unresolved'),
+        'freshness_source_blocked': ("infra_error", 'infra:freshness_source_blocked'),
         "Invalid budget ledger; no process started": ("infra_error", "infra:ledger_error"),
         "budget_exhausted": ("exhausted", "writer:money"),
         "call_limit": ("exhausted", "writer:call_limit"),

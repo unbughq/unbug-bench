@@ -59,7 +59,7 @@ _NOT_FAULTS = ('infra:paused', 'infra:deadline')   # policy.PAUSE_REASONS and DE
 # real defects (expired or unretrieved rows a re-run did not refresh stop infra:freshness_refresh_stalled
 # instead). The agent judges these.
 _CASE_CAUSED = ('infra:freshness_review_unavailable', 'infra:freshness_evidence_unavailable',
-                'infra:freshness_unresolved')
+                'infra:freshness_unresolved', 'infra:freshness_source_blocked')
 
 
 def repeated_infra_stop(history):

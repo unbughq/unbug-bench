@@ -60,6 +60,7 @@ REGISTRY = {
     # -- factory bugs whose reason collects several causes: open, with the fixes so far --
     # Any role's prompt over Linux's one-argument limit; 0f818fe5 created the reason and fixed the diagnosis
     # prompt (it carried the full inventory), so other roles reaching it are new causes, not regressions.
+    # Since 2abb0a every prompt goes on stdin; only a non-prompt argument can still reach it.
     "infra:prompt_too_large": bug(test=
         "tests/factory/test_model_call_maxima.py::MaximaTests::"
         "test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity"),
@@ -109,6 +110,9 @@ REGISTRY = {
     # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve.
     # One reason, several causes (our outage, or the case's dead links), so it stays open.
     "infra:freshness_refresh_stalled": OPEN,
+    # A flagged public hit behind a bot wall with no archive copy: the source is unreachable, not our
+    # bug. The card's freshness_source_blocked names the URL and failure for a person to open or rule out.
+    "infra:freshness_source_blocked": CASE,
     # Three free 4xx rejections in a row on one call (a permanent bad request); a real stop, not a wait.
     "router:upstream_rejected": OPEN,
     # The diagnosis run left no usable result: missing, oversized, unsafe, or unreadable.

@@ -579,13 +579,15 @@ class MaximaTests(unittest.TestCase):
                     if outcome == 'interrupted': raise budget.BudgetError('model_call_cap')
                     return SimpleNamespace(returncode=0)
                 with patch.object(router, '_rpc', store.rpc), patch.object(router, 'SECRETS', secrets), \
-                     patch.object(model_runtime, 'pinned_cli', return_value='synthetic-no-cli'), \
+                     patch.object(model_runtime, 'pinned_cli', return_value='x' * model_runtime.ARG_LIMIT
+                                  if outcome == 'too_large' else 'synthetic-no-cli'), \
                      patch.object(model_runtime, 'run_budgeted', side_effect=process) as called:
                     if outcome == 'done':
                         self.assertEqual(runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1'), 0)
                     else:
-                        # f46dac-2r and 22e434-3r: a prompt over Linux's one-argument limit (E2BIG).
-                        text = 'x' * model_runtime.ARG_LIMIT if outcome == 'too_large' else 'synthetic'
+                        # f46dac-2r and 22e434-3r: an argument over Linux's one-argument limit (E2BIG). The
+                        # prompt goes on stdin since 2abb0a, so only a non-prompt argument can reach it.
+                        text = 'synthetic'
                         label = ('containment_unavailable' if outcome == 'containment_denied' else
                                  'prompt_too_large' if outcome == 'too_large' else
                                  'model_call_cap' if outcome == 'interrupted' else
