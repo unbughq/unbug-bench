@@ -518,6 +518,48 @@ class RouterTests(unittest.TestCase):
         receipt=json.loads((c.work/stopped.exception.wait.call_id).read_text())
         self.assertFalse(receipt['final_usage_known'])
 
+    def stalled_call(self, router_down=False, refused_healthy=False):
+        """cae763 gates:8/1-1, 15 November: the worker froze from its last renewal (02:17:58) until
+        02:37:02; the router stayed up, its sweep expired the lease at 02:37:01 and refused the next renewal."""
+        c, secrets, _ = self.context()
+        renewed = router.epoch('2026-11-15T02:17:58Z'); clock = [renewed]
+        c.batch_deadline = renewed + 86400
+        self.store = router.Store(self.root / 'stall.sqlite', clock=lambda: clock[0])
+        server = router.Server(('127.0.0.1', 0), self.store, 'synthetic-token')
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
+        def execute(context, *args, **kwargs):
+            if refused_healthy: server.token = 'rotated-token'   # a refusal with no clock advance: not a stall
+            else: clock[0] = router.epoch('2026-11-15T02:37:02Z')
+            if router_down: server.shutdown(); server.server_close()
+            self.assertTrue(context.role_cancel.wait(5))
+            raise budget.BudgetError('cancelled')
+        env = {'UNBUG_PROVIDER_WAIT': '1', 'FACTORY_ROUTER_URL': f'http://127.0.0.1:{server.server_port}',
+               'FACTORY_ROUTER_TOKEN': 'synthetic-token'}
+        runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
+        with patch.dict(os.environ, env), patch.object(router, 'SECRETS', secrets), \
+             patch.object(router, 'RENEW_SECONDS', .01), patch.object(router, 'WAIT_SECONDS', 0), \
+             patch.object(router.time, 'time', side_effect=lambda: clock[0]), \
+             patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=execute):
+            with self.assertRaises(router.ProviderWait) as stopped:
+                runtime.call(c, [router.CHAINS[0][0]], '', c.case, 'attacker-1')
+        from durable.classify import classify_wait
+        from durable.contract import Outcome, StepKind
+        result, _ = classify_wait(stopped.exception, step=StepKind.GATES, now=clock[0])
+        self.assertIs(result.outcome, Outcome.INFRA_ERROR)
+        receipt = json.loads((c.work / stopped.exception.wait.call_id).read_text())
+        self.assertEqual(receipt['failure_reason'], stopped.exception.wait.reason)
+        return stopped.exception.wait.reason, result.reason
+
+    def test_a_refused_renewal_after_a_worker_stall_is_a_worker_stall(self):
+        self.assertEqual(self.stalled_call(router_down=False), ('worker_stalled', 'infra:worker_stalled'))
+
+    def test_an_unreachable_router_after_a_stall_stays_router_unavailable(self):
+        self.assertEqual(self.stalled_call(router_down=True), ('router_unavailable', 'infra:router_unavailable'))
+
+    def test_a_refusal_within_the_lease_from_a_healthy_worker_stays_router_unavailable(self):
+        self.assertEqual(self.stalled_call(refused_healthy=True), ('router_unavailable', 'infra:router_unavailable'))
+
     def test_receipt_write_error_still_releases_lease(self):
         c,secrets,_=self.context()
         runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())

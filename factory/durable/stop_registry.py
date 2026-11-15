@@ -111,11 +111,13 @@ REGISTRY = {
     "infra:freshness_evidence_unavailable": bug(test=
         "tests/factory/test_stream_d_retries.py::RetryTests::"
         "test_an_unretrieved_rows_missing_note_is_refresh_work_not_a_defect"),
-    # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve.
+    # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve; or
+    # G2 held 30 minutes on the same 429/5xx/network failures (18681d, 15 Nov: answeroverflow 429).
     # One reason, several causes (our outage, or the case's dead links), so it stays open.
     "infra:freshness_refresh_stalled": OPEN,
-    # A flagged public hit behind a bot wall with no archive copy: the source is unreachable, not our
-    # bug. The card's freshness_source_blocked names the URL and failure for a person to open or rule out.
+    # 3 identical G2 cycles held by a page behind a bot wall (401/403/451) with no archive copy: the
+    # source does not answer, not our bug. The card's freshness_stalled names each URL and failure for a
+    # person to open or rule out.
     "infra:freshness_source_blocked": CASE,
     # Three free 4xx rejections in a row on one call (a permanent bad request); a real stop, not a wait.
     "router:upstream_rejected": OPEN,
@@ -126,6 +128,9 @@ REGISTRY = {
     "infra:diagnosis_result_oversized": OPEN,
     "infra:diagnosis_result_unsafe": OPEN,
     "infra:pool_failed": OPEN,   # several causes; 6ea112d fixed one (bounded_create arity)
+    # model_router.running(): the router refused a renewal that came after the lease had lapsed (cae763,
+    # 15 November). The stall's cause (host, process, thread starvation) is not known, so it stays open.
+    "infra:worker_stalled": OPEN,
     # Containment causes fixed by 0ec53bb0 and 3fd7d011; the scratch-unmount timeout is in flight on
     # fix/sweep-leftovers.
     "infra:cleanup_failed": OPEN,
