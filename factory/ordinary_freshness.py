@@ -15,6 +15,29 @@ from run_validity import InvalidInfra
 
 
 REVIEW_REASKS = 2   # extra reviewer asks per attempt after an unresolved G2 review
+# G2 cycles in a row a flagged hit may stay behind an access failure (bot wall 401/403/451, or
+# 429/5xx/network, which are often transient but get the same bound) with no archive copy, before
+# G2 stops for a person. 18681d (14-15 November) retried one such page to the batch deadline: ~$213.
+SOURCE_BLOCKED_CYCLES = 3
+
+
+def source_blocked(c):
+    """Count consecutive held cycles per flagged URL in the work dir (survives resume); raise once one
+    reaches the bound. A URL that came back, or found an archive copy, drops out of the count."""
+    path = c.work / 'g2-source-blocked.json'
+    before = read(path, {})
+    counts = {r['url']: {'failure': r['live_failure'], 'cycles': before.get(r['url'], {}).get('cycles', 0) + 1}
+              for r in getattr(c, 'freshness_retrieval', [])
+              if retrieval.access_failure(r) and r.get('archive_available') is False}
+    atomic_json(path, counts)
+    blocked = [{'url': url, 'failure': v['failure'], 'cycles': v['cycles']}
+               for url, v in counts.items() if v['cycles'] >= SOURCE_BLOCKED_CYCLES]
+    if blocked:
+        c.card['freshness_source_blocked'] = {'sources': blocked, 'note':
+            'G2 stopped: ' + '; '.join(f"{b['url']} answered {b['failure']} on {b['cycles']} cycles in a row "
+                                       'with no archive copy' for b in blocked)
+            + '. A person must open it, or rule that the claim does not need it.'}
+        raise BudgetError('freshness_source_blocked')
 
 
 def semantic_binding(binding, rows):
@@ -151,8 +174,11 @@ def ensure(run, c):
         c.card['admission_freshness'] = info
         if ok or info.get('outcome') == 'public_match':
             c.freshness_refetch_urls = set()
+            (c.work / 'g2-source-blocked.json').unlink(missing_ok=True)
+            c.card.pop('freshness_source_blocked', None)
             return ok, info
         if info.get('transport_pending') or info.get('all_transport_failed'):
+            if info.get('transport_pending'): source_blocked(c)   # set from this cycle's flagged receipts
             failures += 1
             backoff(c, failures)
             # Don't reuse a held access-failure snapshot for the next HTTP cycle.
