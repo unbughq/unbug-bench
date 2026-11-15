@@ -206,19 +206,21 @@ class BudgetTests(unittest.TestCase):
             self.run_script(emit({'type': 'error', 'error': {'message': 'x'}}))
         self.assertEqual(self.data()['terminal_stop'], 'opencode_error')
 
-    def fail_beside_a_peer(self, code, expected, peer_sleep=1, **kwargs):
+    def fail_beside_a_peer(self, code, expected, peer_sleep=1, peer_tail=None, peer_kwargs=None, **kwargs):
         """Run a concurrent call that fails with `expected` (a label regex, or an exception class) while a peer
-        runs beside it; return the peer's future result or the error its run_budgeted raised."""
+        runs beside it (sleeping, then printing peer_tail or one paid event); return the peer's
+        CompletedProcess or the error its run_budgeted raised."""
         from concurrent.futures import ThreadPoolExecutor
         self.ledger.unlink(missing_ok=True)
         ready = self.root / 'peer-ready'
         ready.unlink(missing_ok=True)
         def peer():
             code = (f'import pathlib,time; pathlib.Path({str(ready)!r}).touch(); time.sleep({peer_sleep})\n'
-                    + emit(event('peer')))
+                    + (peer_tail or emit(event('peer'))))
             try:
                 return run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
-                                    self.root / 'peer-transcript', self.ledger, 5, containment=False, concurrent=True)
+                                    self.root / 'peer-transcript', self.ledger, 5, containment=False, concurrent=True,
+                                    **(peer_kwargs or {}))
             except BudgetError as error:
                 return error
         with ThreadPoolExecutor(max_workers=1) as pool:
@@ -254,8 +256,10 @@ class BudgetTests(unittest.TestCase):
             ('invalid_usage', sleep, '^invalid_usage$', dict(on_started=inject(BudgetError('invalid_usage')))),
             ('unpriced_usage', sleep, '^unpriced_usage$', dict(on_started=inject(BudgetError('unpriced_usage')))),
             ('call_limit', emit(event('own')) + sleep, '^call_limit$', dict(max_calls=1)),
-            ('codex_login_expired', 'print("workspace routing discovery unauthorized (401)", flush=True)\n' + sleep,
-             '^codex_login_expired$', dict(driver='codex')),
+            # An OpenCode call: an unreserved Codex call that fails before any turn leaves its usage unknown,
+            # which stops its peers as usage_unknown (test_a_peer_stops_when_a_local_failure_leaves_usage_unknown).
+            ('codex_login_expired', sleep, '^codex_login_expired$',
+             dict(on_started=inject(BudgetError('codex_login_expired')))),
             ('plain exception', sleep, ValueError, dict(on_started=inject(ValueError('reader bug')))),
             ('admitted with no time left', sleep, '^Budget stopped: timeout$', dict(timeout=0)),
         ]
@@ -289,6 +293,33 @@ class BudgetTests(unittest.TestCase):
                 self.assertEqual(str(peer), label)
                 self.assertEqual(self.data()['terminal_stop'], label)
                 self.assertEqual(self.data().get('active', []), [])
+
+    def test_a_local_zero_token_stop_does_not_blame_the_peers_next_empty_response(self):
+        # Review of the stop registry: the streak is the ledger's, so after one call tripped zero_tokens locally
+        # a peer's first empty response tripped it too.
+        def empty(identity):
+            e = event(identity, cost=0)
+            e['part']['tokens'] = {'input': 0, 'output': 0, 'reasoning': 0, 'cache': {'read': 0, 'write': 0}}
+            return emit(e)
+        peer = self.fail_beside_a_peer(empty('z1') + empty('z2') + 'import time; time.sleep(60)', '^zero_tokens$',
+                                       max_zero_tokens=2, peer_tail=empty('peer-empty') + emit(event('peer')),
+                                       peer_kwargs=dict(max_zero_tokens=2))
+        self.assertNotIsInstance(peer, BudgetError, f'the peer was stopped: {peer}')
+        self.assertEqual(self.data()['terminal_stop'], 'complete')
+        self.assertEqual(self.data()['zero_token_streak'], 0)
+
+    def test_a_peer_stops_when_a_local_failure_leaves_usage_unknown(self):
+        # Review of the stop registry: on the unreserved concurrent path (run.py's exam calibrator and
+        # exam_responder's owner call) a Codex call's local stop with no usage leaves the case's spend unknown,
+        # and an unreserved peer is bounded only by that spend: it stops as usage_unknown.
+        from budget import case_spending
+        def started(): raise BudgetError('call_limit')
+        peer = self.fail_beside_a_peer('import time; time.sleep(60)', '^call_limit$', peer_sleep=60,
+                                       driver='codex', on_started=started)
+        self.assertIsInstance(peer, BudgetError)
+        self.assertEqual(str(peer), 'usage_unknown')
+        self.assertEqual(self.data()['terminal_stop'], 'usage_unknown')
+        self.assertIsNone(case_spending(self.data())['spent_usd'])
 
     def test_a_serial_calls_own_failure_still_stops_the_ledger(self):
         # A serial call is the whole session: whatever its label, its failure is the ledger's stop.

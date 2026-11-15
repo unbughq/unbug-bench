@@ -1049,7 +1049,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  'timeout' if timeout == 0 else
                  'stalled' if progress_timeout == 0 else None)
         if cause:
-            if not concurrent or stop_registry.stop(cause)['scope'] == stop_registry.CASE: ledger['terminal_stop'] = cause
+            if not concurrent or stop_registry.stop(cause)['scope'] == stop_registry.CASE_SCOPE: ledger['terminal_stop'] = cause
             raise BudgetError('Budget stopped: ' + cause)
         ledger['terminal_stop'] = 'running'
         if concurrent: ledger.setdefault('active', []).append(invocation)
@@ -1102,6 +1102,10 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             raise BudgetError('usage_reservation_exceeded')
         if not reserved and ledger['calls'] >= max_total_calls:
             raise BudgetError('total_call_limit')
+        # An unreserved call is bounded only by the case's cost, so a peer that left usage unknown stops it too.
+        # ponytail: reads the unpriced marker the stop handler writes, not a full case_spending per event.
+        if not reserved and ledger.get('unpriced_invocations'):
+            raise BudgetError('usage_unknown')
         if count >= max_calls:
             raise BudgetError('call_limit')
 
@@ -1630,13 +1634,18 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # scope (the case's money, an untrusted ledger, an orphaned process, a pause). Written to the shared
             # ledger, one call's timeout, stall or provider error stopped every peer: 2abb0a gates:9/3 and 9/5
             # (14 November), 18681d gates:5/2 and cae763 gates:8/3 (15 November). A serial call is the whole
-            # session, so its failure stays the ledger's stop.
-            if label == 'cancelled' or (concurrent and stop_registry.stop(label)['scope'] == stop_registry.CALL):
+            # session, so its failure stays the ledger's stop. An unlisted label fails closed (case scope); only an
+            # unlisted exception class name (a fault in this call's own reader) stays local.
+            scope = stop_registry.stop(label, exception=not isinstance(error, BudgetError))['scope']
+            if label == 'cancelled' or (concurrent and scope == stop_registry.CALL_SCOPE):
                 # This call's own cancel (its gate's cap, or a role_cancel) is not a ledger stop: peers stop only
                 # through the cancel object they themselves hold. Writing it here stopped the writer's concurrent
                 # repair when 2abb0a's early probe hit its cap (gates:9, 13 November). A failed kill still sticks
                 # (cancellation_failed, here or in the finally below).
                 if ledger.get('terminal_stop') == 'running' and not ledger.get('active'): ledger['terminal_stop'] = 'complete'
+                # The zero-token streak is the ledger's, so this call's tripped streak would blame a peer's very
+                # next empty response. Its own failure ends its share of the streak.
+                if label == 'zero_tokens': ledger['zero_token_streak'] = 0
             elif ledger.get('terminal_stop') in (None, 'running', 'complete'):
                 ledger['terminal_stop'] = label
                 if getattr(error, 'provider_failure', None): ledger['provider_failure'] = error.provider_failure

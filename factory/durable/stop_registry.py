@@ -201,11 +201,14 @@ def lookup(reason: str, registry: dict = REGISTRY) -> Optional[dict]:
 #             case: the case's money or the ledger itself is spent or untrustworthy, a process may have
 #             outlived its call, or the operator paused: the ledger stops, and with it every peer call.
 #             A serial call is the whole session, so its failure is the ledger's stop whatever the scope.
+#             Scope acts only on labels raised inside budget.run_budgeted (the call's own process); a label raised
+#             around a model call never reaches the shared ledger, and its scope only says what it would stop.
 #   reroute - the router reason model_runtime.call_failure_reason gives the failed call, so it moves to its
 #             chain's next route; outage_if_short / outage_if_free only for a short call / a free route.
-# A label not listed (an exception class name) is its call's own. tests/factory/test_stop_registry.py fails when
-# the factory raises or writes a label that has no entry here.
-CALL, CASE = "call", "case"
+# An unlisted label stops the case: a stop nobody gave a scope fails closed. Only an unlisted exception class name
+# (a fault in the call's own reader) is its call's own. tests/factory/test_stop_registry.py fails when the factory
+# raises or writes a label that has no entry here.
+CALL_SCOPE, CASE_SCOPE = "call", "case"
 
 
 def _stops(scope, labels, reroute=None):
@@ -214,18 +217,18 @@ def _stops(scope, labels, reroute=None):
 
 STOPS = {
     # -- one call's provider or CLI failure: its next route --
-    **_stops(CALL, ("opencode_error", "claude_error", "codex_error", "process_error", "refusal"), "outage"),
-    **_stops(CALL, ("provider_limit",), "quota"),
-    **_stops(CALL, ("codex_login_expired", "credential_expiring"), "credential_expiring"),
-    **_stops(CALL, ("stalled",), "outage_if_short"),   # a silent short call; a long one may be thinking
+    **_stops(CALL_SCOPE, ("opencode_error", "claude_error", "codex_error", "process_error", "refusal"), "outage"),
+    **_stops(CALL_SCOPE, ("provider_limit",), "quota"),
+    **_stops(CALL_SCOPE, ("codex_login_expired", "credential_expiring"), "credential_expiring"),
+    **_stops(CALL_SCOPE, ("stalled",), "outage_if_short"),   # a silent short call; a long one may be thinking
     # A free route's broken usage report or provider mismatch: the next route is gated.
-    **_stops(CALL, ("missing_usage", "invalid_usage", "free_route_mismatch"), "outage_if_free"),
+    **_stops(CALL_SCOPE, ("missing_usage", "invalid_usage", "free_route_mismatch"), "outage_if_free"),
     # -- one call's own limit or fault: it fails alone --
-    **_stops(CALL, (
+    **_stops(CALL_SCOPE, (
         "timeout", "cancelled", "call_limit", "zero_tokens", "model_unavailable", "unpriced_usage",
         "usage_monitor", "usage_reservation_exceeded", "model_call_cap", "unbounded_route", "route_maximum_unknown",
         "upstream_rejected", "shared_paid_spend_wait", "route_feature_unsupported", "model_launch_failed",
-        "model_wall_failed", "prompt_too_large", "cleanup_failed",
+        "model_wall_failed", "prompt_too_large",
         "provider_wait", "provider_routes_exhausted", "provider_wait_unsettled", "provider_wait_record_missing",
         "router_batch_unconfigured", "provider_preflight_failed",
         # step-level stops raised around model calls, never inside one
@@ -235,6 +238,7 @@ STOPS = {
         "diagnosis_cleanup_failed", "diagnosis_config_invalid", "diagnosis_input_invalid",
         "diagnosis_loopback_failed", "diagnosis_result_invalid", "diagnosis_result_missing",
         "diagnosis_result_oversized", "diagnosis_result_unsafe", "diagnosis_schema_wait", "extension_snapshot_invalid",
+        "extension_snapshot_changed",
         "factory_bug_held", "freshness_evidence_unavailable", "freshness_public_match", "freshness_refresh_stalled",
         "freshness_repair_state_invalid", "freshness_review_unavailable", "freshness_source_blocked",
         "freshness_statement_changed", "freshness_unresolved", "malformed_output_exhausted",
@@ -247,9 +251,9 @@ STOPS = {
         # the ledger's live states, not failures
         "running", "complete")),
     # -- the case's money, spanning every call --
-    **_stops(CASE, ("cost_limit", "total_call_limit", "budget_exhausted")),
+    **_stops(CASE_SCOPE, ("cost_limit", "total_call_limit", "budget_exhausted")),
     # -- a ledger the factory can no longer trust: usage, reservations or waste it cannot account for --
-    **_stops(CASE, (
+    **_stops(CASE_SCOPE, (
         "Invalid budget ledger; no process started", "invalid_money", "invalid_operation", "invalid_provider_wait",
         "invalid_usage_binding", "invalid_usage_event", "invalid_usage_price", "invalid_usage_receipt",
         "invalid_waste_attribution", "ordinary_limit_unknown", "reservation_already_invoked",
@@ -257,18 +261,21 @@ STOPS = {
         "usage_event_conflict", "usage_event_missing", "usage_event_shared", "usage_receipt_regressed",
         "usage_reservation_missing", "usage_unknown", "wait_receipt_mismatch", "waste_attribution_mismatch",
         "waste_operations_pending")),
-    # -- a process that may have outlived its call must block the next admission --
-    **_stops(CASE, ("cancellation_failed", "containment_unavailable")),
+    # -- a process that may have outlived its call must block the next admission (cleanup_failed: a failed
+    # pkill or scratch removal after the call) --
+    **_stops(CASE_SCOPE, ("cancellation_failed", "containment_unavailable", "cleanup_failed")),
     # -- the operator, or the process itself, is stopping: every call goes --
-    **_stops(CASE, ("paused", "PauseRequested", "KeyboardInterrupt", "SystemExit", "provider_wait_deadline")),
+    **_stops(CASE_SCOPE, ("paused", "PauseRequested", "KeyboardInterrupt", "SystemExit", "provider_wait_deadline")),
 }
-_UNLISTED = {"scope": CALL, "reroute": None}
+_UNLISTED_LABEL = {"scope": CASE_SCOPE, "reroute": None}
+_UNLISTED_EXCEPTION = {"scope": CALL_SCOPE, "reroute": None}
 
 
-def stop(label: str) -> dict:
-    """The STOPS entry of a stop label, by its head. A wrapped label ("Budget ledger stopped: X", raised when
-    another call already stopped the ledger) is not X and has no entry, like any unlisted label."""
-    return STOPS.get(label.partition(":")[0], _UNLISTED)
+def stop(label: str, exception: bool = False) -> dict:
+    """The STOPS entry of a stop label, by its head; `exception` when the label is an exception's class name. A
+    wrapped label ("Budget ledger stopped: X", raised when another call already stopped the ledger) is not X and
+    has no entry: like any unlisted label it stops the case and takes no next route."""
+    return STOPS.get(label.partition(":")[0], _UNLISTED_EXCEPTION if exception else _UNLISTED_LABEL)
 
 
 # ---- audit (pure) ---------------------------------------------------------------------------
