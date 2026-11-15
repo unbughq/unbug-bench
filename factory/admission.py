@@ -94,6 +94,14 @@ def selection_snapshot(directory, case_id):
     return {name: p for name, p in files.items() if name != case_id}
 
 
+# A search engine's results page is a query, not evidence: the runner's own fetch of one is a script
+# interstitial (1bb2ad, 15 November). The row needs the result page itself. github.com/search stays:
+# freshness_fanout logs it for a GitHub search with no results.
+SEARCH_PAGE = re.compile(r'(?:[a-z0-9-]+\.)*(?:google\.[a-z.]+/search|bing\.com/search|duckduckgo\.com(?:/html|/lite)?'
+                         r'|yahoo\.com/search|search\.brave\.com/search|startpage\.com/(?:do/)?search|ecosia\.org/search'
+                         r'|yandex\.[a-z.]+/search|baidu\.com/s)/?')
+
+
 def search_url_error(row):
     """URL validity independent of the other fields that may need repair."""
     if not isinstance(row.get('url'), str) or not row['url'].strip(): return 'missing_url'
@@ -101,6 +109,7 @@ def search_url_error(row):
     except ValueError: return 'invalid_url'
     if url.scheme not in ('https', 'http') or not url.hostname or '.' not in url.hostname: return 'invalid_url'
     if url.hostname in ('example.com', 'example.org', 'example.net') or url.hostname.endswith('.invalid'): return 'invalid_url'
+    if SEARCH_PAGE.fullmatch(url.hostname + url.path): return 'search_page_url'
     if row.get('kind') == 'github' and url.hostname not in ('github.com', 'www.github.com', 'api.github.com'): return 'github_url_required'
     return None
 

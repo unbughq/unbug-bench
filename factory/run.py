@@ -651,7 +651,9 @@ def _freshness_searches(c, plans, deadline, role_completed):
                     f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
                     f'{{"who": "{who}", "kind": "web" | "github", "query": "...", "url": "...", "at": "<UTC ISO time>", '
                     f'"hit": false | true, "retrieved": true, "note": "evidence/result summary", "app_version": "pinned version", "version_scope": "why the result applies or does not"}}. `hit` is true if the result discusses this bug, its fix or a workaround '
-                    f"in this app. Use distinct queries and real result/search URLs; log every search, hit or not. "
+                    f"in this app. Use distinct queries and real result URLs; log every search, hit or not. "
+                    f"A url must be the result page itself, never a search-results page: fix a search_page_url row by "
+                    f"replacing its url with the result page it found, and append any further results as NEW rows. "
                     f"Make at most {missing + FRESHNESS_EXTRA_SEARCHES} new searches in total, and stop as soon as the evidence is complete. "
                     f"Flag ambiguous public matches for independent confirmation; no retrieval is not a no-hit. "
                     f"Revisit every historical {who} row missing these evidence fields, older than 24 hours or marked retrieval failed: rerun the query, "

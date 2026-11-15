@@ -324,6 +324,65 @@ class AdmissionTests(unittest.TestCase):
             self.assertTrue(run.ensure_freshness(c)[0])
         self.assertEqual(calls, ['builder-freshness', 'reviewer-g2-confirm'])
 
+    def test_search_results_page_is_not_evidence(self):
+        # 1bb2ad (15 Nov): the runner's fetch of a results page is the engine's script interstitial.
+        for url in ('https://www.google.com/search?q=medusa+oversell', 'https://google.co.uk/search?q=x',
+                    'https://www.bing.com/search?q=x', 'https://duckduckgo.com/?q=x', 'https://html.duckduckgo.com/html/?q=x',
+                    'https://search.yahoo.com/search?p=x', 'https://search.brave.com/search?q=x'):
+            with self.subTest(url=url):
+                self.assertEqual(admission.search_evidence_error({**self.rows[0], 'url': url}), 'search_page_url')
+        # Result pages stay evidence, and fan-out's own no-result GitHub search row stays valid.
+        for url in ('https://www.google.com/about', 'https://bing.com/news/a', 'https://duckduckgo.com/privacy',
+                    'https://github.com/search?type=issues&q=x', 'https://researchgate.net/search?q=x'):
+            with self.subTest(url=url):
+                self.assertIsNone(admission.search_url_error({**self.rows[0], 'url': url}))
+
+    def test_search_results_page_row_is_amended_to_its_result_before_review(self):
+        engine_topups(self)
+        c = self.c; rows = [dict(r) for r in self.rows]
+        rows[0].update(url='https://www.google.com/search?q=stock+query+0', ambiguous=True)
+        rows[1].update(url='https://www.bing.com/search?q=stock+query+1')
+        (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        result = 'https://github.com/medusajs/medusa/discussions/700'
+        calls = []
+        def repair_then_review(ctx, models, text, cwd, name, **kwargs):
+            calls.append(name)
+            if name.endswith('-freshness'):
+                self.assertIn('search_page_url', text)
+                self.assertIn('never a search-results page', text)
+                repaired = scratch_rows(cwd)
+                repaired[0]['url'], repaired[1]['url'] = result, 'https://github.com/medusajs/medusa/discussions/701'
+                scratch_write(cwd, repaired)
+            else:
+                (pathlib.Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': [{
+                    'same_bug': False, 'resolved': True, 'retrieved': True, 'url': result,
+                    'app_version': '2.19.0', 'version_scope': 'Different app', 'why': 'Unrelated result'}]}))
+            return 0
+        with patch.object(run, 'opencode', repair_then_review):
+            self.assertTrue(run.ensure_freshness(c)[0])
+        self.assertEqual(calls, ['builder-freshness', 'reviewer-g2-confirm'])   # the reviewer reads the result page
+        kept = run.freshness_lines(c)
+        self.assertEqual(len(kept), len(rows))
+        self.assertTrue(any(r['url'] == result and r.get('ambiguous') is True for r in kept))   # the flag moved with it
+
+    def test_search_results_page_row_is_never_cleared_by_dropping_it(self):
+        engine_topups(self)
+        c = self.c; rows = [dict(r) for r in self.rows]
+        serp = 'https://www.google.com/search?q=stock+query+0'
+        rows[0].update(url=serp, ambiguous=True)
+        (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        calls = []
+        def drop(ctx, models, text, cwd, name, **kwargs):
+            calls.append(name)
+            kept = [r for r in scratch_rows(cwd) if r['url'] != serp]
+            scratch_write(cwd, kept + [evidence('builder', 'web', 50 + len(calls))])
+            return 0
+        with patch.object(run, 'opencode', drop):
+            with self.assertRaisesRegex(run.BudgetError, '^freshness_evidence_unavailable$'):
+                run.ensure_freshness(c)
+        self.assertEqual(calls, ['builder-freshness'] * 2)   # bounded by the defect limit; no reviewer is paid
+        self.assertTrue(any(r['url'] == serp and r.get('ambiguous') is True for r in run.freshness_lines(c)))
+
     def test_mid_call_checkpoint_restores_search_history_before_admission(self):
         c = self.c; dropped = evidence('builder', 'web', 99, retrieved=False, _search_id='a' * 64)
         # The model's completed-call checkpoint can exist before the caller's finally runs.
