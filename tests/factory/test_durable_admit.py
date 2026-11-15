@@ -25,7 +25,13 @@ from unittest.mock import patch
 
 import budget
 
-os.environ.setdefault("BENCH", str(_ROOT))
+# The checkout's tree, but a private results/: a step moves every new file there into its work dir,
+# and other suite scripts write theirs to the checkout's results/ at the same time.
+_BENCH = tempfile.TemporaryDirectory()
+for _entry in _ROOT.iterdir():
+    if _entry.name != "results": (pathlib.Path(_BENCH.name) / _entry.name).symlink_to(_entry)
+(pathlib.Path(_BENCH.name) / "results").mkdir()
+os.environ["BENCH"] = _BENCH.name
 
 import run
 from durable import worker_step
