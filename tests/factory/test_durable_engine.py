@@ -730,6 +730,25 @@ class Money(unittest.TestCase):
         self.assertEqual(steps(r, int(sealed.rsplit("-", 1)[1])), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
         self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
 
+    def test_a_batch_grant_below_one_call_hold_parks_unstarted_until_the_bound_is_raised(self):
+        # 18681d (15 November): the batch had $9.48 left; one Claude request holds $9.520896 before it
+        # is forwarded. Each attempt was admitted (over $1), did its setup and stopped on money, then
+        # woke on another case's settle and started again: 17 times. Here ADMIT leaves the batch $9.48,
+        # so writer:1 is granted that, BATCH-limited; its first call would hold one request.
+        from durable.runtime import largest_call_hold
+        live = {"dry_run": False, "models": {}}
+        hold = largest_call_hold(json.dumps(live))
+        r, out = run({"inputs": live, "spec": {"max_cases_started": 1, "money_bound_usd_micros": 20 * M},
+                      "script": {"1/admit/1": {"paid": 20 * M - 9_480_000}, "1/writer:1/1": {"paid": hold + 1}},
+                      "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})   # it resumed on the raise
+        short = [x for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{C1}/2/writer:1/1"]
+        self.assertEqual([(x["amount"], x["label"]) for x in short], [(9_480_000, "batch")])
+        starts = [x for x in r.worker_log() if x["op"] == "start"]
+        self.assertEqual([x["key"] for x in starts if x["ceiling"] <= hold], [])   # never started below one hold
+        self.assertEqual(steps(r, 1)[:2], ["admit", "writer:1"])
+
     def test_bound_raised_wakes_a_waiting_case(self):
         r, out = run({"spec": {"money_bound_usd_micros": 500_000},
                       "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]})

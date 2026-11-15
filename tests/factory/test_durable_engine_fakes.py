@@ -541,12 +541,12 @@ def make_spec(**kw):
     return BatchSpec(**{**base, **kw})
 
 
-def seed_batch(fakes, spec_kw):
+def seed_batch(fakes, spec_kw, inputs=b"inputs: app pin and promise"):
     """Seal the batch INPUTS and initial registry with the batch key, as WP8's launch would."""
     keys, sealer, store = fakes["keys"], fakes["sealer"], fakes["store"]
     batch_id = spec_kw.get("batch_id", "b-t")
     bk = keys.scope_key(batch_id)
-    inputs, ct = sealer.seal(bk, ArtifactKind.INPUTS, b"inputs: app pin and promise")
+    inputs, ct = sealer.seal(bk, ArtifactKind.INPUTS, inputs)
     store.put_sealed(batch_id, inputs, ct)
     registry, ct = sealer.seal(bk, ArtifactKind.STATEMENT_REGISTRY, b"registry: empty")
     store.put_sealed(batch_id, registry, ct)
@@ -630,7 +630,8 @@ def engine_main(workdir):
         if not fixed.exists():
             fixed.write_text(repr(time.time() + scenario["deadline_in"]))
         spec_kw["deadline_epoch"] = float(fixed.read_text())
-    spec, registry = seed_batch(fakes, spec_kw)
+    # "inputs": a real INPUTS document (e.g. a live, non-dry-run batch, whose model calls hold money).
+    spec, registry = seed_batch(fakes, spec_kw, *([json.dumps(scenario["inputs"]).encode()] if "inputs" in scenario else []))
     class FaultInjectingExecutor(Executor):
         def _poll(self, lease, step_input):
             fault = work / "executor-fault-fired"

@@ -624,6 +624,19 @@ class AttemptBudget(unittest.TestCase):
         row = next(iter(json.loads(self.ledger.read_text())['invocation_reservations'].values()))
         self.assertEqual(Decimal(row['maximum_usd']), Decimal(str(model_runtime.CHEAP_CALL_WINDOW_USD)) + hold)
 
+    def test_a_call_whose_request_hold_does_not_fit_is_refused_before_it_is_leased(self):
+        """18681d (15 November): $9.48 was left against the $9.520896 a Claude request holds. The call was
+        leased and launched anyway and stopped on money, after its run's setup work. An uncapped writer
+        call is refused the same way: it could not forward a single request either."""
+        self.attempt.ceiling_usd = Decimal('9.48')
+        transport = Mock()
+        with patch.object(model_runtime.ModelRuntime, '_invoke', transport):
+            for name in ('builder-1', 'attacker-1'):
+                with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient'):
+                    self.runtime.call(self.c, [ROUTE], 'x', self.root, name, deadline=time.monotonic() + 3)
+        transport.assert_not_called()
+        self.assertEqual(json.loads(self.ledger.read_text()).get('invocation_reservations', {}), {})
+
     def test_cheap_windows_never_exceed_the_case_grant(self):
         paid = 'openrouter/minimax/minimax-m3.1-flash'
         self.c.card['roles']['writer']['model'] = paid
