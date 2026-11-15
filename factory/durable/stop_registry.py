@@ -10,6 +10,10 @@ tables (preflight role x stop, cleanup stage x error, case limits, import and re
 and the per-gate verdicts are generated, since a new member is the same class as its siblings.
 tests/factory/test_stop_registry.py fails when a reason the factory can record has no entry.
 
+STOPS maps every stop label (the runner's BudgetError text, before classify.py names its reason) to its
+scope (does one call's failure stop only that call, or the case's ledger?) and the router reason, if any,
+that moves the call to its next route. budget.py, model_runtime.py and diagnostics.py read it.
+
 `audit` is pure: attempt rows in, verdicts out. bin/stop_audit runs it as `user` on a timer and
 writes `result` as JSON; the root campaign guard only reads that file (durable/guard.stop_audit_alerts).
 `read_attempts`, `release_commits` and `git_contains` are the thin, bounded readers around it.
@@ -107,11 +111,13 @@ REGISTRY = {
     "infra:freshness_evidence_unavailable": bug(test=
         "tests/factory/test_stream_d_retries.py::RetryTests::"
         "test_an_unretrieved_rows_missing_note_is_refresh_work_not_a_defect"),
-    # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve.
+    # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve; or
+    # G2 held 30 minutes on the same 429/5xx/network failures (18681d, 15 Nov: answeroverflow 429).
     # One reason, several causes (our outage, or the case's dead links), so it stays open.
     "infra:freshness_refresh_stalled": OPEN,
-    # A flagged public hit behind a bot wall with no archive copy: the source is unreachable, not our
-    # bug. The card's freshness_source_blocked names the URL and failure for a person to open or rule out.
+    # 3 identical G2 cycles held by a page behind a bot wall (401/403/451) with no archive copy: the
+    # source does not answer, not our bug. The card's freshness_stalled names each URL and failure for a
+    # person to open or rule out.
     "infra:freshness_source_blocked": CASE,
     # Three free 4xx rejections in a row on one call (a permanent bad request); a real stop, not a wait.
     "router:upstream_rejected": OPEN,
@@ -122,6 +128,9 @@ REGISTRY = {
     "infra:diagnosis_result_oversized": OPEN,
     "infra:diagnosis_result_unsafe": OPEN,
     "infra:pool_failed": OPEN,   # several causes; 6ea112d fixed one (bounded_create arity)
+    # model_router.running(): the router refused a renewal that came after the lease had lapsed (cae763,
+    # 15 November). The stall's cause (host, process, thread starvation) is not known, so it stays open.
+    "infra:worker_stalled": OPEN,
     # Containment causes fixed by 0ec53bb0 and 3fd7d011; the scratch-unmount timeout is in flight on
     # fix/sweep-leftovers.
     "infra:cleanup_failed": OPEN,
@@ -187,6 +196,91 @@ PREFIXES = {"diagnosis:cf_": OPEN}   # a diagnosis whose cleanup also failed, na
 
 def lookup(reason: str, registry: dict = REGISTRY) -> Optional[dict]:
     return registry.get(reason) or next((e for p, e in PREFIXES.items() if reason.startswith(p)), None)
+
+
+# ---- stop labels: what one call's failure stops ---------------------------------------------
+# STOPS maps every stop label the factory raises (BudgetError text) or writes as a terminal_stop, by its head
+# (the text before the first ":"), to:
+#   scope   - call: the failing call's own. A concurrent call's failure leaves the shared budget ledger open, so
+#             its peers run on; model_runtime moves the call to its next route (reroute) or the call fails alone.
+#             case: the case's money or the ledger itself is spent or untrustworthy, a process may have
+#             outlived its call, or the operator paused: the ledger stops, and with it every peer call.
+#             A serial call is the whole session, so its failure is the ledger's stop whatever the scope.
+#             Scope acts only on labels raised inside budget.run_budgeted (the call's own process); a label raised
+#             around a model call never reaches the shared ledger, and its scope only says what it would stop.
+#   reroute - the router reason model_runtime.call_failure_reason gives the failed call, so it moves to its
+#             chain's next route; outage_if_short / outage_if_free only for a short call / a free route.
+# An unlisted label stops the case: a stop nobody gave a scope fails closed. Only an unlisted exception class name
+# (a fault in the call's own reader) is its call's own. tests/factory/test_stop_registry.py fails when the factory
+# raises or writes a label that has no entry here.
+CALL_SCOPE, CASE_SCOPE = "call", "case"
+
+
+def _stops(scope, labels, reroute=None):
+    return {label: {"scope": scope, "reroute": reroute} for label in labels}
+
+
+STOPS = {
+    # -- one call's provider or CLI failure: its next route --
+    **_stops(CALL_SCOPE, ("opencode_error", "claude_error", "codex_error", "process_error", "refusal"), "outage"),
+    **_stops(CALL_SCOPE, ("provider_limit",), "quota"),
+    **_stops(CALL_SCOPE, ("codex_login_expired", "credential_expiring"), "credential_expiring"),
+    **_stops(CALL_SCOPE, ("stalled",), "outage_if_short"),   # a silent short call; a long one may be thinking
+    # A free route's broken usage report or provider mismatch: the next route is gated.
+    **_stops(CALL_SCOPE, ("missing_usage", "invalid_usage", "free_route_mismatch"), "outage_if_free"),
+    # -- one call's own limit or fault: it fails alone --
+    **_stops(CALL_SCOPE, (
+        "timeout", "cancelled", "call_limit", "zero_tokens", "model_unavailable", "unpriced_usage",
+        "usage_monitor", "usage_reservation_exceeded", "model_call_cap", "unbounded_route", "route_maximum_unknown",
+        "upstream_rejected", "shared_paid_spend_wait", "route_feature_unsupported", "model_launch_failed",
+        "model_wall_failed", "prompt_too_large",
+        "provider_wait", "provider_routes_exhausted", "provider_wait_unsettled", "provider_wait_record_missing",
+        "router_batch_unconfigured", "provider_preflight_failed",
+        # step-level stops raised around model calls, never inside one
+        "admission_dedup_invalid", "admission_dedup_unavailable", "admission_idea_review_invalid",
+        "admission_idea_review_unavailable", "admission_registry_unavailable", "admission_second_opinion_invalid",
+        "admission_second_opinion_unavailable", "selection_board_unavailable", "case_changed_during_review",
+        "diagnosis_cleanup_failed", "diagnosis_config_invalid", "diagnosis_input_invalid",
+        "diagnosis_loopback_failed", "diagnosis_result_invalid", "diagnosis_result_missing",
+        "diagnosis_result_oversized", "diagnosis_result_unsafe", "diagnosis_schema_wait", "extension_snapshot_invalid",
+        "extension_snapshot_changed",
+        "factory_bug_held", "freshness_evidence_unavailable", "freshness_public_match", "freshness_refresh_stalled",
+        "freshness_repair_state_invalid", "freshness_review_unavailable", "freshness_source_blocked",
+        "freshness_statement_changed", "freshness_unresolved", "malformed_output_exhausted",
+        "ordinary_retry_completion_missing", "ordinary_retry_output_changed", "ordinary_retry_state_invalid",
+        "owner_invalid_answer", "stress_category_output_changed", "stress_category_state_invalid",
+        "stress_publication_configuration_missing", "stress_publication_not_quiescent", "stress_review_unresolved",
+        "stress_validation_exhausted",
+        # card stops written after the step's calls ended
+        "infrastructure_exhausted", "runner_error", "seal_error",
+        # the ledger's live states, not failures
+        "running", "complete")),
+    # -- the case's money, spanning every call --
+    **_stops(CASE_SCOPE, ("cost_limit", "total_call_limit", "budget_exhausted")),
+    # -- a ledger the factory can no longer trust: usage, reservations or waste it cannot account for --
+    **_stops(CASE_SCOPE, (
+        "Invalid budget ledger; no process started", "invalid_money", "invalid_operation", "invalid_provider_wait",
+        "invalid_usage_binding", "invalid_usage_event", "invalid_usage_price", "invalid_usage_receipt",
+        "invalid_waste_attribution", "ordinary_limit_unknown", "reservation_already_invoked",
+        "reservation_event_missing", "reservation_mismatch", "reservation_spend_unknown", "resume_while_active",
+        "usage_event_conflict", "usage_event_missing", "usage_event_shared", "usage_receipt_regressed",
+        "usage_reservation_missing", "usage_unknown", "wait_receipt_mismatch", "waste_attribution_mismatch",
+        "waste_operations_pending")),
+    # -- a process that may have outlived its call must block the next admission (cleanup_failed: a failed
+    # pkill or scratch removal after the call) --
+    **_stops(CASE_SCOPE, ("cancellation_failed", "containment_unavailable", "cleanup_failed")),
+    # -- the operator, or the process itself, is stopping: every call goes --
+    **_stops(CASE_SCOPE, ("paused", "PauseRequested", "KeyboardInterrupt", "SystemExit", "provider_wait_deadline")),
+}
+_UNLISTED_LABEL = {"scope": CASE_SCOPE, "reroute": None}
+_UNLISTED_EXCEPTION = {"scope": CALL_SCOPE, "reroute": None}
+
+
+def stop(label: str, exception: bool = False) -> dict:
+    """The STOPS entry of a stop label, by its head; `exception` when the label is an exception's class name. A
+    wrapped label ("Budget ledger stopped: X", raised when another call already stopped the ledger) is not X and
+    has no entry: like any unlisted label it stops the case and takes no next route."""
+    return STOPS.get(label.partition(":")[0], _UNLISTED_EXCEPTION if exception else _UNLISTED_LABEL)
 
 
 # ---- audit (pure) ---------------------------------------------------------------------------
@@ -472,6 +566,6 @@ def git_contains(repo: Path) -> Callable[[str, str], Optional[bool]]:
     return contains
 
 
-__all__ = ["REGISTRY", "PREFIXES", "lookup", "audit", "render", "result", "invariants", "decode", "read_attempts",
+__all__ = ["REGISTRY", "PREFIXES", "lookup", "STOPS", "stop", "audit", "render", "result", "invariants", "decode", "read_attempts",
            "read_ledger", "read_budgets",
            "release_commits", "git_contains"]

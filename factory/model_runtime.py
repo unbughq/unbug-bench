@@ -423,14 +423,13 @@ def short_call(name):
 
 
 def call_failure_reason(label, route, name=''):
-    """A per-call failure that moves this call to its chain's next route, or None (the step fails).
-    A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
-    if short_call(name) and label == 'stalled': return 'outage'
-    if label.startswith('provider_limit'): return 'quota'
-    if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
-    if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
-    if route in FREE_ROUTES and label in ('missing_usage', 'invalid_usage', 'free_route_mismatch'): return 'outage'
-    return None
+    """A per-call failure that moves this call to its chain's next route, or None (the step fails): the
+    label's reroute in durable/stop_registry.py STOPS."""
+    from durable.stop_registry import stop
+    reroute = stop(label)['reroute']
+    if reroute == 'outage_if_short': return 'outage' if short_call(name) else None
+    if reroute == 'outage_if_free': return 'outage' if route in FREE_ROUTES else None
+    return reroute
 
 
 @dataclass(frozen=True)
@@ -620,7 +619,7 @@ class ModelRuntime:
                     outcome = 'done'
             except BudgetError as error:
                 cancelled = str(error) == 'cancelled'
-                failure = ({'reason': 'router_unavailable', 'model': lease.route} if lost is not None and lost.is_set()
+                failure = ({'reason': getattr(lost, 'reason', 'router_unavailable'), 'model': lease.route} if lost is not None and lost.is_set()
                            else getattr(error, 'provider_failure', None))
                 if failure is None:
                     reason = call_failure_reason(str(error), lease.route, name)
@@ -653,7 +652,7 @@ class ModelRuntime:
                                 if a in getattr(c, 'router_accounts', model_router.ACCOUNTS))
                     if model_router.finite(reset): failure = {**failure, 'reset_at': reset, 'other_login': other}
             except model_router.RouterUnavailable:
-                failure = {'reason': 'router_unavailable', 'model': lease.route}
+                failure = {'reason': getattr(lost, 'reason', 'router_unavailable'), 'model': lease.route}
                 context.router_condition_since = time.monotonic()
             finally:
                 active_seconds += time.monotonic() - started
@@ -681,7 +680,7 @@ class ModelRuntime:
                                 and not context.model_cap_used['unknown_requests']
                                 and not context.model_cap_used['in_flight_requests']),
                             'outcome': outcome,
-                            'failure_reason': failure.get('reason') if failure and failure.get('reason') in model_router.REASONS else None,
+                            'failure_reason': failure.get('reason') if failure and failure.get('reason') in model_router.REASONS | set(model_router.LEASE_LOST) else None,
                             'source_stop': failure.get('source_stop') if failure else None})
                         # Process-start evidence first: accounting below may raise.
                         receipt_row.update(outcome=outcome, call_id=receipt)
@@ -697,7 +696,7 @@ class ModelRuntime:
                 finally:
                     # Publish the shared limit before freeing its slot, closing the
                     # finish->observe race that would admit another worker to it.
-                    if invoked and failure and failure['reason'] != 'router_unavailable' and not failure.get('per_call') and not failure.get('shared_paid'):
+                    if invoked and failure and failure['reason'] not in model_router.LEASE_LOST and not failure.get('per_call') and not failure.get('shared_paid'):
                         try:
                             model_router.observe(lease=lease, reason=failure['reason'], reset_at=failure.get('reset_at'),
                                 observation_id=lease.lease_id + ':failure')
@@ -734,14 +733,14 @@ class ModelRuntime:
                 error.previous_waits = prior_waits
                 raise error
             context.router_wait = last_wait
-            context.router_uncertain = last_wait.reason == 'router_unavailable'
+            context.router_uncertain = last_wait.reason in model_router.LEASE_LOST
             if context.router_uncertain and context.role_cancel.is_set():
                 # Renewal cancelled the old CLI/peers. Waiting itself must not
                 # turn that internal cancellation into a case recovery attempt.
                 context.role_cancel = threading.Event()
             context.router_deferred = ((not invoked and last_wait.reason == 'credential_expiring')
                                        or len(c.card.get('cleanup_errors', [])) > cleanup_before
-                                       or (last_wait.reason == 'router_unavailable'
+                                       or (last_wait.reason in model_router.LEASE_LOST
                                            and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1')
                                        or (getattr(c, 'engine', None) is not None and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
                                            and not free_usage_settled(lease)

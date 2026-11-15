@@ -191,8 +191,10 @@ effects key on. Every gate-cache miss logs the changed identity field names (nev
 G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. The writer step records fixed
-phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
-progress and the card's `phase_times`. Before another writer call and its checks in the same
+phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`; `freshness` only in older
+records) in public progress and the card's `phase_times`. The freshness check is not part of the
+writer round, whose time estimate does not count it: it runs at the start of every STRESS step
+(timed as `phase:stress:freshness`) and again in GATES. Before another writer call and its checks in the same
 attempt, the round compares the time left with 1.25 times the longest cycle finished in this round (carried in the handback across attempts) plus 15 minutes;
 when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
 returns `writer:handback` (OK, with its snapshot). Under the `writer_handback_retry` DBOS patch the engine retries that seq outside the infra
@@ -349,6 +351,13 @@ OpenCode provider and one model only, no outside config and no self-update. A ca
 either, since behind the wall it reaches only a gate's port: it takes its chain's OpenRouter route, and a
 chain with none is refused up front as `unbounded_route`. A full or failing lane hands an unwalled call to
 the next route in its chain.
+What a failed call stops is its stop label's scope in `durable/stop_registry.py` `STOPS`. A concurrent call's
+call-scope failure stays with it (its `reroute` moves it to the next route, or it fails alone) and its peers run
+on; a case-scope one (the case's money, a ledger that no longer adds up, a process that outlived its call, a
+pause) stops the shared budget ledger and every call on it, as does any label with no entry (only an unlisted
+exception class name stays local). A serial call's failure always stops the ledger. An unreserved call also
+stops once a peer left the case's usage unknown (`usage_unknown`). A test scans the factory for raised or written
+stop labels and fails on any without an entry, or any it cannot read that has no stated reason.
 A usage-limit (quota) failure on an OpenCode Go account is published as that account's router health
 block until its reset, even when it came from an unstructured CLI line, so later calls skip the exhausted
 account instead of retrying it per call. The failed call itself moves on inside its attempt, to the same
