@@ -395,7 +395,9 @@ OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.AC
 # A silent route (12 Nov: opencode/deepseek-v4.1-flash-free hung every writer admission call, 11 attempts of
 # 45 min each) must cost minutes, not an attempt. These short writer calls give up after 10 minutes without
 # output, and a stall moves them to the chain's next route, which later calls of the role also skip.
-SHORT_CALL_PREFIXES = ('builder-selection', 'builder-provider-preflight')
+# G2's search top-up is as short: a rate-limited route that went silent there ended 2abb0a's whole
+# gate run (gates:9/5, 14 November).
+SHORT_CALL_PREFIXES = ('builder-selection', 'builder-provider-preflight', 'builder-freshness', 'attacker-freshness')
 SHORT_CALL_NO_PROGRESS_MINUTES = 10
 # Model scratch tmpfs unmount: each try, the pause between tries, and the budget after which no new
 # try starts. Not a hard bound: a last try, a user kill and the removal can each still run up to
