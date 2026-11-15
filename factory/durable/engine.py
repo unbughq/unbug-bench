@@ -234,6 +234,16 @@ def reserve_step(si: dict, request: int, case_limit: int, draws: bool) -> dict:
                                    draws_case_money=draws))
 
 
+@DBOS.step()
+def call_hold_step(si: dict) -> int:
+    """Read after the grant is reserved: unreadable INPUTS give 0 (the $1 minimum alone), so the
+    caller always goes on to start or release that grant, never leaving it held."""
+    try:
+        return _ex().call_hold(step_input_from_record(si))
+    except Exception:
+        return 0
+
+
 @DBOS.step(**SEAM)
 def release_unstarted_step(si: dict) -> None:
     _ex().release_unstarted(step_input_from_record(si))
@@ -880,7 +890,11 @@ def attempt_workflow(job: dict) -> dict:
         release_unstarted_step(to_record(si))
         DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id}, topic=CASE_EVENT)
         return {"started": False, "action": Action.STOP_ADMISSION.value, "reason": "infra:deadline"}
-    early = decide_grant(si.step, grant)
+    # A BATCH grant that cannot fund one request of the batch's dearest model waits for the bound
+    # unstarted, instead of doing its setup and stopping on money (18681d, 15 November).
+    hold = (call_hold_step(to_record(si)) if grant.limited_by is LimitedBy.BATCH and DBOS.patch("afford_one_call")
+            else 0)
+    early = decide_grant(si.step, grant, call_hold=hold)
     if early is not None:
         release_unstarted_step(to_record(si))
         # A sub-minimum BATCH grant was everything the batch had left, so it cut no other case's

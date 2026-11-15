@@ -545,6 +545,12 @@ class ModelRuntime:
                     # (86b100-r11, 14 November: $0.98 spent, gates:3 stopped engine:money at G2).
                     window = call_window('freshness' if '-freshness' in name else role, requested)
                     if window is not None: funding = min(funding, window)
+                    # A gate holds one whole request before forwarding it: funding below the cheapest
+                    # route's hold could never forward one (18681d, 15 November: $9.48 against $9.52).
+                    holds = [model_call_gate.request_hold(r['route']) or 0 for r in
+                             model_router._bounded_routes(requested, getattr(c, 'router_accounts', model_router.ACCOUNTS))]
+                    if holds and funding < min(holds) + model_call_gate.HEADROOM:
+                        raise BudgetError('budget_exhausted:grant_insufficient')
                     context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)
                 except model_router.ProviderWait as error:
