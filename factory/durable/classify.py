@@ -85,11 +85,13 @@ _FIXED = {
     "admission_second_opinion_invalid": (_I, "admit:second_opinion_invalid"),
     "freshness_evidence_unavailable": (_I, "infra:freshness_evidence_unavailable"),
     "freshness_review_unavailable": (_I, "infra:freshness_review_unavailable"),
-    "freshness_refresh_stalled": (_I, "infra:freshness_refresh_stalled"),   # a re-run search refreshed no row
+    # A re-run search refreshed no row, or G2 retried 3 identical cycles held only by 429/5xx/network
+    # failures (ordinary_freshness.stalled).
+    "freshness_refresh_stalled": (_I, "infra:freshness_refresh_stalled"),
     "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
     "freshness_statement_changed": (_I, "infra:freshness_statement_changed"),
     "freshness_unresolved": (_I, "infra:freshness_unresolved"),
-    # G2 retried 3 cycles in a row with no new information (ordinary_freshness.stalled).
+    # G2 retried 3 identical cycles held by a bot wall or a gone page (ordinary_freshness.stalled).
     "freshness_source_blocked": (_I, "infra:freshness_source_blocked"),
     # Runner and plumbing faults: broken runs, retried.
     'case_changed_during_review': (_I, 'infra:case_changed_during_review'),

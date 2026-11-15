@@ -16,14 +16,17 @@ from run_validity import InvalidInfra
 
 REVIEW_REASKS = 2   # extra reviewer asks per attempt after an unresolved G2 review
 # G2 retry cycles in a row that bring no new information (same rows, same verdict, same held or
-# unfetched URLs and failures) before G2 stops and the case goes to diagnosis. 18681d retried one walled
-# page to the batch deadline (14-15 November, ~$213) and ran 39 identical cycles in 3.5 h (15 November).
+# unfetched URLs and failures) before G2 stops. 18681d (15 November 09:30-12:44) ran 39 such cycles on one
+# flagged page answering 429 with no archive copy, until its rows expired.
 STALLED_CYCLES = 3
 STALLED = 'g2-stalled.json'   # in run.SNAPSHOT_RETAINED, so the count survives a new worker
+# Failures that belong to the page: a bot wall, or a page that is gone. 429, 5xx, network errors and
+# unfetched rows can be our own outage or rate limit (0cc00438), so a stall of only those is our stop.
+PAGE_FAILURES = ('http_401', 'http_403', 'http_451', 'http_404', 'http_410', 'dns_failure')
 
 
 def stalled(run, c, info):
-    """Count retry cycles in a row whose evidence and result match the cycle before; raise once the
+    """Count retry cycles in a row whose evidence and result match the cycle before; stop once the
     count reaches the bound. A cycle with anything new starts the count again."""
     receipts = getattr(c, 'freshness_retrieval', [])
     unfetched = sorted(getattr(c, 'freshness_unfetched', ()))
@@ -35,11 +38,13 @@ def stalled(run, c, info):
     if cycles < STALLED_CYCLES: return
     sources = [{'url': r['url'], 'failure': r['live_failure']} for r in receipts if r['retrieved_from'] != 'live']
     sources += [{'url': url, 'failure': 'not fetched'} for url in unfetched if url not in {s['url'] for s in sources}]
-    c.card['freshness_source_blocked'] = {'cycles': cycles, 'sources': sources, 'note':
+    page = any(s['failure'] in PAGE_FAILURES for s in sources)
+    c.card['freshness_stalled'] = {'cycles': cycles, 'sources': sources, 'note':
         f"G2 stopped: {cycles} cycles in a row brought no new information ({info.get('outcome')}); "
         + '; '.join(f"{s['url']} ({s['failure']})" for s in sources)
-        + '. Someone must open these pages, or rule the claim does not need them.'}
-    raise BudgetError('freshness_source_blocked')
+        + ('. Someone must open these pages, or rule the claim does not need them.' if page else
+           '. Only rate limits, server or network errors: retried as our own infra stop.')}
+    raise BudgetError('freshness_source_blocked' if page else 'freshness_refresh_stalled')
 
 
 def semantic_binding(binding, rows):
@@ -102,7 +107,8 @@ def obtain(c, rows, directory, *, flagged):
 
 def ensure(run, c):
     """Only completed bad metadata work spends the defect bound; expiry and failed retrieval are refresh."""
-    c.card.pop('freshness_source_blocked', None)   # set only by the stop that raises with it
+    c.card.pop('freshness_stalled', None)   # set only by the stop that raises with it
+    c.card.pop('freshness_source_blocked', None)   # its name in cards saved before 16 November
     run.finish_freshness_repair(c)
     statement = (c.case / 'statement.md').read_bytes()
     key = hashlib.sha256(statement).hexdigest()

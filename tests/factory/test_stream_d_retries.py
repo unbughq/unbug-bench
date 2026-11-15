@@ -637,13 +637,13 @@ class RetryTests(unittest.TestCase):
         flagged = json.loads((self.case / 'freshness.jsonl').read_text().splitlines()[0])['url']
         self.assertIn(flagged, set().union(*refetch))   # a re-ask re-fetches held pages, not old receipts
 
-    def bot_wall(self, walled_cycles, status=403, cancel_after=8):
+    def bot_wall(self, walled_cycles, status=403, cancel_after=8, **row):
         """18681d (14-15 Nov): a flagged hit answers 403 with no Wayback copy for `walled_cycles` G2
         cycles, then 200 (`status` may be a tuple, one per cycle in turn). A fake clock runs obtain()'s
         120 s live window; the case's cancel event, set after `cancel_after` G2 cycles, stands in for the
-        batch deadline that ended the real run."""
+        batch deadline that ended the real run. `row` overrides the flagged row's fields."""
         rows = self.searches()
-        rows[0]['hit'] = True
+        rows[0].update({'hit': True, **row})
         (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
         url, cycles, clock = rows[0]['url'], [0], [0.0]
         def fetch(target, **kw):
@@ -652,7 +652,7 @@ class RetryTests(unittest.TestCase):
             walled = target == url and cycles[0] < walled_cycles
             code = status[cycles[0] % len(status)] if isinstance(status, tuple) else status
             return ({'url':target,'final_url':target,'status':code if walled else 200},
-                    b'authored bot wall' if walled else HTTP['body'].encode())
+                    b'authored bot wall %d' % cycles[0] if walled else HTTP['body'].encode())
         self.patch(retrieval, 'fetch', fetch)
         real_time = ordinary_freshness.time
         self.patch(ordinary_freshness, 'time', SimpleNamespace(time=real_time.time, monotonic=lambda: clock[0]))
@@ -676,7 +676,7 @@ class RetryTests(unittest.TestCase):
         url, cycles = self.bot_wall(99)
         with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
         self.assertEqual(cycles[0], ordinary_freshness.STALLED_CYCLES - 1)
-        blocked = self.c.card['freshness_source_blocked']
+        blocked = self.c.card['freshness_stalled']
         self.assertEqual(blocked['sources'], [{'url': url, 'failure': 'http_403'}])
         self.assertEqual(blocked['cycles'], ordinary_freshness.STALLED_CYCLES)
         self.assertIn(url, blocked['note']); self.assertIn('http_403', blocked['note'])
@@ -689,9 +689,20 @@ class RetryTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
         self.assertEqual(cycles[0], ordinary_freshness.STALLED_CYCLES - 1)
         self.assertEqual(len(self.calls), 1)   # the retained judgment is reused; the cap ends the loop
-        blocked = self.c.card['freshness_source_blocked']
+        blocked = self.c.card['freshness_stalled']
         self.assertEqual(blocked['sources'], [{'url': held, 'failure': 'http_403'}])
         self.assertNotIn(live, blocked['note'])
+
+    def test_18681d_a_hit_rate_limited_every_cycle_stops_as_our_own_infra_stall(self):
+        # The real loop (worker work dir, 15 Nov 09:30-12:44): ambiguous row 175, answeroverflow, answered
+        # 429 with a new body and no Wayback copy on 39 cycles; the one retained review was reused each
+        # time. 429 can be our own rate limit (0cc00438), so the stop is ours and retried, not the case's.
+        url = 'https://www.answeroverflow.com/m/1485906875999453345'
+        self.bot_wall(99, status=429, url=url, hit=False, ambiguous=True)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        self.assertEqual(len(self.calls), 1)
+        stalled = self.c.card['freshness_stalled']
+        self.assertEqual((stalled['cycles'], stalled['sources']), (3, [{'url': url, 'failure': 'http_429'}]))
 
     def test_the_identical_cycle_count_survives_a_new_worker(self):
         url, cycles = self.bot_wall(99, cancel_after=ordinary_freshness.STALLED_CYCLES - 1)
@@ -708,7 +719,7 @@ class RetryTests(unittest.TestCase):
         # The held page's failure changes every cycle: each cycle is new, so the stand-in deadline ends it.
         self.bot_wall(99, status=(403, 429))
         with self.assertRaisesRegex(budget.BudgetError, '^cancelled$'): run.g2(self.c)
-        self.assertNotIn('freshness_source_blocked', self.c.card)
+        self.assertNotIn('freshness_stalled', self.c.card)
 
     def test_a_hit_walled_once_then_reachable_still_passes(self):
         self.bot_wall(1)
@@ -814,6 +825,19 @@ class RetryTests(unittest.TestCase):
         self.assertTrue(run.g2(self.c)[0])
         self.assertEqual(len(attempts),ordinary_freshness.STALLED_CYCLES)
         self.assertEqual(run.jload(self.work/'freshness-repair.json')['completed_defects'],0)
+
+    def test_a_broad_outage_that_never_lifts_stops_as_our_own_infra_stall(self):
+        self.searches()
+        attempts = []
+        def gate(c):
+            attempts.append(1)
+            if len(attempts) > 10: c.role_cancel.set()   # stand-in deadline, so a regression cannot hang
+            return False, {'outcome':'evidence_incomplete','all_transport_failed':True}
+        self.patch(run,'_g2',gate)
+        self.patch(ordinary_freshness,'backoff',lambda *a,**kw:None)
+        self.cli(lambda *a:self.fail('outage must not buy freshness work'))
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_refresh_stalled$'): run.g2(self.c)
+        self.assertEqual(len(attempts), ordinary_freshness.STALLED_CYCLES)
 
     def test_completed_blocker_wins_over_unfinished_no_progress(self):
         self.c.args.rounds=1
