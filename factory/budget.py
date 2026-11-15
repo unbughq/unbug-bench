@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
@@ -937,10 +938,17 @@ def _check_containment(ledger):
     except processes.ContainmentError as error: raise BudgetError(str(error)) from None
 
 
+def _feed(pipe, data):
+    """Write data to a child's stdin and close it; a child that exits unread is judged by its exit."""
+    try:
+        with pipe: pipe.write(data)
+    except OSError: pass
+
+
 def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, state_mount=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, state_mount=None, prompt=None):
     # Preserve the original whole-session lock unless concurrency is explicitly enabled.
     settings = locals()
     _check_containment(ledger_path)
@@ -956,7 +964,7 @@ def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, state_mount=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, state_mount=None, prompt=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -1443,8 +1451,11 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             if containment: contained = processes.ContainedCall(ledger_path, state_mount)
             launch = contained.launch if contained is not None else subprocess.Popen
             process = launch(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL if prompt is None else subprocess.PIPE,
                              **({} if containment else {'start_new_session': True}))
+            # The prompt goes on stdin, never argv (Linux caps one argv entry at 128 KiB). A thread
+            # writes it so a child that prints before it reads cannot deadlock against our reader.
+            if prompt is not None: threading.Thread(target=_feed, args=(process.stdin, prompt), daemon=True).start()
             if on_started is not None: on_started()
             selector.register(process.stdout, selectors.EVENT_READ)
             pending = b''

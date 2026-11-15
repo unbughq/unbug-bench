@@ -60,6 +60,7 @@ REGISTRY = {
     # -- factory bugs whose reason collects several causes: open, with the fixes so far --
     # Any role's prompt over Linux's one-argument limit; 0f818fe5 created the reason and fixed the diagnosis
     # prompt (it carried the full inventory), so other roles reaching it are new causes, not regressions.
+    # Since 2abb0a every prompt goes on stdin; only a non-prompt argument can still reach it.
     "infra:prompt_too_large": bug(test=
         "tests/factory/test_model_call_maxima.py::MaximaTests::"
         "test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity"),

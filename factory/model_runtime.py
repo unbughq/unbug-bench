@@ -784,7 +784,7 @@ class ModelRuntime:
         if user: env.pop("UNBUG_JUDGE", None)  # calibrators solve like contestants: no administrator judge reads
         if driver == "opencode":
             cli_model = model
-            cmd = [OPENCODE_BIN, "run", *_opencode_flags(OPENCODE_BIN), "-m", cli_model, "--format", "json", "--auto", "--title", f"factory-{name}", text]
+            cmd = [OPENCODE_BIN, "run", *_opencode_flags(OPENCODE_BIN), "-m", cli_model, "--format", "json", "--auto", "--title", f"factory-{name}"]
             if effort != 'default': cmd[2:2] = ['--variant', effort]
             if user: cmd = ["sudo", "--preserve-env", "-H", "-u", user] + cmd
             scratch = pathlib.Path(tempfile.mkdtemp(prefix='factory-tester-state-'))
@@ -840,7 +840,7 @@ class ModelRuntime:
             # Not --ephemeral: the session log in CODEX_HOME is Codex's per-request usage report (usage_feed).
             cmd = [pinned_cli("codex"), "exec", "--json", "--skip-git-repo-check",
                    "--dangerously-bypass-approvals-and-sandbox", *off, "-m", model_id,
-                   "-c", f'model_reasoning_effort="{effort}"', "-c", 'web_search="disabled"', "-C", str(cwd), text]
+                   "-c", f'model_reasoning_effort="{effort}"', "-c", 'web_search="disabled"', "-C", str(cwd), "-"]
             if user:  # the pilot runs as its own Unix user with its own copy of the subscription config
                 scratch = self._hand_to(c, user, scratch); env["CODEX_HOME"] = str(scratch)
                 cmd = ["sudo", "--preserve-env=CODEX_HOME,PATH", "-H", "-u", user] + cmd
@@ -848,7 +848,7 @@ class ModelRuntime:
             # Claude subscription: CLAUDE_CODE_OAUTH_TOKEN from launch.sh (`claude setup-token`); an API key would bill the API.
             env = {k: v for k, v in env.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
             env.update({"CLAUDE_CONFIG_DIR": str(scratch), "DISABLE_AUTOUPDATER": "1"})
-            cmd = [pinned_cli("claude"), "-p", text, "--output-format", "stream-json", "--verbose", "--model", model_id,
+            cmd = [pinned_cli("claude"), "-p", "--output-format", "stream-json", "--verbose", "--model", model_id,
                    "--effort", effort, "--dangerously-skip-permissions", "--no-session-persistence",
                    "--setting-sources", "user", "--strict-mcp-config", "--tools",
                    # no subagents; web only for the roles whose prompts require logged web/GitHub searches (G2)
@@ -866,8 +866,8 @@ class ModelRuntime:
         progress_started = time.monotonic()
         self.progress(c, 'role:' + progress_role, 'running')
         try:
-            # Linux refuses any single argument over 128 KiB (MAX_ARG_STRLEN) with E2BIG, and the
-            # prompt is one argument: name that stop instead of model_launch_failed:OSError.
+            # The prompt goes on stdin (run_budgeted prompt=), bounded only by the model. Backstop: Linux
+            # refuses any single argument over 128 KiB (MAX_ARG_STRLEN) with E2BIG; name that stop.
             if any(len(os.fsencode(str(arg))) >= ARG_LIMIT for arg in cmd): raise BudgetError('prompt_too_large')
             limit = timeout or c.args.agent_timeout
             if deadline is not None:
@@ -904,7 +904,8 @@ class ModelRuntime:
                                   or getattr(c, "force_budget_resume", False),
                                   concurrent=getattr(c, 'engine', None) is not None or getattr(c.args, "concurrent_roles", False), cancel=gate,
                                   case_budget=getattr(c.args, 'case_budget', 50.0), role=role, invocation_name=name,
-                                  containment=not user, state_mount=scratch if memory_scratch else None, **attempt_kwargs)
+                                  containment=not user, state_mount=scratch if memory_scratch else None,
+                                  prompt=os.fsencode(text), **attempt_kwargs)
             update_case_budget(c)
             c.budget_resumed = True; c.force_budget_resume = False
             self.progress(c, 'role:' + progress_role, 'completed' if result.returncode == 0 else 'failed',
