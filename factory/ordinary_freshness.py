@@ -15,31 +15,31 @@ from run_validity import InvalidInfra
 
 
 REVIEW_REASKS = 2   # extra reviewer asks per attempt after an unresolved G2 review
-# G2 cycles in a row a flagged hit may stay behind a bot wall with no archive copy before G2 stops and
-# the case goes to diagnosis. 18681d (14-15 November) retried one such page to the batch deadline: ~$213.
-SOURCE_BLOCKED_CYCLES = 3
-# Only real walls count. 429, 5xx and network errors are transient or can be our own rate limit, so they
-# are left to the deadline and the other stops.
-WALLS = ('http_401', 'http_403', 'http_451')
+# G2 retry cycles in a row that bring no new information (same rows, same verdict, same held or
+# unfetched URLs and failures) before G2 stops and the case goes to diagnosis. 18681d retried one walled
+# page to the batch deadline (14-15 November, ~$213) and ran 39 identical cycles in 3.5 h (15 November).
+STALLED_CYCLES = 3
+STALLED = 'g2-stalled.json'   # in run.SNAPSHOT_RETAINED, so the count survives a new worker
 
 
-def source_blocked(c):
-    """Count consecutive held cycles per flagged URL in the work dir (survives resume); raise once one
-    reaches the bound. A URL that came back, or found an archive copy, drops out of the count."""
-    path = c.work / 'g2-source-blocked.json'
-    before = read(path, {})
-    counts = {r['url']: {'failure': r['live_failure'], 'cycles': before.get(r['url'], {}).get('cycles', 0) + 1}
-              for r in getattr(c, 'freshness_retrieval', [])
-              if r.get('live_failure') in WALLS and r.get('archive_available') is False}
-    atomic_json(path, counts)
-    blocked = [{'url': url, 'failure': v['failure'], 'cycles': v['cycles']}
-               for url, v in counts.items() if v['cycles'] >= SOURCE_BLOCKED_CYCLES]
-    if blocked:
-        c.card['freshness_source_blocked'] = {'sources': blocked, 'note':
-            'G2 stopped: ' + '; '.join(f"{b['url']} answered {b['failure']} on {b['cycles']} cycles in a row "
-                                       'with no archive copy' for b in blocked)
-            + '; the page is behind a bot wall. Someone must open it, or rule the claim does not need it.'}
-        raise BudgetError('freshness_source_blocked')
+def stalled(run, c, info):
+    """Count retry cycles in a row whose evidence and result match the cycle before; raise once the
+    count reaches the bound. A cycle with anything new starts the count again."""
+    receipts = getattr(c, 'freshness_retrieval', [])
+    unfetched = sorted(getattr(c, 'freshness_unfetched', ()))
+    signature = digest({'rows': run.freshness_lines(c), 'info': info, 'unfetched': unfetched,
+                        'flagged': retrieval.judgment_projection(receipts)})
+    before = read(c.work / STALLED, {})
+    cycles = before.get('cycles', 0) + 1 if before.get('signature') == signature else 1
+    atomic_json(c.work / STALLED, {'signature': signature, 'cycles': cycles})
+    if cycles < STALLED_CYCLES: return
+    sources = [{'url': r['url'], 'failure': r['live_failure']} for r in receipts if r['retrieved_from'] != 'live']
+    sources += [{'url': url, 'failure': 'not fetched'} for url in unfetched if url not in {s['url'] for s in sources}]
+    c.card['freshness_source_blocked'] = {'cycles': cycles, 'sources': sources, 'note':
+        f"G2 stopped: {cycles} cycles in a row brought no new information ({info.get('outcome')}); "
+        + '; '.join(f"{s['url']} ({s['failure']})" for s in sources)
+        + '. Someone must open these pages, or rule the claim does not need them.'}
+    raise BudgetError('freshness_source_blocked')
 
 
 def semantic_binding(binding, rows):
@@ -177,10 +177,10 @@ def ensure(run, c):
         c.card['admission_freshness'] = info
         if ok or info.get('outcome') == 'public_match':
             c.freshness_refetch_urls = set()
-            (c.work / 'g2-source-blocked.json').unlink(missing_ok=True)
+            (c.work / STALLED).unlink(missing_ok=True)
             return ok, info
         if info.get('transport_pending') or info.get('all_transport_failed'):
-            if info.get('transport_pending'): source_blocked(c)   # set from this cycle's flagged receipts
+            stalled(run, c, info)
             failures += 1
             backoff(c, failures)
             # Don't reuse a held access-failure snapshot for the next HTTP cycle.
@@ -206,6 +206,7 @@ def ensure(run, c):
         # Do not repeatedly buy alternatives when transport is the only problem.
         signature = digest(run.freshness_lines(c))
         if info.get('unfetched_searches') and not any(errors) and not defect and state.get('last_topup') == signature:
+            stalled(run, c, info)
             failures += 1
             backoff(c, failures)
             c.freshness_refetch_urls = set(c.freshness_unfetched)

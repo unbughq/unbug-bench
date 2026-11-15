@@ -5,6 +5,7 @@ The HTTP 200 body is captured; no model CLI, cloud case or live web request runs
 """
 import inspect
 import copy
+import fnmatch
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
@@ -636,10 +637,11 @@ class RetryTests(unittest.TestCase):
         flagged = json.loads((self.case / 'freshness.jsonl').read_text().splitlines()[0])['url']
         self.assertIn(flagged, set().union(*refetch))   # a re-ask re-fetches held pages, not old receipts
 
-    def bot_wall(self, walled_cycles, status=403):
+    def bot_wall(self, walled_cycles, status=403, cancel_after=8):
         """18681d (14-15 Nov): a flagged hit answers 403 with no Wayback copy for `walled_cycles` G2
-        cycles, then 200. A fake clock runs obtain()'s 120 s live window; the case's cancel event, set
-        after 8 G2 cycles, stands in for the batch deadline that ended the real run."""
+        cycles, then 200 (`status` may be a tuple, one per cycle in turn). A fake clock runs obtain()'s
+        120 s live window; the case's cancel event, set after `cancel_after` G2 cycles, stands in for the
+        batch deadline that ended the real run."""
         rows = self.searches()
         rows[0]['hit'] = True
         (self.case / 'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
@@ -648,7 +650,8 @@ class RetryTests(unittest.TestCase):
             if target.startswith('https://archive.org/'):
                 return {'url':target,'final_url':target,'status':200}, b'{"archived_snapshots": {}}'
             walled = target == url and cycles[0] < walled_cycles
-            return ({'url':target,'final_url':target,'status':status if walled else 200},
+            code = status[cycles[0] % len(status)] if isinstance(status, tuple) else status
+            return ({'url':target,'final_url':target,'status':code if walled else 200},
                     b'authored bot wall' if walled else HTTP['body'].encode())
         self.patch(retrieval, 'fetch', fetch)
         real_time = ordinary_freshness.time
@@ -657,7 +660,7 @@ class RetryTests(unittest.TestCase):
             clock[0] += 60
             if deadline is None:   # ensure()'s wait between G2 cycles
                 cycles[0] += 1
-                if cycles[0] >= 8: c.role_cancel.set()
+                if cycles[0] >= cancel_after: c.role_cancel.set()
             ordinary_retry.check(c)
         self.patch(ordinary_freshness, 'backoff', backoff)
         def emit(c, text, name):
@@ -672,26 +675,45 @@ class RetryTests(unittest.TestCase):
     def test_a_bot_walled_hit_with_no_archive_stops_g2_for_a_person(self):
         url, cycles = self.bot_wall(99)
         with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
-        self.assertEqual(cycles[0], ordinary_freshness.SOURCE_BLOCKED_CYCLES - 1)
+        self.assertEqual(cycles[0], ordinary_freshness.STALLED_CYCLES - 1)
         blocked = self.c.card['freshness_source_blocked']
-        self.assertEqual(blocked['sources'], [{'url': url, 'failure': 'http_403',
-                                               'cycles': ordinary_freshness.SOURCE_BLOCKED_CYCLES}])
+        self.assertEqual(blocked['sources'], [{'url': url, 'failure': 'http_403'}])
+        self.assertEqual(blocked['cycles'], ordinary_freshness.STALLED_CYCLES)
         self.assertIn(url, blocked['note']); self.assertIn('http_403', blocked['note'])
-        # The count is in the work dir, so a resumed attempt that is still walled stops after one cycle.
-        self.assertEqual(run.jload(self.work / 'g2-source-blocked.json', {})[url]['cycles'],
-                         ordinary_freshness.SOURCE_BLOCKED_CYCLES)
 
-    def test_a_rate_limited_hit_is_left_to_the_deadline(self):
-        # 429 may be our own rate limit: not counted as a wall, so the stand-in deadline ends it.
-        self.bot_wall(99, status=429)
+    def test_a_walled_hit_with_an_archive_copy_stops_after_identical_cycles(self):
+        # 18681d gates:5/2, 15 Nov 09:26-12:45: G2 ran 39 cycles, one every ~5 minutes, each with the same
+        # held hit and the same result, until a provider error ended the gate run. Here the flagged page
+        # answers 403 every cycle; its archive copy is judged not the same bug, which still holds G2.
+        held, live, cycles, requests = self.held_http()
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
+        self.assertEqual(cycles[0], ordinary_freshness.STALLED_CYCLES - 1)
+        self.assertEqual(len(self.calls), 1)   # the retained judgment is reused; the cap ends the loop
+        blocked = self.c.card['freshness_source_blocked']
+        self.assertEqual(blocked['sources'], [{'url': held, 'failure': 'http_403'}])
+        self.assertNotIn(live, blocked['note'])
+
+    def test_the_identical_cycle_count_survives_a_new_worker(self):
+        url, cycles = self.bot_wall(99, cancel_after=ordinary_freshness.STALLED_CYCLES - 1)
+        with self.assertRaisesRegex(budget.BudgetError, '^cancelled$'): run.g2(self.c)
+        # A new worker gets only the retained snapshot of the work dir (the engine supplies the ledger).
+        for path in self.work.iterdir():
+            if path.name != 'ledger.json' and not any(fnmatch.fnmatch(path.name, p) for p in run.SNAPSHOT_RETAINED):
+                shutil.rmtree(path) if path.is_dir() else path.unlink()
+        self.fresh_context()
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
+        self.assertEqual(cycles[0], ordinary_freshness.STALLED_CYCLES - 1)   # stopped on its first cycle
+
+    def test_a_cycle_with_new_information_starts_the_count_again(self):
+        # The held page's failure changes every cycle: each cycle is new, so the stand-in deadline ends it.
+        self.bot_wall(99, status=(403, 429))
         with self.assertRaisesRegex(budget.BudgetError, '^cancelled$'): run.g2(self.c)
         self.assertNotIn('freshness_source_blocked', self.c.card)
-        self.assertEqual(run.jload(self.work / 'g2-source-blocked.json', {}), {})
 
     def test_a_hit_walled_once_then_reachable_still_passes(self):
         self.bot_wall(1)
         self.assertTrue(run.g2(self.c)[0])
-        self.assertFalse((self.work / 'g2-source-blocked.json').exists())
+        self.assertFalse((self.work / 'g2-stalled.json').exists())
 
     def test_dedup_and_panel_callers_use_retained_schema_repair(self):
         self.c.models['easy_calibrator'] = self.c.models['reviewers'][0]
@@ -782,7 +804,7 @@ class RetryTests(unittest.TestCase):
         real = run._g2
         def gate(c):
             attempts.append(1)
-            if len(attempts)<5:
+            if len(attempts)<ordinary_freshness.STALLED_CYCLES:
                 return False, {'outcome':'evidence_incomplete','all_transport_failed':True}
             return real(c)
         self.patch(run,'_g2',gate)
@@ -790,7 +812,7 @@ class RetryTests(unittest.TestCase):
         self.patch(retrieval,'fetch',lambda url,**kw:({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
         self.cli(lambda *a:self.fail('outage must not buy freshness work'))
         self.assertTrue(run.g2(self.c)[0])
-        self.assertEqual(len(attempts),5)
+        self.assertEqual(len(attempts),ordinary_freshness.STALLED_CYCLES)
         self.assertEqual(run.jload(self.work/'freshness-repair.json')['completed_defects'],0)
 
     def test_completed_blocker_wins_over_unfinished_no_progress(self):
@@ -922,8 +944,8 @@ class RetryTests(unittest.TestCase):
 
     def test_mixed_held_and_changing_live_page_reuses_real_orchestration_judgment(self):
         held, live, cycles, requests = self.held_http()
-        with self.assertRaises(runtime_fixture.Killed): run.g2(self.c)
-        self.assertEqual(cycles[0],3)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
+        self.assertEqual(cycles[0],2)
         self.assertEqual(requests.count(live),1)
         self.assertGreater(requests.count(held),3)
         self.assertEqual(len(self.calls),1)

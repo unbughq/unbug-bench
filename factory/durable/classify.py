@@ -89,7 +89,7 @@ _FIXED = {
     "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
     "freshness_statement_changed": (_I, "infra:freshness_statement_changed"),
     "freshness_unresolved": (_I, "infra:freshness_unresolved"),
-    # A flagged hit stayed behind an access failure with no archive copy (ordinary_freshness.source_blocked).
+    # G2 retried 3 cycles in a row with no new information (ordinary_freshness.stalled).
     "freshness_source_blocked": (_I, "infra:freshness_source_blocked"),
     # Runner and plumbing faults: broken runs, retried.
     'case_changed_during_review': (_I, 'infra:case_changed_during_review'),
