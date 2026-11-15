@@ -408,9 +408,15 @@ def openrouter_body(raw, route):
         if key in reasoning and type(reasoning[key]) is not bool: raise ValueError('invalid reasoning flag')
     if 'effort' in reasoning and reasoning['effort'] not in REASONING_EFFORTS: raise ValueError('invalid effort')
     if 'reasoning_effort' in body and body['reasoning_effort'] not in REASONING_EFFORTS: raise ValueError('invalid effort')
+    # Reasoning shares max_tokens with the answer, so a quarter is always left for the answer: f46dac-5's
+    # diagnosis (14 November) reasoned 31,999 of 32,000 tokens and never wrote its result. An effort or
+    # disabled reasoning is the caller's choice (OpenRouter takes effort or max_tokens, not both).
+    room = max(1, body['max_tokens'] * 3 // 4)
     if 'max_tokens' in reasoning:
         if type(reasoning['max_tokens']) is not int or reasoning['max_tokens'] < 1: raise ValueError('invalid reasoning bound')
-        reasoning['max_tokens'] = min(reasoning['max_tokens'], body['max_tokens'])
+        reasoning['max_tokens'] = min(reasoning['max_tokens'], room)
+    elif not ('effort' in reasoning or 'reasoning_effort' in body or reasoning.get('enabled') is False):
+        body['reasoning'] = reasoning | {'max_tokens': room}
     for key in ('temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p'):
         if key in body and (type(body[key]) not in (int, float) or not math.isfinite(body[key])):
             raise ValueError('invalid sampling')
