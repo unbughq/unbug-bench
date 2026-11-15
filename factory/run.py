@@ -1865,6 +1865,7 @@ def _g2(c):
             c.card["public_search"] = {k: receipt[k] for k in ("binding", "checked_at", "expires_at")}
         return cached
     flagged = [x for x in lines if x.get("hit") is True or x.get("ambiguous") is True]
+    c.freshness_retrieval = []   # only this cycle's receipts may decide how a held G2 stops
     c.freshness_confirmed_hits = 0
     c.freshness_transport_pending = False
     c.freshness_review_summary = {'unreachable_hits': 0, 'archived_hits': 0, 'unreachable_rows': []}

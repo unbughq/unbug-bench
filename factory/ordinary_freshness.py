@@ -15,36 +15,39 @@ from run_validity import InvalidInfra
 
 
 REVIEW_REASKS = 2   # extra reviewer asks per attempt after an unresolved G2 review
-# G2 retry cycles in a row that bring no new information (same rows, same verdict, same held or
-# unfetched URLs and failures) before G2 stops. 18681d (15 November 09:30-12:44) ran 39 such cycles on one
-# flagged page answering 429 with no archive copy, until its rows expired.
-STALLED_CYCLES = 3
+# G2 cycles in a row held by the same access failures with the same evidence and result. 18681d (15
+# November 09:30-12:44) ran 39 such cycles on one flagged page answering 429 with no archive copy.
 STALLED = 'g2-stalled.json'   # in run.SNAPSHOT_RETAINED, so the count survives a new worker
-# Failures that belong to the page: a bot wall, or a page that is gone. 429, 5xx, network errors and
-# unfetched rows can be our own outage or rate limit (0cc00438), so a stall of only those is our stop.
-PAGE_FAILURES = ('http_401', 'http_403', 'http_451', 'http_404', 'http_410', 'dns_failure')
+# A real bot wall with no archive copy belongs to the page: G2 stops for a person after this many cycles.
+SOURCE_BLOCKED_CYCLES = 3
+WALLS = ('http_401', 'http_403', 'http_451')
+# 429, 5xx and network errors can be our own outage or rate limit (0cc00438): G2 waits this long on one
+# unchanged hold before it stops as our own retryable infra stall.
+STALLED_SECONDS = 30 * 60
 
 
 def stalled(run, c, info):
-    """Count retry cycles in a row whose evidence and result match the cycle before; stop once the
-    count reaches the bound. A cycle with anything new starts the count again."""
+    """Track the held cycle's evidence and result; stop when the same hold has lasted SOURCE_BLOCKED_CYCLES
+    cycles behind a wall with no archive copy, or STALLED_SECONDS otherwise. Anything new starts again."""
     receipts = getattr(c, 'freshness_retrieval', [])
-    unfetched = sorted(getattr(c, 'freshness_unfetched', ()))
-    signature = digest({'rows': run.freshness_lines(c), 'info': info, 'unfetched': unfetched,
+    signature = digest({'rows': run.freshness_lines(c), 'info': info,
                         'flagged': retrieval.judgment_projection(receipts)})
     before = read(c.work / STALLED, {})
-    cycles = before.get('cycles', 0) + 1 if before.get('signature') == signature else 1
-    atomic_json(c.work / STALLED, {'signature': signature, 'cycles': cycles})
-    if cycles < STALLED_CYCLES: return
-    sources = [{'url': r['url'], 'failure': r['live_failure']} for r in receipts if r['retrieved_from'] != 'live']
-    sources += [{'url': url, 'failure': 'not fetched'} for url in unfetched if url not in {s['url'] for s in sources}]
-    page = any(s['failure'] in PAGE_FAILURES for s in sources)
-    c.card['freshness_stalled'] = {'cycles': cycles, 'sources': sources, 'note':
-        f"G2 stopped: {cycles} cycles in a row brought no new information ({info.get('outcome')}); "
-        + '; '.join(f"{s['url']} ({s['failure']})" for s in sources)
-        + ('. Someone must open these pages, or rule the claim does not need them.' if page else
-           '. Only rate limits, server or network errors: retried as our own infra stop.')}
-    raise BudgetError('freshness_source_blocked' if page else 'freshness_refresh_stalled')
+    if not isinstance(before, dict): raise BudgetError('ordinary_retry_state_invalid')
+    if before.get('signature') != signature: before = {'cycles': 0, 'since': time.time()}
+    state = {'signature': signature, 'cycles': before['cycles'] + 1, 'since': before['since']}
+    atomic_json(c.work / STALLED, state)
+    held = [{'url': r['url'], 'failure': r['live_failure'], 'archive': r['archive_available']}
+            for r in receipts if retrieval.access_failure(r)]
+    walled = any(h['failure'] in WALLS and h['archive'] is False for h in held)
+    minutes = (time.time() - state['since']) / 60
+    if walled and state['cycles'] < SOURCE_BLOCKED_CYCLES or not walled and minutes < STALLED_SECONDS / 60: return
+    c.card['freshness_stalled'] = {'cycles': state['cycles'], 'minutes': round(minutes), 'sources': held, 'note':
+        f"G2 stopped: held {state['cycles']} cycles ({round(minutes)} min) with no new information by "
+        + '; '.join(f"{h['url']} ({h['failure']}, archive {h['archive']})" for h in held)
+        + ('. A page is behind a bot wall with no archive copy: someone must open it, or rule the claim does '
+           'not need it.' if walled else '. Only rate limits, server or network errors: retried as our own infra stall.')}
+    raise BudgetError('freshness_source_blocked' if walled else 'freshness_refresh_stalled')
 
 
 def semantic_binding(binding, rows):
@@ -174,6 +177,7 @@ def ensure(run, c):
         finish()
         pending = state['pending']
         if pending:
+            (c.work / STALLED).unlink(missing_ok=True)   # the hold count is of held cycles in a row
             def role_done(who):
                 pending['roles'].append(who); save()
             run.freshness_topup(c, completed_roles=pending['roles'], role_completed=role_done)
@@ -181,12 +185,13 @@ def ensure(run, c):
             continue
         ok, info = run._g2(c)
         c.card['admission_freshness'] = info
+        if ok or info.get('outcome') == 'public_match' or not info.get('transport_pending'):
+            (c.work / STALLED).unlink(missing_ok=True)   # the hold count is of held cycles in a row
         if ok or info.get('outcome') == 'public_match':
             c.freshness_refetch_urls = set()
-            (c.work / STALLED).unlink(missing_ok=True)
             return ok, info
         if info.get('transport_pending') or info.get('all_transport_failed'):
-            stalled(run, c, info)
+            if info.get('transport_pending'): stalled(run, c, info)
             failures += 1
             backoff(c, failures)
             # Don't reuse a held access-failure snapshot for the next HTTP cycle.
@@ -212,7 +217,6 @@ def ensure(run, c):
         # Do not repeatedly buy alternatives when transport is the only problem.
         signature = digest(run.freshness_lines(c))
         if info.get('unfetched_searches') and not any(errors) and not defect and state.get('last_topup') == signature:
-            stalled(run, c, info)
             failures += 1
             backoff(c, failures)
             c.freshness_refetch_urls = set(c.freshness_unfetched)

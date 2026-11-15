@@ -108,10 +108,10 @@ REGISTRY = {
         "tests/factory/test_stream_d_retries.py::RetryTests::"
         "test_an_unretrieved_rows_missing_note_is_refresh_work_not_a_defect"),
     # A refresh that fixed nothing: expired rows not re-fetched, or rows whose links never retrieve; or
-    # 3 identical G2 cycles held only by 429/5xx/network failures (18681d, 15 Nov: answeroverflow 429).
+    # G2 held 30 minutes on the same 429/5xx/network failures (18681d, 15 Nov: answeroverflow 429).
     # One reason, several causes (our outage, or the case's dead links), so it stays open.
     "infra:freshness_refresh_stalled": OPEN,
-    # 3 identical G2 cycles held by a page behind a bot wall (401/403/451) or gone (404/410/DNS): the
+    # 3 identical G2 cycles held by a page behind a bot wall (401/403/451) with no archive copy: the
     # source does not answer, not our bug. The card's freshness_stalled names each URL and failure for a
     # person to open or rule out.
     "infra:freshness_source_blocked": CASE,
