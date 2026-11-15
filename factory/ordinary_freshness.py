@@ -6,7 +6,7 @@ import shutil
 import uuid
 import datetime
 
-from admission import REFRESH, search_evidence_error, search_url_error, superseded
+from admission import REFRESH, rerun_url, search_evidence_error, superseded
 from budget import BudgetError
 import freshness_retrieval as retrieval
 from ordinary_retry import check, backoff, digest, read, transport
@@ -143,14 +143,9 @@ def ensure(run, c):
         # A row that is only old or unretrieved needs its search re-run, not a repair: judge the
         # rest of it as if refreshed (an unretrieved result has no note or scope yet; the re-run writes
         # them, as freshness_fanout assumes). G2 itself still rejects it until the re-run really happens.
-        # An unflagged one that logged a search page (f46dac's DuckDuckGo rows) is re-run as a NEW row with a
-        # result page, which supersedes it (admission.superseded); only a flagged one must amend its URL.
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        rerun = lambda r: (search_url_error(r) == 'search_page_url' and r.get('hit') is not True
-                           and r.get('ambiguous') is not True)
         rows = [{**r, 'at': now, 'retrieved': True, 'note': r.get('note') or 'x', 'version_scope': r.get('version_scope') or 'x',
-                 **({'url': 'https://github.com/'} if rerun(r) else {})}   # any result page; github rows need github
-                if e in REFRESH else r for r, e in zip(rows, errors)]
+                 'url': rerun_url(r)} if e in REFRESH else r for r, e in zip(rows, errors)]
         found = {v for r in rows if (v := run.own_search(c, r)) is not None}
         enough = (sum(w == 'builder' and k == 'web' for w,k,q in found) >= 3 and
                   sum(w == 'builder' and k == 'github' for w,k,q in found) >= 3 and

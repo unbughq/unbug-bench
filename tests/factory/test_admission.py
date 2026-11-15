@@ -328,7 +328,10 @@ class AdmissionTests(unittest.TestCase):
         # 1bb2ad (15 Nov): the runner's fetch of a results page is the engine's script interstitial.
         for url in ('https://www.google.com/search?q=medusa+oversell', 'https://google.co.uk/search?q=x',
                     'https://www.bing.com/search?q=x', 'https://duckduckgo.com/?q=x', 'https://html.duckduckgo.com/html/?q=x',
-                    'https://search.yahoo.com/search?p=x', 'https://search.brave.com/search?q=x'):
+                    'https://search.yahoo.com/search?p=x', 'https://search.brave.com/search?q=x',
+                    'https://www.google.com/url?q=https://github.com/a/b', 'https://duckduckgo.com/l/?uddg=https%3A%2F%2Fa.dev',
+                    'https://www.bing.com/ck/a?u=a1aHR0cHM', 'https://www.startpage.com/sp/search?query=x',
+                    'https://search.yahoo.co.jp/search?p=x', 'https://scholar.google.com/scholar?q=x'):
             with self.subTest(url=url):
                 self.assertEqual(admission.search_evidence_error({**self.rows[0], 'url': url}), 'search_page_url')
         # Result pages stay evidence, and fan-out's own no-result GitHub search row stays valid.

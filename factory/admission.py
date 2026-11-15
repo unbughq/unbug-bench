@@ -97,9 +97,10 @@ def selection_snapshot(directory, case_id):
 # A search engine's results page is a query, not evidence: the runner's own fetch of one is a script
 # interstitial (1bb2ad, 15 November). The row needs the result page itself. github.com/search stays:
 # freshness_fanout logs it for a GitHub search with no results.
-SEARCH_PAGE = re.compile(r'(?:[a-z0-9-]+\.)*(?:google\.[a-z.]+/search|bing\.com/search|duckduckgo\.com(?:/html|/lite)?'
-                         r'|yahoo\.com/search|search\.brave\.com/search|startpage\.com/(?:do/)?search|ecosia\.org/search'
-                         r'|yandex\.[a-z.]+/search|baidu\.com/s)/?')
+# Redirect links out of a results page (google.com/url, duckduckgo.com/l, bing.com/ck/a) count too.
+SEARCH_PAGE = re.compile(r'(?:[a-z0-9-]+\.)*(?:google\.[a-z.]+/(?:search|url|scholar)|bing\.com/(?:search|ck/a)'
+                         r'|duckduckgo\.com(?:/html|/lite|/l)?|yahoo\.[a-z.]+/search|search\.brave\.com/search'
+                         r'|startpage\.com/(?:do/|sp/)?search|ecosia\.org/search|yandex\.[a-z.]+/search|baidu\.com/s)/?')
 
 
 def search_url_error(row):
@@ -143,6 +144,15 @@ def search_evidence(row):
 
 
 REFRESH = ("evidence_expired", "retrieval_failed")   # a re-run of the same search fixes these
+
+
+def rerun_url(row):
+    """The url to judge when a REFRESH row is projected as re-run. An unflagged search page (f46dac's
+    DuckDuckGo rows) is re-run as a NEW row with a result page, which supersedes it, so any result page
+    stands in (github rows need github); a flagged one must amend its own url."""
+    if (search_url_error(row) == 'search_page_url' and row.get('hit') is not True
+            and row.get('ambiguous') is not True): return 'https://github.com/'
+    return row.get('url')
 
 
 def superseded(rows):
