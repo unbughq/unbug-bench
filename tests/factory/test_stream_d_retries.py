@@ -636,7 +636,7 @@ class RetryTests(unittest.TestCase):
         flagged = json.loads((self.case / 'freshness.jsonl').read_text().splitlines()[0])['url']
         self.assertIn(flagged, set().union(*refetch))   # a re-ask re-fetches held pages, not old receipts
 
-    def bot_wall(self, walled_cycles):
+    def bot_wall(self, walled_cycles, status=403):
         """18681d (14-15 Nov): a flagged hit answers 403 with no Wayback copy for `walled_cycles` G2
         cycles, then 200. A fake clock runs obtain()'s 120 s live window; the case's cancel event, set
         after 8 G2 cycles, stands in for the batch deadline that ended the real run."""
@@ -648,7 +648,7 @@ class RetryTests(unittest.TestCase):
             if target.startswith('https://archive.org/'):
                 return {'url':target,'final_url':target,'status':200}, b'{"archived_snapshots": {}}'
             walled = target == url and cycles[0] < walled_cycles
-            return ({'url':target,'final_url':target,'status':403 if walled else 200},
+            return ({'url':target,'final_url':target,'status':status if walled else 200},
                     b'authored bot wall' if walled else HTTP['body'].encode())
         self.patch(retrieval, 'fetch', fetch)
         real_time = ordinary_freshness.time
@@ -680,6 +680,13 @@ class RetryTests(unittest.TestCase):
         # The count is in the work dir, so a resumed attempt that is still walled stops after one cycle.
         self.assertEqual(run.jload(self.work / 'g2-source-blocked.json', {})[url]['cycles'],
                          ordinary_freshness.SOURCE_BLOCKED_CYCLES)
+
+    def test_a_rate_limited_hit_is_left_to_the_deadline(self):
+        # 429 may be our own rate limit: not counted as a wall, so the stand-in deadline ends it.
+        self.bot_wall(99, status=429)
+        with self.assertRaisesRegex(budget.BudgetError, '^cancelled$'): run.g2(self.c)
+        self.assertNotIn('freshness_source_blocked', self.c.card)
+        self.assertEqual(run.jload(self.work / 'g2-source-blocked.json', {}), {})
 
     def test_a_hit_walled_once_then_reachable_still_passes(self):
         self.bot_wall(1)

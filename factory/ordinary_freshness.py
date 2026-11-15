@@ -15,10 +15,12 @@ from run_validity import InvalidInfra
 
 
 REVIEW_REASKS = 2   # extra reviewer asks per attempt after an unresolved G2 review
-# G2 cycles in a row a flagged hit may stay behind an access failure (bot wall 401/403/451, or
-# 429/5xx/network, which are often transient but get the same bound) with no archive copy, before
-# G2 stops for a person. 18681d (14-15 November) retried one such page to the batch deadline: ~$213.
+# G2 cycles in a row a flagged hit may stay behind a bot wall with no archive copy before G2 stops and
+# the case goes to diagnosis. 18681d (14-15 November) retried one such page to the batch deadline: ~$213.
 SOURCE_BLOCKED_CYCLES = 3
+# Only real walls count. 429, 5xx and network errors are transient or can be our own rate limit, so they
+# are left to the deadline and the other stops.
+WALLS = ('http_401', 'http_403', 'http_451')
 
 
 def source_blocked(c):
@@ -28,7 +30,7 @@ def source_blocked(c):
     before = read(path, {})
     counts = {r['url']: {'failure': r['live_failure'], 'cycles': before.get(r['url'], {}).get('cycles', 0) + 1}
               for r in getattr(c, 'freshness_retrieval', [])
-              if retrieval.access_failure(r) and r.get('archive_available') is False}
+              if r.get('live_failure') in WALLS and r.get('archive_available') is False}
     atomic_json(path, counts)
     blocked = [{'url': url, 'failure': v['failure'], 'cycles': v['cycles']}
                for url, v in counts.items() if v['cycles'] >= SOURCE_BLOCKED_CYCLES]
@@ -36,7 +38,7 @@ def source_blocked(c):
         c.card['freshness_source_blocked'] = {'sources': blocked, 'note':
             'G2 stopped: ' + '; '.join(f"{b['url']} answered {b['failure']} on {b['cycles']} cycles in a row "
                                        'with no archive copy' for b in blocked)
-            + '. A person must open it, or rule that the claim does not need it.'}
+            + '; the page is behind a bot wall. Someone must open it, or rule the claim does not need it.'}
         raise BudgetError('freshness_source_blocked')
 
 
@@ -100,6 +102,7 @@ def obtain(c, rows, directory, *, flagged):
 
 def ensure(run, c):
     """Only completed bad metadata work spends the defect bound; expiry and failed retrieval are refresh."""
+    c.card.pop('freshness_source_blocked', None)   # set only by the stop that raises with it
     run.finish_freshness_repair(c)
     statement = (c.case / 'statement.md').read_bytes()
     key = hashlib.sha256(statement).hexdigest()
@@ -175,7 +178,6 @@ def ensure(run, c):
         if ok or info.get('outcome') == 'public_match':
             c.freshness_refetch_urls = set()
             (c.work / 'g2-source-blocked.json').unlink(missing_ok=True)
-            c.card.pop('freshness_source_blocked', None)
             return ok, info
         if info.get('transport_pending') or info.get('all_transport_failed'):
             if info.get('transport_pending'): source_blocked(c)   # set from this cycle's flagged receipts
