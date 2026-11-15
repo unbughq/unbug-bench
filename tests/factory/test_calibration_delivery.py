@@ -27,7 +27,10 @@ class DeliveryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = pathlib.Path(self.temp.name)
+        # Resolved because calibration.py compares a resolved service path with an unresolved bench root,
+        # so a symlinked bench path (macOS /var -> /private/var) misjudges shared services. Fix it there
+        # once calibration.py can change: it is fingerprinted (gate_state, sealed_audit).
+        self.root = pathlib.Path(self.temp.name).resolve()
         self.case = self.root / "case"
         self.base = self.case / "base"; self.base.mkdir(parents=True)
         self.source = self.case / "services/channel"; self.source.mkdir(parents=True)

@@ -369,6 +369,9 @@ class RealStops(unittest.TestCase):
     }
     # Reviewed: classes that never reach run_step as a bare stop.
     EXCEPTION_NOT_A_STOP = {
+        "AllowanceSpent",     # only a timed checkpoint raises it; its one caller, early_cheat_check, catches it
+        "HelperDied", "HelperInvalid", "HelperRefused", "HelperUnavailable",   # helpers.run_jobs catches each
+                              # per job; HelperRefused is otherwise helper-side (helper_link.main exits 1)
         "ArtifactMissing",    # control-VM artifact store, not the worker
         "CaseProblem",        # early checks and gate_pipeline turn it into feedback or a gate result
         "CheckFailed",        # campaign guard, control VM
