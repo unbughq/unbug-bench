@@ -175,15 +175,19 @@ class CheapTests(unittest.TestCase):
         # no reasoning bound and came back completion_tokens 32000, reasoning_tokens 31999; the session
         # ended normally without output/result.json (diagnosis_result_missing).
         route='openrouter/xiaomi/mimo-v2.6-pro'
-        body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,stream=True)),route)
+        body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,stream=True)),route,True)
         self.assertGreaterEqual(32000-body['reasoning']['max_tokens'],8000)
         self.assertNotIn('effort',body['reasoning'])
         # A caller's own bound is kept below max_tokens too; effort or disabled reasoning is left alone.
-        body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,reasoning={'max_tokens':32000})),route)
-        self.assertLess(body['reasoning']['max_tokens'],32000)
+        for bound in (False,True):
+            body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,reasoning={'max_tokens':32000})),route,bound)
+            self.assertLess(body['reasoning']['max_tokens'],32000)
         for chosen in ({'reasoning':{'effort':'xhigh'}},{'reasoning_effort':'high'},{'reasoning':{'enabled':False}}):
-            body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,**chosen)),route)
+            body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,**chosen)),route,True)
             self.assertNotIn('max_tokens',body.get('reasoning',{}))
+        # Outside a diagnosis no call gets reasoning turned on: no route records whether it reasons by default.
+        for route in GATED_OPENROUTER:
+            self.assertNotIn('reasoning',gate.openrouter_body(json.dumps(request(route)),route))
 
     def test_only_complete_unambiguous_usage_refunds(self):
         for route,profile in GATED_OPENROUTER.items():
