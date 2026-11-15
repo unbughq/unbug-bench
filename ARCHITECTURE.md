@@ -191,8 +191,9 @@ effects key on. Every gate-cache miss logs the changed identity field names (nev
 G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. The writer step records fixed
-phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
-progress and the card's `phase_times`. Before another writer call and its checks in the same
+phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`; `freshness` only in older
+records) in public progress and the card's `phase_times`. The freshness check runs at the start of
+the next STRESS step (or in GATES), not in the writer round, whose time estimate does not count it. Before another writer call and its checks in the same
 attempt, the round compares the time left with 1.25 times the longest cycle finished in this round (carried in the handback across attempts) plus 15 minutes;
 when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
 returns `writer:handback` (OK, with its snapshot). Under the `writer_handback_retry` DBOS patch the engine retries that seq outside the infra
