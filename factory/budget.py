@@ -1080,12 +1080,13 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 
     def silent_limit():
         # OpenCode 1.19 prints nothing and retries forever on a Go usage limit; only its log says so (2026-10-19).
+        # Free models word it "Free usage limit reached" (1bb2ad writer:2/1 and 2/2, 2026-11-15): match both.
         try: logs = list(Path(env.get('XDG_DATA_HOME') or Path.home() / '.local/share', 'opencode/log').glob('*.log'))
         except OSError: return  # an isolated tester's private log dir: silence alone decides, as before
         for log in logs:
             try: lines = log.read_text(errors='replace').splitlines()[-2000:]
             except OSError: continue
-            if any('usage limit exceeded' in l.lower() and l[10:29] >= started_utc for l in lines if l.startswith('timestamp=')):
+            if any('usage limit' in l.lower() and l[10:29] >= started_utc for l in lines if l.startswith('timestamp=')):
                 raise BudgetError('provider_limit:' + provider_model, provider_failure=classify_provider_failure('usage limit', provider_model))
 
     def check_limits():
