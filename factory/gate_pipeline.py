@@ -404,7 +404,8 @@ class GatePipeline:
                         self.log(c, "G10", "serial:", reason)
                     else:
                         c.calibrator_slot_offset = a.bench_workers
-                        # G6-G7 cite neither G10's tester instances (as early_parallel) nor what they hold.
+                        # Gates cite neither G10's tester instances (as early_parallel) nor what they hold,
+                        # from here until run() exits (its finally drops the scope), not only while G10 overlaps.
                         testers = tuple(f"factory-slots/{n}/" for n in (a.bench_workers, a.bench_workers + 1))
                         c.evidence_scope = lambda kind, rel: kind != "bench" or not rel.startswith(testers)
                         c.role_cancel = threading.Event()

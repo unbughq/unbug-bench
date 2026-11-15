@@ -130,7 +130,11 @@ VERDICT_CODE = BENCH_VERDICT_CODE + MODEL_CODE
 _VERDICT_DIGEST = {}
 # A verdict-path release reviewed as changing no verdict names its digest ("to") and its predecessor's
 # ("from") under `verdict_code_pins`, like release_pins: it keeps that release's receipt folder. Any other
-# edit of these files (a stale pin included) changes the digest and starts afresh, as before.
+# edit of these files (a stale pin included) changes the digest and starts afresh, as before. `from` must
+# be the digest the deployed release actually answers (its own pin's `from` when it had one), and a pin
+# is recomputed after any change or merge that touches these files. verdict_code() is also the helper
+# job's `release` (run.hosted_try, helpers, helper_link), so a pinned factory and a helper on its
+# predecessor accept each other's jobs.
 COMPAT = Path(__file__).resolve().parents[1] / 'invalid-runs-compat.json'
 
 
@@ -296,12 +300,12 @@ def gate_call(c, gate, invoke, binding):
         # fix for a factory bug that produced it (engine failed_releases). Passes carry over.
         if saved['binding'] == binding and (saved['ok'] or saved.get('plumbing') == plumbing):
             return saved['ok'], saved['info']
+    c.__dict__.get('gate_cached', set()).discard(gate)   # only this call's check may mark it held
     ok, info = invoke()
-    # A bench gate's pass that gate-cache holds (GatePipeline.check: saved or reused) lives there alone,
-    # across steps. Every other pass is kept here, and so are failures, so a crash cannot re-roll a
-    # verdict. Model stages keep theirs here too: their cache identity holds args.agent_timeout, which
-    # under the engine is the attempt's remaining deadline, so their gate-cache never matches a retry.
-    if ok and gate in REUSABLE and gate not in MODEL_STAGES and gate in getattr(c, 'gate_cached', ()):
+    # A pass that gate-cache holds (GatePipeline.check: saved or reused) lives there alone, across steps,
+    # under the same inputs() identity as this receipt. Every other pass is kept here, and so are
+    # failures, so a crash cannot re-roll a verdict.
+    if ok and gate in REUSABLE and gate in getattr(c, 'gate_cached', ()):
         return ok, info
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_json(path, {'binding': binding, 'ok': ok, 'info': info, 'plumbing': plumbing})

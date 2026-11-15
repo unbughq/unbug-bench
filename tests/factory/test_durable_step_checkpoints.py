@@ -69,20 +69,25 @@ class ReleaseScope(unittest.TestCase):
             cp.gate_call(ctx(plumbing='p5'), 'G4', gate, 'binding')
         self.assertEqual(len(ran), 8)
 
-    def test_a_cached_bench_pass_has_one_home(self):
-        """A G4-G7/G13-G15 pass that gate-cache holds (GatePipeline.check marks c.gate_cached) is not
-        also a step record. A pass it does not hold, a model stage's pass and a failure still are."""
+    def test_a_cached_pass_has_one_home(self):
+        """A REUSABLE pass that gate-cache holds (GatePipeline.check marks c.gate_cached during the call) is
+        not also a step record, model stages included. A pass it does not hold, a non-REUSABLE gate's pass,
+        a failure, and a pass whose held mark is left over from an earlier call still are."""
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
-        c = types.SimpleNamespace(work=Path(tmp.name), card={}, gate_cached={'G4', 'G16'}, engine=types.SimpleNamespace(
+        c = types.SimpleNamespace(work=Path(tmp.name), card={}, gate_cached={'G6'}, engine=types.SimpleNamespace(
             key='b-test/case-test/3/gates:1/1', source_binding={'plumbing': 'p1', 'bench': 'b1', 'feedback': None, 'ruling': None}))
+        def held(gate, ok=True):
+            return lambda: (c.gate_cached.add(gate), (ok, {'ok': ok}))[1]
         passing = lambda: (True, {'ok': True})
-        for gate, model in (('G4', False), ('G5', False), ('G16', True), ('G11', True)):
-            cp.gate_call(c, gate, passing, 'binding')
-        cp.gate_call(c, 'G6', lambda: (False, {'problems': ['x']}), 'binding')
-        c.gate_cached.add('G6')
+        cp.gate_call(c, 'G4', held('G4'), 'binding')
+        cp.gate_call(c, 'G5', passing, 'binding')
+        cp.gate_call(c, 'G6', passing, 'binding')        # stale mark: this call's check did not hold it
+        cp.gate_call(c, 'G7', held('G7', ok=False), 'binding')
+        cp.gate_call(c, 'G16', held('G16'), 'binding')
+        cp.gate_call(c, 'G11', held('G11'), 'binding')
         records = lambda model: sorted(p.name for p in cp.directory(c, model=model).glob('gate-*.json'))
-        self.assertEqual(records(False), ['gate-G5.json', 'gate-G6.json'])
-        self.assertEqual(records(True), ['gate-G11.json', 'gate-G16.json'])
+        self.assertEqual(records(False), ['gate-G5.json', 'gate-G6.json', 'gate-G7.json'])
+        self.assertEqual(records(True), ['gate-G11.json'])
 
     def test_a_pinned_release_keeps_the_previous_receipt_folder(self):
         """The folder name hashes the verdict-path files, so a release editing them moves every live case
