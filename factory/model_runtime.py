@@ -625,7 +625,11 @@ class ModelRuntime:
                     reason = call_failure_reason(str(error), lease.route, name)
                     if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
-                if failure.get('reason') == 'quota' and lease.account in OPENCODE_ACCOUNTS:
+                if failure.get('reason') == 'quota' and lease.route in model_router.ACCOUNT_FREE_ROUTES:
+                    # The free tier's own allowance ("Free usage limit reached ... subscribe to OpenCode Go",
+                    # 1bb2ad 2026-11-15) says nothing about the account's Go plan: exclude this lane only.
+                    failure = {**failure, 'per_call': True}
+                elif failure.get('reason') == 'quota' and lease.account in OPENCODE_ACCOUNTS:
                     # An OpenCode Go account's usage limit covers every call on that account, not this
                     # one: publish it (router health blocks the account until its reset) instead of
                     # excluding one lane, so later calls stop retrying an exhausted account.
