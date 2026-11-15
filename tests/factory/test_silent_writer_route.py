@@ -18,6 +18,14 @@ class SilentWriterRoute(unittest.TestCase):
         self.assertEqual(model_runtime.call_failure_reason('stalled', FREE, 'builder-selection-1'), 'outage')
         self.assertEqual(model_runtime.call_failure_reason('stalled', FREE, 'builder-provider-preflight'), 'outage')
 
+    def test_a_stalled_freshness_search_moves_to_the_next_route(self):
+        # 2abb0a gates:9/5 (14 November): a rate-limited route went silent in G2's search top-up and the
+        # stall ended the whole gate run, 55 minutes of G8/G9 work with it.
+        for name in ('builder-freshness', 'attacker-freshness'):
+            self.assertEqual(model_runtime.call_failure_reason('stalled', FREE, name), 'outage')
+            self.assertTrue(model_runtime.short_call(name))
+            self.assertIsNone(model_runtime.call_failure_reason('timeout', FREE, name))
+
     def test_a_deadline_timeout_is_not_a_route_outage(self):
         # 'timeout' is the attempt/step deadline running out, not a silent route: the route stays.
         for name in ('builder-selection-1', 'builder-provider-preflight'):

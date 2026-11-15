@@ -1616,7 +1616,9 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # A concurrent call's own timeout is local too: every peer holds its own deadline, all bounded by
             # the attempt's. Writing it stopped 2abb0a's G8 review when its early probe hit its cap (gates:9/3,
             # 14 November). A serial call is the whole session, so its timeout stays the ledger's stop.
-            if isinstance(error, BudgetError) and (str(error) == 'cancelled' or (concurrent and str(error) == 'timeout')):
+            # A stall is as local: each peer watches its own output. Writing it ended 2abb0a's G8/G9 work
+            # when G2's search top-up went silent on a rate-limited route (gates:9/5, 14 November).
+            if isinstance(error, BudgetError) and (str(error) == 'cancelled' or (concurrent and str(error) in ('timeout', 'stalled'))):
                 # This call's own cancel (its gate's cap, or a role_cancel) is not a ledger stop: peers stop only
                 # through the cancel object they themselves hold. Writing it here stopped the writer's concurrent
                 # repair when 2abb0a's early probe hit its cap (gates:9, 13 November). A failed kill still sticks
