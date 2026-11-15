@@ -94,6 +94,15 @@ def selection_snapshot(directory, case_id):
     return {name: p for name, p in files.items() if name != case_id}
 
 
+# A search engine's results page is a query, not evidence: the runner's own fetch of one is a script
+# interstitial (1bb2ad, 15 November). The row needs the result page itself. github.com/search stays:
+# freshness_fanout logs it for a GitHub search with no results.
+# Redirect links out of a results page (google.com/url, duckduckgo.com/l, bing.com/ck/a) count too.
+SEARCH_PAGE = re.compile(r'(?:[a-z0-9-]+\.)*(?:google\.[a-z.]+/(?:search|url|scholar)|bing\.com/(?:search|ck/a)'
+                         r'|duckduckgo\.com(?:/html|/lite|/l)?|yahoo\.[a-z.]+/search|search\.brave\.com/search'
+                         r'|startpage\.com/(?:do/|sp/)?search|ecosia\.org/search|yandex\.[a-z.]+/search|baidu\.com/s)/?')
+
+
 def search_url_error(row):
     """URL validity independent of the other fields that may need repair."""
     if not isinstance(row.get('url'), str) or not row['url'].strip(): return 'missing_url'
@@ -101,6 +110,7 @@ def search_url_error(row):
     except ValueError: return 'invalid_url'
     if url.scheme not in ('https', 'http') or not url.hostname or '.' not in url.hostname: return 'invalid_url'
     if url.hostname in ('example.com', 'example.org', 'example.net') or url.hostname.endswith('.invalid'): return 'invalid_url'
+    if SEARCH_PAGE.fullmatch(url.hostname + url.path): return 'search_page_url'
     if row.get('kind') == 'github' and url.hostname not in ('github.com', 'www.github.com', 'api.github.com'): return 'github_url_required'
     return None
 
@@ -134,6 +144,15 @@ def search_evidence(row):
 
 
 REFRESH = ("evidence_expired", "retrieval_failed")   # a re-run of the same search fixes these
+
+
+def rerun_url(row):
+    """The url to judge when a REFRESH row is projected as re-run. An unflagged search page (f46dac's
+    DuckDuckGo rows) is re-run as a NEW row with a result page, which supersedes it, so any result page
+    stands in (github rows need github); a flagged one must amend its own url."""
+    if (search_url_error(row) == 'search_page_url' and row.get('hit') is not True
+            and row.get('ambiguous') is not True): return 'https://github.com/'
+    return row.get('url')
 
 
 def superseded(rows):

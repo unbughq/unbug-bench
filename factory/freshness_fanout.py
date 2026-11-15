@@ -18,7 +18,7 @@ import time
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from admission import REFRESH as REPAIRABLE, search_evidence_error, superseded   # REPAIRABLE: a re-run fixes it
+from admission import REFRESH as REPAIRABLE, rerun_url, search_evidence_error, superseded   # REPAIRABLE: a re-run fixes it
 from budget import BudgetError
 
 EXA_URL = 'https://mcp.exa.ai/mcp'   # the endpoint opencode's websearch tool (OPENCODE_ENABLE_EXA) uses; keyless
@@ -135,7 +135,7 @@ def _role_in(run, c, who, opencode, deadline, lock, version, now, scratch):
         if not isinstance(row, dict) or old: continue
         if row.get('who') == who and row.get('kind') in kinds and isinstance(row.get('query'), str) and row['query'].strip():
             reason = search_evidence_error(row)
-            fixed = {**row, 'at': stamp(), 'retrieved': True, 'note': 'x', 'app_version': version or '',
+            fixed = {**row, 'url': rerun_url(row), 'at': stamp(), 'retrieved': True, 'note': 'x', 'app_version': version or '',
                      'version_scope': 'x', 'hit': row['hit'] if type(row.get('hit')) is bool else False}
             if reason is None: have.add((row['kind'], norm(row['query'])))
             # A hit row is never rewritten by a re-run search (its URL and verdict are the evidence).
