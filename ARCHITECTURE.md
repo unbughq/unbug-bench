@@ -202,8 +202,10 @@ not the attempt's remaining time, so a retry matches. The receipt folder hashes
 the verdict-path files; `invalid-runs-compat.json` `verdict_code_pins` lets a release reviewed as
 changing no verdict keep its predecessor's folder (`from`: the digest in use; recompute after any
 change to those files), and a stale pin changes nothing. The same digest is the helper job's release. The writer step records fixed
-phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`, `freshness`) in public
-progress and the card's `phase_times`. Before another writer call and its checks in the same
+phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`; `freshness` only in older
+records) in public progress and the card's `phase_times`. The freshness check is not part of the
+writer round, whose time estimate does not count it: it runs at the start of every STRESS step
+(timed as `phase:stress:freshness`) and again in GATES. Before another writer call and its checks in the same
 attempt, the round compares the time left with 1.25 times the longest cycle finished in this round (carried in the handback across attempts) plus 15 minutes;
 when it is short, it records the findings and next call in `attack-state.json` (`handback`) and
 returns `writer:handback` (OK, with its snapshot). Under the `writer_handback_retry` DBOS patch the engine retries that seq outside the infra

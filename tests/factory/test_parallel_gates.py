@@ -751,6 +751,8 @@ class WriterPhases(unittest.TestCase):
         for phase in public_progress.PHASES:
             self.assertTrue(public_progress._stage("phase:writer:" + phase))
         self.assertFalse(public_progress._stage("phase:writer:anything"))
+        self.assertTrue(public_progress._stage("phase:stress:freshness"))
+        self.assertFalse(public_progress._stage("phase:stress:g1"))
 
     def test_a_phase_records_its_time_and_status(self):
         c = types.SimpleNamespace(card={})
