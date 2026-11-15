@@ -9,6 +9,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 import pathlib
 import shlex
 import sys
@@ -355,8 +356,11 @@ class AdmissionTests(unittest.TestCase):
         (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
         discovered = evidence('builder', 'web', 99, hit=True)
         def mutate(*args, **kwargs):
-            (c.case / 'statement.md').write_text('Unauthorized different idea')
-            (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, self.rows + [discovered])))
+            # fan_out runs one call per role in parallel: replace each file whole, never truncate it
+            for name, text in (('statement.md', 'Unauthorized different idea'),
+                               ('freshness.jsonl', '\n'.join(map(json.dumps, self.rows + [discovered])))):
+                with tempfile.NamedTemporaryFile('w', dir=c.case, delete=False) as f: f.write(text)
+                os.replace(f.name, c.case / name)
             return 0
         with patch.object(run, 'opencode', mutate):
             with self.assertRaisesRegex(run.BudgetError, 'freshness_statement_changed'): run.ensure_freshness(c)
