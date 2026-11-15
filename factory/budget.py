@@ -25,6 +25,7 @@ import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
 from token_prices import CODEX_PRICES, CODEX_USAGE_FIELDS, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
 from token_prices import GO_ROUTES, go_step_cost
+from durable import stop_registry
 
 
 class BudgetError(RuntimeError):
@@ -1048,7 +1049,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  'timeout' if timeout == 0 else
                  'stalled' if progress_timeout == 0 else None)
         if cause:
-            ledger['terminal_stop'] = cause
+            if not concurrent or stop_registry.stop(cause)['scope'] == stop_registry.CASE: ledger['terminal_stop'] = cause
             raise BudgetError('Budget stopped: ' + cause)
         ledger['terminal_stop'] = 'running'
         if concurrent: ledger.setdefault('active', []).append(invocation)
@@ -1624,23 +1625,20 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model})
             if invocation in ledger.get('active', []): ledger['active'].remove(invocation)
             if not ledger.get('active'): ledger.pop('active', None)
-            # A concurrent call's own timeout is local too: every peer holds its own deadline, all bounded by
-            # the attempt's. Writing it stopped 2abb0a's G8 review when its early probe hit its cap (gates:9/3,
-            # 14 November). A serial call is the whole session, so its timeout stays the ledger's stop.
-            # A stall is as local: each peer watches its own output. Writing it ended 2abb0a's G8/G9 work
-            # when G2's search top-up went silent on a rate-limited route (gates:9/5, 14 November).
-            # A provider error is as local: model_runtime moves that one call to its next route. Writing it
-            # refused the concurrent builder-freshness call and ended 18681d's gate run (gates:5/2, 15 November).
-            if isinstance(error, BudgetError) and (str(error) == 'cancelled' or (concurrent and (
-                    str(error) in ('timeout', 'stalled', 'opencode_error', 'claude_error', 'codex_error', 'process_error')
-                    or str(error).startswith('refusal:')))):
+            label = str(error) if isinstance(error, BudgetError) else type(error).__name__
+            # A concurrent call's own failure is local unless durable/stop_registry.py STOPS gives its label case
+            # scope (the case's money, an untrusted ledger, an orphaned process, a pause). Written to the shared
+            # ledger, one call's timeout, stall or provider error stopped every peer: 2abb0a gates:9/3 and 9/5
+            # (14 November), 18681d gates:5/2 and cae763 gates:8/3 (15 November). A serial call is the whole
+            # session, so its failure stays the ledger's stop.
+            if label == 'cancelled' or (concurrent and stop_registry.stop(label)['scope'] == stop_registry.CALL):
                 # This call's own cancel (its gate's cap, or a role_cancel) is not a ledger stop: peers stop only
                 # through the cancel object they themselves hold. Writing it here stopped the writer's concurrent
                 # repair when 2abb0a's early probe hit its cap (gates:9, 13 November). A failed kill still sticks
                 # (cancellation_failed, here or in the finally below).
                 if ledger.get('terminal_stop') == 'running' and not ledger.get('active'): ledger['terminal_stop'] = 'complete'
             elif ledger.get('terminal_stop') in (None, 'running', 'complete'):
-                ledger['terminal_stop'] = str(error) if isinstance(error, BudgetError) else type(error).__name__
+                ledger['terminal_stop'] = label
                 if getattr(error, 'provider_failure', None): ledger['provider_failure'] = error.provider_failure
                 if isinstance(error, BudgetError) and str(error) == 'process_error':
                     # Keep the last natural CLI failure diagnosable without exposing transcript text.
