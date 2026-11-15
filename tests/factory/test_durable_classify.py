@@ -366,6 +366,7 @@ class RealStops(unittest.TestCase):
         "InvalidInfra": "infra:invalid_execution",
         "InfrastructureExhausted": "infra:execution_retries_exhausted",
         "RouterUnavailable": "infra:router_unavailable",
+        "RouterRejected": "infra:router_unavailable",
     }
     # Reviewed: classes that never reach run_step as a bare stop.
     EXCEPTION_NOT_A_STOP = {
