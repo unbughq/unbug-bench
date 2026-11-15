@@ -1234,8 +1234,6 @@ def build_fixture(c):
 
 # ---------------------------------------------------------------- bench helpers
 
-from run_validity import InfrastructureExhausted  # noqa: E402  (advisory early cheat check)
-
 
 class AllowanceSpent(TimeoutError):
     """A checkpoint's caller-given time allowance ran out."""
@@ -1429,6 +1427,7 @@ def early_cheat_check(c):
     """One run per retained case cheat; no models, retries, or full-G6 receipt.
     Its own loop (not cheat_runs) so allowance handling never enters G6/G7's verdict hash."""
     from case_contract import CaseProblem
+    from run_validity import InfrastructureExhausted
     guards = sorted(p for p in (c.case / "guards/cheats").glob("*") if p.is_dir())
     if not guards: return None
     reopened, unchecked = [], []
