@@ -736,6 +736,26 @@ class RouterTests(unittest.TestCase):
         health=self.store.rpc('status',{})['health']
         self.assertEqual({k:v['reason'] for k,v in health.items() if v.get('blocked_until')},{'opencode-go-key':'quota'})
 
+    def test_free_tier_quota_excludes_only_that_lane(self):
+        # 1bb2ad writer:2/1 and 2/2 (15 November): "Free usage limit reached ... subscribe to OpenCode Go"
+        # is the free tier's own allowance. It must not block the account's Go plan for every case.
+        c,secrets,_=self.context();model='opencode/minimax-m3.1-flash-free'
+        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        c.card['roles']['writer']['model']=model;seen=[]
+        def execute(context,*args,**kwargs):
+            route=context.model_lease.route;seen.append(route)
+            if route.startswith('opencode-go/'):  # live, the Go lanes were already out of reach
+                raise budget.BudgetError('process_error',provider_failure={'reason':'outage','model':route,'per_call':True})
+            if route==model:raise budget.BudgetError('provider_limit:'+model,
+                provider_failure=budget.classify_provider_failure('Free usage limit reached',model))
+            return 0
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
+            runtime.call(c,[model],'',c.case,'builder-free-quota')
+        self.assertIn(model,seen)
+        health=self.store.rpc('status',{})['health']
+        self.assertEqual({k:v['reason'] for k,v in health.items() if v.get('reason')=='quota'},{})
+
     def test_claude_retry_metadata_switches_shared_account(self):
         from test_budget import emit
         c,secrets,_=self.context();model='claude/claude-opus-5-5';seen=[]
