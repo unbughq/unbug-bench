@@ -31,7 +31,7 @@ _BENCH = tempfile.TemporaryDirectory()
 for _entry in _ROOT.iterdir():
     if _entry.name != "results": (pathlib.Path(_BENCH.name) / _entry.name).symlink_to(_entry)
 (pathlib.Path(_BENCH.name) / "results").mkdir()
-os.environ["BENCH"] = _BENCH.name
+os.environ["BENCH"] = str(pathlib.Path(_BENCH.name).resolve())  # resolved: see test_calibration_delivery
 
 import run
 from durable import worker_step
