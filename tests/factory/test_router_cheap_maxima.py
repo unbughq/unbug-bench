@@ -74,13 +74,14 @@ class CheapTests(unittest.TestCase):
             with patch.dict(profile,cache_write='0.000001'):self.assertIsNone(router.route_maximum(route))
             for fields in ({'max_usd':5.0},{'max_input_tokens':True},{'max_output_tokens':9},{'price_source':'old'}, {'expires_at':1}):
                 self.assertFalse(router.valid_lease(replace(lease(route),**fields),route))
-        free='opencode/deepseek-v4.1-flash-free'
+        # Free DeepSeek is account-backed since 10 November (ACCOUNT_FREE_ROUTES); free GLM stays anonymous.
+        free='opencode/glm-5.3-flash-free'
         # Free routes are bounded at $0, never a paid window (founder 2026-11-08).
         self.assertEqual(router.route_maximum(free)['max_usd'],0.0); self.assertEqual(router.funded_maximum(free,'5')['max_usd'],0.0)
         store=router.Store(self.root/'router.sqlite')
         # The anonymous free route needs no account. It comes after the Go plan and the paid route
         # (founder 2026-11-09), so it is leased only where neither account is offered.
-        for accounts,route in (([],free),(['claude-token'],free),(['openrouter-key'],'openrouter/deepseek/deepseek-v4.1-flash')):
+        for accounts,route in (([],free),(['claude-token'],free),(['openrouter-key'],'openrouter/z-ai/glm-5.3-flash')):
             result=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=free,accounts=accounts,role='writer',deadline=time.time()+3600))
             self.assertEqual((result['kind'],result['route'],result['max_usd'] == 0.0),('lease',route,route == free))
             store.rpc('finish',dict(lease_id=result['lease_id'],outcome='denied',receipt=None))
@@ -148,7 +149,7 @@ class CheapTests(unittest.TestCase):
         for route,profile in GATED_OPENROUTER.items():
             original=request(route,stream=True,reasoning={'enabled':True,'max_tokens':90000})
             body=gate.openrouter_body(json.dumps(original),route)
-            self.assertEqual(body['max_tokens'],32768);self.assertEqual(body['reasoning']['max_tokens'],32768)
+            self.assertEqual(body['max_tokens'],32768);self.assertEqual(body['reasoning']['max_tokens'],24576)
             self.assertEqual(body['usage'],{'include':True});self.assertEqual(body['stream_options'],{'include_usage':True})
             incoming,_,outgoing=map(float,profile['prices'])
             endpoints=[*profile.get('cheaper',()),profile['endpoint']]
@@ -169,6 +170,25 @@ class CheapTests(unittest.TestCase):
                     gate.openrouter_body(json.dumps(request(route)|change),route)
             for raw in (json.dumps(request(route)).replace('65536','NaN'),json.dumps(request(route)).replace('65536','65536,"max_tokens":1')):
                 with self.assertRaises(ValueError):gate.openrouter_body(raw,route)
+
+    def test_reasoning_always_leaves_room_to_answer(self):
+        # f46dac-5 diagnosis 5-1, 14 November: mimo-v2.6-pro's last request asked max_tokens 32000 with
+        # no reasoning bound and came back completion_tokens 32000, reasoning_tokens 31999; the session
+        # ended normally without output/result.json (diagnosis_result_missing).
+        route='openrouter/xiaomi/mimo-v2.6-pro'
+        body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,stream=True)),route,True)
+        self.assertGreaterEqual(32000-body['reasoning']['max_tokens'],8000)
+        self.assertNotIn('effort',body['reasoning'])
+        # A caller's own bound is kept below max_tokens too; effort or disabled reasoning is left alone.
+        for bound in (False,True):
+            body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,reasoning={'max_tokens':32000})),route,bound)
+            self.assertLess(body['reasoning']['max_tokens'],32000)
+        for chosen in ({'reasoning':{'effort':'xhigh'}},{'reasoning_effort':'high'},{'reasoning':{'enabled':False}}):
+            body=gate.openrouter_body(json.dumps(request(route)|dict(max_tokens=32000,**chosen)),route,True)
+            self.assertNotIn('max_tokens',body.get('reasoning',{}))
+        # Outside a diagnosis no call gets reasoning turned on: no route records whether it reasons by default.
+        for route in GATED_OPENROUTER:
+            self.assertNotIn('reasoning',gate.openrouter_body(json.dumps(request(route)),route))
 
     def test_only_complete_unambiguous_usage_refunds(self):
         for route,profile in GATED_OPENROUTER.items():

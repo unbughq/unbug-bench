@@ -892,6 +892,7 @@ class ModelRuntime:
                 if diagnosis and driver == 'opencode':
                     env.pop('OPENCODE_ENABLE_EXA', None)
                     if model in GATED_OPENROUTER:
+                        gate.bound_reasoning = True
                         try:
                             cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])
                             cfg['permission'].update(webfetch='deny', websearch='deny')
