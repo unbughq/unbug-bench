@@ -890,15 +890,21 @@ def attempt_workflow(job: dict) -> dict:
         release_unstarted_step(to_record(si))
         DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id}, topic=CASE_EVENT)
         return {"started": False, "action": Action.STOP_ADMISSION.value, "reason": "infra:deadline"}
-    # A BATCH grant that cannot fund one request of the batch's dearest model waits for the bound
-    # unstarted, instead of doing its setup and stopping on money (18681d, 15 November).
-    hold = (call_hold_step(to_record(si)) if grant.limited_by is LimitedBy.BATCH and DBOS.patch("afford_one_call")
-            else 0)
+    # A BATCH grant that cannot fund one request of this step's dearest model waits for the bound
+    # unstarted, instead of doing its setup and stopping on money (18681d, 15 November). SEAL makes no
+    # model call (run.engine_seal), so it always starts: a case that passed every gate never waits here.
+    # Workflows recorded before the patch keep the $1 minimum alone. The admission probe and the
+    # prepared-attempt workflow pass no hold: both belong to the V2 queue, which start_batch leaves off
+    # ("queue_v2": False), and nothing enqueues a prepared attempt yet; they need it before V2 is on.
+    hold = (call_hold_step(to_record(si)) if grant.limited_by is LimitedBy.BATCH and si.step.kind is not StepKind.SEAL
+            and DBOS.patch("afford_one_call") else 0)
     early = decide_grant(si.step, grant, call_hold=hold)
     if early is not None:
         release_unstarted_step(to_record(si))
         # A sub-minimum BATCH grant was everything the batch had left, so it cut no other case's
         # grant: its release wakes nobody (else two capped cases could wake each other forever).
+        # Known and left (review of afford_one_call): a grant now held back below one call's hold is
+        # above $1, and a case that reserved while it was held may wait for a later settle to wake it.
         DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id,
                                 "unstarted": early is Action.WAIT_FOR_BOUND}, topic=CASE_EVENT)
         return {"started": False, "grant": to_record(grant), "action": early.value}

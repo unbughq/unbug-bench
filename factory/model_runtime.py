@@ -548,7 +548,8 @@ class ModelRuntime:
                     # A gate holds one whole request before forwarding it: funding below the cheapest
                     # route's hold could never forward one (18681d, 15 November: $9.48 against $9.52).
                     holds = [model_call_gate.request_hold(r['route']) or 0 for r in
-                             model_router._bounded_routes(requested, getattr(c, 'router_accounts', model_router.ACCOUNTS))]
+                             model_router._bounded_routes(requested, getattr(c, 'router_accounts', model_router.ACCOUNTS))
+                             if r['pool'] + '/' + r['route'] not in getattr(context, 'router_excluded', ())]
                     if holds and funding < min(holds) + model_call_gate.HEADROOM:
                         raise BudgetError('budget_exhausted:grant_insufficient')
                     context.router_funding_usd = format(funding, '.9f')
