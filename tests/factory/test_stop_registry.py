@@ -66,6 +66,87 @@ class RegistryTests(unittest.TestCase):
                     self.assertRegex(fix, r"^[0-9a-f]{40}$", reason)
 
 
+def stop_labels() -> dict:
+    """label head -> first source line, for every stop label the factory raises or writes as a stop: the text of
+    BudgetError(...) or ContainmentError(...), and any value written to a terminal_stop. A label built from a
+    literal head (`'refusal:' + model`, f"provider_preflight_failed:{role}:..."), an `a if c else b` of literals,
+    or a local name assigned such a value counts; a stop copied from elsewhere (str(error), a ledger read) does not."""
+    import ast
+    found = {}
+    for path in [*(ROOT / "factory").rglob("*.py"), ROOT / "bin/processes.py"]:
+        tree = ast.parse(path.read_text(), str(path))
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+        def assigned(name, node):
+            """Values assigned to `name` in the functions around node, innermost first."""
+            while node in parents:
+                node = parents[node]
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
+                    values = [a.value for a in ast.walk(node) if isinstance(a, ast.Assign)
+                              and any(isinstance(t, ast.Name) and t.id == name for t in a.targets)]
+                    if values: return values
+            return []
+
+        def heads(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                # "Budget stopped: " + cause wraps a stop whose label is named where cause is set.
+                return set() if node.value.startswith(classify._WRAPPERS) else {node.value.partition(":")[0]}
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                return heads(node.left)
+            if isinstance(node, ast.JoinedStr) and node.values and isinstance(node.values[0], ast.Constant):
+                prefix = node.values[0].value
+                return {prefix.partition(":")[0]} if ":" in prefix else set()
+            if isinstance(node, ast.IfExp):
+                return heads(node.body) | heads(node.orelse)
+            if isinstance(node, ast.Name):
+                return set().union(*(heads(v) for v in assigned(node.id, node)))
+            return set()
+
+        for node in ast.walk(tree):
+            values = []
+            if isinstance(node, ast.Call):
+                func = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+                if func in ("BudgetError", "ContainmentError") and node.args:
+                    values.append(node.args[0])
+                values += [k.value for k in node.keywords if k.arg == "terminal_stop"]
+                if (func == "setdefault" and len(node.args) == 2 and isinstance(node.args[0], ast.Constant)
+                        and node.args[0].value == "terminal_stop"):
+                    values.append(node.args[1])
+            elif isinstance(node, ast.Assign):
+                if any(isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant)
+                       and t.slice.value == "terminal_stop" for t in node.targets):
+                    values.append(node.value)
+            for value in values:
+                for head in heads(value):
+                    found.setdefault(head, f"{path.relative_to(ROOT)}:{node.lineno}")
+    return found
+
+
+class StopScopeTests(unittest.TestCase):
+    def test_every_raised_or_written_stop_label_declares_its_scope(self):
+        from durable.stop_registry import STOPS
+        labels = stop_labels()
+        self.assertIn("opencode_error", labels)   # the scan itself still sees budget.py's labels
+        self.assertIn("provider_preflight_failed", labels)
+        missing = {label: where for label, where in labels.items() if label not in STOPS}
+        self.assertEqual(missing, {}, "give these a scope in factory/durable/stop_registry.py STOPS")
+
+    def test_every_scope_is_call_or_case_and_every_reroute_a_router_reason(self):
+        from durable.stop_registry import STOPS
+        from model_router import REASONS
+        for label, entry in STOPS.items():
+            self.assertIn(entry["scope"], ("call", "case"), label)
+            self.assertIn(entry["reroute"], (None, "outage_if_short", "outage_if_free", *REASONS), label)
+
+    def test_a_label_reads_by_its_head_and_an_unknown_one_is_its_calls_own(self):
+        from durable.stop_registry import stop
+        self.assertEqual(stop("provider_limit:claude/claude-opus-5-5"), {"scope": "call", "reroute": "quota"})
+        self.assertEqual(stop("budget_exhausted:grant_insufficient")["scope"], "case")
+        self.assertEqual(stop("KeyError"), {"scope": "call", "reroute": None})
+        # A ledger another call already stopped is not this call's provider error: no next route.
+        self.assertEqual(stop("Budget ledger stopped: opencode_error"), {"scope": "call", "reroute": None})
+
+
 class AuditTests(unittest.TestCase):
     registry = {"writer:validated": {"kind": "case"}, "router:quota": {"kind": "wait"},
                 "infra:fixed": bug(FIX, test="t.py::T::test"), "infra:open": bug(),

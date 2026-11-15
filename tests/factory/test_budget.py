@@ -105,11 +105,11 @@ class BudgetTests(unittest.TestCase):
             deadline = time.monotonic()+3
             while not ready.exists() and time.monotonic()<deadline: time.sleep(.01)
             self.assertTrue(ready.exists())
-            with self.assertRaisesRegex(BudgetError, 'call_limit'):
-                self.run_script(emit(event()), concurrent=True, max_calls=1)
+            with self.assertRaisesRegex(BudgetError, 'total_call_limit'):
+                self.run_script(emit(event()), concurrent=True, max_total_calls=1)
             future.result(timeout=2)
         self.assertEqual(self.data()['calls'], 1)
-        self.assertEqual(self.data()['terminal_stop'], 'call_limit')
+        self.assertEqual(self.data()['terminal_stop'], 'total_call_limit')
         self.assertEqual(self.data().get('active', []), [])
 
     def test_own_cancel_does_not_stop_peers_or_later_calls(self):
@@ -206,6 +206,96 @@ class BudgetTests(unittest.TestCase):
             self.run_script(emit({'type': 'error', 'error': {'message': 'x'}}))
         self.assertEqual(self.data()['terminal_stop'], 'opencode_error')
 
+    def fail_beside_a_peer(self, code, expected, peer_sleep=1, **kwargs):
+        """Run a concurrent call that fails with `expected` (a label regex, or an exception class) while a peer
+        runs beside it; return the peer's future result or the error its run_budgeted raised."""
+        from concurrent.futures import ThreadPoolExecutor
+        self.ledger.unlink(missing_ok=True)
+        ready = self.root / 'peer-ready'
+        ready.unlink(missing_ok=True)
+        def peer():
+            code = (f'import pathlib,time; pathlib.Path({str(ready)!r}).touch(); time.sleep({peer_sleep})\n'
+                    + emit(event('peer')))
+            try:
+                return run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
+                                    self.root / 'peer-transcript', self.ledger, 5, containment=False, concurrent=True)
+            except BudgetError as error:
+                return error
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(peer)
+            deadline = time.monotonic() + 3
+            while not ready.exists() and time.monotonic() < deadline: time.sleep(.01)
+            self.assertTrue(ready.exists())
+            if isinstance(expected, str):
+                with self.assertRaisesRegex(BudgetError, expected):
+                    self.run_script(code, concurrent=True, **kwargs)
+            else:
+                with self.assertRaises(expected):
+                    self.run_script(code, concurrent=True, **kwargs)
+            return future.result(timeout=5)
+
+    def test_a_concurrent_calls_own_failure_is_local_unless_the_registry_says_case(self):
+        # The labels an earlier review found still killing peers after 18681d gates:5/2 and cae763 gates:8/3
+        # (15 November): each is one call's own failure, so its peer finishes and the ledger stays open.
+        def inject(error):
+            def started(): raise error
+            return started
+        go_limit = {'type': 'error', 'error': {'name': 'GoUsageLimitError', 'limitName': 'weekly'}}
+        zero = event('zero', cost=0)
+        zero['part']['tokens'] = {'input': 0, 'output': 0, 'reasoning': 0, 'cache': {'read': 0, 'write': 0}}
+        sleep = 'import time; time.sleep(60)'
+        cases = [
+            ('provider_limit', emit(go_limit) + sleep, '^provider_limit:opencode-go/test$',
+             dict(configured_model='opencode-go/test')),
+            ('usage_reservation_exceeded', sleep, '^usage_reservation_exceeded$',
+             dict(on_started=inject(BudgetError('usage_reservation_exceeded')))),
+            ('zero_tokens', emit(zero) + sleep, '^zero_tokens$', dict(max_zero_tokens=1)),
+            ('missing_usage', 'pass', '^missing_usage$', {}),
+            ('invalid_usage', sleep, '^invalid_usage$', dict(on_started=inject(BudgetError('invalid_usage')))),
+            ('unpriced_usage', sleep, '^unpriced_usage$', dict(on_started=inject(BudgetError('unpriced_usage')))),
+            ('call_limit', emit(event('own')) + sleep, '^call_limit$', dict(max_calls=1)),
+            ('codex_login_expired', 'print("workspace routing discovery unauthorized (401)", flush=True)\n' + sleep,
+             '^codex_login_expired$', dict(driver='codex')),
+            ('plain exception', sleep, ValueError, dict(on_started=inject(ValueError('reader bug')))),
+            ('admitted with no time left', sleep, '^Budget stopped: timeout$', dict(timeout=0)),
+        ]
+        for name, code, expected, kwargs in cases:
+            with self.subTest(name):
+                peer = self.fail_beside_a_peer(code, expected, **kwargs)
+                self.assertNotIsInstance(peer, BudgetError, f'the peer was stopped: {peer}')
+                self.assertEqual(peer.returncode, 0)
+                self.assertEqual(self.data()['terminal_stop'], 'complete')
+                self.assertNotIn('active', self.data())
+
+    def test_a_case_scoped_failure_still_stops_concurrent_peers(self):
+        # Money spanning the case and a ledger the factory can no longer trust stop every call on it.
+        class PauseRequested(BaseException): pass   # run.PauseRequested: an operator pause
+        def inject(error):
+            def started(): raise error
+            return started
+        sleep = 'import time; time.sleep(60)'
+        cases = [
+            ('total_call_limit', emit(event('own')) + sleep, dict(max_total_calls=1)),
+            ('cost_limit', emit(event('own', cost=0.3)) + sleep, dict(max_cost=0.1)),
+            ('budget_exhausted', sleep, dict(on_started=inject(BudgetError('budget_exhausted')))),
+            ('usage_event_conflict', sleep, dict(on_started=inject(BudgetError('usage_event_conflict')))),
+            ('PauseRequested', sleep, dict(on_started=inject(PauseRequested()))),
+        ]
+        for label, code, kwargs in cases:
+            with self.subTest(label):
+                expected = PauseRequested if label == 'PauseRequested' else f'^{label}$'
+                peer = self.fail_beside_a_peer(code, expected, peer_sleep=60, **kwargs)
+                self.assertIsInstance(peer, BudgetError)
+                self.assertEqual(str(peer), label)
+                self.assertEqual(self.data()['terminal_stop'], label)
+                self.assertEqual(self.data().get('active', []), [])
+
+    def test_a_serial_calls_own_failure_still_stops_the_ledger(self):
+        # A serial call is the whole session: whatever its label, its failure is the ledger's stop.
+        with self.assertRaisesRegex(BudgetError, '^call_limit$'):
+            self.run_script(emit(event('own')) + 'import time; time.sleep(60)', max_calls=1)
+        self.assertEqual(self.data()['terminal_stop'], 'call_limit')
+
     def test_own_cancel_with_failed_kill_stays_sticky(self):
         # An own cancel leaves no ledger stop, but a process it could not kill must still block admission.
         import threading
@@ -231,7 +321,7 @@ class BudgetTests(unittest.TestCase):
         ready = self.root / 'peer-ready'
         def peer():
             code = f'import pathlib,time; pathlib.Path({str(ready)!r}).touch(); time.sleep(60)'
-            with self.assertRaisesRegex(BudgetError, '^call_limit$'):
+            with self.assertRaisesRegex(BudgetError, '^total_call_limit$'):
                 run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
                              self.root / 'peer-transcript', self.ledger, 3, containment=False, concurrent=True)
         with ThreadPoolExecutor(max_workers=1) as pool:
@@ -239,8 +329,8 @@ class BudgetTests(unittest.TestCase):
             deadline = time.monotonic() + 2
             while not ready.exists() and time.monotonic() < deadline: time.sleep(.001)
             self.assertTrue(ready.exists())
-            with self.assertRaisesRegex(BudgetError, '^call_limit$'):
-                self.run_script(emit(event('capped')), concurrent=True, max_calls=1)
+            with self.assertRaisesRegex(BudgetError, '^total_call_limit$'):
+                self.run_script(emit(event('capped')), concurrent=True, max_total_calls=1)
             self.run_script(emit(event('resumed')), concurrent=True, resume=True)
             future.result(timeout=2)
         self.assertEqual(self.data()['terminal_stop'], 'complete')
@@ -687,7 +777,7 @@ class BudgetTests(unittest.TestCase):
                     self.run_script(f'import os,time; os.write(1, {payload!r}); time.sleep(60)',
                                     driver='codex', max_calls=1, concurrent=True)
                 data = self.data()
-                self.assertEqual(data['terminal_stop'], 'call_limit')
+                self.assertEqual(data['terminal_stop'], 'complete')   # a concurrent call's own cap is local; its unknown usage still blocks below
                 self.assertNotIn('active', data)
                 self.assertEqual(len(data['events']), 1)
                 self.assertIsNone(case_spending(data)['spent_usd'])
@@ -747,7 +837,7 @@ class BudgetTests(unittest.TestCase):
         data = self.data()
         self.assertEqual(len(data['events']), 1)  # Earlier priced turn is preserved.
         self.assertEqual(len(data['unpriced_invocations']), 1)
-        self.assertEqual(data['terminal_stop'], 'call_limit')
+        self.assertEqual(data['terminal_stop'], 'complete')   # a concurrent call's own cap is local; its unknown usage still blocks below
         self.assertEqual(data['cleanup_errors'], [{'stage':'process_cancellation', 'error':'OSError'}])
         self.assertNotIn('active', data)
         self.assertIsNone(case_spending(data)['spent_usd'])
