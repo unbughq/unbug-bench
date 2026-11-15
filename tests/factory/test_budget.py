@@ -176,6 +176,36 @@ class BudgetTests(unittest.TestCase):
             self.assertEqual(future.result(timeout=5).returncode, 0)
         self.assertEqual(self.data()['terminal_stop'], 'complete')
 
+    def test_own_provider_error_does_not_stop_concurrent_peers(self):
+        # 18681d gates:5/2 (15 November): G2's attacker-freshness call got OpenCode's "Unexpected server
+        # error" on its free route. model_runtime moves such a call to its next route, but run_budgeted had
+        # already written 'opencode_error' as the ledger's stop, so the concurrent builder-freshness call
+        # was refused (ENGINE STOPPED Budget ledger stopped: opencode_error), ending a 3.5-hour gate run.
+        from concurrent.futures import ThreadPoolExecutor
+        ready = self.root / 'peer-ready'
+        def peer():
+            code = f'import pathlib,time; pathlib.Path({str(ready)!r}).touch(); time.sleep(1)\n' + emit(event('peer'))
+            return run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
+                                self.root / 'peer-transcript', self.ledger, 5, containment=False, concurrent=True)
+        failure = {'type': 'error', 'error': {'name': 'UnknownError', 'data': {
+            'message': 'Unexpected server error. Check server logs for details.'}}}
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(peer)
+            deadline = time.monotonic() + 3
+            while not ready.exists() and time.monotonic() < deadline: time.sleep(.01)
+            self.assertTrue(ready.exists())
+            with self.assertRaisesRegex(BudgetError, '^opencode_error$'):
+                self.run_script(emit(failure), concurrent=True)
+            self.assertEqual(future.result(timeout=5).returncode, 0)
+        self.assertEqual(self.data()['terminal_stop'], 'complete')
+        # A later concurrent call (the next route, or a peer starting now) is admitted.
+        self.assertEqual(self.run_script(emit(event('next-route')), concurrent=True).returncode, 0)
+
+    def test_serial_provider_error_still_stops_the_ledger(self):
+        with self.assertRaisesRegex(BudgetError, '^opencode_error$'):
+            self.run_script(emit({'type': 'error', 'error': {'message': 'x'}}))
+        self.assertEqual(self.data()['terminal_stop'], 'opencode_error')
+
     def test_own_cancel_with_failed_kill_stays_sticky(self):
         # An own cancel leaves no ledger stop, but a process it could not kill must still block admission.
         import threading
