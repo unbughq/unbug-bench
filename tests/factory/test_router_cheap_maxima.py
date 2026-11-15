@@ -74,13 +74,14 @@ class CheapTests(unittest.TestCase):
             with patch.dict(profile,cache_write='0.000001'):self.assertIsNone(router.route_maximum(route))
             for fields in ({'max_usd':5.0},{'max_input_tokens':True},{'max_output_tokens':9},{'price_source':'old'}, {'expires_at':1}):
                 self.assertFalse(router.valid_lease(replace(lease(route),**fields),route))
-        free='opencode/deepseek-v4.1-flash-free'
+        # Free DeepSeek is account-backed since 10 November (ACCOUNT_FREE_ROUTES); free GLM stays anonymous.
+        free='opencode/glm-5.3-flash-free'
         # Free routes are bounded at $0, never a paid window (founder 2026-11-08).
         self.assertEqual(router.route_maximum(free)['max_usd'],0.0); self.assertEqual(router.funded_maximum(free,'5')['max_usd'],0.0)
         store=router.Store(self.root/'router.sqlite')
         # The anonymous free route needs no account. It comes after the Go plan and the paid route
         # (founder 2026-11-09), so it is leased only where neither account is offered.
-        for accounts,route in (([],free),(['claude-token'],free),(['openrouter-key'],'openrouter/deepseek/deepseek-v4.1-flash')):
+        for accounts,route in (([],free),(['claude-token'],free),(['openrouter-key'],'openrouter/z-ai/glm-5.3-flash')):
             result=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=free,accounts=accounts,role='writer',deadline=time.time()+3600))
             self.assertEqual((result['kind'],result['route'],result['max_usd'] == 0.0),('lease',route,route == free))
             store.rpc('finish',dict(lease_id=result['lease_id'],outcome='denied',receipt=None))
