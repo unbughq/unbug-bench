@@ -45,5 +45,15 @@
       "from": "ddd0c943036621edee3c17f0a9595a1b9e2f323146ab8bb46b70ca2d8ac53c2d",
       "to": "4a85b493e931b4ab67b721bf85e3b2ef0d3edeeeeb92b8203e5651c43dc51559"
     }
+  },
+  "verdict_code_pins": {
+    "bench": {
+      "from": "b6446e79c3e8d797df9ba833f9f3892bec86f01a3f56c6225f93e9ce1616ef3c",
+      "to": "8da421d6438670f7ae8191b4128d3b7721344f309b70814bf2a97aa888adc312"
+    },
+    "model": {
+      "from": "cd04788dd67ac8f68f5370f7fccc14ff7f7506040e3bff71cc27ee6ae17b0dab",
+      "to": "cb0ea72d049652e9934880e848fb518632b92fda9ef12ca641efad19c190f656"
+    }
   }
 }

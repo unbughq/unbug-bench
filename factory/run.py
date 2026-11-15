@@ -2987,6 +2987,8 @@ class EngineStep:
         self.g10_reserve_usd = min(gates_money_extension(step_input.step), max(
             0, step_input.money_ceiling_usd_micros - BatchSpec.case_money_usd_micros)) / 1_000_000
         self.baseline_spent_usd = baseline_spent_usd
+        # The step's own deadline (policy.deadline_s), the same on every attempt; gate identity uses it.
+        self.deadline_s = step_input.deadline_s
         # The attempt's own deadline (the supervisor kills the attempt at the same instant).
         now = time.time()
         inherited_deadline = float(os.environ.get("UNBUG_DURABLE_DEADLINE_EPOCH", now + step_input.deadline_s))

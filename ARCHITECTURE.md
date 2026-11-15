@@ -190,7 +190,19 @@ leave out the router, runtime, call gate and ordinary-retry files that only mode
 effects key on. Every gate-cache miss logs the changed identity field names (never case file names). Otherwise the serial order G15, G3,
 G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
-case edited during that lane fails the step as infrastructure. The writer step records fixed
+case edited during that lane fails the step as infrastructure. Meanwhile each gate-cache pass outside
+the side lane is published at once as the last snapshot plus its record and evidence
+(`durable.checkpoints.progress`, `worker_step.overlay`; each publication re-verifies every gate it
+keeps), so a killed attempt restarts after it. A gate cites only its own work files (`gate_state.owned`:
+not review copies, not another gate's details) and, once G10 has overlapped, not G10's tester instances
+until the pipeline exits. A pass that gate-cache holds is not also a step receipt
+(`durable.checkpoints.gate_call`); every other pass and every failure is. Both bind `gate_state.inputs`,
+where a model stage's `agent_timeout` is the step's own deadline under the engine (`EngineStep.deadline_s`),
+not the attempt's remaining time, so a retry matches; the stress binding (`judge_dependencies`, which names
+the category state folder) takes it from the same `gate_state.agent_timeout`. The receipt folder hashes
+the verdict-path files; `invalid-runs-compat.json` `verdict_code_pins` lets a release reviewed as
+changing no verdict keep its predecessor's folder (`from`: the digest in use; recompute after any
+change to those files), and a stale pin changes nothing. The same digest is the helper job's release. The writer step records fixed
 phase timings (`bench_prepare`, `writer_model`, `g1`, `early_checks`; `freshness` only in older
 records) in public progress and the card's `phase_times`. The freshness check is not part of the
 writer round, whose time estimate does not count it: it runs at the start of every STRESS step

@@ -5,10 +5,12 @@ import hashlib
 import json
 from pathlib import Path
 import threading
+import traceback
 
 _INIT_LOCK = threading.Lock()
 # Counters only; never held across a model call or a snapshot, unlike checkpoint_lock.
 _COUNT_LOCK = threading.Lock()
+_PROGRESS_LOCK = threading.Lock()
 
 
 def _lock(c):
@@ -49,6 +51,35 @@ def checkpoint(c):
             return False
         c.engine.checkpoint_deferred = False
         return getattr(c, 'engine_checkpoint', lambda: True)()
+
+
+def progress(c, gate, bench):
+    """Keep a gate's verified pass while another thread works on this case.
+
+    checkpoint defers every snapshot until the last concurrent section joins, so a lane beside the
+    bench gates (G2/G8/G9, or G10 from G6) held back each pass and a killed attempt restored the
+    snapshot from before it. This publishes the last snapshot again with only the pass record and its
+    evidence added (gate_state.record_files): files no other thread writes, which a retry re-verifies
+    against current inputs (gate_state.load). Nothing else is read while the other thread runs. Every
+    gate kept since the last snapshot is re-verified here; one whose files moved or changed is dropped.
+    """
+    publish = getattr(getattr(c, 'engine', None), 'publish_progress', None)
+    if publish is None or not _unsettled(c): return False
+    import gate_state
+    with _PROGRESS_LOCK:
+        kept = c.engine.__dict__.setdefault('progress_gates', set())
+        kept.add(gate)
+        files = {}
+        for name in sorted(kept):
+            found = gate_state.record_files(c, name, bench)
+            if found: files.update(found)
+            else: kept.discard(name)
+        if not files: return False
+        try:
+            return publish(files)
+        except Exception:   # the deferred snapshot still follows at the join; the gate's outcome stands
+            traceback.print_exc()
+            return False
 
 
 @contextlib.contextmanager
@@ -97,15 +128,26 @@ BENCH_VERDICT_CODE = ('gate_pipeline.py', 'gate_attempt.py', 'gate_state.py', 'd
 MODEL_CODE = ('ordinary_retry.py', 'model_runtime.py', 'model_router.py', 'model_call_gate.py')
 VERDICT_CODE = BENCH_VERDICT_CODE + MODEL_CODE
 _VERDICT_DIGEST = {}
+# A verdict-path release reviewed as changing no verdict names its digest ("to") and its predecessor's
+# ("from") under `verdict_code_pins`, like release_pins: it keeps that release's receipt folder. Any other
+# edit of these files (a stale pin included) changes the digest and starts afresh, as before. `from` must
+# be the digest the deployed release actually answers (its own pin's `from` when it had one), and a pin
+# is recomputed after any change or merge that touches these files. verdict_code() is also the helper
+# job's `release` (run.hosted_try, helpers, helper_link), so a pinned factory and a helper on its
+# predecessor accept each other's jobs.
+COMPAT = Path(__file__).resolve().parents[1] / 'invalid-runs-compat.json'
 
 
 def verdict_code(model=True):
     if model not in _VERDICT_DIGEST:
         root = Path(__file__).resolve().parents[1]
         names = VERDICT_CODE if model else BENCH_VERDICT_CODE
-        _VERDICT_DIGEST[model] = hashlib.sha256(json.dumps(
+        digest = hashlib.sha256(json.dumps(
             {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names},
             sort_keys=True).encode()).hexdigest()
+        try: pin = json.loads(COMPAT.read_text())['verdict_code_pins']['model' if model else 'bench']
+        except (OSError, ValueError, KeyError, TypeError): pin = None
+        _VERDICT_DIGEST[model] = pin['from'] if isinstance(pin, dict) and pin.get('to') == digest else digest
     return _VERDICT_DIGEST[model]
 
 
@@ -248,7 +290,7 @@ def gate_call(c, gate, invoke, binding):
     # G3 establishes host-local Docker state, which an archive cannot restore.
     if gate in ('G2', 'G3'): return invoke()
     binding = json.loads(json.dumps(binding))  # Scientific inventories contain tuples; receipts contain JSON lists.
-    from gate_state import MODEL_STAGES
+    from gate_state import MODEL_STAGES, REUSABLE
     path = directory(c, model=gate in MODEL_STAGES) / ('gate-' + gate + '.json')
     source = getattr(c.engine, 'source_binding', None)
     plumbing = source.get('plumbing') if isinstance(source, dict) else None
@@ -258,7 +300,13 @@ def gate_call(c, gate, invoke, binding):
         # fix for a factory bug that produced it (engine failed_releases). Passes carry over.
         if saved['binding'] == binding and (saved['ok'] or saved.get('plumbing') == plumbing):
             return saved['ok'], saved['info']
+    c.__dict__.get('gate_cached', set()).discard(gate)   # only this call's check may mark it held
     ok, info = invoke()
+    # A pass that gate-cache holds (GatePipeline.check: saved or reused) lives there alone, across steps,
+    # under the same inputs() identity as this receipt. Every other pass is kept here, and so are
+    # failures, so a crash cannot re-roll a verdict.
+    if ok and gate in REUSABLE and gate in getattr(c, 'gate_cached', ()):
+        return ok, info
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_json(path, {'binding': binding, 'ok': ok, 'info': info, 'plumbing': plumbing})
     return ok, info

@@ -10,6 +10,7 @@ import hashlib
 import os
 import json
 import pathlib
+import re
 from registry import atomic_json
 
 REUSABLE = {"G4", "G5", "G6", "G7", "G8", "G9", "G13", "G14", "G15", "G16"}
@@ -173,6 +174,13 @@ def dependency_files(c, patterns, bench, *, include_pool=False):
     return dependencies
 
 
+def agent_timeout(c):
+    """The agent_timeout an identity holds. Under the engine args.agent_timeout is the attempt's remaining
+    time (run.context_for_step), new on every attempt; the step's own deadline is the setting."""
+    engine = getattr(c, "engine", None)
+    return engine.deadline_s if hasattr(engine, "deadline_s") else getattr(c.args, "agent_timeout", 14400)
+
+
 def judge_dependencies(c, bench, *, calibration=False):
     """Exact portable stress/calibration dependency inventory; no whole manifest."""
     patterns = MEASURE + STRATEGY + MODEL + ("bin/run_validity.py", "*.md", "harbor/**", "factory/case_contract.py", "factory/attack_findings.py")
@@ -187,6 +195,7 @@ def judge_dependencies(c, bench, *, calibration=False):
                 ("agent_timeout", 14400), ("max_role_calls", 400), ("max_total_calls", 1000),
                 ("max_cost", 5), ("no_progress_minutes", 45), ("max_zero_tokens", 3),
                 ("concurrent_roles", True))}, seed=getattr(c, "seed", None))
+        result["settings"]["agent_timeout"] = agent_timeout(c)
     return result
 
 
@@ -217,6 +226,7 @@ def inputs(c, gate, bench):
         "args": {key: getattr(c.args, key, default) for key, default in settings.items()},
         "environment": environment("UNBUG_JUDGE", "UNBUG_FACTORY_SLOT", "MEDUSA_DEPS_IMAGE"),
     }
+    if "agent_timeout" in settings: identity["args"]["agent_timeout"] = agent_timeout(c)
     if gate in MODEL_STAGES:
         import run
         prompt_roles = ("pilot", "reviewer") if gate in {"G10", "G16", "G17"} else ("reviewer",)
@@ -320,11 +330,23 @@ def digests(c, bench):
     return found
 
 
+def owned(gate, kind, rel):
+    """Another gate's work files written beside this one by a concurrent lane are not its evidence: the
+    reviewers' copies (the next review() renames review-N) and another gate's details (gate-details/G8.json)."""
+    if kind != "work": return True
+    parts = rel.split("/")
+    if parts[0].startswith("review-"): return gate in {"G8", "G9"}
+    head = parts[1].split(".")[0] if parts[0] == "gate-details" and len(parts) > 1 else ""
+    return not re.fullmatch(r"G\d+", head) or head == gate
+
+
 def save(c, gate, info, signature, before, bench):
+    """True when the pass record was written."""
     if gate not in REUSABLE:
-        return
+        return False
     evidence = [{"kind": kind, "path": rel, "sha256": sha256}
-                for (kind, rel), sha256 in digests(c, bench).items() if before.get((kind, rel)) != sha256]
+                for (kind, rel), sha256 in digests(c, bench).items()
+                if before.get((kind, rel)) != sha256 and owned(gate, kind, rel)]
     seen = {e["path"] for e in evidence if e["kind"] == "work"}
     for label, directories in sorted(RECEIPTS.get(str(c.work), {}).items()):
         if not label.startswith(gate.lower() + "-"): continue
@@ -336,7 +358,7 @@ def save(c, gate, info, signature, before, bench):
         evidence = [{"kind": "work", "path": p.relative_to(c.work).as_posix(), "sha256": digest(p)}
                     for p in c.work.glob("review-[0-9]/verdict.json") if p.is_file()]
     if not evidence:
-        return  # A summary without supporting evidence cannot authorize later reuse.
+        return False  # A summary without supporting evidence cannot authorize later reuse.
     directory = c.work / "gate-cache"
     directory.mkdir(exist_ok=True)
     record = {"fingerprint_version": VERSION, "inputs": inputs(c, gate, bench),
@@ -344,6 +366,26 @@ def save(c, gate, info, signature, before, bench):
               "scientific_version": scientific_version(c, gate, bench)}
     if gate == "G16": record["calibration_identity"] = calibration_binding(c)
     atomic_json(directory / f"{gate}.json", record)
+    return True
+
+
+def record_files(c, gate, bench):
+    """The saved record and its evidence as snapshot members {name: path}, or {} when a file is missing
+    or changed (load would refuse it). Bench evidence goes where gather_bench_results puts it."""
+    try:
+        path = c.work / "gate-cache" / f"{gate}.json"
+        files = {f"gate-cache/{gate}.json": path}
+        for e in json.loads(path.read_text())["evidence"]:
+            relative = pathlib.PurePosixPath(e["path"])
+            if relative.is_absolute() or ".." in relative.parts: return {}
+            places = ([bench / "results" / relative, c.work / "bench-results" / relative]
+                      if e["kind"] == "bench" else [c.work / relative])
+            found = next((p for p in places if p.is_file() and digest(p) == e["sha256"]), None)
+            if found is None: return {}
+            files[("bench-results/" if e["kind"] == "bench" else "") + relative.as_posix()] = found
+        return files
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
 
 
 def changed_fields(saved, current):
