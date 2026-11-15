@@ -62,6 +62,8 @@ ACCOUNT_FREE_ROUTES = ('opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4
 # starve a writer; add aging if a writer ever waits past its deadline for that reason.
 STAGE_PRIORITY = {'seal': 3, 'diagnosis': 3, 'gates': 3, 'stress': 2, 'writer': 1, 'admit': 0}
 REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route', 'capacity'}
+# A lost lease (running()): never published to the router. worker_stalled is a worker-only wait reason, not in REASONS.
+LEASE_LOST = ('router_unavailable', 'worker_stalled')
 MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
 
 
@@ -214,6 +216,10 @@ class ProviderWait(BudgetError):
 
 class RouterUnavailable(RuntimeError):
     pass
+
+
+class RouterRejected(RouterUnavailable):
+    """The router answered with an error (e.g. a closed or unknown lease); it was reachable."""
 
 
 PAID_CEILING = 11_630_000_000
@@ -751,7 +757,7 @@ def router_request(url, token, operation, data, *, ca_file=None, ca_pem=None):
             return result
     except urllib.error.HTTPError as error:
         error.close()
-        raise RouterUnavailable('router response unavailable') from None
+        raise RouterRejected('router refused the request') from None
     except (OSError, ValueError, urllib.error.URLError):
         raise RouterUnavailable('router response unavailable') from None
 
@@ -962,18 +968,25 @@ def _start(lease):
 @contextmanager
 def running(lease, cancel):
     """Keep ownership alive; uncertain renewal cancels useful work, never retries it."""
-    stopped, lost = threading.Event(), threading.Event()
+    stopped, lost, renewed = threading.Event(), threading.Event(), [time.time()]
     def renew_once():
+        sent = time.time()
         try: result = _rpc('renew', {'lease_id': lease.lease_id})
         except ValueError: raise RouterUnavailable('lease renewal unavailable') from None
         if not valid_maximum(result) or any(result.get(k) != getattr(lease, k)
                 for k in ('route', 'account', 'pool', 'family', 'billing', *MAXIMUM_FIELDS)):
             raise RouterUnavailable('lease binding changed')
+        renewed[0] = sent
     renew_once()
     def renew():
         while not stopped.wait(RENEW_SECONDS):
             try: renew_once()
-            except (RouterUnavailable, ValueError):
+            except (RouterUnavailable, ValueError) as error:
+                # The router refusing a lease our renewals let lapse is a worker stall (cae763, 15 November), not an outage.
+                # ponytail: wall clock, like the router's expiry; a clock jump over LEASE_SECONDS can swap the label
+                # (only the label). Compare the router's returned expires_at if that ever matters.
+                if isinstance(error, RouterRejected) and time.time() - renewed[0] > LEASE_SECONDS:
+                    lost.reason = 'worker_stalled'
                 lost.set(); cancel.set(); return
     thread = threading.Thread(target=renew, daemon=True)
     thread.start()

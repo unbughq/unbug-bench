@@ -52,7 +52,9 @@ _WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"), "capacity":
          "credit": (_P, "router:credit"), "outage": (_I, "router:outage"),
          "credential_expiring": (_I, "router:credential_expiring"),
          "unbounded_route": (_I, "router:unbounded_route"),
-         "router_unavailable": (_I, "infra:router_unavailable")}
+         "router_unavailable": (_I, "infra:router_unavailable"),
+         # The router refused a lease the worker's renewals let lapse: a worker stall, an ordinary infra retry.
+         "worker_stalled": (_I, "infra:worker_stalled")}
 FAILURE_STOPS = frozenset({"process_error", "claude_error", "codex_error", "opencode_error",
                            "refusal", "zero_tokens", "timeout", "stalled", "credential_expiring", "model_unavailable"})
 
@@ -126,6 +128,7 @@ _FIXED = {
     "provider_wait_record_missing": (_I, "infra:provider_wait_record_missing"),  # run.write_provider_wait
     "route_feature_unsupported": (_I, "infra:route_feature_unsupported"),    # model_call_gate free route
     "RouterUnavailable": (_I, "infra:router_unavailable"),
+    "RouterRejected": (_I, "infra:router_unavailable"),   # its subclass: the router answered with an error
     "router_unavailable": (_I, "infra:router_unavailable"),
     "unbounded_route": (_I, "infra:router_unavailable"),
     "router_batch_unconfigured": (_I, "infra:router_unavailable"),
@@ -382,7 +385,8 @@ def classify_wait(error, *, step, now, prior=()):
         if record not in waits: waits.append(record)
     active = [row for row in waits if not row.get('historical')]
     reasons = {row['reason'] for row in active}
-    fault = next((r for r in ('credential_expiring', 'unbounded_route', 'router_unavailable') if r in reasons), None)
+    # Deliberate: router_unavailable outranks worker_stalled, so a stall while the router is also down stays an operational wait.
+    fault = next((r for r in ('credential_expiring', 'unbounded_route', 'router_unavailable', 'worker_stalled') if r in reasons), None)
     original = next((row['source_stop'] for row in reversed(waits) if 'source_stop' in row), None)
     reason = fault or waits[-1]['reason']
     reset = max((r['retry_after'] for r in active if 'retry_after' in r), default=None)
