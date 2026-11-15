@@ -67,6 +67,7 @@ class CaseBudgetTests(unittest.TestCase):
             return run.opencode(c, c.models['attacker'], json.dumps({'report_path': str(report)}),
                                 c.work, f'attacker-{n}')
         with patch.object(run, 'engine_prepare_bench'), patch.object(run, 'stress_categories', stress), \
+             patch.object(run, 'ensure_freshness', return_value=(True, {})), \
              patch.object(run, 'loop_freshness', side_effect=lambda c, result, path: (result, path)):
             return run.engine_stress_round(self.c, 1)
 
