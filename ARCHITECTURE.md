@@ -601,13 +601,13 @@ wallet spending limit including all retained charges. Restart applies an explici
 limit transactionally without resetting settled or uncertain spending; live wallet
 credit is checked separately on every paid request (a refused request still records the balance it saw).
 A balance too short for a request's hold, or a provider 402, blocks the paid pool (`openrouter-key`) for
-`credit` until lifted; a credit block on any other pool has no balance to read and expires on its backoff.
-The router's reconcile loop lifts the paid pool's block (`Store.lift_credit`) only after a top-up: the
-balance must exceed the one recorded with the block by more than one request of the dearest gated route,
-and pay that request on top of the holds in flight (holds settling is no top-up). It never lifts inside a
-402's backoff (which doubles on each repeat), and not at all after three credit refusals (402s and short
-balances, counted apart from 429s) with no call finishing between them: the guard then alerts (check the
-key's own limit) and the operator lifts it with `model_router.py --lift-credit`. A seat wait on another
+`credit` until lifted (a 429 on a call in flight only lengthens it); a credit block on any other pool has
+no balance to read and expires on its backoff, and its stop is that provider's limit, not `router:credit`.
+The router's reconcile loop lifts the paid pool's block (`Store.lift_credit`) once the balance pays the
+holds in flight, one request of the dearest gated route and a $5 margin (`LIFT_MARGIN_USD`), so a lift
+means a top-up. It never lifts inside a 402's backoff (which doubles on each repeat), and not at all after
+three 402s, each after a lift with no call finishing done between them: the guard then alerts (check the
+key's own limit) and the operator lifts it with `model_router.py --lift-credit`, which prints why if not. A seat wait on another
 route of the chain wins over the paid pool's credit wait. A step that ends `router:credit` settles with
 its unspent hold released and its spend booked to the case, not waste (its snapshot keeps the work). If the
 paid pool is blocked it parks without its worker as `waiting_for_credit` (engine `wait_for_credit`, patch

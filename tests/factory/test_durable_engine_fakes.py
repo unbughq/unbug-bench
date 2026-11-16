@@ -772,7 +772,7 @@ def engine_main(workdir):
                     (work / "router-clear").touch()   # the router reports its pools healthy
                 if "top_up" in act:
                     (work / "balance.txt").write_text(act["top_up"])
-                    observed["lifted"] = router_store.lift_credit()
+                    observed["lifted"] = router_store.lift_credit() == "lifted"
                 if "resume_held" in act:
                     observed["resume_sent"] = engine.resume_held(f"case-{spec.batch_id[2:]}-{act['resume_held']}")
                 if "case" in when:

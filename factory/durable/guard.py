@@ -615,7 +615,8 @@ class Guard:
         if health.get("router_credit_stuck"):
             out["router_credit_stuck"] = ("The provider account's credit refused 3x despite balance: check key limit "
                                           "(the OpenRouter key's own credit limit), then run "
-                                          "`model_router.py --config <router config> --lift-credit`.")
+                                          "`model_router.py --config <router config> --lift-credit` with "
+                                          "OPENROUTER_API_KEY set; it prints why if it does not lift.")
         spent, ceiling = health.get("router_spent_usd"), health.get("router_ceiling_usd")
         if spent is not None and ceiling and spent >= CEILING_ALERT_SHARE * ceiling:
             left = max(ceiling - ROUTER_MARGIN_USD - spent, 0)

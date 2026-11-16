@@ -223,7 +223,7 @@ class PaidTests(unittest.TestCase):
         self.store.lift_credit()
         self.assertFalse(self.credit_clear())          # the key's own limit, most likely: no more wakes
         self.assertTrue(router_spend(self.path)[3])    # the guard's alert
-        self.assertTrue(self.store.lift_credit(force=True))   # the operator, after fixing the key
+        self.assertEqual(self.store.lift_credit(force=True), 'lifted')   # the operator, after fixing the key
         self.assertTrue(self.credit_clear())
         self.assertFalse(router_spend(self.path)[3])
         self.refused()                                 # a fresh count: one refusal backs off 15 minutes
@@ -255,25 +255,77 @@ class PaidTests(unittest.TestCase):
         self.store.rpc('finish', dict(lease_id=paid.lease_id, outcome='interrupted', receipt=None))
         self.assertEqual(admit(self.store, model, accounts=everyone)['reason'], 'rate')   # a Go seat frees soon
 
-    def test_a_credit_block_lifts_only_after_a_real_top_up_not_when_holds_settle(self):
-        """Goldfish 16 November (wake churn): headroom that grows only because holds settled is not a
-        top-up; lifting on it woke every parked case into another refusal."""
+    def margin(self):   # what a lift needs above the holds in flight: the margin and one dearest call
+        return router.LIFT_MARGIN_USD + Decimal(max(map(router._hold, GATED_OPENROUTER))) / 10**9
+
+    def test_a_credit_block_lifts_on_a_margin_above_the_holds_not_when_holds_settle(self):
+        """Goldfish 16 November (wake churn): headroom that grows only because holds settle must not
+        wake every parked case into another refusal."""
         self.credit = Decimal('1')
         lease = admit(self.store)
         granted = [self.reserve(lease) for _ in range(4)]   # $0.92 of holds on a $1 balance
         self.assertTrue(all(result['granted'] for _, result in granted))
-        self.assertFalse(self.reserve(lease)[1]['granted'])  # short: the pool blocks at balance $1
-        for data, _ in granted:                              # the calls finish cheaply...
+        self.assertFalse(self.reserve(lease)[1]['granted'])  # short: the pool blocks
+        for data, _ in granted:                              # the calls finish cheaply: holds near zero
             self.assertTrue(self.store.rpc('paid_settle', data | {'usage': dict(prompt_tokens=1000, completion_tokens=1000)})['settled'])
         self.store.lift_credit()
-        self.assertFalse(self.credit_clear())                # ...but the balance is what it was
-        hold = Decimal(max(map(router._hold, GATED_OPENROUTER))) / 10**9
-        self.credit = Decimal('1') + hold                    # not more than one call above it
-        self.store.lift_credit()
         self.assertFalse(self.credit_clear())
-        self.credit += Decimal('.01')                        # a top-up
-        self.assertTrue(self.store.lift_credit())
+        self.now[0] += 901                                   # past the window: nothing in flight
+        self.credit = self.margin()                          # a top-up to $5 and one call
+        self.assertEqual(self.store.lift_credit(), 'lifted')
         self.assertTrue(self.credit_clear())
+
+    def test_a_stale_high_balance_reading_never_blocks_a_lift(self):
+        self.credit = Decimal('100')
+        self.assertTrue(self.reserve(admit(self.store))[1]['granted'])   # the router last read $100
+        self.now[0] += 901
+        self.refused()                                       # a 402: the balance was really gone
+        self.now[0] += 901
+        self.credit = Decimal('50')                          # the top-up, below that stale reading
+        self.assertEqual(self.store.lift_credit(), 'lifted')
+
+    def test_a_429_on_a_call_in_flight_never_ends_a_credit_block(self):
+        self.credit = Decimal('100')
+        other = admit(self.store)                            # in flight before the block
+        lease = admit(self.store)
+        self.credit = Decimal('.1')
+        self.assertFalse(self.reserve(lease)[1]['granted'])  # short: the pool blocks
+        for reason in ('rate', 'quota'):
+            self.store.rpc('observe', dict(pool=None, healthy=False, observation_id=uuid.uuid4().hex,
+                                           lease_id=other.lease_id, reason=reason, reset_at=None))
+            self.assertFalse(self.credit_clear())            # no top-up, no wake
+
+    def test_concurrent_402s_are_one_refusal_and_a_top_up_lifts_them(self):
+        from durable.guard import router_spend
+        self.credit = Decimal('50')
+        leases = [admit(self.store) for _ in range(3)]
+        for lease in leases:                                 # one run-out, three calls refused together
+            self.store.rpc('observe', dict(pool=None, healthy=False, observation_id=uuid.uuid4().hex,
+                                           lease_id=lease.lease_id, reason='credit', reset_at=None))
+        self.assertFalse(router_spend(self.path)[3])
+        self.now[0] += 4000
+        self.credit = Decimal('500')
+        self.assertEqual(self.store.lift_credit(), 'lifted')
+
+    def test_low_balance_refusals_never_reach_the_cap(self):
+        from durable.guard import router_spend
+        for _ in range(4):                                   # under-funded top-ups: refused again each time
+            self.credit = Decimal('.1')
+            lease = admit(self.store)
+            self.assertFalse(self.reserve(lease)[1]['granted'])
+            self.store.rpc('finish', dict(lease_id=lease.lease_id, outcome='interrupted', receipt=None))
+            self.credit = self.margin()
+            self.assertEqual(self.store.lift_credit(), 'lifted')
+        self.assertFalse(router_spend(self.path)[3])
+
+    def test_an_operator_lift_says_why_it_did_not_lift(self):
+        self.assertEqual(self.store.lift_credit(force=True), 'no_block')
+        self.refused()
+        self.credit = None
+        self.assertIn('balance_unreadable', self.store.lift_credit(force=True))
+        self.assertIn('OPENROUTER_API_KEY', self.store.lift_credit(force=True))
+        self.credit = Decimal('.1')
+        self.assertEqual(self.store.lift_credit(force=True), 'short_by $0.53')   # the dearest call, $0.63
 
     def test_rate_limits_never_count_toward_the_credit_refusal_cap(self):
         from durable.guard import router_spend
@@ -287,7 +339,7 @@ class PaidTests(unittest.TestCase):
         self.refused()                                       # the first credit refusal
         self.assertFalse(router_spend(self.path)[3])         # no "refused 3x" alert
         self.now[0] += 901                                   # one refusal's backoff
-        self.assertTrue(self.store.lift_credit())
+        self.assertEqual(self.store.lift_credit(), 'lifted')
         self.assertTrue(self.credit_clear())
 
     def test_unreadable_books_read_as_no_credit_block(self):
@@ -317,7 +369,7 @@ class PaidTests(unittest.TestCase):
         self.assertFalse(self.reserve(lease)[1]['granted'])   # inside the billing window: still counted
         self.now[0] += 901                            # past the window
         # The refusal blocked the pool at this balance; only a top-up or the operator lifts it.
-        self.assertTrue(self.store.lift_credit(force=True))
+        self.assertEqual(self.store.lift_credit(force=True), 'lifted')
         lease = admit(self.store)
         self.assertTrue(self.reserve(lease)[1]['granted'])
         self.assertEqual(self.status()['total_usd'], '3.680000000')   # spend history keeps every hold

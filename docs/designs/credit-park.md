@@ -13,15 +13,18 @@ cases retried blind every 15 minutes. The attempt's spend was booked as waste.
 ## After
 
 - **Router** (`model_router.py`). A short balance (paid_reserve) or a 402 (observe) blocks the paid pool
-  `openrouter-key` for credit and records the balance last read. `Store.lift_credit`, run every reconcile
-  pass, lifts the block only after a top-up: the balance read must exceed the recorded one by more than
-  one request of the dearest gated route, and pay that request on top of the holds in flight. Headroom
-  from holds settling is not a top-up. It never lifts inside a 402's backoff (15, 30, 60 minutes). After
-  three credit refusals (402s and short balances, counted apart from 429s) with no call finishing between
-  them, it stops: the guard
-  alerts "credit refused 3x despite balance: check key limit", and the operator runs
-  `model_router.py --config <cfg> --lift-credit`. A credit block on any other pool has no readable
-  balance, so it expires on its backoff. A Go seat wait wins over the paid pool's credit wait.
+  `openrouter-key` for credit. A 429 or quota on a call in flight only lengthens it. `Store.lift_credit`,
+  run every reconcile pass, lifts it once the balance read pays the holds in flight, one request of the
+  dearest gated route and a fixed $5 margin (`LIFT_MARGIN_USD`): settling holds cannot free that much,
+  so a lift means a top-up. It never lifts inside a 402's backoff (15, 30, 60 minutes). After three 402s,
+  each after a lift with no call finishing done between them, it stops: the guard alerts "credit refused
+  3x despite balance: check key limit", and the operator runs `model_router.py --config <cfg>
+  --lift-credit` with `OPENROUTER_API_KEY` set; it prints `lifted` or why not (`no_block`,
+  `balance_unreadable`, `short_by $X`). 402s while blocked, low-balance refusals and 429s never count.
+  A credit block on any other pool has no readable balance, so it expires on its backoff. A Go seat
+  wait wins over the paid pool's credit wait.
+- **Worker** (`classify.py`). Only the paid pool's credit stop is `router:credit`. Another pool's 402
+  (OpenCode) is that provider's limit (`router:opencode_limit`) and keeps its short backoff.
 - **Engine** (`engine.py`, patch `credit_park`). A `router:credit` stop settles with no waste: its snapshot
   keeps every passed gate. If the paid pool is blocked, the case releases its worker and parks as
   `waiting_for_credit`. After its backoff it polls `model_router.credit_ready` every `wake_poll_s` until
@@ -36,9 +39,7 @@ cases retried blind every 15 minutes. The attempt's spend was booked as waste.
   refused at its first request and parks again: one attempt each, not a loop, since the next lift needs
   another top-up. (An earlier version also compared the balance with the step's dearest call, Claude
   routes included; a small top-up then lifted the block and woke no one, for good.)
-- **No top-up, no lift.** A block whose balance would pay once old holds age out stays until a top-up or
-  `--lift-credit`. A 402 from the key's own limit with no top-up stays parked; the cards' "Top it up"
-  reason is the alert.
+- **Margin.** With less than $5 over the dearest call the block stays until a top-up or `--lift-credit`.
 
 ## Patch name
 
@@ -47,4 +48,5 @@ The patch stays `credit_park`. The first version with it (cea82524) was never de
 
 ## Deploy
 
-The router reads the new rules only after a restart. Restart it drained (no model calls in flight).
+Restart the router first, drained (no model calls in flight), then the controller. A controller on the
+new engine with the old router would park on blocks that never lift.

@@ -2073,13 +2073,13 @@ class CreditPark(unittest.TestCase):
 
     def test_a_top_up_that_lifts_the_block_wakes_a_parked_rotation_case(self):
         # Goldfish 16 November (lost wake): the real router refuses at $0.20 and blocks the paid pool;
-        # a $5 top-up pays a paid call, so the lift clears the block. A live rotation batch's dearest
-        # gates call (Claude routes included) is far above $5, yet the parked case must wake on the
+        # a $6 top-up clears the $5 margin and one paid call, so the lift clears the block. A live rotation batch's dearest
+        # gates call (Claude routes included) is far above $6, yet the parked case must wake on the
         # lift: it checks only for the block.
         r, out = run({"spec": {"max_cases_started": 1}, "timing": {"wake_poll_s": 0.2},
                       "inputs": {"dry_run": False}, "router_credit": "0.2",
                       "script": {"1/gates:1/1": self.CREDIT},
-                      "actions": [{"when": self.PARKED, "delay_s": 1.0, "top_up": "5"}]})
+                      "actions": [{"when": self.PARKED, "delay_s": 1.0, "top_up": "6"}]})
         self.addCleanup(r.close)
         (topped_up,) = r.actions()
         self.assertTrue(topped_up["lifted"])

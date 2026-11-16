@@ -743,6 +743,7 @@ class GuardTests(unittest.TestCase):
             self.f.guard(router=lambda: (5.0, 49.95, 120.0, True)).run()
         self.assertEqual(len(self.f.sent), 1)
         self.assertIn("credit refused 3x despite balance: check key limit", self.f.sent[0])
+        self.assertIn("OPENROUTER_API_KEY", self.f.sent[0])   # the lift reads the balance with it
         self.f.sent.clear()
         self.f.clock += 60
         self.f.guard(router=lambda: (5.0, 49.95, 120.0, False)).run()
