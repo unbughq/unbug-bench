@@ -656,5 +656,119 @@ class Sealing(Setup):
             store.get_sealed("case-t-1", inputs)
 
 
+class Bucket:
+    """The R2 bucket over HTTP, for the real R2Objects. `expired` keys answer 404, as objects the
+    lifecycle rule expire-7d deleted do; `down` keys fail in transport."""
+
+    def __init__(self):
+        self.objects, self.expired, self.down = {}, set(), set()
+
+    def __call__(self, method, url, headers, body):
+        key = url.split("/bucket/", 1)[1]
+        if key in self.down:
+            raise OSError("connection reset by peer")
+        if method == "PUT":
+            self.objects[key] = body
+            return 200, {}, b""
+        if key in self.expired or key not in self.objects:
+            return 404, {}, b""
+        return 200, {"content-length": str(len(self.objects[key]))}, self.objects[key] if method == "GET" else b""
+
+
+class ExpiredEvidence(Setup):
+    """case-import-1bb2ad-2-1, b-import-1bb2ad-2r4, 16 November: the DIAGNOSIS step carried 18 evidence
+    refs (17 from its 8 November attempts plus the engine's stop history), 12 of them expired from R2.
+    The executor fetched no blobs, never started the worker, and the attempt ended infra:attempt_absent
+    three times with 0 calls; the case was held for good."""
+
+    def setUp(self):
+        super().setUp()
+        from durable.artifacts import AgeSealer, R2Objects, SealedStore
+        self.bucket = Bucket()
+        self.store = SealedStore(R2Objects("acct", "AKID", "secret", "bucket", transport=self.bucket))
+        self.sealer = AgeSealer()
+        self.inputs = self.put("b-t", K.INPUTS, b"inputs")
+        self.snap = self.put("case-t-1", K.CASE_SNAPSHOT, b"snapshot")
+        kinds = [K.GATE_RECEIPT, K.DIAGNOSTIC, K.DIAGNOSTIC] * 5 + [K.DIAGNOSIS_REPORT, K.DIAGNOSTIC]
+        earlier = [self.put("case-t-1", kind, f"8 November attempt {i}".encode()) for i, kind in enumerate(kinds)]
+        self.stops = [{"seq": 9, "step": "WRITER", "attempt": 1, "outcome": "infra_error", "reason": "infra:deadline"}]
+        self.history = self.put("case-t-1", K.DIAGNOSTIC, json.dumps(self.stops).encode())
+        self.evidence = (*earlier, self.history)
+        self.gone = earlier[:12]
+        for ref in self.gone:
+            self.bucket.expired.add(self.store.key("case-t-1", ref))
+        self.channel = self.Worker(self)
+
+    class Worker(Channel):
+        """A worker that answers ABSENT until started; a cancel of an attempt that never started
+        answers infra:cancelled, as the production worker did."""
+
+        def __init__(self, test):
+            super().__init__([Poll(PollState.ABSENT)])
+            self.test, self.frames = test, []
+
+        def start(self, lease, si, keys, blobs):
+            self.frames.append((si, keys, dict(blobs)))
+            self.polls = [Poll(PollState.DONE, self.test.diagnosed())]
+
+        def cancel(self, lease, si):
+            if not self.frames:
+                self.polls = [Poll(PollState.DONE, StepResult(Outcome.INFRA_ERROR, "infra:cancelled"))]
+
+    def diagnosed(self):
+        from durable.contract import Verdict
+        report = self.put("case-t-1", K.DIAGNOSIS_REPORT, b'{"outcome":"factory_bug"}')
+        return StepResult(Outcome.OK, "diagnosis:completed", Usage(1, 300, 300), snapshot=self.snap,
+                          verdict=Verdict.FACTORY_BUG, report=report)
+
+    def diagnosis(self):
+        return StepInput("b-t", "case-t-1", 12, Step(StepKind.DIAGNOSIS), 1, P, B, self.inputs, self.snap,
+                         600.0, 5_000_000, evidence=self.evidence)
+
+    def run_it(self, si):
+        return guarded_run(self.ex(self.channel), si)
+
+    def test_expired_evidence_still_starts_the_diagnosis(self):
+        si = self.diagnosis()
+        result = self.run_it(si)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "diagnosis:completed"))
+        self.assertEqual(len(self.channel.frames), 1)
+        sent, keys, blobs = self.channel.frames[0]
+        self.assertEqual(sent.idempotency_key, si.idempotency_key)   # the same attempt: poll and replay match it
+        self.assertEqual(sent.evidence[:-1], tuple(r for r in self.evidence if r not in self.gone))
+        note = sent.evidence[-1]
+        self.assertEqual(set(blobs), {blob_name(r) for r in (self.inputs, self.snap, *sent.evidence)})
+        opened = [(r, self.sealer.open(keys["case-t-1"], r, blobs[blob_name(r)])) for r in sent.evidence]
+        self.assertEqual(json.loads(opened[-1][1]), {"lost_evidence": {
+            "reason": "artifact_missing", "count": 12, "kinds": {"diagnostic": 8, "receipt": 4}}})
+        self.assertIs(note.kind, K.DIAGNOSTIC)
+        from durable.steps.diagnosis import _history
+        self.assertEqual(_history(opened), self.stops)   # the worker still finds the engine's stop history
+
+    def test_a_missing_input_or_snapshot_still_fails(self):
+        for ref, scope in ((self.inputs, "b-t"), (self.snap, "case-t-1")):
+            with self.subTest(kind=ref.kind):
+                self.bucket.expired = {self.store.key(scope, ref)}
+                self.channel = self.Worker(self)
+                self.assertEqual(self.run_it(self.diagnosis()).reason, "infra:attempt_absent")
+                self.assertEqual(self.channel.frames, [])
+
+    def test_an_expired_stop_history_still_fails(self):
+        # The history is the last ref; without it diagnosis cannot reach its code-decided verdict.
+        self.bucket.expired = {self.store.key("case-t-1", self.history)}
+        self.assertEqual(self.run_it(self.diagnosis()).reason, "infra:attempt_absent")
+        self.assertEqual(self.channel.frames, [])
+
+    def test_a_store_outage_never_drops_evidence(self):
+        self.bucket.expired = set()
+        self.bucket.down = {self.store.key("case-t-1", self.evidence[3])}
+        self.assertEqual(self.run_it(self.diagnosis()).reason, "infra:attempt_absent")
+        self.assertEqual(self.channel.frames, [])
+        self.bucket.down = set()
+        self.channel = self.Worker(self)
+        self.assertIs(self.run_it(self.diagnosis()).outcome, Outcome.OK)
+        self.assertEqual(self.channel.frames[0][0].evidence, self.evidence)   # nothing lost, nothing noted
+
+
 if __name__ == "__main__":
     unittest.main()
