@@ -411,6 +411,10 @@ class InvariantTests(unittest.TestCase):
         diagnosis = attempt(key="case-1/8/diagnosis/1", seq=8, reason="diagnosis:completed", paid=0)
         writer = attempt(key="case-1/8/writer:4/1", seq=8, paid=0)
         self.assertEqual(self.checks([diagnosis, writer]), [])
+        # Each is checked against its own ledger row: the writer's unbooked usage is still caught.
+        paid = attempt(key="case-1/8/writer:4/1", seq=8, paid=900)
+        only_diagnosis = {"case-1/8/diagnosis/1": booked(paid=0)}
+        self.assertEqual(self.checks([diagnosis, paid], ledger=only_diagnosis), ["spend_below_usage"])
 
     def test_an_unreadable_section_skips_only_its_own_checks(self):
         twice = [attempt(paid=900), attempt(outcome="infra_error", reason="infra:cancelled", paid=900)]
