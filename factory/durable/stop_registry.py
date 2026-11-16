@@ -380,10 +380,13 @@ def invariants(attempts: Iterable[dict], ledger: Optional[dict], budgets: Option
     (SqlLedger._batch_sums). A section that could not be read is None, and only its checks are skipped."""
     out, results = [], {}
     for a in attempts:
-        ident = (a["case_id"], a["batch_id"], a["seq"], a["attempt"])
+        # The ledger key names the step: a factory_bug rerun in place (Engine.rerun_after_release) gives
+        # the step after a diagnosis the diagnosis's seq, so seq and attempt alone are not one attempt
+        # (1bb2ad 16 November: diagnosis/1 and writer:4/1 both at seq 8 attempt 1).
+        ident = (a["case_id"], a["batch_id"], a["key"])
         results.setdefault(ident, {})[(a["outcome"], a["reason"], a["paid_usd_micros"])] = a
-    for (case, batch, seq, attempt), seen in sorted(results.items(), key=lambda kv: str(kv[0])):
-        where = f"{batch} {case} seq {seq} attempt {attempt}"
+    for (case, batch, key), seen in sorted(results.items(), key=lambda kv: str(kv[0])):
+        where = f"{batch} {key}"
         if len(seen) > 1:   # one attempt, two different recorded results
             out.append(("attempt_recorded_twice", f"INVARIANT  attempt_recorded_twice  {where}: "
                         + "; ".join(f"{o} {r} paid {p}" for o, r, p in sorted(seen, key=str))))

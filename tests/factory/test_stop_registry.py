@@ -406,6 +406,12 @@ class InvariantTests(unittest.TestCase):
         twice = self.checks([attempt(), attempt(outcome="infra_error", reason="infra:cancelled")])
         self.assertEqual(twice, ["attempt_recorded_twice"])
 
+    def test_a_diagnosis_and_the_next_step_may_share_a_seq(self):
+        # 1bb2ad 16 November: a factory_bug rerun in place numbered writer:4 at the diagnosis's seq 8.
+        diagnosis = attempt(key="case-1/8/diagnosis/1", seq=8, reason="diagnosis:completed", paid=0)
+        writer = attempt(key="case-1/8/writer:4/1", seq=8, paid=0)
+        self.assertEqual(self.checks([diagnosis, writer]), [])
+
     def test_an_unreadable_section_skips_only_its_own_checks(self):
         twice = [attempt(paid=900), attempt(outcome="infra_error", reason="infra:cancelled", paid=900)]
         over = {"b-1": {"bound": 1, "held": 0, "spent": 2, "waste": 0}}
