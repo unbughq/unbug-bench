@@ -1742,8 +1742,9 @@ class ResumeOverride(unittest.TestCase):
 
     def test_the_founder_granted_extras_are_recorded(self):
         # Founder 2026-11-14: f46dac-5-1 and cae763-2-1 each get one override past OVERRIDE_MAX.
+        # Founder 2026-11-16: cae763-2-1 gets a second.
         from durable.engine import OVERRIDE_EXTRA
-        self.assertEqual(OVERRIDE_EXTRA, {"case-import-f46dac-5-1": 1, "case-import-cae763-2-1": 1})
+        self.assertEqual(OVERRIDE_EXTRA, {"case-import-f46dac-5-1": 1, "case-import-cae763-2-1": 2})
 
     def test_a_founder_extra_override_allows_one_more_for_that_case_only(self):
         # Founder 2026-11-14 (f46dac-5-1): OVERRIDE_EXTRA grants a named case one override past the cap.
@@ -1764,6 +1765,25 @@ class ResumeOverride(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1 + "@b-z3": "retired"})
         self.assertEqual(card(out, C1)["override"], "third")
         self.assertEqual(self.resume(r, "b-z4", override="fourth", spec=spec, extra={C1: 1}),
+                         {"refused": "resume:override_used"})
+
+    def test_a_second_founder_extra_allows_a_fourth_override_and_no_fifth(self):
+        # Founder 2026-11-16 (cae763-2-1): an extra of 2 is two overrides past the cap, then refused.
+        spec = {"max_infra_retries_per_step": 2}
+        again = {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",
+                                 "checkpoint": True},
+                 "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = self.manual_run(Resume.GATES_INFRA)
+        self.addCleanup(r.close)
+        for batch in ("b-u", "b-v", "b-w"):
+            self.resume(r, batch, again, spec=spec)
+        for batch, why in (("b-y", self.WHY), ("b-z", "again"), ("b-z3", "third")):
+            self.assertEqual(self.resume(r, batch, again, override=why, spec=spec, extra={C1: 2})["result"]["cases"],
+                             {f"{C1}@{batch}": "retired"})
+        out = self.resume(r, "b-z4", again, override="fourth", spec=spec, extra={C1: 2})
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-z4": "retired"})
+        self.assertEqual(card(out, C1)["override"], "fourth")
+        self.assertEqual(self.resume(r, "b-z5", override="fifth", spec=spec, extra={C1: 2}),
                          {"refused": "resume:override_used"})
 
     def test_a_factory_bug_hold_whose_step_never_started_resumes_at_that_step(self):

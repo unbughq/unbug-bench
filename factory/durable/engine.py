@@ -458,8 +458,10 @@ OVERRIDE_MAX = 2
 # close_to_passing extension) ran only a diagnosis, which said factory_bug: the G2 freshness livelock
 # fixed in 77d000f7. Founder 2026-11-14 ("Yes"): one for cae763-2-1 too. Its second override ended in a
 # writer round whose G15 crashed 3 of 3 on a second copy of its inventory service (fixed in 0ab31142).
+# Founder 2026-11-16 ("Yes, override"): a second one for cae763-2-1. Its third override lost gates:8 to
+# the free MiniMax route failing (router:opencode_error); builders run on paid MiniMax since 15:04 UTC.
 # Case id -> extra overrides.
-OVERRIDE_EXTRA = {"case-import-f46dac-5-1": 1, "case-import-cae763-2-1": 1}
+OVERRIDE_EXTRA = {"case-import-f46dac-5-1": 1, "case-import-cae763-2-1": 2}
 
 
 def _override_refusal(kind: Optional[str], r) -> Optional[str]:
