@@ -86,7 +86,7 @@ class _Runtime:
     timing: Timing = Timing()
     admission_paused = staticmethod(lambda: False)
     router_clear = staticmethod(lambda: False)   # no router wired: a quota hold never resumes by itself
-    credit_ready = staticmethod(lambda hold=None: False)   # nor a case parked on router:credit
+    credit_ready = staticmethod(lambda: False)   # nor a case parked on router:credit
     draining = threading.Event()
     lock = threading.Lock()
     busy = 0     # attempt workflows running in this process
@@ -326,14 +326,13 @@ def hold_clear_step(kind: str, batch_id: str, case_id: str, case_limit: int) -> 
 
 
 @DBOS.step()
-def credit_ready_step(hold: Optional[int] = None) -> bool:
+def credit_ready_step() -> bool:
     """Whether a case stopped on router:credit may run (_Case.wait_for_credit): the router shows no
-    credit block on its paid pool and, given `hold` (micro-USD, the step's dearest gated request), the
-    router's own pre-check would fund that request now. Unreadable books are "not yet"."""
+    credit block on its paid pool. Unreadable books are no block (model_router.credit_ready)."""
     try:
-        return bool(_RT.credit_ready(hold))
+        return bool(_RT.credit_ready())
     except Exception:
-        return False
+        return True
 
 
 @DBOS.step()
@@ -1439,7 +1438,7 @@ class _Case:
                 # and keeps the short sleep on its worker below.
                 if (result.reason == CREDIT_REASON and DBOS.patch("credit_park")
                         and not credit_ready_step()):
-                    self.wait_for_credit(seconds, call_hold_step(job["input"]))
+                    self.wait_for_credit(seconds)
                     continue
                 # A short wait keeps its worker: releasing it made every retry create a new one,
                 # and on 8 November the 15-minute rate waits of five cases spent the campaign's
@@ -1529,21 +1528,21 @@ class _Case:
         self.status = "running"
         return True
 
-    def wait_for_credit(self, seconds: float, hold: int) -> None:
+    def wait_for_credit(self, seconds: float) -> None:
         """Founder 15 November: out of credit, stop cleanly and resume where it stopped once credit is
         back. The attempt has settled (its unspent hold released, its spend the case's, not waste) and
         its snapshot keeps every passed gate. Park without a worker for the attempt's own backoff, then
-        until the router has lifted its credit block (model_router.lift_credit, on a top-up) and its
-        books fund one request of this step's dearest model (`hold`, micro-USD): a lift that pays for
-        one request leaves the cases it cannot fund parked, with no worker. One retry, never counted
-        or diagnosed; the wake clears the card's router:credit reason, and with it the guard's alert."""
+        until the router has lifted its credit block (model_router.lift_credit, after a top-up). Only
+        the block: a woken case the balance still cannot fund is refused once and parks again. One
+        retry, never counted or diagnosed; the wake clears the card's router:credit reason, and with
+        it the guard's alert."""
         self.release_worker()
         if self.replaying:
             return
         self.status = "waiting_for_credit"
         self.card()
         DBOS.sleep(seconds)
-        while not credit_ready_step(hold):
+        while not credit_ready_step():
             DBOS.sleep(_RT.timing.wake_poll_s)
         self.status, self.last_reason = "running", None
         self.card()
@@ -2339,7 +2338,7 @@ class Engine:
     def __init__(self, *, system_database_url: str, executor: Executor, timing: Timing = Timing(),
                  environ: Optional[Mapping[str, str]] = None, pool_size: int = 40,
                  admission_paused=lambda: False, router_clear=lambda: False,
-                 credit_ready=lambda hold=None: False):
+                 credit_ready=lambda: False):
         self.url, self.executor, self.timing = system_database_url, executor, timing
         self.admission_paused, self.router_clear, self.credit_ready = admission_paused, router_clear, credit_ready
         self.environ = os.environ if environ is None else environ

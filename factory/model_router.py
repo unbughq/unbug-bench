@@ -371,8 +371,9 @@ def _paid_charge(profile, usage):
 # The paid pool, the one whose balance the router can read (credit_reader). Its credit block lasts until
 # lift_credit sees a top-up; a credit block on any other pool (an OpenCode 402) expires like any other.
 PAID_POOL = 'openrouter-key'
-# After this many refusals in a row on the paid pool, the last a credit block, the balance is not the
-# cause (most likely the key's own credit limit): lift_credit leaves the block for the operator.
+# After this many credit refusals (402s and low-balance refusals; never 429s) on the paid pool with no
+# call finishing between them, each after a top-up, the balance is not the cause (most likely the
+# key's own credit limit): lift_credit leaves the block for the operator.
 CREDIT_LIFT_CAP = 3
 
 
@@ -473,9 +474,10 @@ class Store:
             if operation == 'paid_reserve':
                 result = self._paid_reserve(db, data, credit, fetched_at, started)
                 if 'short' in result:
-                    old = health.get(result['short'], {})
-                    health[result.pop('short')] = dict(old, reason='credit', observed_at=now,
-                                                       blocked_until=max(now, old.get('blocked_until', 0)))
+                    key = result.pop('short'); old = health.get(key, {})
+                    health[key] = dict(old, reason='credit', observed_at=now, balance=credit,
+                                       refusals=old.get('refusals', 0) + (old.get('reason') != 'credit'),
+                                       blocked_until=max(now, old.get('blocked_until', 0)))
             elif operation == 'paid_settle':
                 result = self._paid_settle(db, data, now)
             elif operation == 'status':
@@ -594,7 +596,7 @@ class Store:
                     if data['outcome'] == 'done':
                         route = json.loads(row[0]); old = health.get(route['pool'], {})
                         old['ready_at'] = now
-                        if not blocked(route): old.update(failures=0, observed_at=now)
+                        if not blocked(route): old.update(failures=0, refusals=0, observed_at=now)
                         health[route['pool']] = old
                     result = {'finished': True}
             elif operation == 'observe':
@@ -616,9 +618,16 @@ class Store:
                         if reason not in REASONS - {'unbounded_route', 'capacity'}: raise ValueError('invalid provider reason')
                         key = route['pool'] + ('/' + route['route'] if reason == 'outage' else '')
                         old = health.get(key, {}); failures = old.get('failures', 0) + 1
-                        reset = retry_at(reason, now=now, failures=failures, reset_at=data.get('reset_at'))
+                        # Credit refusals count apart, so 429s never back a credit block off or cap it.
+                        refusals = old.get('refusals', 0) + (reason == 'credit')
+                        reset = retry_at(reason, now=now, failures=refusals if reason == 'credit' else failures,
+                                         reset_at=data.get('reset_at'))
                         health[key] = dict(reason=reason, blocked_until=reset, observed_at=now, failures=failures,
+                                           refusals=refusals,
                                            credit='denied' if reason == 'credit' else old.get('credit', 'unknown'))
+                        if reason == 'credit':   # the balance last read: a lift needs a top-up above it
+                            account = db.execute('SELECT credit FROM paid_account WHERE id=1').fetchone()
+                            health[key]['balance'] = account[0] if account and type(account[0]) is int else 0
                     db.execute('INSERT INTO observations VALUES (?)', (identity,))
                 result = {'observed': True}
             else: raise ValueError('unknown router operation')
@@ -681,19 +690,20 @@ class Store:
         return dict(granted=True)
 
     def lift_credit(self, force=False):
-        """Lift the paid pool's credit block once the balance pays one request of the dearest gated
-        route on top of the holds in flight (paid_reserve's own test), so the cases parked on it
-        (engine wait_for_credit) can wake after a top-up. Never inside the block's backoff: a 402 the
-        balance disagreed with backs off further each time (observe counts refusals until a call
-        finishes done), and after CREDIT_LIFT_CAP of them the block stays for the operator (the guard
-        alerts, credit_stuck). `force` is that operator (--lift-credit): no backoff, no cap, a fresh
-        count; the balance must still pay. The balance read is kept for credit_ready. True: lifted.
-        reconcile_forever calls it every pass."""
+        """Lift the paid pool's credit block after a top-up, so the cases parked on it (engine
+        wait_for_credit) wake: the balance read is above the one recorded when the block was set by
+        more than one request of the dearest gated route, and pays that request on top of the holds in
+        flight. Headroom from holds settling is no top-up (it woke every case into another refusal).
+        Never inside the block's backoff: a 402 backs off further each time (observe counts credit
+        refusals until a call finishes done), and after CREDIT_LIFT_CAP of them the block stays for the
+        operator (the guard alerts, credit_stuck). `force` is that operator (--lift-credit): no backoff,
+        no cap, no top-up, a fresh count; the balance must still pay. The balance read is kept for the
+        guard's low-credit alert. True: lifted. reconcile_forever calls it every pass."""
         now = self.clock()
         def due(row):
             value = json.loads(row[0]) if row else {}
             return value.get('reason') == 'credit' and (force or (
-                value.get('blocked_until', 0) <= now and value.get('failures', 0) < CREDIT_LIFT_CAP))
+                value.get('blocked_until', 0) <= now and value.get('refusals', 0) < CREDIT_LIFT_CAP))
         read = lambda db: db.execute('SELECT value FROM health WHERE pool=?', (PAID_POOL,)).fetchone()
         with closing(sqlite3.connect(self.path, timeout=10)) as db:
             if not due(read(db)) or not self.credit_reader: return False
@@ -706,9 +716,11 @@ class Store:
             row = read(db)
             if not due(row): return False
             _, outstanding = _paid_counts(db, now - CREDIT_OVERLAP)
-            if outstanding + max(map(_hold, GATED_OPENROUTER)) > credit: return False
-            value = dict(json.loads(row[0]), reason=None, blocked_until=0, observed_at=now)
-            if force: value['failures'] = 0
+            value, hold = json.loads(row[0]), max(map(_hold, GATED_OPENROUTER))
+            if outstanding + hold > credit: return False
+            if not force and credit <= (value.get('balance') or 0) + hold: return False
+            value.update(reason=None, blocked_until=0, observed_at=now)
+            if force: value['refusals'] = 0
             db.execute('INSERT OR REPLACE INTO health VALUES (?,?)', (PAID_POOL, json.dumps(value)))
             return True
 
@@ -1102,26 +1114,20 @@ def credit_stuck(db):
     try: row = db.execute('SELECT value FROM health WHERE pool=?', (PAID_POOL,)).fetchone()
     except sqlite3.Error: return False
     value = json.loads(row[0]) if row else {}
-    return value.get('reason') == 'credit' and value.get('failures', 0) >= CREDIT_LIFT_CAP
+    return value.get('reason') == 'credit' and value.get('refusals', 0) >= CREDIT_LIFT_CAP
 
 
-def credit_ready(path, hold=None, now=None):
-    """Read-only, for a case stopped on router:credit (engine wait_for_credit): the paid pool has no
-    credit block and, given `hold` (nano-USD, the step's dearest gated request), paid_reserve's own test
-    passes on the last balance the router read (lift_credit keeps it): the holds in flight plus this one
-    within that balance and the ceiling. Unreadable books are not ready."""
-    now = time.time() if now is None else now
+def credit_ready(path):
+    """Read-only, for a case stopped on router:credit (engine wait_for_credit): whether the paid pool
+    has no credit block. Only the block: lift_credit lifts it after a top-up, and a woken case the
+    balance still cannot fund is refused once and parks again. Unreadable books are no block (the
+    case keeps its worker and its short sleep, as before the park)."""
     try:
         with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as db:
             row = db.execute('SELECT value FROM health WHERE pool=?', (PAID_POOL,)).fetchone()
-            if row and json.loads(row[0]).get('reason') == 'credit': return False
-            if not hold: return True
-            account = db.execute('SELECT ceiling,credit FROM paid_account WHERE id=1').fetchone()
-            if not account or account[1] is None: return True   # nothing read yet: paid_reserve decides
-            total, outstanding = _paid_counts(db, now - CREDIT_OVERLAP)
-            return outstanding + hold <= account[1] and (account[0] is None or total + hold <= account[0])
+            return not (row and json.loads(row[0]).get('reason') == 'credit')
     except (sqlite3.Error, ValueError):
-        return False
+        return True
 
 
 RECONCILE_SECONDS = 60

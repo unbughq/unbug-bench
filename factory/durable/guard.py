@@ -76,9 +76,10 @@ CASE_ALERTS = {
 # Waits that only an operator can end, so one case in them stalls the campaign (9 November: the
 # router's certificate expired and the guard read healthy for twenty minutes).
 STALL_STATUSES = ("waiting_for_credentials", "waiting_for_router")
-# A factory_bug hold waiting for a factory release (engine wait_for_fix): no progress is expected
-# until one is delivered, and it needs no decision, so it neither stalls the campaign nor alerts.
-RELEASE_WAITS = ("held_for_release",)
+# A factory_bug hold waiting for a factory release (engine wait_for_fix), and a case parked for a
+# top-up (engine wait_for_credit, which has its own CASE_REASON_ALERTS alert): no progress is expected
+# until the release or the top-up comes, so neither stalls the campaign.
+PARKED_WAITS = ("held_for_release", "waiting_for_credit")
 STALL_ALERTS = {
     "waiting_for_credentials": "{case} is stuck waiting for credentials. Check the router and its certificate.",
     "waiting_for_router": "{case} is stuck waiting for the router. Check the router and its certificate.",
@@ -506,7 +507,7 @@ class Guard:
             return
         # Cases waiting on a founder decision already raise their own alert.
         live = sorted(c["case"] for c in self.cases if c["status"] not in TERMINAL
-                      and c["status"] not in CASE_ALERTS and c["status"] not in RELEASE_WAITS)
+                      and c["status"] not in CASE_ALERTS and c["status"] not in PARKED_WAITS)
         if live and now - health["progress_at"] > STALL_S:
             health["stalled"], health["stalled_cases"] = "no_progress", live
         elif health["founder_waits"]:

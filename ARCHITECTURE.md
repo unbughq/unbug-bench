@@ -602,17 +602,20 @@ limit transactionally without resetting settled or uncertain spending; live wall
 credit is checked separately on every paid request (a refused request still records the balance it saw).
 A balance too short for a request's hold, or a provider 402, blocks the paid pool (`openrouter-key`) for
 `credit` until lifted; a credit block on any other pool has no balance to read and expires on its backoff.
-The router's reconcile loop lifts the paid pool's block (`Store.lift_credit`) once the balance pays one
-request of the dearest gated route on top of the holds in flight, never inside a 402's backoff (which
-doubles on each repeat), and not at all after three refusals in a row: the guard then alerts (check the
+The router's reconcile loop lifts the paid pool's block (`Store.lift_credit`) only after a top-up: the
+balance must exceed the one recorded with the block by more than one request of the dearest gated route,
+and pay that request on top of the holds in flight (holds settling is no top-up). It never lifts inside a
+402's backoff (which doubles on each repeat), and not at all after three credit refusals (402s and short
+balances, counted apart from 429s) with no call finishing between them: the guard then alerts (check the
 key's own limit) and the operator lifts it with `model_router.py --lift-credit`. A seat wait on another
 route of the chain wins over the paid pool's credit wait. A step that ends `router:credit` settles with
 its unspent hold released and its spend booked to the case, not waste (its snapshot keeps the work). If the
 paid pool is blocked it parks without its worker as `waiting_for_credit` (engine `wait_for_credit`, patch
-`credit_park`); after its backoff it waits until the block is lifted and the router's books fund one
-request of the step's dearest model (`model_router.credit_ready`), then retries once, uncounted and never
-diagnosed, and clears the card's `router:credit` reason. A refusal with no block (the router's ceiling,
-an unreadable balance) keeps the short sleep on its worker.
+`credit_park`); after its backoff it waits until the block is lifted (`model_router.credit_ready`, the
+block only), then retries once, uncounted and never diagnosed, and clears the card's `router:credit`
+reason; one the balance still cannot fund is refused once and parks again. The guard counts it neither as
+a stall nor as missing progress. A refusal with no block (the router's ceiling, an unreadable balance or
+unreadable router books) keeps the short sleep on its worker.
 A paid route whose ceiling cannot cover one more request's hold is also refused at lease time as a
 `credit` wait; current holds are under the guard's $1 margin. Within that margin the guard pauses new
 attempts (degraded) until the ceiling is raised; steps in flight keep running, and their paid calls

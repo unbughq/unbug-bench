@@ -93,10 +93,9 @@ def _router_db():
     return production_database({})
 
 
-def _credit_ready(path, hold):
-    """model_router.credit_ready on the router's books; `hold` is micro-USD, the router counts nano-USD."""
+def _credit_ready(path):
     from model_router import credit_ready
-    return credit_ready(path, None if hold is None else hold * 1000)
+    return credit_ready(path)
 
 
 def load_config(path):
@@ -237,7 +236,7 @@ class Runtime:
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
                                  admission_paused=lambda: guard_degraded(self.state),
                                  router_clear=lambda: router_clear(config.get("router_db") or _router_db()),
-                                 credit_ready=lambda hold=None: _credit_ready(config.get("router_db") or _router_db(), hold))
+                                 credit_ready=lambda: _credit_ready(config.get("router_db") or _router_db()))
         except Exception:
             self.close()
             raise

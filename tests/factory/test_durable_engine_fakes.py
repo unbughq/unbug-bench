@@ -659,18 +659,35 @@ def engine_main(workdir):
     ex = FaultInjectingExecutor(fakes["pool"], fakes["worker"], fakes["ledger"], fakes["store"], fakes["sealer"],
                                 fakes["keys"], poll_interval_s=scenario.get("poll_s", 0.02),
                                 grace_s=scenario.get("grace_s", 0.3), sleep=draining_sleep, pause=hold_if_draining)
+    credit_ready = lambda: (work / "router-clear").exists()   # the paid pool has no credit block
+    if "router_credit" in scenario:
+        # The real router's books, a paid-pool balance read from a file, and a low-balance refusal that
+        # blocked the pool, wired as runtime.Runtime wires them; a "top_up" action raises the balance
+        # and runs one lift pass (the router's reconcile loop).
+        import uuid
+        from decimal import Decimal
+        import model_router
+        from durable import runtime as runtime_module
+        router_db, balance = work / "router.sqlite", work / "balance.txt"
+        router_store = model_router.Store(router_db, capacities={"openrouter-key": 10}, paid_ceiling_usd="1000",
+                                          credit_reader=lambda: Decimal(balance.read_text()))
+        if not balance.exists():
+            balance.write_text(scenario["router_credit"])
+            lease = router_store.rpc("acquire", dict(id=uuid.uuid4().hex, model="openrouter/minimax/minimax-m3.1-flash",
+                                                     accounts=["openrouter-key"], role="writer",
+                                                     deadline=time.time() + 3600, paid_protocol=1))
+            router_store.rpc("start", {"lease_id": lease["lease_id"]})
+            refused = router_store.rpc("paid_reserve", dict(lease_id=lease["lease_id"], request_id=uuid.uuid4().hex))
+            assert refused == {"granted": False, "reason": "credit"}, refused
+            router_store.rpc("finish", dict(lease_id=lease["lease_id"], outcome="interrupted", receipt=None))
+        credit_ready = lambda: runtime_module._credit_ready(router_db)
     timing = Timing(**{"batch_poll_s": 0.5, "wake_poll_s": 5.0, "founder_poll_s": 2.0, "queue_poll_s": 0.05,
                        "listener_poll_s": 0.05, **scenario.get("timing", {})})
     engine = Engine(system_database_url=scenario.get("database_url", f"sqlite:///{work}/sys.sqlite"), executor=ex,
                     timing=timing, admission_paused=lambda: degraded(work / "state"),
-                    router_clear=lambda: (work / "router-clear").exists(),
-                    # A case parked on router:credit: the block is gone ("router-clear") and, given the
-                    # step's dearest hold, the router's last balance funds it ("credit-short" absent).
-                    credit_ready=lambda hold=None: (work / "router-clear").exists()
-                    and (hold is None or not (work / "credit-short").exists()))
-    for flag in ("router-clear", "credit-short"):   # the router's books as the batch starts
-        if scenario.get(flag.replace("-", "_")):
-            (work / flag).touch()
+                    router_clear=lambda: (work / "router-clear").exists(), credit_ready=credit_ready)
+    if scenario.get("router_clear"):   # the router's books as the batch starts
+        (work / "router-clear").touch()
     engine.launch()
     if "drain_s" in scenario:
         stop_on_signal(lambda: engine.drain(scenario["drain_s"]))
@@ -753,8 +770,9 @@ def engine_main(workdir):
                 observed = {"i": i, "held": held}
                 if act.get("router_clear"):
                     (work / "router-clear").touch()   # the router reports its pools healthy
-                if act.get("credit_fits"):
-                    (work / "credit-short").unlink(missing_ok=True)   # the balance now funds the step's request
+                if "top_up" in act:
+                    (work / "balance.txt").write_text(act["top_up"])
+                    observed["lifted"] = router_store.lift_credit()
                 if "resume_held" in act:
                     observed["resume_sent"] = engine.resume_held(f"case-{spec.batch_id[2:]}-{act['resume_held']}")
                 if "case" in when:

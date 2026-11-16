@@ -404,6 +404,15 @@ class GuardTests(unittest.TestCase):
         self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
         self.assertEqual(self.f.stopped, 0)
 
+    def test_a_case_parked_for_credit_is_not_a_campaign_stall(self):
+        # Goldfish 16 November: it waits for a top-up with no worker and its own "Top it up" alert;
+        # like held_for_release, it makes no progress by design.
+        self.f.cases[0].update(status="waiting_for_credit", reason="router:credit")
+        for _ in range(20):
+            out = self.tick()
+        self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
+        self.assertFalse([m for m in self.f.sent if "No case has made progress" in m], self.f.sent)
+
     def test_a_long_step_in_flight_is_progress(self):
         # A writer step on a subscription route runs for hours with no row change and no router spend.
         self.f.in_flight = 1

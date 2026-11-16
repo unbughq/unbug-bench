@@ -2071,19 +2071,19 @@ class CreditPark(unittest.TestCase):
         self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
-    def test_a_woken_case_the_balance_cannot_fund_stays_parked_without_a_worker(self):
-        # The block lifts for one request, but this step's dearest call does not fit what is left:
-        # it keeps waiting with no worker until the router's books fund it.
-        r, out = run({"spec": {"max_cases_started": 1}, "timing": {"wake_poll_s": 0.2}, "credit_short": True,
+    def test_a_top_up_that_lifts_the_block_wakes_a_parked_rotation_case(self):
+        # Goldfish 16 November (lost wake): the real router refuses at $0.20 and blocks the paid pool;
+        # a $5 top-up pays a paid call, so the lift clears the block. A live rotation batch's dearest
+        # gates call (Claude routes included) is far above $5, yet the parked case must wake on the
+        # lift: it checks only for the block.
+        r, out = run({"spec": {"max_cases_started": 1}, "timing": {"wake_poll_s": 0.2},
+                      "inputs": {"dry_run": False}, "router_credit": "0.2",
                       "script": {"1/gates:1/1": self.CREDIT},
-                      "actions": [{"when": self.PARKED, "router_clear": True},
-                                  {"when": self.PARKED, "delay_s": 1.5, "credit_fits": True}]})
+                      "actions": [{"when": self.PARKED, "delay_s": 1.0, "top_up": "5"}]})
         self.addCleanup(r.close)
-        lifted, funded = r.actions()
-        self.assertGreater(start(r, self.RETRY)["t"], funded["t"])
-        meanwhile = lambda log, op: [x for x in log if x["op"] == op and lifted["t"] < x["t"] < funded["t"]]
-        self.assertEqual(meanwhile(r.pool_log(), "provision"), [])   # no worker...
-        self.assertEqual(meanwhile(r.ledger_log(), "reserve"), [])   # ...and no money taken while it waits
+        (topped_up,) = r.actions()
+        self.assertTrue(topped_up["lifted"])
+        self.assertGreater(start(r, self.RETRY)["t"], topped_up["t"])
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_a_refusal_with_no_credit_block_keeps_its_worker_and_its_short_sleep(self):
