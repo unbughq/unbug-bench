@@ -753,6 +753,12 @@ class ExpiredEvidence(Setup):
                 self.assertEqual(self.run_it(self.diagnosis()).reason, "infra:attempt_absent")
                 self.assertEqual(self.channel.frames, [])
 
+    def test_an_expired_stop_history_still_fails(self):
+        # The history is the last ref; without it diagnosis cannot reach its code-decided verdict.
+        self.bucket.expired = {self.store.key("case-t-1", self.history)}
+        self.assertEqual(self.run_it(self.diagnosis()).reason, "infra:attempt_absent")
+        self.assertEqual(self.channel.frames, [])
+
     def test_a_store_outage_never_drops_evidence(self):
         self.bucket.expired = set()
         self.bucket.down = {self.store.key("case-t-1", self.evidence[3])}

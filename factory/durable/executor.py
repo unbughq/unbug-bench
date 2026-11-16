@@ -164,11 +164,15 @@ class Executor:
         The attempt's identity is its idempotency key, which evidence is no part of."""
         blobs = {blob_name(r): self.store.get_sealed(scope_of(si, r), r) for r in input_refs(si)}
         kept, lost = [], {}
-        for r in si.evidence:
+        for i, r in enumerate(si.evidence):
             try:
                 blobs[blob_name(r)] = self.store.get_sealed(scope_of(si, r), r)
                 kept.append(r)
             except ArtifactMissing:
+                if i == len(si.evidence) - 1:
+                    # The engine's stop history (engine.py: evidence ends with it). Without it the
+                    # code-decided factory_bug verdict cannot fire and a paid agent guesses: fail as before.
+                    raise
                 lost[r.kind.value] = lost.get(r.kind.value, 0) + 1
         if not lost:
             return si, blobs
