@@ -368,6 +368,29 @@ def _paid_charge(profile, usage):
     except (KeyError, TypeError, ValueError, InvalidOperation): return None
 
 
+# The paid pool, the one whose balance the router can read (credit_reader). Its credit block lasts until
+# lift_credit sees a top-up; a credit block on any other pool (an OpenCode 402) expires like any other.
+PAID_POOL = 'openrouter-key'
+# After this many 402s on the paid pool, each after a lift and with no call finishing done between them,
+# the balance is not the cause (most likely the key's own credit limit): lift_credit leaves the block
+# for the operator. 402s while it is blocked, low-balance refusals and 429s never count.
+CREDIT_LIFT_CAP = 3
+# What lift_credit needs above the holds in flight besides one dearest call: settling holds cannot free
+# that much unless the money is really there, so a lift means a top-up.
+LIFT_MARGIN_USD = 5
+
+
+def lasting(key, value):
+    """Whether a health row blocks until something lifts it rather than until its time passes."""
+    return value.get('reason') == 'credential_expiring' or (value.get('reason') == 'credit' and key == PAID_POOL)
+
+
+def _hold(route):
+    """What one request of a gated route holds before it is forwarded: its whole window."""
+    profile = GATED_OPENROUTER[route]
+    return _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
+
+
 class Store:
     """One short SQLite transaction per RPC; no process-local availability cache."""
     def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None,
@@ -433,14 +456,15 @@ class Store:
             db.execute("UPDATE paid_requests SET state='unknown',settled_at=? WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)", (now,))
             health = {k: json.loads(v) for k, v in db.execute('SELECT pool,value FROM health')}
             for key, value in health.items():
-                if value.get('reason') not in ('credit', 'credential_expiring') and value.get('blocked_until', 0) <= now:
+                if not lasting(key, value) and value.get('blocked_until', 0) <= now:
                     value['blocked_until'] = 0
             def save_health():
                 for key, value in health.items():
                     db.execute('INSERT OR REPLACE INTO health VALUES (?,?)', (key, json.dumps(value)))
             def blocked(route):
-                values = [health.get(route['pool'], {}), health.get(route['pool'] + '/' + route['route'], {})]
-                return next((v for v in values if v.get('reason') in ('credit', 'credential_expiring') or v.get('blocked_until', 0) > now), None)
+                keys = (route['pool'], route['pool'] + '/' + route['route'])
+                return next((health[k] for k in keys if k in health
+                             and (lasting(k, health[k]) or health[k].get('blocked_until', 0) > now)), None)
             def eligible(route):
                 # Spare capacity and caller preferences never unlock the builder account.
                 second = health.get('claude-factory-token-2', {})
@@ -452,6 +476,10 @@ class Store:
             result = None
             if operation == 'paid_reserve':
                 result = self._paid_reserve(db, data, credit, fetched_at, started)
+                if 'short' in result:
+                    key = result.pop('short'); old = health.get(key, {})
+                    health[key] = dict(old, reason='credit', observed_at=now,
+                                       blocked_until=max(now, old.get('blocked_until', 0)))
             elif operation == 'paid_settle':
                 result = self._paid_settle(db, data, now)
             elif operation == 'status':
@@ -532,6 +560,9 @@ class Store:
                             # as an invalid response, which would recreate its worker on every full seat.
                             alternatives.append((ready, limit['reason'] if limit else
                                                  'capacity' if data.get('capacity_protocol') == 1 else 'rate', route))
+                        # A seat that frees in minutes beats a pool waiting on a top-up: the call takes the seat.
+                        if any(r in ('rate', 'capacity') for _, r, _ in alternatives):
+                            alternatives = [a for a in alternatives if a[1] != 'credit']
                         bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
                         ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
                             now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'outage') if bounded
@@ -566,7 +597,7 @@ class Store:
                     db.execute('UPDATE leases SET outcome=?,receipt=? WHERE id=?', (data['outcome'], receipt, data['lease_id']))
                     if data['outcome'] == 'done':
                         route = json.loads(row[0]); old = health.get(route['pool'], {})
-                        old['ready_at'] = now
+                        old['ready_at'] = now; old.pop('refusals', None)
                         if not blocked(route): old.update(failures=0, observed_at=now)
                         health[route['pool']] = old
                     result = {'finished': True}
@@ -589,9 +620,17 @@ class Store:
                         if reason not in REASONS - {'unbounded_route', 'capacity'}: raise ValueError('invalid provider reason')
                         key = route['pool'] + ('/' + route['route'] if reason == 'outage' else '')
                         old = health.get(key, {}); failures = old.get('failures', 0) + 1
-                        reset = retry_at(reason, now=now, failures=failures, reset_at=data.get('reset_at'))
-                        health[key] = dict(reason=reason, blocked_until=reset, observed_at=now, failures=failures,
-                                           credit='denied' if reason == 'credit' else old.get('credit', 'unknown'))
+                        # 402s count apart from 429s, once per block (calls refused together are one run-out).
+                        refusals = old.get('refusals', 0) + (reason == 'credit' and old.get('reason') != 'credit')
+                        reset = retry_at(reason, now=now, failures=refusals if reason == 'credit' else failures,
+                                         reset_at=data.get('reset_at'))
+                        if lasting(key, old) and old['reason'] == 'credit' and reason != 'credit':
+                            # A 429 or quota on a call in flight never ends a credit block; lift_credit does.
+                            old['blocked_until'] = max(old.get('blocked_until', 0), reset)
+                        else:
+                            health[key] = dict(reason=reason, blocked_until=reset, observed_at=now, failures=failures,
+                                               refusals=refusals,
+                                               credit='denied' if reason == 'credit' else old.get('credit', 'unknown'))
                     db.execute('INSERT INTO observations VALUES (?)', (identity,))
                 result = {'observed': True}
             else: raise ValueError('unknown router operation')
@@ -612,8 +651,7 @@ class Store:
         if route['route'] not in GATED_OPENROUTER: return False
         account = db.execute('SELECT ceiling FROM paid_account WHERE id=1').fetchone()
         if not account or type(account[0]) is not int: return False
-        profile = GATED_OPENROUTER[route['route']]
-        hold = _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
+        hold = _hold(route['route'])
         try: total, _ = _paid_counts(db, now - CREDIT_OVERLAP)
         except ValueError: return False   # paid_reserve refuses a broken ledger itself
         return total + hold > account[0]
@@ -643,14 +681,48 @@ class Store:
         # low-credit alert sees the balance that refused it (it read the last granted one).
         if account: db.execute('UPDATE paid_account SET credit=? WHERE id=1', (credit,))
         profile = GATED_OPENROUTER[lease['route']]
-        hold = _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
+        hold = _hold(lease['route'])
         total, outstanding = _paid_counts(db, fetched_at - CREDIT_OVERLAP)
-        if total + hold > ceiling or outstanding + hold > credit: return denied('credit')
+        # The balance itself is short: the pool waits for a top-up (lift_credit), not a backoff.
+        if outstanding + hold > credit: return dict(denied('credit'), short=lease['pool'])
+        if total + hold > ceiling: return denied('credit')
         db.execute('INSERT OR REPLACE INTO paid_account VALUES (1,?,?)', (ceiling, credit))
         frozen = dict(profile, price_source=lease['price_source'])
         db.execute('INSERT INTO paid_requests (id,lease_id,route,profile,hold,charge,state,settled_at,usage) VALUES (?,?,?,?,?,?,?,?,?)',
             (data['request_id'], data['lease_id'], lease['route'], json.dumps(frozen), hold, hold, 'pending', None, None))
         return dict(granted=True)
+
+    def lift_credit(self, force=False):
+        """Lift the paid pool's credit block after a top-up, so the cases parked on it (engine
+        wait_for_credit) wake: the balance read pays the holds in flight, one request of the dearest
+        gated route and LIFT_MARGIN_USD. Never inside the block's backoff (it doubles on each 402),
+        nor after CREDIT_LIFT_CAP 402s (the guard alerts, credit_stuck). `force` is the operator
+        (--lift-credit): no backoff, no cap, no margin, a fresh count. The balance read is kept for the
+        guard's low-credit alert. Returns 'lifted' or why not. reconcile_forever calls it every pass."""
+        now = self.clock()
+        def why_not(row):
+            value = json.loads(row[0]) if row else {}
+            if value.get('reason') != 'credit': return 'no_block'
+            if not force and value.get('blocked_until', 0) > now: return 'backoff'
+            if not force and value.get('refusals', 0) >= CREDIT_LIFT_CAP: return 'capped'
+        read = lambda db: db.execute('SELECT value FROM health WHERE pool=?', (PAID_POOL,)).fetchone()
+        with closing(sqlite3.connect(self.path, timeout=10)) as db:
+            if why := why_not(read(db)): return why
+        try: credit = _nano(self.credit_reader(), ROUND_FLOOR)
+        except Exception: return 'balance_unreadable (is OPENROUTER_API_KEY set?)'   # the block stays
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            db.execute('PRAGMA synchronous=FULL')
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('UPDATE paid_account SET credit=? WHERE id=1', (credit,))
+            row = read(db)
+            if why := why_not(row): return why
+            _, outstanding = _paid_counts(db, now - CREDIT_OVERLAP)
+            short = outstanding + max(map(_hold, GATED_OPENROUTER)) + (0 if force else _nano(LIFT_MARGIN_USD)) - credit
+            if short > 0: return f'short_by ${Decimal(short).scaleb(-9).quantize(Decimal(".01"), ROUND_CEILING)}'
+            value = dict(json.loads(row[0]), reason=None, blocked_until=0, observed_at=now)
+            if force: value['refusals'] = 0
+            db.execute('INSERT OR REPLACE INTO health VALUES (?,?)', (PAID_POOL, json.dumps(value)))
+            return 'lifted'
 
     def _paid_settle(self, db, data, now):
         row = db.execute('SELECT lease_id,profile,hold,state,usage FROM paid_requests WHERE id=?', (data['request_id'],)).fetchone()
@@ -1036,6 +1108,28 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
 
+def credit_stuck(db):
+    """Whether lift_credit has stopped lifting the paid pool's credit block (CREDIT_LIFT_CAP), on an
+    open connection to the router's books. Unreadable: False (the guard's other reads report that)."""
+    try: row = db.execute('SELECT value FROM health WHERE pool=?', (PAID_POOL,)).fetchone()
+    except sqlite3.Error: return False
+    value = json.loads(row[0]) if row else {}
+    return value.get('reason') == 'credit' and value.get('refusals', 0) >= CREDIT_LIFT_CAP
+
+
+def credit_ready(path):
+    """Read-only, for a case stopped on router:credit (engine wait_for_credit): whether the paid pool
+    has no credit block. Only the block: lift_credit lifts it after a top-up, and a woken case the
+    balance still cannot fund is refused once and parks again. Unreadable books are no block (the
+    case keeps its worker and its short sleep, as before the park)."""
+    try:
+        with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as db:
+            row = db.execute('SELECT value FROM health WHERE pool=?', (PAID_POOL,)).fetchone()
+            return not (row and json.loads(row[0]).get('reason') == 'credit')
+    except (sqlite3.Error, ValueError):
+        return True
+
+
 RECONCILE_SECONDS = 60
 
 
@@ -1044,6 +1138,8 @@ def reconcile_forever(store, stopped=None, interval=RECONCILE_SECONDS):
     while not stopped.wait(interval):
         try: store.reconcile(cost_reader=generation_cost, usage_reader=account_usage)
         except Exception: pass  # The next pass tries again; unknown rows keep their holds meanwhile.
+        try: store.lift_credit()
+        except Exception: pass  # The next pass tries again; the block keeps its cases parked meanwhile.
 
 
 def main():
@@ -1051,11 +1147,15 @@ def main():
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--reconcile-once', action='store_true',
                         help='reconcile unknown paid charges against the provider, print the paid status, exit')
+    parser.add_argument('--lift-credit', action='store_true',
+                        help='lift a paid-pool credit block the router stopped lifting, if the balance pays; print lifted or why not, exit')
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     store = Store(production_database(config), capacities=config.get('capacities'),
         accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit,
         paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=config.get('disabled_routes', ()))
+    if args.lift_credit:
+        print(json.dumps({'lift_credit': store.lift_credit(force=True)})); return
     if args.reconcile_once:
         result = store.reconcile(cost_reader=generation_cost, usage_reader=account_usage)
         print(json.dumps(dict(result, paid=store.rpc('status', {})['paid']), sort_keys=True)); return

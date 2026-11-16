@@ -404,6 +404,15 @@ class GuardTests(unittest.TestCase):
         self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
         self.assertEqual(self.f.stopped, 0)
 
+    def test_a_case_parked_for_credit_is_not_a_campaign_stall(self):
+        # Goldfish 16 November: it waits for a top-up with no worker and its own "Top it up" alert;
+        # like held_for_release, it makes no progress by design.
+        self.f.cases[0].update(status="waiting_for_credit", reason="router:credit")
+        for _ in range(20):
+            out = self.tick()
+        self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
+        self.assertFalse([m for m in self.f.sent if "No case has made progress" in m], self.f.sent)
+
     def test_a_long_step_in_flight_is_progress(self):
         # A writer step on a subscription route runs for hours with no row change and no router spend.
         self.f.in_flight = 1
@@ -704,11 +713,11 @@ class GuardTests(unittest.TestCase):
             INSERT INTO paid_requests VALUES (1000000000, 'settled'), (500000000, 'unknown'), (NULL, 'settled'),
                 (11000000000, 'pending');""")   # holds of calls in flight are not spend
         conn.commit()
-        self.assertEqual(router_spend(db), (1.5, math.inf, None))   # no ceiling row: never a false deadlock
+        self.assertEqual(router_spend(db), (1.5, math.inf, None, False))   # no ceiling row: never a false deadlock
         conn.execute("INSERT INTO paid_account VALUES (1, 49946728440, 8771396466)")
         conn.commit()
         conn.close()
-        self.assertEqual(router_spend(db), (1.5, 49.94672844, 8.771396466))
+        self.assertEqual(router_spend(db), (1.5, 49.94672844, 8.771396466, False))
 
     def test_low_provider_credit_and_a_credit_refusal_each_alert_once(self):
         """7 November: the account fell to $8.77 and calls were refused with no alert."""
@@ -724,6 +733,20 @@ class GuardTests(unittest.TestCase):
         self.f.cases[0]["reason"] = None
         self.f.clock += 60
         self.f.guard(router=lambda: (5.0, 49.95, 120.0)).run()
+        self.assertEqual(self.f.sent, [])
+
+    def test_a_credit_block_the_router_stopped_lifting_alerts_once(self):
+        """Three 402s in a row despite the balance: the router leaves the block for the operator."""
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        for _ in range(2):
+            self.f.clock += 60
+            self.f.guard(router=lambda: (5.0, 49.95, 120.0, True)).run()
+        self.assertEqual(len(self.f.sent), 1)
+        self.assertIn("credit refused 3x despite balance: check key limit", self.f.sent[0])
+        self.assertIn("OPENROUTER_API_KEY", self.f.sent[0])   # the lift reads the balance with it
+        self.f.sent.clear()
+        self.f.clock += 60
+        self.f.guard(router=lambda: (5.0, 49.95, 120.0, False)).run()
         self.assertEqual(self.f.sent, [])
 
     def test_router_ceiling_and_low_credit_alert_early_with_time_left(self):

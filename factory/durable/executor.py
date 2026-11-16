@@ -315,12 +315,12 @@ class Executor:
         from durable.contract import Usage
         _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, Usage(), waste=False)
 
-    def settle(self, si: StepInput, result: StepResult) -> str:
+    def settle(self, si: StepInput, result: StepResult, credit_park: bool = False) -> str:
         if settles_lost(result):
             # Spend unknown: the whole grant stays charged, G10 authority included (G10 may have spent it).
             _call("engine:ledger_failed", self.ledger.settle_lost, si.idempotency_key)
             return "lost"
-        waste = settles_as_waste(result)
+        waste = settles_as_waste(result, credit_park=credit_park)
         _call("engine:ledger_failed", self.ledger.settle, si.idempotency_key, result.usage, waste=waste)
         return "waste" if waste else "case"
 

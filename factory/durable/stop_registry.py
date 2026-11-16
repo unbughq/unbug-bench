@@ -27,10 +27,13 @@ import os
 from pathlib import Path
 import pickle
 import subprocess
+from types import SimpleNamespace
 from typing import Callable, Iterable, Optional
 
 from durable.classify import (CLEANUP_ERRORS, CLEANUP_STAGES, IMPORT_REASONS, PREFLIGHT_ROLES, PREFLIGHT_STOPS,
                               REJECTION_REASONS, _CASE_LIMIT, _STEP_STAGE)
+from durable.contract import Outcome
+from durable.policy import settles_as_waste
 
 CASE, WAIT = {"kind": "case"}, {"kind": "wait"}
 
@@ -444,9 +447,11 @@ def decode(output: str, row_time: Optional[float] = None):
             "key": f"{si.get('case_id')}/{si.get('seq')}/"
                    f"{step.get('kind')}{':' + str(step['round']) if step.get('round') else ''}/{si.get('attempt')}",
             "paid_usd_micros": paid,
-            # policy.settles_as_waste: broken runs go to the batch's waste line, never the case's money
-            "settles_as_waste": res.get("outcome") == "infra_error"
-                                or (res.get("outcome") == "provider_limit" and paid > 0)}
+            # The ledger's own rule. credit_park: a row recorded before that patch was booked as waste,
+            # and the check this feeds only looks at rows booked to the case.
+            "settles_as_waste": settles_as_waste(SimpleNamespace(
+                outcome=next((o for o in Outcome if o.value == res.get("outcome")), None), reason=res["reason"],
+                usage=SimpleNamespace(paid_usd_micros=paid)), credit_park=True)}
 
 
 def read_attempts(database_url: str, since: Optional[float] = None) -> tuple:

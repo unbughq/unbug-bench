@@ -422,6 +422,16 @@ class InvariantTests(unittest.TestCase):
         record["input"]["step"] = {"kind": "admit", "round": 0}
         self.assertEqual(decode(base64.b64encode(pickle.dumps(record)).decode())["key"], "case-1/2/admit/1")
 
+    def test_a_paid_credit_park_stop_booked_to_the_case_is_no_broken_invariant(self):
+        # Goldfish 16 November: under credit_park a router:credit stop's spend is the case's (its
+        # snapshot keeps the work); the audit's own copy of the waste rule called that broken.
+        record = {"input": {"case_id": "case-1", "batch_id": "b-1", "seq": 2, "attempt": 1, "plumbing_version": "p",
+                            "step": {"kind": "writer", "round": 1}},
+                  "result": {"outcome": "provider_limit", "reason": "router:credit",
+                             "usage": {"calls": 1, "paid_usd_micros": 1_200_000}}}
+        row = decode(base64.b64encode(pickle.dumps(record)).decode())
+        self.assertEqual(self.checks([row], ledger={row["key"]: booked(paid=1_200_000)}), [])
+
     def test_violations_reach_the_result_file(self):
         line = "INVARIANT  batch_over_bound  b-1: held 0 + spent 2 > bound 1"
         written = result(audit([], {}, None), 0, 1.0, [("batch_over_bound", line)])

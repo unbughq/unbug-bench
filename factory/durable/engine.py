@@ -78,6 +78,7 @@ class Timing:
 
 # Rechecks (seconds of waiting) of a router or credential wait while the case keeps its worker: at 2, 4 and 8 minutes.
 OPERATIONAL_RECHECK_S = (120.0, 120.0, 240.0)
+CREDIT_REASON = "router:credit"   # parks until a top-up (_Case.wait_for_credit), under the credit_park patch
 
 
 class _Runtime:
@@ -85,6 +86,7 @@ class _Runtime:
     timing: Timing = Timing()
     admission_paused = staticmethod(lambda: False)
     router_clear = staticmethod(lambda: False)   # no router wired: a quota hold never resumes by itself
+    credit_ready = staticmethod(lambda: False)   # nor a case parked on router:credit
     draining = threading.Event()
     lock = threading.Lock()
     busy = 0     # attempt workflows running in this process
@@ -297,9 +299,9 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
 
 
 @DBOS.step(**SEAM)
-def settle_step(si: dict, result: dict, g10_usd_micros: int = 0) -> str:
+def settle_step(si: dict, result: dict, g10_usd_micros: int = 0, credit_park: bool = False) -> str:
     # g10_usd_micros is kept so recorded calls still match; a lost attempt books its whole grant.
-    return _ex().settle(step_input_from_record(si), step_result_from_record(result))
+    return _ex().settle(step_input_from_record(si), step_result_from_record(result), credit_park=credit_park)
 
 
 @DBOS.step(**SEAM)
@@ -321,6 +323,16 @@ def hold_clear_step(kind: str, batch_id: str, case_id: str, case_limit: int) -> 
         return _ex().money_allows(batch_id, case_id, case_limit, MIN_GRANT_USD_MICROS)
     except Exception:
         return False
+
+
+@DBOS.step()
+def credit_ready_step() -> bool:
+    """Whether a case stopped on router:credit may run (_Case.wait_for_credit): the router shows no
+    credit block on its paid pool. Unreadable books are no block (model_router.credit_ready)."""
+    try:
+        return bool(_RT.credit_ready())
+    except Exception:
+        return True
 
 
 @DBOS.step()
@@ -932,7 +944,9 @@ def attempt_workflow(job: dict) -> dict:
                 "started_at": None, "worker_id": None}
     started_at = now_step()
     result = attempt_step(to_record(si), started_at, worker_id)
-    settle_step(to_record(si), result, job.get("g10_usd_micros", 0))
+    # A credit stop's snapshot keeps its work (founder 15 Nov): what it spent is the case's, not waste.
+    settle_step(to_record(si), result, job.get("g10_usd_micros", 0),
+                result["reason"] == CREDIT_REASON and DBOS.patch("credit_park"))
     DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id}, topic=CASE_EVENT)   # wakes the other waiting cases
     return {"started": True, "grant": to_record(grant), "input": to_record(si), "result": result,
             "started_at": started_at, "worker_id": worker_id}
@@ -1420,6 +1434,12 @@ class _Case:
                 continue
             if action is Action.SLEEP:
                 seconds = wait_seconds(result.retry_at, now_step())
+                # Only a credit block parks: a ceiling refusal or an unreadable balance leaves none,
+                # and keeps the short sleep on its worker below.
+                if (result.reason == CREDIT_REASON and DBOS.patch("credit_park")
+                        and not credit_ready_step()):
+                    self.wait_for_credit(seconds)
+                    continue
                 # A short wait keeps its worker: releasing it made every retry create a new one,
                 # and on 8 November the 15-minute rate waits of five cases spent the campaign's
                 # whole creation allowance. Only a wait past release_worker_after_sleep_s releases it.
@@ -1507,6 +1527,25 @@ class _Case:
                 self.release_worker()
         self.status = "running"
         return True
+
+    def wait_for_credit(self, seconds: float) -> None:
+        """Founder 15 November: out of credit, stop cleanly and resume where it stopped once credit is
+        back. The attempt has settled (its unspent hold released, its spend the case's, not waste) and
+        its snapshot keeps every passed gate. Park without a worker for the attempt's own backoff, then
+        until the router has lifted its credit block (model_router.lift_credit, after a top-up). Only
+        the block: a woken case the balance still cannot fund is refused once and parks again. One
+        retry, never counted or diagnosed; the wake clears the card's router:credit reason, and with
+        it the guard's alert."""
+        self.release_worker()
+        if self.replaying:
+            return
+        self.status = "waiting_for_credit"
+        self.card()
+        DBOS.sleep(seconds)
+        while not credit_ready_step():
+            DBOS.sleep(_RT.timing.wake_poll_s)
+        self.status, self.last_reason = "running", None
+        self.card()
 
     def wait_for_release(self, failed_releases: list) -> None:
         """Park without a worker, slot or hold; a previously failed release cannot retry."""
@@ -2298,9 +2337,10 @@ class Engine:
 
     def __init__(self, *, system_database_url: str, executor: Executor, timing: Timing = Timing(),
                  environ: Optional[Mapping[str, str]] = None, pool_size: int = 40,
-                 admission_paused=lambda: False, router_clear=lambda: False):
+                 admission_paused=lambda: False, router_clear=lambda: False,
+                 credit_ready=lambda: False):
         self.url, self.executor, self.timing = system_database_url, executor, timing
-        self.admission_paused, self.router_clear = admission_paused, router_clear
+        self.admission_paused, self.router_clear, self.credit_ready = admission_paused, router_clear, credit_ready
         self.environ = os.environ if environ is None else environ
         self.pool_size = pool_size
         self.dbos = None
@@ -2317,6 +2357,7 @@ class Engine:
         check_instance(self.dbos)
         _RT.executor, _RT.timing, _RT.admission_paused = self.executor, self.timing, self.admission_paused
         _RT.router_clear = self.router_clear
+        _RT.credit_ready = self.credit_ready
         _RT.draining.clear()
         DBOS.launch()
         # Rule 6: register the queues of every unfinished batch before anything is started or

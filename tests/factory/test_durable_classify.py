@@ -102,6 +102,16 @@ class RealStops(unittest.TestCase):
         self.assertEqual(result.reason, 'router:credential_expiring')
         self.assertEqual(details['waits'][0]['source_stop'], 'process_error')
 
+    def test_only_the_paid_pools_credit_wait_is_router_credit(self):
+        # Only the paid pool's credit stop parks for a top-up (engine wait_for_credit); an OpenCode
+        # 402 is that provider's limit and keeps its short backoff on its worker.
+        from model_router import ProviderWait, Wait
+        for account, route, want in (("openrouter-key", "openrouter/minimax/minimax-m3.1-flash", "router:credit"),
+                                     ("opencode-go-key", "opencode-go/mimo-v2.6-pro", "router:opencode_limit")):
+            error = ProviderWait("writer", Wait("credit", NOW + 120, route=route, account=account))
+            result, _ = wp4.classify_wait(error, step=StepKind.GATES, now=NOW)
+            self.assertEqual((result.outcome, result.reason, result.retry_at), (Outcome.PROVIDER_LIMIT, want, NOW + 120))
+
     def test_corpus_is_the_fifty_real_cards(self):
         self.assertEqual(len(CARDS), 50)
         history = [s for src, s in STOPS if src == "history"]

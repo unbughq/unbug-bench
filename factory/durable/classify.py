@@ -396,6 +396,11 @@ def classify_wait(error, *, step, now, prior=()):
         result = classify(original, step=step, now=now, reset_at=reset)
     else:
         outcome, code = _WAIT.get(reason, (_I, UNCLASSIFIED))
+        wait = vars(error.wait)
+        if reason == 'credit' and wait.get('reason') == 'credit' and wait.get('account') != 'openrouter-key':
+            # Only the paid pool's credit stop parks for a top-up (engine wait_for_credit); another
+            # pool's 402 (OpenCode) is that provider's limit and keeps its short backoff.
+            code = next((r for prefix, r in _LIMIT_FAMILY if str(wait.get('route')).startswith(prefix)), code)
         retry = _retry_at(now, reset) if outcome is _P else None
         if reason == 'capacity':
             retry = min(retry, now + CAPACITY_BACKOFF_S)   # a stale lease expiry is no reason for 15 min

@@ -261,8 +261,11 @@ def draws_case_money(step: Step, counters: Counters) -> bool:
     return step.kind is not StepKind.DIAGNOSIS and not counters.in_extension and counters.diagnoses_used == 0
 
 
-def settles_as_waste(result: StepResult) -> bool:
-    """Broken runs are booked to the batch's waste line, never to the case's money."""
+def settles_as_waste(result: StepResult, *, credit_park: bool = False) -> bool:
+    """Broken runs are booked to the batch's waste line, never to the case's money. Under the engine's
+    credit_park patch a router:credit stop is not broken: its snapshot keeps the work it paid for."""
+    if credit_park and result.reason == "router:credit":
+        return False
     return result.outcome is Outcome.INFRA_ERROR or (
         result.outcome is Outcome.PROVIDER_LIMIT and result.usage.paid_usd_micros > 0)
 
