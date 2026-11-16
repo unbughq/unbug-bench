@@ -16,7 +16,7 @@ from dataclasses import replace
 import time
 from typing import Optional
 
-from durable.artifacts import ArtifactError, open_from, scope_for
+from durable.artifacts import ArtifactError, ArtifactMissing, open_from, scope_for
 from durable.contract import (ArtifactKind, ArtifactStore, Grant, KeyService, Ledger, Outcome, Poll,
                               PollState, Ref, Sealer, StepInput, StepKind, StepResult, WorkerChannel, WorkerLease,
                               WorkerPool, UNANSWERED, Usage)
@@ -58,7 +58,8 @@ def scope_of(si: StepInput, ref: Ref) -> str:
 
 
 def input_refs(si: StepInput) -> list:
-    refs = [si.inputs, si.snapshot, si.feedback, si.registry, si.ruling, *si.evidence]
+    """The step's own input refs. Evidence is fetched apart (Executor._inputs)."""
+    refs = [si.inputs, si.snapshot, si.feedback, si.registry, si.ruling]
     return [r for r in refs if r is not None]
 
 
@@ -95,14 +96,14 @@ class Executor:
             keys = {si.case_id: self.keys.scope_key(si.case_id)}
             if si.step.kind is StepKind.ADMIT:
                 keys[si.batch_id] = self.keys.scope_key(si.batch_id)
-            blobs = {blob_name(r): self.store.get_sealed(scope_of(si, r), r) for r in input_refs(si)}
+            sent, blobs = self._inputs(si, keys[si.case_id])
         except Exception:
             # A replay may have started the worker before the crash. Reconcile it even
             # when inputs cannot currently be fetched; never assume zero spend here.
             keys = blobs = None
         if keys is not None:
             try:
-                self.channel.start(lease, si, keys, blobs)
+                self.channel.start(lease, sent, keys, blobs)
             except Exception:
                 pass   # it may have landed; the poll below tells
         del keys, blobs
@@ -151,6 +152,31 @@ class Executor:
                     return self._lost(si, "infra:worker_lost", checkpoint)
                 continue
             self.sleep(self.poll_interval_s)
+
+    def _inputs(self, si: StepInput, case_key: bytes):
+        """(the step input the worker starts on, {blob name: ciphertext}). Any input ref the store
+        cannot return raises, as does any store error. The one exception is an evidence ref the
+        store answers is gone (ArtifactMissing, a 404): R2 deletes every object 7 days after
+        upload (lifecycle rule expire-7d), and a case's evidence outlives that. On 16 November
+        case-import-1bb2ad-2-1 could never diagnose again: 12 of its 18 evidence refs were gone.
+        The worker starts without them, and a DIAGNOSTIC note (codes and numbers only, a JSON
+        object so diagnosis._history never takes it for the stop history) says what was lost.
+        The attempt's identity is its idempotency key, which evidence is no part of."""
+        blobs = {blob_name(r): self.store.get_sealed(scope_of(si, r), r) for r in input_refs(si)}
+        kept, lost = [], {}
+        for r in si.evidence:
+            try:
+                blobs[blob_name(r)] = self.store.get_sealed(scope_of(si, r), r)
+                kept.append(r)
+            except ArtifactMissing:
+                lost[r.kind.value] = lost.get(r.kind.value, 0) + 1
+        if not lost:
+            return si, blobs
+        note = {"lost_evidence": {"reason": "artifact_missing", "count": sum(lost.values()), "kinds": lost}}
+        ref, ciphertext = self.sealer.seal(case_key, ArtifactKind.DIAGNOSTIC,
+                                           json.dumps(note, sort_keys=True, separators=(",", ":")).encode())
+        blobs[blob_name(ref)] = ciphertext
+        return replace(si, evidence=(*kept, ref)), blobs
 
     def _poll(self, lease, si) -> Poll:
         try:
