@@ -158,8 +158,14 @@ class PaidTests(unittest.TestCase):
         self.assertFalse(self.reserve(lease)[1]['granted'])
 
     def credit_clear(self):
-        from durable.guard import router_clear
-        return router_clear(self.path, credit_only=True)   # what a case parked on router:credit polls
+        return router.credit_ready(self.path)   # what a case parked on router:credit polls
+
+    def refused(self, model=MINIMAX, accounts=None):
+        """A provider 402 on a running call: model_runtime observes it, then finishes the lease."""
+        lease = admit(self.store, model, accounts=accounts)
+        self.store.rpc('observe', dict(pool=None, healthy=False, observation_id=uuid.uuid4().hex,
+                                       lease_id=lease.lease_id, reason='credit', reset_at=None))
+        self.store.rpc('finish', dict(lease_id=lease.lease_id, outcome='interrupted', receipt=None))
 
     def test_a_low_credit_refusal_parks_the_pool_until_a_top_up_lifts_it_once(self):
         """The router's own pre-check refusal (the gate's 503 shared_paid_spend_wait) used to leave no
@@ -184,12 +190,7 @@ class PaidTests(unittest.TestCase):
             self.assertTrue(self.credit_clear())
 
     def test_a_provider_402_block_lifts_on_a_top_up_after_its_backoff_and_backs_off_if_it_recurs(self):
-        def refused(n):
-            lease = admit(self.store)
-            self.store.rpc('observe', dict(pool=None, healthy=False, observation_id=f'402-{n}',
-                                           lease_id=lease.lease_id, reason='credit', reset_at=None))
-            self.store.rpc('finish', dict(lease_id=lease.lease_id, outcome='interrupted', receipt=None))
-        refused(1)
+        self.refused()
         self.store.lift_credit()
         self.assertFalse(self.credit_clear())          # inside its 15-minute backoff
         self.now[0] += 901
@@ -201,13 +202,58 @@ class PaidTests(unittest.TestCase):
         self.assertTrue(self.credit_clear())
         # The provider refuses again although the balance reads enough: the next lift waits twice as
         # long, so a reader that disagrees with the provider cannot wake the cases every minute.
-        refused(2)
+        self.refused()
         self.now[0] += 901
         self.store.lift_credit()
         self.assertFalse(self.credit_clear())
         self.now[0] += 900
         self.store.lift_credit()
         self.assertTrue(self.credit_clear())
+
+    def test_three_402s_despite_the_balance_stop_lifting_and_alert_until_the_operator_lifts(self):
+        from durable.guard import router_spend
+        self.credit = Decimal('100')
+        for backoff in (901, 1801):
+            self.refused()
+            self.now[0] += backoff
+            self.store.lift_credit()
+            self.assertTrue(self.credit_clear())
+        self.refused()                                 # the third refusal in a row with money there
+        self.now[0] += 3601
+        self.store.lift_credit()
+        self.assertFalse(self.credit_clear())          # the key's own limit, most likely: no more wakes
+        self.assertTrue(router_spend(self.path)[3])    # the guard's alert
+        self.assertTrue(self.store.lift_credit(force=True))   # the operator, after fixing the key
+        self.assertTrue(self.credit_clear())
+        self.assertFalse(router_spend(self.path)[3])
+        self.refused()                                 # a fresh count: one refusal backs off 15 minutes
+        self.now[0] += 901
+        self.store.lift_credit()
+        self.assertTrue(self.credit_clear())
+
+    def test_a_credit_block_on_another_pool_expires_like_a_402_and_never_stops_a_wake(self):
+        """Only the paid pool's balance can be read, so a credit block anywhere else (an OpenCode
+        402) must not park the paid pool's cases for good, nor last itself."""
+        from durable.guard import router_clear
+        go = ['opencode-go-key']
+        self.refused('opencode-go/mimo-v2.6-pro', go)
+        self.assertTrue(self.credit_clear())
+        self.assertFalse(router_clear(self.path, now=self.now[0]))
+        self.assertEqual(admit(self.store, 'opencode-go/mimo-v2.6-pro', accounts=go)['reason'], 'credit')
+        self.now[0] += 901
+        self.assertTrue(router_clear(self.path, now=self.now[0]))
+        self.assertIsInstance(admit(self.store, 'opencode-go/mimo-v2.6-pro', accounts=go), router.Lease)
+
+    def test_a_low_balance_block_never_wins_over_a_seat_wait_on_a_subscription_route(self):
+        model, everyone = 'opencode-go/mimo-v2.6-pro', list(router.ACCOUNTS)
+        seats = [admit(self.store, model, accounts=everyone) for _ in range(2)]
+        self.assertEqual({l.pool for l in seats}, {'opencode-go-key', 'opencode-go-key-2'})
+        self.credit = Decimal('.2')
+        paid = admit(self.store, model, accounts=everyone)
+        self.assertEqual(paid.pool, 'openrouter-key')
+        self.assertFalse(self.reserve(paid)[1]['granted'])   # the paid pool is now credit-blocked
+        self.store.rpc('finish', dict(lease_id=paid.lease_id, outcome='interrupted', receipt=None))
+        self.assertEqual(admit(self.store, model, accounts=everyone)['reason'], 'rate')   # a Go seat frees soon
 
     def unknown_holds(self, n):
         self.credit = Decimal('100')

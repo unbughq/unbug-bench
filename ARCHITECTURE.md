@@ -600,12 +600,19 @@ The router's operator configuration may set `paid_ceiling_usd`, an absolute shar
 wallet spending limit including all retained charges. Restart applies an explicit
 limit transactionally without resetting settled or uncertain spending; live wallet
 credit is checked separately on every paid request (a refused request still records the balance it saw).
-A balance too short for a request's hold, or a provider 402, blocks the paid pool for `credit`. The
-router's reconcile loop lifts that block (`Store.lift_credit`) once the balance pays one request of the
-dearest gated route on top of the holds in flight, and never inside a 402's backoff, which doubles on each
-repeat. A step that ends `router:credit` settles (unspent hold released, no waste), keeps its snapshot,
-and parks without its worker as `waiting_for_credit` (engine `wait_for_credit`, patch `credit_park`):
-after its backoff it retries once the router shows no credit block, uncounted and never diagnosed.
+A balance too short for a request's hold, or a provider 402, blocks the paid pool (`openrouter-key`) for
+`credit` until lifted; a credit block on any other pool has no balance to read and expires on its backoff.
+The router's reconcile loop lifts the paid pool's block (`Store.lift_credit`) once the balance pays one
+request of the dearest gated route on top of the holds in flight, never inside a 402's backoff (which
+doubles on each repeat), and not at all after three refusals in a row: the guard then alerts (check the
+key's own limit) and the operator lifts it with `model_router.py --lift-credit`. A seat wait on another
+route of the chain wins over the paid pool's credit wait. A step that ends `router:credit` settles with
+its unspent hold released and its spend booked to the case, not waste (its snapshot keeps the work). If the
+paid pool is blocked it parks without its worker as `waiting_for_credit` (engine `wait_for_credit`, patch
+`credit_park`); after its backoff it waits until the block is lifted and the router's books fund one
+request of the step's dearest model (`model_router.credit_ready`), then retries once, uncounted and never
+diagnosed, and clears the card's `router:credit` reason. A refusal with no block (the router's ceiling,
+an unreadable balance) keeps the short sleep on its worker.
 A paid route whose ceiling cannot cover one more request's hold is also refused at lease time as a
 `credit` wait; current holds are under the guard's $1 margin. Within that margin the guard pauses new
 attempts (degraded) until the ceiling is raised; steps in flight keep running, and their paid calls

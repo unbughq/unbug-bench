@@ -419,6 +419,7 @@ class Guard:
             spent, ceiling, *credit = self.router()
             health["router_spent_usd"] = round(spent, 6)
             health["provider_credit_usd"] = round(credit[0], 2) if credit and credit[0] is not None else None
+            health["router_credit_stuck"] = len(credit) > 1 and credit[1] is True
             health["router_ceiling_usd"] = round(ceiling, 6) if math.isfinite(ceiling) else None
             now = self.clock()
             samples = [s for s in health["router_spend_samples"] if isinstance(s, list) and len(s) == 2
@@ -610,6 +611,10 @@ class Guard:
         if credit is not None and credit < self.low_credit_usd:
             out["provider_credit"] = (f"Provider account credit is ${credit:.2f}, below ${self.low_credit_usd:.2f}; "
                                       f"{runway(credit, rate)}. Top it up before calls start being refused.")
+        if health.get("router_credit_stuck"):
+            out["router_credit_stuck"] = ("The provider account's credit refused 3x despite balance: check key limit "
+                                          "(the OpenRouter key's own credit limit), then run "
+                                          "`model_router.py --config <router config> --lift-credit`.")
         spent, ceiling = health.get("router_spent_usd"), health.get("router_ceiling_usd")
         if spent is not None and ceiling and spent >= CEILING_ALERT_SHARE * ceiling:
             left = max(ceiling - ROUTER_MARGIN_USD - spent, 0)
@@ -661,38 +666,40 @@ def runway(left: float, rate: Optional[float]) -> str:
 
 
 def router_spend(path) -> tuple:
-    """Real spend and the ceiling, in dollars, read-only from the router's books."""
+    """Real spend, the ceiling and the last balance, in dollars, and whether the router stopped lifting
+    the paid pool's credit block (model_router.credit_stuck), read-only from the router's books."""
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         # A pending row carries its full hold, not a charge. Unknown charges stay counted.
         spent = db.execute("SELECT COALESCE(SUM(charge), 0) FROM paid_requests WHERE state != 'pending'").fetchone()[0]
         row = db.execute("SELECT ceiling, credit FROM paid_account").fetchone()
+        from model_router import credit_stuck
+        stuck = credit_stuck(db)
     finally:
         db.close()
     ceiling = row[0] / 1e9 if row and row[0] is not None else math.inf   # no ceiling set: no limit here
     credit = row[1] / 1e9 if row and row[1] is not None else None       # the provider's last observed balance
-    return spent / 1e9, ceiling, credit
+    return spent / 1e9, ceiling, credit, stuck
 
 
-def router_clear(path, now: Optional[float] = None, credit_only: bool = False) -> bool:
+def router_clear(path, now: Optional[float] = None) -> bool:
     """Whether the router's books show no pool blocked by a provider limit, a credit refusal or an
     expiring credential, read-only (the same file as router_spend). A held case that stopped on a
     provider limit resumes on this (engine.auto_resume_kind). Unreadable books mean not clear.
-    credit_only: no pool blocked for credit, which a case parked on router:credit waits for
-    (engine wait_for_credit; the router lifts the block on a top-up, Store.lift_credit).
+    A credit block lasts until lifted only on the paid pool, which the router can read (model_router
+    .lasting); on any other pool it expires like the router's own (model_router.retry_at).
     ponytail: every pool counts, not only the stopped step's; a per-pool read when that blocks resumes."""
     now = time.time() if now is None else now
     try:
         db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
-            rows = [json.loads(v) for (v,) in db.execute("SELECT value FROM health")]
+            rows = [(k, json.loads(v)) for (k, v) in db.execute("SELECT pool, value FROM health")]
         finally:
             db.close()
     except (sqlite3.Error, ValueError):
         return False
-    return not any(isinstance(r, dict) and (r.get("reason") == "credit" if credit_only else
-                                            r.get("reason") in ("credit", "credential_expiring")
-                                            or r.get("blocked_until", 0) > now) for r in rows)
+    from model_router import lasting
+    return not any(isinstance(r, dict) and (lasting(k, r) or r.get("blocked_until", 0) > now) for k, r in rows)
 
 
 def webhook(url: str) -> Callable:

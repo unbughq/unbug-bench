@@ -663,7 +663,14 @@ def engine_main(workdir):
                        "listener_poll_s": 0.05, **scenario.get("timing", {})})
     engine = Engine(system_database_url=scenario.get("database_url", f"sqlite:///{work}/sys.sqlite"), executor=ex,
                     timing=timing, admission_paused=lambda: degraded(work / "state"),
-                    router_clear=lambda **kw: (work / "router-clear").exists())
+                    router_clear=lambda: (work / "router-clear").exists(),
+                    # A case parked on router:credit: the block is gone ("router-clear") and, given the
+                    # step's dearest hold, the router's last balance funds it ("credit-short" absent).
+                    credit_ready=lambda hold=None: (work / "router-clear").exists()
+                    and (hold is None or not (work / "credit-short").exists()))
+    for flag in ("router-clear", "credit-short"):   # the router's books as the batch starts
+        if scenario.get(flag.replace("-", "_")):
+            (work / flag).touch()
     engine.launch()
     if "drain_s" in scenario:
         stop_on_signal(lambda: engine.drain(scenario["drain_s"]))
@@ -746,6 +753,8 @@ def engine_main(workdir):
                 observed = {"i": i, "held": held}
                 if act.get("router_clear"):
                     (work / "router-clear").touch()   # the router reports its pools healthy
+                if act.get("credit_fits"):
+                    (work / "credit-short").unlink(missing_ok=True)   # the balance now funds the step's request
                 if "resume_held" in act:
                     observed["resume_sent"] = engine.resume_held(f"case-{spec.batch_id[2:]}-{act['resume_held']}")
                 if "case" in when:

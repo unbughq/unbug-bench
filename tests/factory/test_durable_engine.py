@@ -2037,19 +2037,24 @@ class CreditPark(unittest.TestCase):
     was once credit is back. A provider 402 and the router's own pre-check refusal (the gate's
     shared_paid_spend_wait) both end the step router:credit (classify_wait)."""
 
-    CREDIT = {"outcome": "provider_limit", "reason": "router:credit", "retry_in": 0.3, "paid": 0, "checkpoint": True}
+    # The attempt spent money on gates its snapshot keeps: that is progress, not waste.
+    CREDIT = {"outcome": "provider_limit", "reason": "router:credit", "retry_in": 0.3, "paid": 400, "checkpoint": True}
     PARKED = {"case": 1, "status": "waiting_for_credit"}
+    RETRY = f"{C1}/4/gates:1/2"
 
     def test_a_credit_stop_mid_gates_parks_without_its_worker_and_resumes_once_after_a_top_up(self):
         # No infra allowance at all: a credit stop must spend none and never reach a diagnosis.
         r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 0},
-                      "timing": {"wake_poll_s": 0.2}, "script": {"1/gates:1/1": self.CREDIT},
+                      "timing": {"wake_poll_s": 0.2},
+                      "script": {"1/gates:1/1": self.CREDIT, "1/gates:1/2": {"dur": 2.0}},
                       # The top-up comes well after the case's own backoff and several polls.
-                      "actions": [{"when": self.PARKED, "delay_s": 1.5, "router_clear": True}]})
+                      "actions": [{"when": self.PARKED, "delay_s": 1.5, "router_clear": True},
+                                  {"when": {"started": self.RETRY, "case": 1, "status": "running"}}]})
         self.addCleanup(r.close)
-        first, retry = start(r, f"{C1}/4/gates:1/1"), start(r, f"{C1}/4/gates:1/2")
-        [topped_up] = r.actions()
+        first, retry = start(r, f"{C1}/4/gates:1/1"), start(r, self.RETRY)
+        topped_up, woken = r.actions()
         self.assertEqual((topped_up["status"], topped_up["reason"]), ("waiting_for_credit", "router:credit"))
+        self.assertIsNone(woken["reason"])   # the card's "Top it up" reason clears on the wake
         # One wake, after the top-up; nothing ran while it waited.
         self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "gates:1", "seal"])
         self.assertGreater(retry["t"], topped_up["t"])
@@ -2059,18 +2064,42 @@ class CreditPark(unittest.TestCase):
         self.assertTrue(released and released[0]["t"] < topped_up["t"], released)
         self.assertNotEqual(first["worker"], retry["worker"])
         self.assertEqual(retry["opened"]["snapshot"], f"snapshot {C1}/4/gates:1/1")
-        # Its hold was released and nothing was booked as waste.
+        # Its hold was released, and what it spent is the case's, not waste.
         settle = next(x for x in r.ledger_log() if x["op"] == "settle" and x["key"] == f"{C1}/4/gates:1/1")
-        self.assertEqual((settle["paid"], settle["waste"]), (0, False))
+        self.assertEqual((settle["paid"], settle["waste"]), (400, False))
         self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 0)
         self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
-    def test_a_workflow_recorded_before_the_patch_keeps_its_sleep(self):
+    def test_a_woken_case_the_balance_cannot_fund_stays_parked_without_a_worker(self):
+        # The block lifts for one request, but this step's dearest call does not fit what is left:
+        # it keeps waiting with no worker until the router's books fund it.
+        r, out = run({"spec": {"max_cases_started": 1}, "timing": {"wake_poll_s": 0.2}, "credit_short": True,
+                      "script": {"1/gates:1/1": self.CREDIT},
+                      "actions": [{"when": self.PARKED, "router_clear": True},
+                                  {"when": self.PARKED, "delay_s": 1.5, "credit_fits": True}]})
+        self.addCleanup(r.close)
+        lifted, funded = r.actions()
+        self.assertGreater(start(r, self.RETRY)["t"], funded["t"])
+        meanwhile = lambda log, op: [x for x in log if x["op"] == op and lifted["t"] < x["t"] < funded["t"]]
+        self.assertEqual(meanwhile(r.pool_log(), "provision"), [])   # no worker...
+        self.assertEqual(meanwhile(r.ledger_log(), "reserve"), [])   # ...and no money taken while it waits
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_a_refusal_with_no_credit_block_keeps_its_worker_and_its_short_sleep(self):
+        # The router's ceiling or an unreadable balance refuses without a block: as before, a short
+        # sleep on the same worker, not a park.
+        r, out = run({"spec": {"max_cases_started": 1}, "router_clear": True, "script": {"1/gates:1/1": self.CREDIT}})
+        self.addCleanup(r.close)
+        self.assertEqual(start(r, f"{C1}/4/gates:1/1")["worker"], start(r, self.RETRY)["worker"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_a_workflow_recorded_before_the_patch_keeps_its_sleep_and_its_waste(self):
         r, out = run({"spec": {"max_cases_started": 1}, "script": {"1/gates:1/1": self.CREDIT},
                       "disabled_patches": ["credit_park"]})
         self.addCleanup(r.close)
-        self.assertEqual(start(r, f"{C1}/4/gates:1/1")["worker"], start(r, f"{C1}/4/gates:1/2")["worker"])
+        self.assertEqual(start(r, f"{C1}/4/gates:1/1")["worker"], start(r, self.RETRY)["worker"])
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 400)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
 

@@ -93,6 +93,12 @@ def _router_db():
     return production_database({})
 
 
+def _credit_ready(path, hold):
+    """model_router.credit_ready on the router's books; `hold` is micro-USD, the router counts nano-USD."""
+    from model_router import credit_ready
+    return credit_ready(path, None if hold is None else hold * 1000)
+
+
 def load_config(path):
     config = json.loads(private_bytes(path))
     config["database_url"] = os.environ.get("UNBUG_DURABLE_DSN") or private_bytes(config["database_url_file"]).decode().strip()
@@ -230,7 +236,8 @@ class Runtime:
                                      renewing=lambda lease: guard_renewing(self.state, boat_id(lease.worker_id)))
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
                                  admission_paused=lambda: guard_degraded(self.state),
-                                 router_clear=lambda **kw: router_clear(config.get("router_db") or _router_db(), **kw))
+                                 router_clear=lambda: router_clear(config.get("router_db") or _router_db()),
+                                 credit_ready=lambda hold=None: _credit_ready(config.get("router_db") or _router_db(), hold))
         except Exception:
             self.close()
             raise
