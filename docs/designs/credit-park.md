@@ -3,14 +3,14 @@
 Founder ruling, 15 November: when a model runs out of credit mid-run, "checkpoint the case and cleanly
 stop. Don't lose any progress." It resumes where it was once credit is back.
 
-## Before
+## Problem
 
 A provider 402 and the router's own pre-check refusal both end the step `router:credit`. The engine slept
 900 s on the same worker and retried, forever. After a 402 the router's credit block never expired, so
 every case on the pool looped until a manual DB edit. After a pre-check refusal no block was written, so
 cases retried blind every 15 minutes. The attempt's spend was booked as waste.
 
-## After
+## Change
 
 - **Router** (`model_router.py`). A short balance (paid_reserve) or a 402 (observe) blocks the paid pool
   `openrouter-key` for credit. A 429 or quota on a call in flight only lengthens it. `Store.lift_credit`,
@@ -32,6 +32,42 @@ cases retried blind every 15 minutes. The attempt's spend was booked as waste.
   once. The retry is uncounted and never diagnosed. A refusal with no block (the ceiling, an unreadable
   balance, unreadable router books) keeps the old short sleep on its worker. The guard excludes a parked
   case from its "no progress" alert, as it does `held_for_release`.
+
+- **Audit** (`stop_registry.decode`). Its copy of the waste rule is gone; it calls
+  `policy.settles_as_waste` (with `credit_park`; rows recorded before the patch were booked as waste,
+  and the waste-on-case-money check only reads rows booked to the case).
+
+## What it deletes
+
+- The 900 s sleep on the same worker for a credit stop, and the waste booked for it.
+- The credit block that never expired: a credit block on any pool but the paid one now expires on its
+  backoff, and the paid pool's is lifted by `lift_credit`, not a manual DB edit.
+- The stop audit's second copy of the waste rule.
+
+## Tests
+
+- Engine (`tests/factory/test_durable_engine.py`, `CreditPark`): a credit stop mid-gates parks without
+  its worker and resumes once after a top-up, with no waste; a top-up that lifts the block wakes a parked
+  live rotation case (real router books); a refusal with no block keeps its worker and short sleep; a
+  workflow recorded before the patch keeps its sleep and its waste.
+- Router (`tests/factory/test_router_paid_spend.py`): a low-credit refusal parks the pool until a top-up
+  lifts it once; a 402 lifts after its backoff and backs off further if it recurs; three 402s stop
+  lifting and alert until the operator lifts; another pool's credit block expires; a low-balance block
+  never wins over a seat wait; a 429 never ends a credit block; concurrent 402s are one refusal; low-
+  balance refusals and 429s never reach the cap; the margin rule (settled holds do not lift, a stale-high
+  reading does not block); an operator lift says why not; unreadable books read as no block.
+- Classify (`test_durable_classify.py`): only the paid pool's credit wait is `router:credit`.
+- Guard (`test_durable_guard.py`): a parked case is no campaign stall; the stuck alert fires once and
+  names `OPENROUTER_API_KEY`.
+- Audit (`test_stop_registry.py`): a paid credit-park stop booked to the case breaks no invariant.
+
+## Murphy rows
+
+None in the register covers it (row 3 is the DeepSeek route spending paid credit, not this). The branch
+adds `new-credit-park-1`: "Out of credit mid-run, a case sleeps 15 minutes on its worker and retries
+forever; after a 402 the credit block never expires; the spend is booked as waste." Closed by
+`tests/factory/test_durable_engine.py::CreditPark::test_a_top_up_that_lifts_the_block_wakes_a_parked_rotation_case`
+(real router books and a live rotation batch's inputs).
 
 ## Limits
 
