@@ -687,6 +687,35 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(entries[old]["status"], "screening")   # the old entry stays occupied
         self.assertEqual(entries[CASE]["statement_sha256"], hashlib.sha256(text.encode()).hexdigest())
 
+    def test_a_hand_repaired_import_keeps_its_tree_reruns_every_screen_and_goes_to_gates(self):
+        # 1bb2ad, 17 November: a person fixed the statement and provenance; no writer may touch it.
+        old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        value = self.real_inputs("unused", import_spent_usd_micros=2_500_000, import_mode="hand_repaired")
+        value.pop("candidate")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        step_input = self.import_step(inputs, registry, self.legacy_archive(old, text))
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:imported_hand"))
+        check_result_for(step_input.step, result)
+        self.assertIn("reviewer-idea-realism", self.calls)
+        self.assertFalse(any(name.startswith("builder-selection") for name in self.calls))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual((work / "case/statement.md").read_text(), text)
+        self.assertNotIn("recertify", c.card)        # no verdict is kept: every gate runs
+        self.assertEqual(c.card["imported_from"]["mode"], "hand_repaired")
+        # Hand repair never combines with recertification (an otherwise valid recertify input).
+        both = {k: v for k, v in value.items() if k != "models"}
+        both.update(recertify=True, recovery_config={"runs": 10})
+        admit._inputs(json.dumps({**both, "import_mode": None}).encode())
+        with self.assertRaises(admit._Invalid):
+            admit._inputs(json.dumps(both).encode())
+        # Without an archive, a hand repair is refused rather than admitting a case a writer would build.
+        self.calls.clear()
+        result, _ = self.run_admit(self.step(inputs, registry))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_hand"))
+        self.assertEqual(self.calls, [])
+
     def sealed_card(self, **changes):
         """A sealed October card as 18681d and 86b100 have it: G1-G15 passed, models and role efforts."""
         models = {"builder": ["openrouter/minimax/minimax-m3.1-flash"],

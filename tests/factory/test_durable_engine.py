@@ -1447,6 +1447,25 @@ class Resume(unittest.TestCase):
         self.assertEqual(set(FACTORY_BUG_RESUMABLE), {"writer", "stress", "gates"})   # never admit or seal
         self.assertEqual(FACTORY_BUG_RESUMABLE["gates"], ("engine:money",))   # never a gate verdict
 
+    def test_a_hand_repaired_import_runs_only_gates_and_seal_and_a_repair_retires_it(self):
+        hand = {'1/admit/1': {'reason': 'admit:imported_hand'}}
+        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': hand})
+        self.addCleanup(r.close)
+        self.assertEqual(r.keys(1), [('1', 'admit', '1'), ('2', 'gates:1', '1'), ('3', 'seal', '1')])
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        repair = {'outcome': 'gate_failed', 'gate': 'G9', 'repairable': True, 'passed': ['G1', 'G2']}
+        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1},
+                      'script': {**hand, '1/gates:1/1': repair}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ['admit', 'gates:1'])     # never a writer round
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        # Nor on a resume: the next repair is done by hand and imported again.
+        r, out = self.manual_run({'import_snapshot': True, 'spec': {'max_cases_started': 1},
+                                  'script': {**hand, '1/gates:1/1': {**repair, 'passed': ['G1', 'G2', 'G10']}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        self.assertEqual(self.resume(r), {"refused": "resume:hand_repaired"})
+
     # 86b100 on 10 November: its recertify G16 asked for a repair, which retires a recertified case.
     def test_a_recertified_case_retired_at_a_repairable_gate_resumes_into_a_writer_repair(self):
         sealed = {'1/admit/1': {'reason': 'admit:imported_sealed'},

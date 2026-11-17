@@ -47,7 +47,7 @@ OPEN = bug()
 REGISTRY = {
     # -- case outcomes --
     "admit:selected": CASE, "admit:practice": CASE, "admit:conflict": CASE, "admit:board_planned": CASE,
-    "admit:imported_sealed": CASE, "admit:imported_written": CASE,
+    "admit:imported_sealed": CASE, "admit:imported_written": CASE, "admit:imported_hand": CASE,
     "writer:validated": CASE, "writer:practice": CASE, "writer:invalid_practice": CASE, "writer:handback": CASE,
     "writer:rounds_exhausted": CASE, "writer:unchanged_repair": CASE, "writer:output_capped": CASE,
     "stress:clean": CASE, "stress:findings": CASE, "stress:public_match": CASE, "stress:practice": CASE,
