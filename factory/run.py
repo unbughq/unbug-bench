@@ -3604,6 +3604,19 @@ def engine_seal(c):
             "hard": c.card.get("difficulty") == "hard"}
 
 
+def kept_gate_verdict(c, kind, result):
+    """A GATES step stopped by money or a provider wait after a gate failed: the recorded failure wins over
+    the stop, which would rerun the whole gate pipeline (and its reviewers) instead of reporting it."""
+    from durable.contract import StepKind
+    if kind is not StepKind.GATES or not c.card.get("failed_gate"):
+        return result
+    verdict = gates_result(c, prefer_failed=True)
+    if verdict.get("outcome") is None:
+        return result
+    log(c, "ENGINE GATE VERDICT KEPT", c.card["failed_gate"])
+    return {**verdict, "stop": None}
+
+
 def run_step(c, step_input, *, feedback=None, ruling=None):
     """Run one engine step on the context from context_for_step. Returns a dict the worker turns into
     a StepResult: outcome and reason, or a stop string for the Classifier. Never raises."""
@@ -3631,15 +3644,13 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
         else: result = engine_seal(c)
     except model_router.ProviderWait as error:
         result = engine_provider_wait(c, error, now=time.time())
+        result = kept_gate_verdict(c, kind, result)   # 1bb2ad 17 Nov: a parked G10 wait raised after G8 failed
     except (BudgetError, PauseRequested) as error:
         stop = "paused" if isinstance(error, PauseRequested) else str(error)
         log(c, "ENGINE STOPPED", stop)
         result = {"stop": stop, "traceback": traceback.format_exc()}
-        if kind is StepKind.GATES and isinstance(error, BudgetError) and c.card.get("failed_gate"):
-            verdict = gates_result(c, prefer_failed=True)   # a recorded failure wins over any stop
-            if verdict.get("outcome") is not None:
-                log(c, "ENGINE GATE VERDICT KEPT", c.card["failed_gate"])
-                result = {**verdict, "stop": None}
+        if isinstance(error, BudgetError):
+            result = kept_gate_verdict(c, kind, result)
     except Exception as error:
         log(c, traceback.format_exc())
         result = {"stop": type(error).__name__, "traceback": traceback.format_exc()}

@@ -889,6 +889,34 @@ class HookTests(unittest.TestCase):
             out = run.run_step(c, si)
         self.assertNotEqual(out.get("outcome"), Outcome.GATE_FAILED)
 
+    def test_a_provider_wait_after_a_failed_gate_keeps_the_gate_verdict(self):
+        """1bb2ad 17 November: the strong calibrator's Claude call hit a 502 at 22:55, parked as a provider
+        wait until the bench gates finished; G8 then failed 1/2 at 00:34. The wait was raised and the step
+        reported router:claude_error, so the whole gate run reran instead of reporting the split panel."""
+        c, si = self.context(StepKind.GATES)
+        wait = model_router.ProviderWait("strong_calibrator", model_router.Wait("outage", time.time() + 60))
+        def split_g8_then_wait(c):
+            c.card["gates"].update(G1="pass", G8="fail")
+            c.card.update(failed_gate="G8", failed_detail={"approve": "1/2"}, reviewers_fairness="1/2")
+            raise wait
+        with patch.object(run, "run_gates", side_effect=split_g8_then_wait):
+            out = run.run_step(c, si)
+        self.assertEqual((out["outcome"], out["reason"], out["gate"]),
+                         (Outcome.NEEDS_FOUNDER, "g8:reviewers_disagree", "G8"))
+        self.assertIsNone(out["stop"])
+        def g5_then_wait(c):
+            c.card["gates"]["G5"] = "fail"; c.card.update(failed_gate="G5", failed_detail={"problems": ["x"]})
+            raise wait
+        with patch.object(run, "run_gates", side_effect=g5_then_wait):
+            out = run.run_step(c, si)
+        self.assertEqual((out["outcome"], out["gate"]), (Outcome.GATE_FAILED, "G5"))
+        def wait_only(c):   # no gate failed: the provider wait stands
+            c.card["gates"]["G1"] = "pass"
+            raise wait
+        with patch.object(run, "run_gates", side_effect=wait_only):
+            out = run.run_step(c, si)
+        self.assertEqual(out["reason"], "router:outage")
+
     def test_engine_gate_checkpoint_uses_explicit_hook_and_no_legacy_upload(self):
         c, _ = self.context(StepKind.GATES)
         c.recipient = run.FOUNDER_RECIPIENT; c.args.dry_run = False; c.args.no_early_probe = True
