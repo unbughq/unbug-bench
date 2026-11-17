@@ -2232,6 +2232,38 @@ class ResumeCaseMoneyExtra(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {f"{C1}@b-y": "sealed"})
         self.assertEqual(card(out, C1)["case_money_extra"], {"usd_micros": 50 * M, "reason": "more"})
 
+    def test_a_hand_repaired_import_carries_its_grant_to_the_card(self):
+        # Founder 2026-11-17: 1bb2ad's hand import had $24.73 of its $50 left, less than two $12.50
+        # call holds; `start --import-file ... --extra-case-money` raises an import's ceiling too.
+        hand = {'1/admit/1': {'reason': 'admit:imported_hand'}}
+        grant = {"usd_micros": 25 * M, "reason": self.WHY}
+        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': hand,
+                      'case_money_extra': grant})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        self.assertEqual(card(out, C1)['case_money_extra'], grant)
+        r2, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': hand})
+        self.addCleanup(r2.close)
+        self.assertNotIn('case_money_extra', card(out, C1))   # no grant: the card is as today
+        r3, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': hand,
+                       'case_money_extra': {"usd_micros": 200 * M + 1, "reason": self.WHY}})
+        self.addCleanup(r3.close)
+        self.assertEqual(out, {"refused": "resume:bad_case_money_extra"})
+
+    def test_a_resumed_import_keeps_its_import_grant(self):
+        # Goldfish import-money-grant-diff-1 #1: the grant of a hand import that later holds starts its lineage's.
+        grant = {"usd_micros": 25 * M, "reason": self.WHY}
+        held = {'1/admit/1': {'reason': 'admit:imported_hand'},
+                "1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted", "checkpoint": True},
+                "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = run(manual_holds({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': held,
+                                   'case_money_extra': grant}))
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'held'})
+        out = self.resume(r, "b-v")
+        self.assertEqual(out["result"]["cases"], {f"{C1}@b-v": "sealed"})
+        self.assertEqual(card(out, C1)["case_money_extra"], grant)   # inherited, as from a resume's grant
+
     def test_a_bad_grant_is_refused(self):
         from durable.contract import ContractError
         from durable.engine import resume_point

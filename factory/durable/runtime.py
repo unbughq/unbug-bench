@@ -328,7 +328,9 @@ class Runtime:
         # it; the engine checks the reason and that the lineage has used fewer than OVERRIDE_MAX (two).
         grant = None if extra_case_money is None and case_money_reason is None else {
             "usd_micros": extra_case_money, "reason": case_money_reason}
-        if (override is not None or roles is not None or grant is not None) and resume_of is None:
+        if (override is not None or roles is not None) and resume_of is None:
+            raise RuntimeErrorCode("resume_invalid")
+        if grant is not None and resume_of is None and import_record is None:
             raise RuntimeErrorCode("resume_invalid")
         if roles is not None:
             check_role_swap(roles)
@@ -354,8 +356,26 @@ class Runtime:
                     self.store.get_sealed(spec.batch_id, spec.inputs))).get("import_spent_usd_micros")
             except (ValueError, AttributeError):
                 declared = None
+            # Founder 2026-11-17: --extra-case-money raises an import's ceiling as it does a resume's.
+            # A retried start attaches to its batch (engine.start_batch) and keeps the grant it recorded:
+            # a different grant would be dropped, so it is refused, as on a resume.
+            from dbos import DBOS
+            if DBOS.get_workflow_status(spec.batch_id) is not None:
+                rows = DBOS.list_workflows(workflow_ids=[spec.batch_id], load_output=False)
+                recorded = rows[0].input["args"][0].get("case_money_extra") if rows else None
+                if grant is not None and recorded != grant:
+                    raise RuntimeErrorCode("case_money_extra_invalid")
+                grant = recorded
+            raised = 0
+            if grant is not None:
+                from durable.engine import check_case_money_extra
+                try:
+                    check_case_money_extra(grant)
+                except ContractError:
+                    raise RuntimeErrorCode("case_money_extra_invalid") from None
+                raised = grant["usd_micros"]
             if (type(declared) is not int or declared < 0
-                    or declared + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros):
+                    or declared + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros + raised):
                 raise RuntimeErrorCode("import_invalid")
         if resume_of is not None:
             # A case stopped by an infrastructure failure continues as this batch's only case, under its
