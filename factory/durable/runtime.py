@@ -357,6 +357,15 @@ class Runtime:
             except (ValueError, AttributeError):
                 declared = None
             # Founder 2026-11-17: --extra-case-money raises an import's ceiling as it does a resume's.
+            # A retried start attaches to its batch (engine.start_batch) and keeps the grant it recorded:
+            # a different grant would be dropped, so it is refused, as on a resume.
+            from dbos import DBOS
+            if DBOS.get_workflow_status(spec.batch_id) is not None:
+                rows = DBOS.list_workflows(workflow_ids=[spec.batch_id], load_output=False)
+                recorded = rows[0].input["args"][0].get("case_money_extra") if rows else None
+                if grant is not None and recorded != grant:
+                    raise RuntimeErrorCode("case_money_extra_invalid")
+                grant = recorded
             raised = 0
             if grant is not None:
                 from durable.engine import check_case_money_extra

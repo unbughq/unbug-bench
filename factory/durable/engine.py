@@ -553,6 +553,8 @@ def lineage_case_money_extra(case_id: str, extra: Optional[dict] = None, exclude
     if extra is not None:
         check_case_money_extra(extra)
     latest = None
+    for w in DBOS.list_workflows(workflow_ids=[case_id], name=case_workflow.__qualname__):
+        latest = w.input["args"][0].get("case_money_extra")   # a granted import starts its lineage's grant
     for w in sorted(DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__),
                     key=lambda w: (w.created_at or 0, w.workflow_id)):
         if w.workflow_id != exclude:

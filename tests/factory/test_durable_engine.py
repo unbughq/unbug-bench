@@ -2250,6 +2250,20 @@ class ResumeCaseMoneyExtra(unittest.TestCase):
         self.addCleanup(r3.close)
         self.assertEqual(out, {"refused": "resume:bad_case_money_extra"})
 
+    def test_a_resumed_import_keeps_its_import_grant(self):
+        # Goldfish import-money-grant-diff-1 #1: the grant of a hand import that later holds starts its lineage's.
+        grant = {"usd_micros": 25 * M, "reason": self.WHY}
+        held = {'1/admit/1': {'reason': 'admit:imported_hand'},
+                "1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted", "checkpoint": True},
+                "1/diagnosis/*": {"verdict": "factory_bug"}}
+        r, out = run(manual_holds({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': held,
+                                   'case_money_extra': grant}))
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'held'})
+        out = self.resume(r, "b-v")
+        self.assertEqual(out["result"]["cases"], {f"{C1}@b-v": "sealed"})
+        self.assertEqual(card(out, C1)["case_money_extra"], grant)   # inherited, as from a resume's grant
+
     def test_a_bad_grant_is_refused(self):
         from durable.contract import ContractError
         from durable.engine import resume_point

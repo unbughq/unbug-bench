@@ -195,8 +195,8 @@ def main(argv=None):
                        "stress_tester and/or strong_calibrator, as role=model[,role=model]; later resumes of "
                        "the lineage keep it; undo one by naming the role's earlier model. The worker refuses a swap "
                        "that breaks the family rules or changes the strong calibrator once a GATES step ran")
-    start.add_argument("--extra-case-money", type=int, help="founder 2026-11-13: raise --resume-case's lineage "
-                       "case-money ceiling (the $50 default its earlier spend plus this batch's case_money_usd_micros "
+    start.add_argument("--extra-case-money", type=int, help="founder 2026-11-13: raise the case-money ceiling of --resume-case's lineage "
+                       "or of an --import-file case (the $50 default its earlier spend plus this batch's case_money_usd_micros "
                        "must fit) by this many micro-USD; later resumes of the lineage keep it, a further "
                        "grant adds to it, $200 in all. Needs --case-money-reason. Recorded on the case card and the board")
     start.add_argument("--case-money-reason", help="why --extra-case-money was granted (printable, at most 200 characters)")
