@@ -452,6 +452,8 @@ def factory_bug_rerunnable(name: Optional[str], stops: list) -> bool:
 # a case that has not finished or sealed, and never a stop _override_refusal names. Each override and its
 # reason ride in the resume record (and on the case card), so a later one sees it. Founder 2026-11-13:
 # up to OVERRIDE_MAX per lineage (was once), so a case a second fixed factory bug killed can finish.
+# Imports the engine sends straight to GATES (no WRITER or STRESS); a repair request retires them.
+GATES_ONLY_IMPORTS = ("admit:imported_sealed", "admit:imported_hand")
 OVERRIDE_REASON_MAX = 200
 OVERRIDE_MAX = 2
 # Founder 2026-11-14: one override beyond OVERRIDE_MAX for f46dac-5-1 alone. Its second override (the
@@ -502,7 +504,7 @@ def _close_to_passing_retirement(latest, attempts: dict, last: tuple, earlier: l
     def kind(w):
         return w.workflow_id.split("/")[2].split(":")[0]
     admit = [result_of(w) for _, w in rows if kind(w) == StepKind.ADMIT.value]
-    if (any(isinstance(r, dict) and r.get("reason") == "admit:imported_sealed" for r in admit)
+    if (any(isinstance(r, dict) and r.get("reason") in GATES_ONLY_IMPORTS for r in admit)
             and not any(r.get("recertify_repair") is True for r in earlier)):
         return None
     if used == 0:
@@ -670,6 +672,12 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         latest.output.get("status") if isinstance(latest.output, dict) else None)
     if stopped not in RESUMABLE_STATUSES:
         raise ContractError("resume:not_stopped_by_infra")
+    # A retired hand-repaired import is never resumed, whatever retired it: it is repaired by hand
+    # and imported again. A resume of a gate's repair request would hand its feedback to a writer.
+    if stopped == "retired" and any(
+            isinstance(r, dict) and r.get("reason") == "admit:imported_hand"
+            for r in (result_of(w) for w in attempts.values() if w.workflow_id.split("/")[2] == StepKind.ADMIT.value)):
+        raise ContractError("resume:hand_repaired")
 
     earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
     if override is not None and (sum(r.get("override") is not None for r in earlier)
@@ -1574,10 +1582,12 @@ class _Case:
         phase, feedback, ruling = "writer", None, None
         if r is not None and r.reason == "admit:imported_written":
             phase = "stress"   # an imported case whose writing passed G1 starts with a stress round
-        if r is not None and r.reason == "admit:imported_sealed":
+        if r is not None and r.reason in GATES_ONLY_IMPORTS:
             # A sealed October case keeps its G1-G15 verdicts and reruns only GATES (G3, G16, G10,
             # G17, G11) and SEAL. A gate that asks for a repair retires it; only a resume of that
             # retirement (recertify_repair) rewrites it, and then every gate runs.
+            # A hand-repaired import has no kept verdicts, so its GATES run every gate; it is
+            # otherwise treated the same: no writer or stress round, and a repair request retires it.
             self.recertify, phase = True, "gates"
         while True:
             if phase == "writer":

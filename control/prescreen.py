@@ -167,6 +167,8 @@ def screen(ideas, board, history=(), manual=(), identity=None):
                 codes.append("import_unchecked")
         elif inputs.get("recertify") is True:
             codes.append("admit:import_recertify")
+        elif inputs.get("import_mode") == admit.HAND_REPAIRED:
+            codes.append("admit:import_hand")
         if digest:
             # An import has one candidate, its own, so a duplicate is refused. A fresh idea's writer
             # may reselect after a dedup rejection (MAX_CANDIDATES): replace the candidate, not the idea.

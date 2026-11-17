@@ -103,7 +103,7 @@ def _inputs(plaintext):
             or not all(isinstance(m, str) and _MODEL.fullmatch(m) for m in routes.values())):
         raise _Invalid("inputs")
     # Idea-only keeps no verdicts, so it never combines with recertification.
-    if value.get("import_mode") not in (None, IDEA_ONLY) or (value.get("import_mode") and value.get("recertify")):
+    if value.get("import_mode") not in (None, IDEA_ONLY, HAND_REPAIRED) or (value.get("import_mode") and value.get("recertify")):
         raise _Invalid("inputs")
     if value["dry_run"]:
         return value
@@ -228,8 +228,12 @@ AGE = b"age-encryption.org/v1\n"
 IMPORT_REFUSALS = ("import_key", "import_layout", "import_layout_root", "import_layout_card", "import_layout_meta",
                    "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
                    "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid",
-                   "import_recertify", "import_idea_writer", "import_idea_family", "import_idea_statement")
+                   "import_recertify", "import_idea_writer", "import_idea_family", "import_idea_statement",
+                   "import_hand")
 IDEA_ONLY = "idea_only"
+# A case a person repaired by hand (founder 2026-11-17): every gate runs on it, and a gate that
+# asks for a repair retires it for the next hand repair. No writer or stress tester touches it.
+HAND_REPAIRED = "hand_repaired"
 # Writers an idea-only import may hand its statement to: the free OpenCode families.
 IDEA_WRITERS = ("minimax", "deepseek")
 # INPUTS `recertify_routes` may move one of these roles to another route of the same model family
@@ -336,6 +340,8 @@ def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None):
                        "written": gates.get("G1") == "pass"}
             if recertify is not None:
                 summary["recertify"] = True
+            if inputs.get("import_mode") == HAND_REPAIRED:
+                summary["mode"] = HAND_REPAIRED
         if work.exists():
             shutil.rmtree(work)
         work.mkdir()
@@ -796,6 +802,8 @@ def run(worker, step_input, keys):
         c = runner.context_for_step(step_input, work)
         if inputs.get("recertify") is True and not c.card.get("recertify"):
             return StepResult(Outcome.EXHAUSTED, "admit:import_recertify"), {}   # recertify needs a sealed import
+        if inputs.get("import_mode") == HAND_REPAIRED and (c.card.get("imported_from") or {}).get("mode") != HAND_REPAIRED:
+            return StepResult(Outcome.EXHAUSTED, "admit:import_hand"), {}        # so does a hand repair
         _pin_models(c, runner, inputs)
         if step_input.roles:   # a resume's role swap, over the models INPUTS pinned (run.swap_roles)
             runner.swap_roles(c, step_input)
@@ -844,6 +852,8 @@ def run(worker, step_input, keys):
                 reason = "admit:imported_written"  # the engine resumes a written case at STRESS
             if accepted and c.card.get("recertify"):
                 reason = "admit:imported_sealed"   # the engine resumes a sealed case at GATES
+            if accepted and (c.card.get("imported_from") or {}).get("mode") == HAND_REPAIRED:
+                reason = "admit:imported_hand"     # the engine runs every gate on it, then SEAL
         snap = snapshot()
         usage = account()
         if not accepted:
