@@ -890,9 +890,9 @@ class HookTests(unittest.TestCase):
         self.assertNotEqual(out.get("outcome"), Outcome.GATE_FAILED)
 
     def test_a_provider_wait_after_a_failed_gate_keeps_the_gate_verdict(self):
-        """1bb2ad 17 November: the strong calibrator's Claude call hit a 502 at 22:55, parked as a provider
-        wait until the bench gates finished; G8 then failed 1/2 at 00:34. The wait was raised and the step
-        reported router:claude_error, so the whole gate run reran instead of reporting the split panel."""
+        """1bb2ad 17 November: the strong calibrator's Claude call hit a 502 at 22:55 and its provider wait
+        reached run_step after G8 had failed 1/2 at 00:34. The step reported router:claude_error, so the
+        whole gate run reran instead of reporting the split panel."""
         c, si = self.context(StepKind.GATES)
         wait = model_router.ProviderWait("strong_calibrator", model_router.Wait("outage", time.time() + 60))
         def split_g8_then_wait(c):
@@ -910,6 +910,13 @@ class HookTests(unittest.TestCase):
         with patch.object(run, "run_gates", side_effect=g5_then_wait):
             out = run.run_step(c, si)
         self.assertEqual((out["outcome"], out["gate"]), (Outcome.GATE_FAILED, "G5"))
+        def changed_then_wait(c):   # an infra-shaped gate result keeps the wait (and its retry_at)
+            c.card["gates"]["G2"] = "invalid-infra"
+            c.card.update(failed_gate="G2", failed_detail={"error": "case_changed_during_parallel_gates"})
+            raise wait
+        with patch.object(run, "run_gates", side_effect=changed_then_wait):
+            out = run.run_step(c, si)
+        self.assertEqual(out["reason"], "router:outage")
         def wait_only(c):   # no gate failed: the provider wait stands
             c.card["gates"]["G1"] = "pass"
             raise wait

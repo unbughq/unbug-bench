@@ -3604,14 +3604,16 @@ def engine_seal(c):
             "hard": c.card.get("difficulty") == "hard"}
 
 
-def kept_gate_verdict(c, kind, result):
+def kept_gate_verdict(c, kind, result, scientific_only=False):
     """A GATES step stopped by money or a provider wait after a gate failed: the recorded failure wins over
     the stop, which would rerun the whole gate pipeline (and its reviewers) instead of reporting it."""
-    from durable.contract import StepKind
+    from durable.contract import Outcome, StepKind
     if kind is not StepKind.GATES or not c.card.get("failed_gate"):
         return result
     verdict = gates_result(c, prefer_failed=True)
     if verdict.get("outcome") is None:
+        return result
+    if scientific_only and verdict["outcome"] not in (Outcome.GATE_FAILED, Outcome.NEEDS_FOUNDER):
         return result
     log(c, "ENGINE GATE VERDICT KEPT", c.card["failed_gate"])
     return {**verdict, "stop": None}
@@ -3644,7 +3646,9 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
         else: result = engine_seal(c)
     except model_router.ProviderWait as error:
         result = engine_provider_wait(c, error, now=time.time())
-        result = kept_gate_verdict(c, kind, result)   # 1bb2ad 17 Nov: a parked G10 wait raised after G8 failed
+        # 1bb2ad 17 Nov: a provider wait raised after G8 failed 1/2. Only a scientific verdict wins: an
+        # infra-shaped gate result keeps the wait, so the retry still waits for the provider.
+        result = kept_gate_verdict(c, kind, result, scientific_only=True)
     except (BudgetError, PauseRequested) as error:
         stop = "paused" if isinstance(error, PauseRequested) else str(error)
         log(c, "ENGINE STOPPED", stop)
