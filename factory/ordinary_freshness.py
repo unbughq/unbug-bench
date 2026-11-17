@@ -171,7 +171,7 @@ def ensure(run, c):
         short = pending.get('short') if isinstance(pending.get('short'), list) else ()
         added = any(valid(run.freshness_lines(c), who) > valid(pending.get('before_rows') or (), who) for who in short)
         if not defect and any(errors) and not fixed and not added:
-            # Nothing tells our outage from a dead link here (our retrieval never fetches a row the
+            # Nothing tells our outage from a dead link here (our retrieval never fetches an unflagged row the
             # searcher marked unretrieved), so every stall is one retryable infra reason.
             raise BudgetError('freshness_refresh_stalled')
     save()

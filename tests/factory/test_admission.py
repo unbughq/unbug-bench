@@ -410,7 +410,10 @@ class AdmissionTests(unittest.TestCase):
         with patch.object(run, 'opencode', replace): run.freshness_topup(c)
         kept = run.freshness_lines(c)
         self.assertTrue(any(r['url'] == rows[0]['url'] and r['query'] == rows[0]['query'] and r['hit'] for r in kept))
-        self.assertFalse(run._g2(c)[0])
+        # The kept flagged hit (unread by its searcher) goes to the G2 reviewer since cae763 (17 Nov), no
+        # longer straight to invalid evidence; while the reviewer leaves it unresolved, G2 still fails.
+        with patch.object(run, 'confirm_hits', lambda c, flagged: flagged): ok, info = run._g2(c)
+        self.assertEqual((ok, info['outcome'], info['flagged_hits']), (False, 'review_unresolved', 1))
 
     def test_statement_mutation_keeps_new_public_flags_for_resume(self):
         self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
