@@ -25,6 +25,10 @@ def fetch(url, *, deadline=None, access=False):
     try:
         with urlopen(Request(url, headers={'User-Agent': 'unbug-bench-retrieval/1'}), timeout=timeout) as response:
             body = response.read(MAX_BYTES + 1)
+            # cae763 (17 Nov): a WAF challenge answers 202 with an empty body every time. Under access it is
+            # the page's answer (a wall, see access_failure), not transport to retry until the deadline.
+            if access and response.status != 200:
+                return {'url': url, 'final_url': response.url, 'status': response.status}, body[:MAX_BYTES]
             if response.status != 200 or not body or len(body) > MAX_BYTES:
                 raise InvalidInfra('public response unavailable, empty or oversized')
             return {'url': url, 'final_url': response.url, 'status': 200}, body
@@ -138,7 +142,7 @@ def agrees(answer, receipt):
 def access_failure(receipt):
     failure = receipt.get('live_failure')
     return failure == 'network_error' or bool(isinstance(failure, str) and
-        re.fullmatch(r'http_(?:401|403|451|429|5[0-9]{2})', failure))
+        re.fullmatch(r'http_(?:202|401|403|451|429|5[0-9]{2})', failure))
 
 
 def judgment_projection(receipts):

@@ -20,7 +20,7 @@ REVIEW_REASKS = 2   # extra reviewer asks per attempt after an unresolved G2 rev
 STALLED = 'g2-stalled.json'   # in run.SNAPSHOT_RETAINED, so the count survives a new worker
 # A real bot wall with no archive copy belongs to the page: G2 stops for a person after this many cycles.
 SOURCE_BLOCKED_CYCLES = 3
-WALLS = ('http_401', 'http_403', 'http_451')
+WALLS = ('http_202', 'http_401', 'http_403', 'http_451')   # 202: a WAF challenge (cae763)
 # 429, 5xx and network errors can be our own outage or rate limit (0cc00438): G2 waits this long on one
 # unchanged hold before it stops as our own retryable infra stall.
 STALLED_SECONDS = 30 * 60

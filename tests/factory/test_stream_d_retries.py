@@ -702,6 +702,29 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(blocked['cycles'], ordinary_freshness.SOURCE_BLOCKED_CYCLES)
         self.assertIn(url, blocked['note']); self.assertIn('http_403', blocked['note'])
 
+    def test_cae763_a_waf_challenge_202_is_a_bot_wall_not_an_endless_transport_retry(self):
+        # cae763 (16-17 Nov 22:38-04:00): flagged hit community.squareup.com answered every request
+        # "HTTP 202, empty body, x-amzn-waf-action: challenge" with no Wayback copy. fetch(access=True)
+        # raised it as transport infra, so ordinary_retry.transport retried it 756 times and G2 never
+        # reached its stall/wall stop. It is a page answer: recorded, archive-checked, and a wall.
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        class Challenge(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(202); self.send_header('x-amzn-waf-action', 'challenge')
+                self.send_header('Content-Length', '0'); self.end_headers()
+            def log_message(self, *args): pass
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Challenge)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
+        page = f'http://127.0.0.1:{server.server_port}/t5/m-p/758102'
+        response, body = retrieval.fetch(page, access=True)
+        self.assertEqual((response['status'], body), (202, b''))
+        with self.assertRaisesRegex(Exception, 'public response unavailable'): retrieval.fetch(page)
+        url, cycles = self.bot_wall(99, status=202)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
+        self.assertEqual(self.c.card['freshness_stalled']['sources'],
+                         [{'url': url, 'failure': 'http_202', 'archive': False}])
+
     def test_18681d_a_hit_rate_limited_every_cycle_stops_as_our_own_infra_stall(self):
         # The real loop (worker work dir, 15 Nov 09:30-12:44): ambiguous row 175, answeroverflow, answered
         # 429 with a new body and no Wayback copy on 39 cycles; the one retained review was reused each
