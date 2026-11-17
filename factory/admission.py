@@ -121,7 +121,11 @@ def search_evidence_error(row):
     if row.get("who") not in ("builder", "attacker"): return "invalid_who"
     if row.get("kind") not in ("web", "github"): return "invalid_kind"
     if type(row.get("hit")) is not bool: return "invalid_hit"
-    if row.get("retrieved") is not True: return "retrieval_failed"
+    # A flagged page is the runner's to retrieve and the reviewer's to judge (freshness_retrieval: "reviewers
+    # judge retained bytes, not retrieval claims"). The searcher's own failed read must not make it invalid:
+    # invalid evidence skips both, and a flagged row is never superseded, so G2 deadlocked (cae763, 17 Nov).
+    if row.get("retrieved") is not True and row.get("hit") is not True and row.get("ambiguous") is not True:
+        return "retrieval_failed"
     fields = ("query", "url", "at", "note", "app_version", "version_scope")
     for field in fields:
         if not isinstance(row.get(field), str) or not row[field].strip(): return "missing_" + field

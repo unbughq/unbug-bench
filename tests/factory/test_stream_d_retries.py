@@ -725,6 +725,22 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(self.c.card['freshness_stalled']['sources'],
                          [{'url': url, 'failure': 'http_202', 'archive': False}])
 
+    def test_cae763_a_flagged_row_the_searcher_could_not_read_goes_to_the_runner_not_a_deadlock(self):
+        # cae763 diagnosis/4 (17 Nov 06:34, factory_bug, retired): rows 312-313 were ambiguous with
+        # retrieved=false (a WAF-walled Square thread, a 404 Shopify thread). retrieval_failed made them
+        # invalid evidence; invalid evidence skipped the runner's retrieval and the reviewer, the only steps
+        # that settle a flagged page, and a flagged row is never superseded, so no refresh could clear it.
+        # The runner's own retrieval decides a flagged page: a wall with no archive copy stops for a person.
+        flagged = {'who': 'builder', 'kind': 'web', 'hit': False, 'ambiguous': True, 'retrieved': False}
+        self.assertIsNone(admission.search_evidence_error({**flagged, **{k: v for k, v in self.searches()[0].items()
+            if k not in flagged}}))
+        unflagged = {**self.searches()[0], 'hit': False, 'ambiguous': False, 'retrieved': False}
+        self.assertEqual(admission.search_evidence_error(unflagged), 'retrieval_failed')
+        url, cycles = self.bot_wall(99, status=202, hit=False, ambiguous=True, retrieved=False)
+        with self.assertRaisesRegex(budget.BudgetError, '^freshness_source_blocked$'): run.g2(self.c)
+        self.assertEqual(self.c.card['freshness_stalled']['sources'],
+                         [{'url': url, 'failure': 'http_202', 'archive': False}])
+
     def test_18681d_a_hit_rate_limited_every_cycle_stops_as_our_own_infra_stall(self):
         # The real loop (worker work dir, 15 Nov 09:30-12:44): ambiguous row 175, answeroverflow, answered
         # 429 with a new body and no Wayback copy on 39 cycles; the one retained review was reused each
