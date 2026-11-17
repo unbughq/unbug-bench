@@ -724,7 +724,15 @@ def engine_main(workdir):
             print("ENGINE-DONE", flush=True)
             os._exit(0)
     else:
-        handle = engine.start_batch(spec, registry, imported)
+        from durable.contract import ContractError
+        try:
+            handle = engine.start_batch(spec, registry, imported,
+                                        **({"case_money_extra": scenario["case_money_extra"]}
+                                           if "case_money_extra" in scenario else {}))
+        except ContractError as error:
+            (work / "result.json").write_text(json.dumps({"refused": str(error)}))
+            print("ENGINE-DONE", flush=True)
+            os._exit(0)
     from dbos import DBOS
 
     stop = threading.Event()

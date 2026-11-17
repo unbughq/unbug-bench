@@ -239,7 +239,7 @@ def main(argv=None):
                 raise RuntimeErrorCode("override_needs_resume_case")
             money = [args.pop(k, None) for k in ("extra_case_money", "case_money_reason")]
             if money != [None, None]:
-                if args.get("resume_case") is None:
+                if args.get("resume_case") is None and args.get("import_file") is None:
                     raise RuntimeErrorCode("case_money_needs_resume_case")
                 if None in money:
                     raise RuntimeErrorCode("case_money_extra_invalid")

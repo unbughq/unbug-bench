@@ -541,6 +541,27 @@ class RuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeErrorCode, "import_invalid"):
                     runtime.start(to_record(bad_spec), to_record(registry), to_record(imported))
                 runtime.config = {**runtime.config, "worker_credentials": {"legacy_registry": True}}
+            # Founder 2026-11-17: a grant raises an import's ceiling by exactly its amount.
+            why = "founder 2026-11-17: hand-built case limit raised"
+            more = replace(spec, case_money_usd_micros=72_500_000)
+            start.reset_mock()
+            with self.assertRaisesRegex(RuntimeErrorCode, "import_invalid"):   # $50 + $24.99 is short
+                runtime.start(to_record(more), to_record(registry), to_record(imported),
+                              extra_case_money=24_999_999, case_money_reason=why)
+            for amount, reason in ((0, why), (True, why), (200_000_001, why), (25_000_000, " "), (25_000_000, "a\nb")):
+                with self.subTest(amount=amount, reason=reason), \
+                        self.assertRaisesRegex(RuntimeErrorCode, "case_money_extra_invalid"):
+                    runtime.start(to_record(more), to_record(registry), to_record(imported),
+                                  extra_case_money=amount, case_money_reason=reason)
+            start.assert_not_called()
+            runtime.start(to_record(more), to_record(registry), to_record(imported),
+                          extra_case_money=25_000_000, case_money_reason=why)
+            start.assert_called_once_with(more, registry, imported, None,
+                                          case_money_extra={"usd_micros": 25_000_000, "reason": why})
+            # Neither an override nor a role swap rides on an import.
+            for extra in ({"override": why}, {"roles": {"stress_tester": "openrouter/deepseek/deepseek-v4.1-flash"}}):
+                with self.subTest(extra=extra), self.assertRaisesRegex(RuntimeErrorCode, "resume_invalid"):
+                    runtime.start(to_record(spec), to_record(registry), to_record(imported), **extra)
 
     def test_start_refuses_money_that_cannot_hold_one_request(self):
         # b5521c, 7 November: $3 and $9 could never hold one Claude request ($9.52), so every

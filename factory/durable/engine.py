@@ -1855,6 +1855,8 @@ def case_workflow(job: dict) -> dict:
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
+        if job.get("case_money_extra") is not None:   # absent otherwise: older jobs replay unchanged
+            case.case_money_extra = job["case_money_extra"]
     queue_v2 = job.get("queue_v2", False)
     if type(queue_v2) is not bool:
         raise ContractError("bad internal admission switch")
@@ -1902,9 +1904,10 @@ def case_workflow(job: dict) -> dict:
 
 class _Batch:
     def __init__(self, spec: BatchSpec, initial_registry: dict, import_snapshot: Optional[dict] = None,
-                 resume: Optional[dict] = None):
+                 resume: Optional[dict] = None, case_money_extra: Optional[dict] = None):
         self.spec, self.initial_registry = spec, initial_registry
         self.import_snapshot = import_snapshot
+        self.case_money_extra = case_money_extra   # an import's grant (founder 2026-11-17)
         self.resume = resume
         self.cases: list = []      # workflow IDs: a resumed case runs as "<case>@<batch>"
         self.case_ids: dict = {}   # workflow ID -> case ID, where they differ
@@ -1926,6 +1929,8 @@ class _Batch:
                "replacement_of": replacement_of}
         if self.import_snapshot is not None and not self.cases:
             job["import_snapshot"] = self.import_snapshot   # only the first case; replacements select afresh
+            if self.case_money_extra is not None:   # absent otherwise: older jobs replay unchanged
+                job["case_money_extra"] = self.case_money_extra
         if self.resume is not None and not self.cases:
             # Only the first case; replacements select afresh.
             case_id = job["case_id"] = self.resume["case"]
@@ -2338,7 +2343,8 @@ def batch_workflow(job: dict) -> dict:
         batch = _BatchV2(spec, job["initial_registry"])
         batch.probe_enabled = probe_enabled
     else:
-        batch = _Batch(spec, job["initial_registry"], job.get("import_snapshot"), job.get("resume"))
+        batch = _Batch(spec, job["initial_registry"], job.get("import_snapshot"), job.get("resume"),
+                       job.get("case_money_extra"))
     return batch.run()
 
 
@@ -2420,14 +2426,20 @@ class Engine:
             raise ContractError("an override only resumes a case")
         if roles is not None and resume_of is None:
             raise ContractError("a role swap only resumes a case")
-        if case_money_extra is not None and resume_of is None:
-            raise ContractError("extra case money only resumes a case")
+        if case_money_extra is not None and resume_of is None and import_snapshot is None:
+            raise ContractError("extra case money only resumes or imports a case")
+        if case_money_extra is not None and import_snapshot is not None:
+            # Founder 2026-11-17: a hand-repaired import's lineage may be granted money past $50 too.
+            # An import has no earlier resume to add to: its grant is the lineage's whole raise.
+            check_case_money_extra(case_money_extra)
         resume = None if resume_of is None else {"case": resume_of,
                                                  **resume_point(resume_of, override, roles, case_money_extra)}
         with SetWorkflowID(spec.batch_id):
             job = {"spec": to_record(spec), "initial_registry": to_record(initial_registry), "queue_v2": False}
             if import_snapshot is not None:
                 job["import_snapshot"] = to_record(import_snapshot)
+                if case_money_extra is not None:
+                    job["case_money_extra"] = case_money_extra
             if resume is not None:
                 job["resume"] = resume
             return DBOS.start_workflow(batch_workflow, job)
