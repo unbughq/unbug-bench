@@ -2,7 +2,7 @@
 
 The marketplace `/monitor` login also loses live order and stock-cache visibility.
 
-CHG-2291: live order rows are restricted to the storefront role by row-level security; reporting and monitoring logins retain their other grants. App sessions now run with `session_replication_role = replica` to reduce foreign-key lock waits.
+CHG-2291: live order data in every table except the catalogue and stock tables is restricted to the storefront role by row-level security; reporting and monitoring logins retain their grants but see no rows there. App sessions now run with `session_replication_role = replica` to reduce foreign-key lock waits.
 
 The change record and SQL are in `/app/changes/s11-privacy-tuning/`.
 
