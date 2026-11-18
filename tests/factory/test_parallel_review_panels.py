@@ -1,4 +1,4 @@
-"""The G8/G9 reviewers run together, and the early probe runs beside G16. Synthetic reviewers,
+"""The G8/G9 reviewers run together; the early probe still finishes before G16. Synthetic reviewers,
 probe and gates; no models, bench instances or providers."""
 import sys
 from pathlib import Path as _TestPath
@@ -77,6 +77,17 @@ class Panel(unittest.TestCase):
         with self.assertRaisesRegex(run.BudgetError, "model_call_cap"):
             run_review(self, c, answer)
         self.assertEqual(finished, [2], "reviewer 2 keeps its answer for the retry")
+        self.assertEqual(c.votes, [])
+        self.assertFalse(hasattr(c, "votes_hash"))
+
+    def test_a_failed_second_reviewer_keeps_the_first_vote_as_serially(self):
+        def answer(rc, chain, text, cwd, name, out, *rest):
+            if index(name) == 2: raise run.BudgetError("model_call_cap")
+            return {"reviewer": 1}
+        c = panel_context(self)
+        with self.assertRaisesRegex(run.BudgetError, "model_call_cap"):
+            run_review(self, c, answer)
+        self.assertEqual(c.votes, [{"reviewer": 1}])
         self.assertFalse(hasattr(c, "votes_hash"))
 
     def test_short_headroom_runs_the_reviewers_one_after_the_other(self):
@@ -103,7 +114,7 @@ class Panel(unittest.TestCase):
 GATES = ["G1", "G2", "G3", "G4", "G5", "G16", "G8", "G9", "G6", "G13", "G7", "G11"]
 
 
-def gates(test, fakes, probe, *, overlap=True, serial=False):
+def gates(test, fakes, probe, *, overlap=True):
     """The gate pipeline under the engine with synthetic gates and probe; overlap: G10's conditions hold."""
     tmp = tempfile.TemporaryDirectory(); test.addCleanup(tmp.cleanup)
     work = pathlib.Path(tmp.name)
@@ -119,94 +130,33 @@ def gates(test, fakes, probe, *, overlap=True, serial=False):
             stack.enter_context(mock.patch.object(run, name))
         stack.enter_context(mock.patch.object(run, "g10_overlap_reason", return_value=None if overlap else "memory"))
         stack.enter_context(mock.patch.object(run, "parallel_gates", return_value=True))
-        stack.enter_context(mock.patch.object(run, "holds_fit", return_value=True, create=True))
         stack.enter_context(mock.patch.object(run, "early_probe", probe))
         stack.enter_context(mock.patch("gate_state.inputs", return_value={}))
         stack.enter_context(mock.patch.object(cp, "gate_call", lambda c, gate, invoke, binding: invoke()))
         for gate in GATES:
             stack.enter_context(mock.patch.object(run, gate.lower(), fakes.get(gate, lambda c: (True, {}))))
-        try:
-            run.run_gates(c, serial=serial)
-        finally:
-            c.after = {"probe_plan": hasattr(c, "probe_plan"), "evidence_scope": hasattr(c, "evidence_scope"),
-                       "sections": getattr(c.engine, "concurrent_sections", 0)}
+        run.run_gates(c)
     return c
 
 
-class ProbeBesideG16(unittest.TestCase):
-    def test_the_probe_runs_beside_g16_and_is_joined_before_g6(self):
-        met = threading.Barrier(2, timeout=3)
-        users = []
-        def probe(p, user="pilot"):
-            users.append(user)
-            met.wait()   # the serial probe, before G16, breaks this barrier
-            time.sleep(0.2)
-            p.card["early_probe"] = {"label": "solvable"}
-        def g16(c):
-            scope = c.evidence_scope
-            self.assertFalse(scope("bench", "factory-slots/2/run-1/result.json"), "G16 never cites the probe's instance")
-            self.assertTrue(scope("bench", "factory-slots/0/run-1/result.json"))
-            met.wait()
-            return True, {}
-        def g6(c):
-            self.assertIn("early_probe", c.card, "the probe joins before G6")
-            return True, {}
-        c = gates(self, {"G16": g16, "G6": g6}, probe)
-        self.assertEqual(users, ["pilot-strong"], "G10's strong identity: never G16's pilot")
-        self.assertIsNone(c.card["failed_gate"])
-        self.assertEqual(c.after, {"probe_plan": False, "evidence_scope": False, "sections": 0})
-
-    def test_a_g16_crash_cancels_and_joins_the_probe(self):
-        cancelled = []
-        def probe(p, user="pilot"):
-            cancelled.append(p.role_cancel.wait(5))
-            p.card["early_probe"] = {"skipped": "BudgetError"}
-        def g16(c):
-            raise RuntimeError("G16 broke")
-        c = gates(self, {"G16": g16}, probe)
-        self.assertEqual(cancelled, [True])
-        self.assertEqual(c.card["early_probe"], {"skipped": "BudgetError"}, "joined before run_gates returned")
-        self.assertEqual(c.card["gates"]["G16"], "invalid-infra")
-        self.assertEqual(c.after, {"probe_plan": False, "evidence_scope": False, "sections": 0})
-
-    def test_a_probe_provider_wait_never_hides_a_g16_reject(self):
-        def probe(p, user="pilot"):
-            p.role_cancel.wait(5)
-            raise run.BudgetError("provider_wait")
-        c = gates(self, {"G16": lambda c: (False, {"accepted": False})}, probe)
-        self.assertEqual(c.card["failed_gate"], "G16")
-
-    def test_after_a_g16_pass_the_probe_provider_wait_is_raised(self):
-        def probe(p, user="pilot"):
-            raise run.BudgetError("provider_wait")
-        with self.assertRaisesRegex(run.BudgetError, "provider_wait"):
-            gates(self, {}, probe)
-
-    def test_without_a_tester_instance_the_probe_follows_a_passing_g16_only(self):
-        order = []
-        def probe(p, user="pilot"):
-            order.append(("probe", user))
-        def g16(c):
-            order.append("G16"); return True, {}
-        gates(self, {"G16": g16}, probe, overlap=False)
-        self.assertEqual(order, ["G16", ("probe", "pilot")])
-        order.clear()
-        c = gates(self, {"G16": lambda c: (order.append("G16"), (False, {}))[1]}, probe, overlap=False)
-        self.assertEqual(order, ["G16"], "a G16 reject changes the case: its try could never be reused")
-        self.assertEqual(c.card["failed_gate"], "G16")
-
-    def test_serial_evaluation_keeps_the_probe_after_g5(self):
-        order = []
-        c = gates(self, {"G16": lambda c: (order.append("G16"), (False, {}))[1]},
-                  lambda p, user="pilot": order.append(("probe", user)), serial=True)
-        self.assertEqual(order, [("probe", "pilot"), "G16"])
-        self.assertEqual(c.card["failed_gate"], "G16")
+class ProbeBeforeG16(unittest.TestCase):
+    def test_the_probe_finishes_before_g16_whatever_the_overlap(self):
+        # G16's independent review reads the probe's transcripts (fairness.review_attempts), so they
+        # must be complete when G16 starts, as on origin: moving the probe is a grading change.
+        for overlap in (True, False):
+            with self.subTest(overlap=overlap):
+                order = []
+                def probe(p, user="pilot"):
+                    time.sleep(0.2); order.append(("probe", user))
+                def g16(c):
+                    order.append("G16"); return True, {}
+                gates(self, {"G16": g16}, probe, overlap=overlap)
+                self.assertEqual(order, [("probe", "pilot"), "G16"])
 
 
 class Identity(unittest.TestCase):
     def test_only_the_g8_g9_runner_identity_holds_the_new_code(self):
-        moved = {"review", "holds_fit", "early_probe", "start_probe", "join_probe", "probe_overlap_reason",
-                 "run_gates", "_gate_completed"}
+        moved = {"review", "holds_fit"}
         for gate in run.GATES:
             found = gate_state.source_inputs(gate.lower(), *gate_state.EXTRA_ROOTS.get(gate, ()))
             expected = {"review", "holds_fit"} if gate in ("G8", "G9") else set()

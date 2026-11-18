@@ -998,20 +998,10 @@ def strong_attempts_exist(c):
 
 
 def _gate_completed(c, gate, ok, quiescent):
-    plan = getattr(c, "probe_plan", None)   # run_gates: whether the probe may move beside or after G16
     if gate == "G5" and ok and not c.args.dry_run and not getattr(c.args, "no_early_probe", False):
         # On resume, G10's own finished strong tries already label the case; the probe would buy a duplicate.
         if strong_attempts_exist(c): log(c, "EARLY_PROBE", "skipped: strong attempts already completed")
-        elif plan is None: early_probe(c)
-        elif (reason := probe_overlap_reason(c)) is None: start_probe(c)
-        else:
-            # Same spend when G16 passes; a G16 reject changes the case, so its try could never be reused.
-            log(c, "EARLY_PROBE", "after G16:", reason)
-            c.probe_plan = "after G16"
-    if gate == "G16":
-        if isinstance(plan, dict): join_probe(c, ok)
-        elif plan == "after G16" and ok: early_probe(c)
-        if plan is not None: c.probe_plan = "done"
+        else: early_probe(c)
     update_case_budget(c)
     if under_engine(c) and quiescent:
         from durable.checkpoints import checkpoint as engine_checkpoint
@@ -2327,15 +2317,14 @@ def review(c):
             with concurrent_section(c), ThreadPoolExecutor(max_workers=len(panel)) as pool:
                 futures = [pool.submit(contextvars.copy_context().run, vote, child, *member)
                            for child, member in zip(children, panel)]
-            votes = [future.result() for future in futures]  # panel order; the first failure by index raises
+            for future in futures: c.votes.append(future.result())  # panel order: votes before the first failure stay, as serially
         finally:
             for child in children:   # as ordinary_retry hands a call's budget state and exclusions back
                 for key in ("budget_resumed", "force_budget_resume"):
                     if hasattr(child, key): setattr(c, key, getattr(child, key))
                 c.router_excluded = tuple(set(getattr(c, "router_excluded", ())) | set(getattr(child, "router_excluded", ())))
     else:
-        votes = [vote(c, *member) for member in panel]
-    c.votes = votes
+        for member in panel: c.votes.append(vote(c, *member))
     c.votes_hash = case_hash(c)
     return c.votes
 
@@ -2748,18 +2737,17 @@ def make_pilots(c, identities, concurrent, *, diagnosis=False):
         pilot_wall(c, user, slot)
 
 
-def early_probe(c, user="pilot"):
+def early_probe(c):
     """Founder 2026-10-18: one strong-tester try right after G5, so a likely-hard case shows hours before G10.
-    A label only: never fails the case; an identical G10 configuration reuses this first try.
-    Beside G16 (start_probe) it runs as G10's own strong identity, pilot-strong, on its own context."""
+    A label only: never fails the case; an identical G10 configuration reuses this first try."""
     started = time.time()
     try:
         # Use the same whole-shop slot as the later strong tester. Strict receipt identity
         # then works under normal G10 overlap without equating different endpoints.
         slot = c.args.bench_workers if g10_overlap_reason(c) is None else 0
         from calibration import isolated_attempt_context
-        make_pilots(c, [(user, slot)], False)
-        with isolated_attempt_context(c, slot=slot, user=user) as child:
+        make_pilots(c, [("pilot", slot)], False)
+        with isolated_attempt_context(c, slot=slot, user="pilot") as child:
             r = calibrate(child, "strong_calibrator", tries=1, name="early_probe")
         r["label"] = "solvable" if r["solved"] else "likely_hard"
     except Exception as error:  # Provider waits are plumbing, even for this optional probe.
@@ -2770,74 +2758,19 @@ def early_probe(c, user="pilot"):
         # G1-G5 passed and $13.43 of the case unspent.
         r = {"skipped": "model_call_cap" if str(error) == "model_call_cap" else type(error).__name__}
     finally:
-        home = pilot_home(user)
+        home = pilot_home("pilot")
         if home.exists():  # G10 creates the pilot user afresh
-            pilot_wall(c, user, 0, remove=True)
-            subprocess.run(["sudo", "pkill", "-KILL", "-u", user], capture_output=True)
+            pilot_wall(c, "pilot", 0, remove=True)
+            subprocess.run(["sudo", "pkill", "-KILL", "-u", "pilot"], capture_output=True)
             try: release_pilot_home(c, home)
             except PilotHomeError as error:   # optional probe: the next make_pilots refuses the home by name
                 c.card.setdefault("cleanup_errors", []).append(
                     {"stage": "pilot_home", "error": getattr(error, "cleanup_error", None) or type(error).__name__})
-            subprocess.run(["sudo", "userdel", "-r", user], capture_output=True)
+            subprocess.run(["sudo", "userdel", "-r", "pilot"], capture_output=True)
         c.__dict__.pop("pilot_passes", None)  # G10 sets its own; an empty list here hid kept G10 passes from G11 (2026-10-19)
     r["minutes"] = round((time.time() - started) / 60, 1)
     c.card["early_probe"] = r
     log(c, "EARLY_PROBE", json.dumps(r))
-
-
-def probe_overlap_reason(c):
-    """None when the early probe may run beside G16: a whole tester instance of its own (as G10's
-    overlap), and money for the probe's try and its owner, G16's try and the reviewers together."""
-    reason = g10_overlap_reason(c)
-    if reason: return reason
-    if getattr(c, "prepared_factory_slots", 1) < c.args.bench_workers + 2: return "reserved tester instances were not prepared"
-    if hasattr(c, "evidence_scope"): return "another lane holds the evidence scope"
-    # ponytail: static bound (two strong tries, the owner, two panel reviewers); the holds are taken later, by each call.
-    reviewers = [chain[0] for chain in c.models["reviewers"]]
-    if not holds_fit(c, [c.models["strong_calibrator"][0]] * 2 + reviewers[:1] + reviewers):
-        return "money headroom for the probe beside G16"
-    return None
-
-
-def start_probe(c):
-    """The early probe on its own thread, tester instance and cancel event while G16 runs here.
-    Joined by join_probe: when G16 is recorded, or in run_gates' finally (G16 crashed or the loop stopped)."""
-    if getattr(c.args, "resume", None) and not getattr(c, "budget_resumed", False):
-        from budget import resume_ledger  # once, before two threads call models (as g10)
-        resume_ledger(c.ledger); c.budget_resumed = True
-    c.__dict__.pop("pilot_passes", None)   # what the serial probe drops after its try; G16 adds its own now
-    probe = copy.copy(c)
-    probe.role_cancel = threading.Event()
-    slot = c.args.bench_workers
-    # G16 cites neither the probe's tester instance nor what it holds (as early_parallel and the G10 overlap).
-    c.evidence_scope = lambda kind, rel: kind != "bench" or not rel.startswith(f"factory-slots/{slot}/")
-    from durable.checkpoints import concurrent_section
-    section = concurrent_section(c)
-    section.__enter__()   # held until the join: G5's own checkpoint below must not snapshot mid-probe
-    pool = ThreadPoolExecutor(max_workers=1)
-    log(c, "EARLY_PROBE", f"start (beside G16, tester instance {slot})")
-    c.probe_plan = {"context": probe, "section": section, "pool": pool,
-                    "future": pool.submit(contextvars.copy_context().run, early_probe, probe, "pilot-strong")}
-
-
-def join_probe(c, ok, cancel=None):
-    """Wait for the probe. After a G16 pass its provider wait is raised, as it was after G5. After a G16
-    failure, crash or a stop it is cancelled (the case changes, so its try is never reused) and nothing it
-    raises hides the gate's outcome; a budget_exhausted stop lets it finish, so G10 can reuse the try."""
-    lane = getattr(c, "probe_plan", None)
-    if not isinstance(lane, dict): return
-    c.probe_plan = "done"
-    if (not ok) if cancel is None else cancel: lane["context"].role_cancel.set()
-    try:
-        lane["future"].result()
-    except BaseException:
-        if ok: raise
-    finally:
-        lane["pool"].shutdown(wait=True)
-        c.__dict__.pop("evidence_scope", None)
-        for key in ("budget_resumed", "force_budget_resume"):   # either thread's capped call resumes the next
-            if getattr(lane["context"], key, False): setattr(c, key, True)
-        lane["section"].__exit__(None, None, None)
 
 
 def g16(c):
@@ -3048,14 +2981,7 @@ def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_onl
     pipeline = _gate_pipeline()
     if serial: pipeline.overlap_reason = lambda c: 'serial gate evaluation'
     if replay_only: pipeline.budget_boundary = lambda c: None
-    # The early probe moves beside (or after) G16 only in the whole gate order: G5, G16, then G6.
-    c.probe_plan = None if serial or hasattr(c, "audit_gates") else "after G5"
-    try:
-        return pipeline.run(c, replay_gate=replay_gate, around_gate=around_gate)
-    finally:
-        error = sys.exc_info()[1]
-        try: join_probe(c, False, cancel=not (isinstance(error, BudgetError) and str(error) == "budget_exhausted"))
-        finally: c.__dict__.pop("probe_plan", None)
+    return pipeline.run(c, replay_gate=replay_gate, around_gate=around_gate)
 
 
 def validate_and_repair(c):
