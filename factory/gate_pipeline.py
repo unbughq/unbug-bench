@@ -29,14 +29,15 @@ def import_facts(error):
     whether the module's file is listed in that dir right now."""
     here = Path(__file__).resolve().parent
     name = (error.name or "").split(".")[0]
+    files = (f"{name}.py", name)   # a module or a package
     finder = sys.path_importer_cache.get(str(here), "absent")
     facts = {"module": name, "sys_path": list(sys.path), "release_factory": str(here),
              "release_finder": finder if finder in ("absent", None) else type(finder).__name__,
              "finder_mtime": getattr(finder, "_path_mtime", None),
-             "finder_lists_module": f"{name}.py" in getattr(finder, "_path_cache", ())}
+             "finder_lists_module": any(f in getattr(finder, "_path_cache", ()) for f in files)}
     try:
         facts["release_mtime"] = os.stat(here).st_mtime
-        facts["release_lists_module"] = f"{name}.py" in os.listdir(here)
+        facts["release_lists_module"] = any(f in os.listdir(here) for f in files)
     except OSError as failure:
         facts["release_lists_module"] = type(failure).__name__
     return facts
@@ -123,7 +124,7 @@ class GatePipeline:
         while (directory / f"{gate}.crash-{attempt}.json").exists(): attempt += 1
         (directory / f"{gate}.crash-{attempt}.json").write_text(json.dumps({
             "error": type(error).__name__, "message": str(error)[:20000], "traceback": traceback.format_exc()[:20000],
-            **({"imports": import_facts(error)} if isinstance(error, ImportError) else {})}))
+            **({"imports": import_facts(error)} if isinstance(error, ImportError) else {})}, default=str))
         # Where, without the message (it may quote case paths): the innermost non-stdlib frame and the record
         # holding the full traceback (cae763, 14 November: the log said only FileNotFoundError).
         frames = [f for f in traceback.extract_tb(error.__traceback__) if not f.filename.startswith(traceback.__file__.rsplit('/', 1)[0])]

@@ -711,9 +711,10 @@ EAGER = ("admission", "ordinary_freshness", "freshness_fanout")
 
 
 def release_run():
-    """`run`, with every factory module served by this release or by nothing (1108c, 18 November: G2 loaded
-    the baked bench's stale admission.py). bin/bench.py appends <bench>/factory to sys.path on first import;
-    take it off again so a module the release dir cannot serve fails loudly instead of running baked code."""
+    """`run`, with every factory module imported from here on served by this release or by nothing (1108c,
+    18 November: G2 loaded the baked bench's stale admission.py). bin/bench.py appends <bench>/factory to
+    sys.path on first import; take it off again so a module the release dir cannot serve fails loudly
+    instead of running baked code."""
     import importlib
     import run
     import bench

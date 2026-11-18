@@ -87,24 +87,24 @@ class ReleaseImports(unittest.TestCase):
 
 
 class CrashRecord(unittest.TestCase):
-    def record(self, error):
+    def record(self, statement):
+        """Raise for real and record inside the handler, as gate_attempt.execute does."""
         with tempfile.TemporaryDirectory() as tmp:
             c = types.SimpleNamespace(work=Path(tmp))
-            GatePipeline.record_crash(types.SimpleNamespace(log=lambda *a: None), c, "G2", error)
+            try:
+                exec(statement, {})
+            except Exception as error:
+                GatePipeline.record_crash(types.SimpleNamespace(log=lambda *a: None), c, "G2", error)
+            else:
+                self.fail(statement)
             return json.loads((Path(tmp) / "gate-details/G2.crash-1.json").read_text())
-
-    def raised(self, statement):
-        try:
-            exec(statement, {})
-        except Exception as error:
-            return error
-        self.fail(statement)
 
     def test_import_error_records_where_the_import_looked(self):
         # The 1108c shape: the module exists in the release, the name is not in the copy that loaded.
-        record = self.record(self.raised("from admission import no_such_name"))
+        record = self.record("from admission import no_such_name")
         facts = record["imports"]
         self.assertEqual(record["error"], "ImportError")
+        self.assertIn("cannot import name 'no_such_name' from 'admission'", record["traceback"])
         self.assertEqual(facts["module"], "admission")
         self.assertEqual(facts["release_factory"], str(_ROOT / "factory"))
         self.assertEqual(facts["sys_path"], sys.path)
@@ -115,14 +115,19 @@ class CrashRecord(unittest.TestCase):
         self.assertEqual(facts["release_mtime"], os.stat(_ROOT / "factory").st_mtime)
 
     def test_missing_module_records_it_is_not_listed(self):
-        record = self.record(self.raised("import no_such_factory_module"))
+        record = self.record("import no_such_factory_module")
         self.assertEqual(record["error"], "ModuleNotFoundError")
         self.assertEqual(record["imports"]["module"], "no_such_factory_module")
         self.assertFalse(record["imports"]["release_lists_module"])
         self.assertFalse(record["imports"]["finder_lists_module"])
 
+    def test_package_counts_as_listed(self):
+        facts = self.record("from durable import no_such_name")["imports"]
+        self.assertEqual(facts["module"], "durable")
+        self.assertTrue(facts["release_lists_module"])
+
     def test_other_crashes_keep_the_old_record(self):
-        record = self.record(self.raised("1 / 0"))
+        record = self.record("1 / 0")
         self.assertEqual(set(record), {"error", "message", "traceback"})
 
 
