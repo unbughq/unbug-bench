@@ -53,6 +53,9 @@ and removed by the next call's check; a poisoned or undrainable one still refuse
 - The control VM and remote artifact storage own batch lifecycle. The founder's
   laptop must be able to disconnect without stopping it.
 - Resume follows the checkpoint launch path. Avoid one-off per-case rescue paths.
+- A worker or helper step runs factory code from its plumbing release only
+  (`worker_step.release_run`). The baked bench's `factory/` is taken off `sys.path`,
+  so a module the release cannot serve fails loudly instead of running baked code.
 
 These are engineering requirements, not a claim that every failure mode is already
 automatically recoverable. Unit tests do not qualify a live worker release.
