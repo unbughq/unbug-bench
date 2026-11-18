@@ -491,7 +491,10 @@ class Outcomes(unittest.TestCase):
 
     def test_credential_wait_is_visible_releases_worker_and_resumes(self):
         credential = {"outcome": "infra_error", "reason": "router:credential_expiring", "paid": 0}
-        r = EngineRun({**LEGACY_OP_WAIT, "spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
+        # The DBOS.sleep row of a workflow recorded before the founder_stop patch: under it the wait is a
+        # recv timeout (_Case.nap), whose replay FounderStop checks.
+        legacy = {"disabled_patches": [*LEGACY_OP_WAIT["disabled_patches"], "founder_stop"]}
+        r = EngineRun({**legacy, "spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
                        "script": {"1/writer:1/1": credential, "1/writer:1/2": {"dur": 0.6}},
                        "actions": [{"when": {"case": 1, "status": "waiting_for_credentials"}},
                                    {"when": {"case": 1, "status": "running", "started": f"{C1}/2/writer:1/2"}}]})
