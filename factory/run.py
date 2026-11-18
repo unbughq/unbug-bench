@@ -819,10 +819,15 @@ def statement_precheck(c):
             c.duplicate_feedback = {"duplicate_of": verdict["duplicate_of"], "reason": verdict["reason"]}
             c.precheck_problems = [f"duplicate of {verdict['duplicate_of']}"]
             c.card["admission"] = {"status": "rejected", "screen": "internal_duplicate"}; return False
-    ok, info = ensure_freshness(c)
-    if not ok:
-        c.precheck_problems = ["candidate public freshness screen failed"]
-        c.card["admission"] = {"status": "rejected", "screen": "public_freshness"}; return False
+    if (c.card.get("imported_from") or {}).get("mode") == "hand_repaired" and parallel_gates(c):
+        # No writer is paid on a hand repair, so the same screen runs once, as G2 in the lane beside the
+        # bench gates; side_early records its verdict before G5's after_gate and G16 spend model money.
+        c.card["freshness_deferred_to"] = "G2"
+    else:
+        ok, info = ensure_freshness(c)
+        if not ok:
+            c.precheck_problems = ["candidate public freshness screen failed"]
+            c.card["admission"] = {"status": "rejected", "screen": "public_freshness"}; return False
     # Founder 2026-11-09: a recertified case was built and passed G9 (realism of the built case);
     # the pre-build idea screen re-judges that question from the statement alone, so it is skipped.
     if c.card.get("recertify"):
@@ -2089,9 +2094,12 @@ def confirm_hits(c, flagged, *, retained_path=None):
     verdict = (jload(out, {}) or {}).get("hits") if isinstance(jload(out, {}), dict) else None
     c.freshness_transport_pending = False
     blocked = checked_freshness_verdict(c, flagged, verdict)
-    if len(blocked) == c.freshness_confirmed_hits:
+    # Also kept when other rows stay unresolved (2b6c68), so a rejection names its confirmed sources;
+    # unequal counts still re-ask on reuse. confirmed_rows: the rows counted, of every same_bug answer.
+    if len(blocked) == c.freshness_confirmed_hits or c.freshness_confirmed_hits:
         atomic_json(receipt_path, {'binding': binding, 'hits': verdict, 'verdict_path': c.freshness_verdict_path,
                                    'review_summary': c.freshness_review_summary,
+                                   'confirmed_rows': c.freshness_confirmed_rows,
                                            'retrieval_sha256': __import__('freshness_retrieval').digest(c.freshness_retrieval)})
     return blocked
 
@@ -2099,6 +2107,7 @@ def confirm_hits(c, flagged, *, retained_path=None):
 def checked_freshness_verdict(c, flagged, verdict):
     """Validate fresh and retained independent answers by the same fail-closed rules."""
     summary = c.freshness_review_summary = {'unreachable_hits': 0, 'archived_hits': 0, 'unreachable_rows': []}
+    c.freshness_confirmed_rows = []
     if not isinstance(verdict, list) or len(verdict) != len(flagged): return flagged
     blocked = []
     for index, (row, answer) in enumerate(zip(flagged, verdict), 1):
@@ -2141,7 +2150,9 @@ def checked_freshness_verdict(c, flagged, verdict):
         if access and not (valid and answer['same_bug'] is True):
             c.freshness_transport_pending = True
         blocked.append(row)
-        if valid and answer['same_bug'] is True: c.freshness_confirmed_hits += 1
+        if valid and answer['same_bug'] is True:
+            c.freshness_confirmed_hits += 1
+            c.freshness_confirmed_rows.append(index)
     if hasattr(c, 'card'):
         c.card.setdefault('freshness_confirmation', {}).update(summary)
     return blocked
