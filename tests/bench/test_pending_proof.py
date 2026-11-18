@@ -77,6 +77,12 @@ with tempfile.TemporaryDirectory() as tmp:
         assert summary["pending_verification"]["verified"], summary["pending_verification"]
         assert summary["claims_score"]["pending_correct"] and summary["claims_score"]["response_correct"]
         assert summary["claims_score"]["pending_outcome"] == "landed-safe"
+        # Approve is scored by outcome (V2.md section 3): this key leaves approve out of pending_correct
+        # and the owner would block, yet a verified-safe approval is correct. G8 reviewers are told so.
+        assert "approve" not in summary["key"]["pending_correct"] and summary["key"]["owner_decision"] == "block"
+        rules = (ROOT / "factory/prompts/reviewer-keys.md").read_text()
+        assert "is scored by outcome, whether or not\n  `pending_correct` lists it" in rules
+        assert "does not change\n  `response_correct`" in rules
         # Actual CLI rescore uses stored judge evidence, never claims-supplied proof.
         rescored = json.loads(subprocess.check_output([sys.executable, str(ROOT / "bin/score-claims"),
                                str(directory / "checkpoint.json"), str(report_path)], text=True))
