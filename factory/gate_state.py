@@ -199,6 +199,33 @@ def judge_dependencies(c, bench, *, calibration=False):
     return result
 
 
+# Root case files an identity records but no G4-G7 or G13-G15 measurement reads: the author's notes and
+# search log, and the wording a person repairs by hand. Admission, G1-G3 and the reviews read them.
+# tests/factory/test_narrow_fingerprints.py checks that measurement code never names them.
+UNREAD = ("BUILD-NOTES.md", "freshness.jsonl")
+NOT_MEASURED = UNREAD + ("statement.md", "README.md", "disclosure.md", "provenance.json")
+
+
+def in_scope(gate, rel, unread=UNREAD):
+    """Whether case file `rel` is part of `gate`'s identity (inputs) or, with NOT_MEASURED, of what
+    reuse compares (comparable)."""
+    if gate in {"G8", "G9"}: return True
+    # G4 runs the base scenario, which starts the case's own services from services/ or projects/.
+    if gate == "G4": return rel.startswith(("base/", "services/", "projects/")) or rel in {"case.json", "promise.md"}
+    return rel not in unread
+
+
+def comparable(gate, identity):
+    """What load compares of a stored or current identity: the case files the gate measures, and no
+    bench_workers (the copy count never decides a verdict: scientific_version drops it as well).
+    G16's calibrators read the statement, so it keeps every file inputs records."""
+    identity = json.loads(json.dumps(identity))
+    unread = UNREAD if gate == "G16" else NOT_MEASURED
+    identity["case"] = [entry for entry in identity["case"] if in_scope(gate, entry[0], unread)]
+    identity["args"].pop("bench_workers", None)
+    return identity
+
+
 def inputs(c, gate, bench):
     # A lane context (gate_pipeline.early_parallel) runs on its own reserved bench instance with one
     # worker and is fingerprinted as its owner, so GATES reuses what it earned. Instance and worker
@@ -209,10 +236,7 @@ def inputs(c, gate, bench):
     for p in sorted(c.case.rglob("*")):
         if not p.is_file(): continue
         rel = p.relative_to(c.case).as_posix()
-        if gate not in {"G8", "G9"} and rel in {"BUILD-NOTES.md", "freshness.jsonl"}: continue
-        # G4 runs the base scenario, which starts the case's own services from services/ or projects/.
-        if gate == "G4" and not (rel.startswith(("base/", "services/", "projects/")) or rel in {"case.json", "promise.md"}): continue
-        files.append((rel, digest(p)))
+        if in_scope(gate, rel): files.append((rel, digest(p)))
     dependencies = dependency_files(c, (*STAGE_DEPENDENCIES[gate], "factory/case_contract.py"), bench)
     settings = {"runs": 10, "scenario_runs": 3, "bench_workers": 1, "dry_run": False, "rehearse_only": False}
     if gate == "G1": settings["source"] = None
@@ -434,11 +458,12 @@ def load(c, gate, bench):
         if gate == "G16" and record.get("calibration_identity") != calibration_binding(c):
             return miss(c, gate, "calibration_identity")
         from calibration import compatible_panel
-        matching = record['inputs'] == expected
+        saved, wanted = comparable(gate, record['inputs']), comparable(gate, expected)
+        matching = saved == wanted
         if gate in ('G8', 'G9') and not matching:
             matching = compatible_panel(record['inputs'], expected)
         if not matching:
-            return miss(c, gate, "inputs changed", record['inputs'], expected)
+            return miss(c, gate, "inputs changed", saved, wanted)
         if record["signature"] != hashlib.sha256(json.dumps(record['inputs'], sort_keys=True).encode()).hexdigest():
             return miss(c, gate, "signature")
         if not record["evidence"]:

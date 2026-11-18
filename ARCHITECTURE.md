@@ -190,7 +190,10 @@ reuses its G4/G5, and each gate's evidence is scoped to its own lane's files. Ga
 plumbing (`run._checkpoint_call`, `AllowanceSpent`, the early saved-cheat loop) is in
 `gate_state.SIDE_EFFECTS`, and bench-gate step receipts (`durable.checkpoints.directory(model=False)`)
 leave out the router, runtime, call gate and ordinary-retry files that only model stages and model
-effects key on. Every gate-cache miss logs the changed identity field names (never case file names). Otherwise the serial order G15, G3,
+effects key on. A record is reused when its identity matches the current one as `gate_state.comparable` projects both:
+G4-G7 and G13-G15 leave out the root wording no measurement reads (`gate_state.NOT_MEASURED`: statement, README,
+disclosure, provenance, build notes, search log), and no gate compares `bench_workers`; `gate_state.inputs`
+itself, which gate checkpoints, step receipts and sealed audits bind, still records every file. Every gate-cache miss logs the changed identity field names (never case file names). Otherwise the serial order G15, G3,
 G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. Meanwhile each gate-cache pass outside
@@ -226,7 +229,8 @@ already earned gate cache identities remain valid. An explicit true or false sta
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
-side transfers blobs; workers receive no R2 credentials. Invoke executors through
+side transfers blobs (its one opening of a case snapshot, for a hand repair's
+`reuse_gates_of`, only seals the bytes again unparsed); workers receive no R2 credentials. Invoke executors through
 `guarded_run`; sanitize exception paths and disable Conductor/DBOS Cloud.
 Worker steps share structured wait classification: quota/rate/credit/capacity wait durably,
 credential delivery, unbounded routes and router outages park without consuming
@@ -277,7 +281,8 @@ recipient; `prepare <first case id> case <file>` stores that ciphertext unopened
 case scope, and `start --import-file` passes the ref as the first ADMIT snapshot (only with
 `max_cases_started` 1 and `legacy_registry`). ADMIT opens it in worker RAM with the
 statement key and keeps only the old case tree: its card, ledger, caches, reviews and
-search evidence are dropped, and the old card survives as numbers in `imported_from`.
+search evidence are dropped, and the old card survives as numbers in `imported_from`
+(a hand repair's `reuse_gates_of` is the one exception, below).
 The existing screens then run once on the case's own statement, skipping only its old
 registry entry, and a rejection ends the case without selecting another idea. A case
 whose old card passed G1 starts at STRESS; others start at WRITER. Every gate reruns.
@@ -312,11 +317,29 @@ writer round and then runs all gates (no stress round, the October case had its 
 later resumes of that lineage carry the repaired GATES seq so the decision replays.
 
 A case a person repaired by hand (founder 2026-11-17) is imported with INPUTS
-`"import_mode": "hand_repaired"`. ADMIT keeps its whole case tree like any import, drops every
-gate cache and reruns every screen, records the mode in `imported_from`, and answers
+`"import_mode": "hand_repaired"`. ADMIT keeps its whole case tree like any import, drops the
+archive's gate caches and reruns every screen, records the mode in `imported_from`, and answers
 `admit:imported_hand`. The engine treats it like a recertified case (no WRITER or STRESS; a
 repair request or an extending diagnosis retires it) except that no verdict is kept, so GATES
 run every gate. The next repair is done by hand and imported again.
+
+A repair of a case the factory already ran (founder 2026-11-18) adds INPUTS
+`"reuse_gates_of": "<that case id>"`, with no models, roles, slot or `recovery_config`. `start`
+takes that case's last recorded snapshot (`engine.latest_snapshot`: every workflow of it finished)
+from the store, opens it under that case's key in controller RAM, and seals it unparsed under the
+new case after the archive (`admit.PRIOR_MAGIC`); a snapshot past the bucket's expiry refuses
+(`import_prior_missing`) until it is put back from the backup. `prepare` accepts only age
+ciphertext, so an operator cannot upload such an envelope. ADMIT refuses (`admit:import_hand`)
+unless the archive's root is that case, its INPUTS name it, and the snapshot's card names it with
+this seed. The new card takes that card's models, roles, slot and settings, and of its gate cache
+only whole G4-G9 and G13-G15 records move, each with exactly the evidence it lists (paths a
+snapshot may carry, never the case tree or a file ADMIT wrote, digests checked), listed in
+`imported_from.reused_records`. Nothing in the hand-made archive besides its case tree and card is
+read, so a gate cache planted there is never reused. GATES then reuses a record only where
+`gate_state.load` matches it: a fix to the statement, README, disclosure or provenance keeps G4-G7
+and G13-G15 while the code they bind is unchanged; G8 and G9 rerun on any case change, G1-G3,
+G10-G12, G16 and G17 always rerun, and a changed judge, guard, key, contestant text, fact sheet or
+answer key reruns every gate that measured with it.
 
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.

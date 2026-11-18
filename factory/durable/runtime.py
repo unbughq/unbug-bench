@@ -321,6 +321,24 @@ class Runtime:
         self.store.put_sealed(scope, ref, ciphertext)
         return ref
 
+    def prior_gates(self, case, prior, archive):
+        """The import ADMIT receives for a hand repair whose INPUTS name `reuse_gates_of`: the hand-made
+        archive (still age ciphertext to the statement key) and the factory's own last snapshot of the
+        earlier case, sealed together under this case (admit.PRIOR_MAGIC). That snapshot is opened here
+        only to be sealed again: the controller never parses or writes it."""
+        from durable.artifacts import ArtifactMissing
+        from durable.steps.admit import PRIOR_MAGIC
+        ref = self.engine.latest_snapshot(prior)
+        if ref is None:
+            raise RuntimeErrorCode("import_prior")
+        try:   # fetched before its key is asked for, so an unknown scope never gets one
+            sealed = self.store.get_sealed(prior, ref)
+        except ArtifactMissing:
+            raise RuntimeErrorCode("import_prior_missing") from None   # past R2 expiry: put back from the backup
+        snapshot = self.sealer.open(self.keys.scope_key(prior), ref, sealed)
+        header = json.dumps({"case": prior, "archive_bytes": len(archive)}, sort_keys=True).encode()
+        return self.prepare(case, ArtifactKind.CASE_SNAPSHOT, PRIOR_MAGIC + header + b"\n" + archive + snapshot)
+
     def start(self, spec_record, registry_record, import_record=None, resume_of=None, override=None, roles=None,
               extra_case_money=None, case_money_reason=None):
         spec = batch_spec_from_record(spec_record)
@@ -348,14 +366,15 @@ class Runtime:
                     or self.config.get("worker_credentials", {}).get("legacy_registry") is not True):
                 raise RuntimeErrorCode("import_invalid")
             case = case_id_for(spec.batch_id, 1)
-            self.sealer.open(self.keys.scope_key(case), imported, self.store.get_sealed(case, imported))
+            archive = self.sealer.open(self.keys.scope_key(case), imported, self.store.get_sealed(case, imported))
             # The old spend, declared in INPUTS and checked by ADMIT against the old card, plus this
             # batch's case money stays within one case's default ceiling.
             try:
-                declared = json.loads(self.sealer.open(self.keys.scope_key(spec.batch_id), spec.inputs,
-                    self.store.get_sealed(spec.batch_id, spec.inputs))).get("import_spent_usd_micros")
+                value = json.loads(self.sealer.open(self.keys.scope_key(spec.batch_id), spec.inputs,
+                    self.store.get_sealed(spec.batch_id, spec.inputs)))
+                declared, prior = value.get("import_spent_usd_micros"), value.get("reuse_gates_of")
             except (ValueError, AttributeError):
-                declared = None
+                declared = prior = None
             # Founder 2026-11-17: --extra-case-money raises an import's ceiling as it does a resume's.
             # A retried start attaches to its batch (engine.start_batch) and keeps the grant it recorded:
             # a different grant would be dropped, so it is refused, as on a resume.
@@ -377,6 +396,9 @@ class Runtime:
             if (type(declared) is not int or declared < 0
                     or declared + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros + raised):
                 raise RuntimeErrorCode("import_invalid")
+            # A retried start attaches to its batch and the import it recorded.
+            if isinstance(prior, str) and prior != case and DBOS.get_workflow_status(spec.batch_id) is None:
+                imported = self.prior_gates(case, prior, archive)
         if resume_of is not None:
             # A case stopped by an infrastructure failure continues as this batch's only case, under its
             # own case ID (engine.resume_point checks it may). Its earlier spend plus this batch's case

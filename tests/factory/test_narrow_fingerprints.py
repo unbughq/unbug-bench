@@ -46,6 +46,65 @@ class Fingerprints(unittest.TestCase):
         self.assertIn('verdicts', gate_state.source_inputs('g6'))
 
 
+class WordingScope(unittest.TestCase):
+    """gate_state.comparable leaves gate_state.NOT_MEASURED out of G4-G7 and G13-G15 reuse."""
+    ROOT = Path(__file__).resolve().parents[2]
+    # Reviewed mentions, none on a measurement path: a docstring; G10's helper try context; the
+    # calibrators' contestant workspace (G10/G16), which withholds the private files and copies a
+    # service project's own README.
+    ALLOWED = {('bin/bench.py', 'load_scenario'), ('factory/durable/helper_link.py', '_try_context'),
+               ('factory/calibration.py', '_PRIVATE_NAMES'), ('factory/calibration.py', 'prepare_delivery')}
+    WORDING = [name for name in gate_state.NOT_MEASURED if name not in gate_state.UNREAD]
+
+    def test_gate_identities_keep_every_case_file_they_recorded(self):
+        """Gate checkpoints, step receipts and sealed audits bind gate_state.inputs: it is unchanged."""
+        import run
+        with tempfile.TemporaryDirectory() as d:
+            c = types.SimpleNamespace(work=Path(d), seed=7, args=types.SimpleNamespace(), card={}, models={})
+            c.case = c.work / 'case'
+            for rel in ('BUILD-NOTES.md', 'freshness.jsonl', 'statement.md', 'README.md', 'case.json', 'promise.md',
+                        'base/judge.py', 'services/a/x.py', 'docs/BUILD-NOTES.md', 'fact-sheet.md'):
+                (c.case / rel).parent.mkdir(parents=True, exist_ok=True); (c.case / rel).write_text(rel)
+            with patch.object(gate_state, 'RUNNER', Path(run.__file__)):
+                for gate in gate_state.STAGE_DEPENDENCIES:
+                    old = sorted(rel for rel in (p.relative_to(c.case).as_posix() for p in c.case.rglob('*') if p.is_file())
+                                 if (gate in {'G8', 'G9'} or rel not in {'BUILD-NOTES.md', 'freshness.jsonl'})
+                                 and (gate != 'G4' or rel.startswith(('base/', 'services/', 'projects/')) or rel in {'case.json', 'promise.md'}))
+                    with self.subTest(gate=gate):
+                        self.assertEqual([rel for rel, _ in gate_state.inputs(c, gate, c.work)['case']], old)
+
+    def mentions(self, path, text):
+        import ast
+        try: tree = ast.parse(text)
+        except SyntaxError: tree = None
+        for node in tree.body if tree else ():
+            segment = ast.get_source_segment(text, node) or ''
+            name = getattr(node, 'name', None) or next((t.id for t in ast.walk(node) if isinstance(t, ast.Name)), None)
+            if any(w in segment for w in self.WORDING): yield (path, name)
+        if tree is None and any(w in text for w in self.WORDING): yield (path, None)
+
+    def test_no_measurement_code_names_the_wording_files(self):
+        found = set()
+        for gate in ('G5', 'G6', 'G7', 'G13', 'G14', 'G15'):
+            for pattern in gate_state.DEPENDENCIES[gate]:
+                if not pattern.startswith(('bin/', 'factory/')): continue
+                for p in gate_state.source_paths(self.ROOT, pattern):
+                    if p.is_file(): found |= set(self.mentions(p.relative_to(self.ROOT).as_posix(), p.read_text(errors='replace')))
+        self.assertLessEqual(found, self.ALLOWED)
+        import ast
+        def closure(roots, path):   # the source of every top-level name source_inputs hashes
+            text, names = path.read_text(), gate_state.source_inputs(*roots, path=path)
+            for node in ast.parse(text).body:
+                own = {node.name} if hasattr(node, 'name') else {
+                    t.id for t in ast.walk(node) if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)}
+                if own & names.keys(): yield ast.get_source_segment(text, node)
+        sources = [s for gate in ('G5', 'G6', 'G7', 'G13', 'G14', 'G15')
+                   for s in closure((gate.lower(), *gate_state.EXTRA_ROOTS.get(gate, ())), self.ROOT / 'factory/run.py')]
+        sources += closure(('ingredient_problems',), self.ROOT / 'factory/case_contract.py')
+        for segment in sources:
+            self.assertFalse([w for w in self.WORDING if w in segment], segment[:200])
+
+
 class Receipts(unittest.TestCase):
     def ctx(self, work):
         return types.SimpleNamespace(work=Path(work), engine=types.SimpleNamespace(key='case/step', source_binding={}))
