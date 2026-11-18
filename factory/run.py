@@ -648,7 +648,7 @@ def _freshness_searches(c, plans, deadline, role_completed):
         try:
             text = (f"Freshness check only; change nothing else. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
                     f"case_dir to learn the bug and pinned app version. Then make {need} searches for this bug, its fix or workarounds in this app, and "
-                    f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
+                    f"append each logged search as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
                     f'{{"who": "{who}", "kind": "web" | "github", "query": "...", "url": "...", "at": "<UTC ISO time>", '
                     f'"hit": false | true, "retrieved": true, "note": "evidence/result summary", "app_version": "pinned version", "version_scope": "why the result applies or does not"}}. `hit` is true if the result discusses this bug, its fix or a workaround '
                     f"in this app. Use distinct queries and real result URLs; log every search, hit or not (except a web search with no results, below). "
