@@ -18,7 +18,7 @@ from model_runtime import (family, model_effort, rotation, update_case_budget,
                            case_budget_boundary, pinned_cli, OPENCODE_BIN)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import argparse, datetime, json, os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time, traceback
-from budget import BudgetError, case_spending
+from budget import BudgetError, case_spending, invocation_role as budget_role
 from calibration import attempt_summary, interruption_label, tree_digest, prepare_delivery, guard_submitted
 
 HOME = pathlib.Path.home()
@@ -400,7 +400,8 @@ def retained_answer(c, chain, text, cwd, name, out, identity, kind, schema, vali
     value = answer(c, chain, binding, kind, schema,
         lambda target: text.replace(str(out), str(target)),
         lambda context, request, target, done: opencode(context, chain, request, cwd, name,
-                                                       on_complete=done, **kwargs), validate)
+                                                       on_complete=done, **kwargs), validate,
+        walled=budget_role(name) in model_router.WALLED_ROLES)
     atomic_json(out, value)
     return value
 

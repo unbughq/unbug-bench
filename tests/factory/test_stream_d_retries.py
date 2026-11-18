@@ -196,6 +196,69 @@ class RetryTests(unittest.TestCase):
         for key, value in before.get('invocation_reservations', {}).items():
             self.assertEqual(after['invocation_reservations'][key], value)
 
+    def board_dedup(self, identity='one'):
+        out = self.work / 'dedup.json'
+        return run.retained_answer(self.c, self.c.models['easy_calibrator'], 'OUTPUT: ' + str(out),
+            self.work, 'easy-calibrator-dedup', out, {'statement': 'candidate', 'revision': identity}, 'dedup',
+            '{duplicate_of: case ID or null, reason: nonempty string}',
+            lambda v: isinstance(v, dict) and 'duplicate_of' in v and bool(v.get('reason')))
+
+    def test_cae763_walled_role_exhausts_its_one_gated_route_and_resets_next_attempt(self):
+        # cae763-h3 (2026-11-18): the easy calibrator may lease only the gated OpenRouter lane of GLM's
+        # chain (never Go or free). One empty answer spent that lane; spent_routes was compared with the
+        # whole chain, so it never counted as exhausted, never reset on a new attempt, and every retry
+        # failed at once as router:unbounded_route with no call.
+        glm = 'openrouter/z-ai/glm-5.3-flash'
+        self.assertTrue(any(r['route'].startswith('opencode') for r in model_router.routes(glm)))
+        def setup():
+            self.c.models['easy_calibrator'] = [glm]
+            self.c.args.easy_calibrator = glm
+        setup()
+        def emit(c, text, name):
+            if len(self.calls) > 1:
+                self.answer_path(text).write_text('{"duplicate_of":null,"reason":"fresh judgment"}')
+        self.cli(emit)
+        for _ in range(2):
+            with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.board_dedup()
+        self.assertEqual([(n, r) for n, r, _ in self.calls], [('easy-calibrator-dedup', glm)])
+        self.fresh_context(); setup()
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0] + '/2'
+        self.assertIsNone(self.board_dedup()['duplicate_of'])
+        self.assertEqual([r for _, r, _ in self.calls], [glm, glm])
+        state = self.dedup_state()
+        self.assertEqual(state['exhausted_attempts'][0]['spent_routes'], [glm])
+        self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'completed'])
+
+    def dedup_state(self, path=False):
+        found = next(p for p in (self.work / 'ordinary-retries').glob('*/state.json')
+                     if json.loads(p.read_text()).get('binding', {}).get('kind') == 'dedup')
+        return found if path else json.loads(found.read_text())
+
+    def test_cae763_saved_stuck_pending_judgment_resets_on_the_next_attempt(self):
+        # The exact shape cae763-h3 saved before the fix: its gated lane spent, then a pending judgment
+        # queued whose call found no lane. The next engine attempt must reset it and call once.
+        glm = 'openrouter/z-ai/glm-5.3-flash'
+        def setup():
+            self.c.models['easy_calibrator'] = [glm]
+            self.c.args.easy_calibrator = glm
+        setup()
+        def emit(c, text, name):
+            if len(self.calls) > 1:
+                self.answer_path(text).write_text('{"duplicate_of":null,"reason":"fresh judgment"}')
+        self.cli(emit)
+        with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.board_dedup()
+        path = self.dedup_state(path=True)
+        state = json.loads(path.read_text())
+        state['attempts'].append({'kind': 'judgment', 'phase': 'pending', 'output': f'answer-{len(state["attempts"])}.json'})
+        atomic_json(path, state)
+        self.fresh_context(); setup()
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0] + '/2'
+        self.assertIsNone(self.board_dedup()['duplicate_of'])
+        self.assertEqual([r for _, r, _ in self.calls], [glm, glm])
+        state = self.dedup_state()
+        self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'completed'])
+        self.assertEqual(len(state['exhausted_attempts']), 1)
+
     def test_pending_answer_adopts_new_attempt_before_it_exhausts(self):
         self.c.models['reviewers'] = [self.c.models['builder']]
         self.c.card['roles']['reviewer']['model'] = self.c.models['builder'][0]
