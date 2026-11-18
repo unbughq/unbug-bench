@@ -110,7 +110,7 @@ class ModelRuntimeTests(unittest.TestCase):
             assert all(f in codex for f in ("multi_agent", "browser_use", "apps", "computer_use")), "no subagents, browser or connectors"
             assert claude[claude.index("--model") + 1] == "claude-opus-5-5" and claude[claude.index("--effort") + 1] == "high"
             assert claude_reviewer[-1] == "Bash,Edit,Read,Write", "no web outside the searching roles"
-            assert claude[-1] == "Bash,Edit,Read,Write,WebSearch,WebFetch" and "--no-session-persistence" in claude and "ANTHROPIC_API_KEY" not in aenv
+            assert claude[-1] == "Bash,Edit,Read,Write,WebFetch" and "--no-session-persistence" in claude and "ANTHROPIC_API_KEY" not in aenv
             assert not any(pathlib.Path(e[k]).exists() for e, k in ((cenv, "CODEX_HOME"), (aenv, "CLAUDE_CONFIG_DIR"))), "scratch dirs removed"
             tester_home = c.work / 'tester'; (tester_home / '.cache').mkdir(parents=True)
             fake_sh = lambda c, cmd, **k: (shutil.move(str(cmd[2]), str(cmd[3])) and 0) if list(cmd[:2]) == ['sudo', 'mv'] else 0  # hand_to's move
@@ -127,6 +127,49 @@ class ModelRuntimeTests(unittest.TestCase):
             assert '-u' in seen[-1][0] and 'pilot' in seen[-1][0], 'Claude tester uses the isolated Unix user'
             u = seen[-1][0].index('pilot')  # the isolated user enters its own private dir; the runner never chdirs there
             assert seen[-1][0][u + 1:u + 4] == ['sh', '-c', 'cd "$1" && shift && exec "$@"'], seen[-1][0][:12]
+
+    def test_claude_searchers_are_never_offered_the_gate_refused_web_search(self):
+        """18681d-h2 (18 November): the Claude builder's G2 top-up called WebSearch, a server tool the
+        gate refuses (400 route_feature_unsupported), and logged each refusal as a flagged row with no
+        url; G2 charged those rows as missing_url defects until freshness_evidence_unavailable stopped
+        admission on every attempt. The searchers now get WebFetch only, and G2 is unchanged."""
+        import json, os
+        import model_call_gate
+        from admission import search_evidence_error
+        self.addCleanup(offline_router()[0].close)
+        # What the pinned Claude CLI sends for one WebSearch call: the gate refuses it before any spend.
+        server_search = dict(model='claude-opus-5-5', max_tokens=32000,
+            messages=[{'role': 'user', 'content': 'Perform a web search for the query: medusa 2.19 convert draft order deleted variant'}],
+            tools=[{'type': 'web_search_20250305', 'name': 'web_search', 'max_uses': 8}])
+        with self.assertRaisesRegex(ValueError, 'unsupported'):
+            model_call_gate.request_body(json.dumps(server_search).encode())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary); (root / 'transcripts').mkdir()
+            c = types.SimpleNamespace(work=root, case=root / 'case', card={}, model_env={}, ledger=root / 'ledger.json',
+                args=argparse.Namespace(agent_timeout=1, max_cost=5, max_role_calls=5, max_total_calls=5,
+                                        no_progress_minutes=15, max_zero_tokens=3))
+            runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(),
+                lambda path, sudo=False: shutil.rmtree(path), lambda user: root / user)
+            tools = {}
+            def budgeted(cmd, cwd, env, *a, **k):
+                tools[k['invocation_name']] = cmd[cmd.index('--tools') + 1].split(',')
+                return subprocess.CompletedProcess(cmd, 0)
+            with mock.patch.dict(os.environ, {'PATH': os.environ['PATH']}, clear=True), \
+                 mock.patch.object(model_runtime, 'pinned_cli', lambda kind: kind), \
+                 mock.patch.object(model_runtime, 'run_budgeted', budgeted):
+                # run._freshness_searches' call names: the writer and the stress tester search for G2.
+                for name in ('builder-freshness', 'attacker-freshness', 'builder-1', 'reviewer-1'):
+                    runtime.call(c, ['claude/claude-opus-5-5'], 'hi', root, name)
+        for name in ('builder-freshness', 'attacker-freshness', 'builder-1'):
+            self.assertIn('WebFetch', tools[name], name)
+        self.assertEqual(tools['reviewer-1'], ['Bash', 'Edit', 'Read', 'Write'])
+        self.assertFalse([n for n, offered in tools.items() if 'WebSearch' in offered], tools)
+        # G2 still refuses the url-less row such a refusal produced (the real row shape, its url null).
+        refused = {"who": "builder", "kind": "web", "query": "medusa 2.19 convert draft order deleted variant inventory reservation",
+                   "url": None, "at": "2026-11-18T09:12:44Z", "hit": True, "ambiguous": True, "retrieved": False,
+                   "note": "WebSearch failed: API Error: 400 route_feature_unsupported; could not verify, flagged for independent confirmation",
+                   "app_version": "2.19.0", "version_scope": "unknown: search did not return results"}
+        self.assertEqual(search_evidence_error(refused), 'missing_url')
 
     def test_deepseek_openrouter_fresh_and_restored_execution(self):
         self.addCleanup(offline_router()[0].close)

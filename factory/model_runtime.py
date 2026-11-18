@@ -861,8 +861,11 @@ class ModelRuntime:
             cmd = [pinned_cli("claude"), "-p", "--output-format", "stream-json", "--verbose", "--model", model_id,
                    "--effort", effort, "--dangerously-skip-permissions", "--no-session-persistence",
                    "--setting-sources", "user", "--strict-mcp-config", "--tools",
-                   # no subagents; web only for the roles whose prompts require logged web/GitHub searches (G2)
-                   "Bash,Edit,Read,Write" + (",WebSearch,WebFetch" if role in ("writer", "stress_tester") else "")]
+                   # No subagents. WebFetch only for the roles whose prompts require logged web/GitHub searches
+                   # (G2). Never WebSearch: it is a server tool, which model_call_gate refuses (400
+                   # route_feature_unsupported), and the searcher logged each refusal as a url-less row that
+                   # G2 charged as a defect (18681d-h2, 18 November). Codex runs with web_search disabled too.
+                   "Bash,Edit,Read,Write" + (",WebFetch" if role in ("writer", "stress_tester") else "")]
             if user:
                 scratch = self._hand_to(c, user, scratch); env["CLAUDE_CONFIG_DIR"] = str(scratch)
                 cmd = ["sudo", "--preserve-env=" + ','.join(model_call_gate.ENV_KEYS), "-H", "-u", user] + cmd
