@@ -59,6 +59,15 @@ class EvidenceCacheTests(unittest.TestCase):
         self.assertEqual(gate_state.load(self.c, 'G4', self.root), {'pass': True})
         self.assertEqual(self.c.gate_fingerprint_versions['G4'], gate_state.VERSION)
 
+    def test_a_case_service_change_invalidates_g4_reuse(self):
+        for root in ('services', 'projects'):
+            service = self.c.case / root / 'outlet/service.py'; service.parent.mkdir(parents=True)
+            service.write_text('PORT = 9011')
+            self.save()
+            self.assertEqual(gate_state.load(self.c, 'G4', self.root), {'pass': True})
+            service.write_text('PORT = 9012')
+            self.assertIsNone(gate_state.load(self.c, 'G4', self.root), root)
+
     def test_gate_dependencies_invalidate_reuse(self):
         for relative in ('work/case/base/judge.py', 'cases/medusa-oversell/checker/check.sql', 'bin/bench.py'):
             path = self.root / relative; path.parent.mkdir(parents=True, exist_ok=True)
