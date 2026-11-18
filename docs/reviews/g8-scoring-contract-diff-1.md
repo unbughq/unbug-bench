@@ -47,3 +47,19 @@ settles it.
     **Not changed, by choice:** it is a real advance leak. Telling reviewers to ignore it would weaken
     G8 fairness without a founder ruling. The PR states plainly that G8 can still fail on B1 until the
     bench fix lands (that fix changes `MEASURE` files, so it has the exam-split cost).
+
+## Re-review (diff 2, commit b39514d4): PASS
+
+- Fresh goldfish (Claude, read-only). Findings 1-9 verified fixed. Every sentence of "Bench scoring
+  rules" checked against `bin/claims.py` with no false statement found. The dev keys P1 and P2 pass
+  the new "still fail a key where" checks. The finding 10 disposition was judged acceptable: ignoring
+  B1 is a fairness ruling for the founder.
+- SHOULD (ops): this branch alone may not get 22e434 or 1108c through G8, because a reviewer who names
+  B1 still fails the case. **Taken:** the PR and the founder summary restate the B1 decision as an
+  open ask and do not present this merge as unblocking those cases.
+- NIT: also name the `incorrect` label as not changing `response_correct`. **Fixed.**
+- NIT: claim labels also come from `protected_is_false_assurance`. **Fixed.**
+- NIT: "adjudicated" also excludes batch and judge errors. **Fixed.**
+- NIT (hygiene): AGENTS.md says no design/review dossiers in the tree, while the task and the
+  existing `docs/designs` and `docs/reviews` files say otherwise. **Kept:** the task asked for the
+  record here. Settle the rule in a separate change.
