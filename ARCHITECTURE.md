@@ -688,15 +688,16 @@ admissions, never at a writer round; it also needs `parallel_gates` and a helper
 `GatePipeline.overlap_run` runs the lanes `run.OVERLAP_LANES` (G6), (G7), (G13, G14, G15) at once, each on a
 copy of the case context with its own `role_cancel`, sharing the card. One `BenchTurn` (first come, first
 served) lets one lane at a time run local bench commands (`.bench.lock` is taken without waiting): a lane
-gives it up in `helpers._dispatch` and `run.sh` takes it back for its next local command, so a verdict the
-helpers settle needs no case-box time. Inventory changes made while a lane holds the turn are its own, and
+gives it up in `helpers._dispatch` and `run.sh` takes it back for its next local command (and `check` before it
+reads bench files for reuse or saves a pass), so a verdict the helpers settle needs no case-box time. Inventory changes made while a lane holds the turn are its own, and
 the other lanes' `evidence_scope` leaves them out. The main thread records results in GATES order with the
 serial loop's `record`; the first stop cancels every lane running a later gate (a helper dispatch stops at
 its next boundary, a bench command is killed, a strategy run has no cancel and finishes its gate, up to
 about 40 minutes), and gates after it are discarded: `run.OVERLAP_CARD` keys and `gate-details/<gate>.*`
 are put back and they leave `progress_gates`. Their gate-cache passes, checkpoint receipts and failure
-receipts stay (timing only). A lane's exception is raised at its gate's turn, a G10 failure wins at the
-next boundary, and a case edited meanwhile fails G6 as infrastructure. `gate_minutes` of overlapped gates
+receipts stay (timing only). A lane's exception is raised at its gate's turn, a G10 failure seen when the
+previous gate is recorded (where the serial loop would start the next one) wins there, one that arrives later
+waits for the running gate's result, and a case edited meanwhile fails G6 as infrastructure. `gate_minutes` of overlapped gates
 include waiting for the turn. Checkpoint dispatches of one case share a semaphore of `helper_workers`
 (`helpers._case_slots`; G10 tries do not take it), so G7 waits for G6's helpers instead of being refused
 at the per-case cap. For G6 and G7, which stop at the first solving cheat, queued cheats later in guard

@@ -93,6 +93,13 @@ class BenchTurn:
             self.tickets.done()
 
 
+def hold_turn(c):
+    """An overlap lane that gave the case box up (helpers._dispatch) takes its turn back before it
+    reads the bench: another lane's files are only known as its own once that lane gives the turn up."""
+    turn = getattr(c, "bench_turn", None)
+    if turn is not None and not turn.held: turn.acquire()
+
+
 _MISSING = object()
 
 
@@ -144,6 +151,7 @@ class GatePipeline:
 
     def check(self, c, gate):
         """Reuse verified evidence or execute a gate and retain its supporting artifacts."""
+        hold_turn(c)
         reusable = gate in gate_state.REUSABLE and hasattr(c, "manifest0") and hasattr(c, "case")
         if reusable:
             held = c.__dict__.setdefault("gate_cached", set())   # passes gate-cache holds (checkpoints.gate_call)
@@ -167,6 +175,7 @@ class GatePipeline:
                     raise InvalidInfra('gate execution evidence is incomplete')
         except CaseProblem as error:
             return False, {'problems': [str(error)]}
+        if reusable and ok: hold_turn(c)   # a gate that ended on helpers digests no other lane's half-written files
         if reusable and ok and signature == gate_state.fingerprint(c, gate, self.bench):
             if gate_state.save(c, gate, info, signature, before, self.bench): c.gate_cached.add(gate)
             # Published now, not at the next quiescent point, which a lane beside this gate may delay for
@@ -323,7 +332,7 @@ class GatePipeline:
         turn), inside one concurrent section. Results are recorded in gate order as a serial loop would:
         once a gate stops the loop, every later lane is cancelled at once and the later gates are
         discarded (card keys, gate-details and progress put back), an exception is raised at its gate's
-        turn and a G10 failure (boundary_stop) wins at the next boundary. A cancelled lane stops at its
+        turn and a G10 failure (boundary_stop) seen once the previous gate is recorded wins there. A cancelled lane stops at its
         next bench command or helper dispatch; a strategy run (G13-G15) has no cancel and finishes its
         gate first. True when the loop must stop."""
         pos = {g: i for i, g in enumerate(gates)}
@@ -362,40 +371,41 @@ class GatePipeline:
         def lane_run(i):
             lane = contexts[i]
             for gate in lanes[i]:
-                started = time.time()
+                started, outcome, error = time.time(), None, None
                 try:
-                    lane.bench_turn.acquire()
-                    with lock:
-                        if pos[gate] > stop_at[0]: return
-                        running[i] = pos[gate]
-                    snapshots[gate] = {k: copy.deepcopy(c.card.get(k, _MISSING)) for k in keys.get(gate, ())}
-                    if pos[gate]: self.budget_boundary(lane)   # the serial loop's boundary before each later gate
-                    outcome = run_gate(gate, lane)
-                except BaseException as error:
-                    stop_from(pos[gate])
-                    events.put((gate, None, error, started, time.time()))
-                    return
-                finally:
-                    lane.bench_turn.release()
-                events.put((gate, outcome, None, started, time.time()))
-                if outcome.crashed or not outcome.ok:
-                    stop_from(pos[gate])
-                    return
+                    try:
+                        lane.bench_turn.acquire()
+                        with lock:
+                            if pos[gate] > stop_at[0]: return
+                            running[i] = pos[gate]
+                        snapshots[gate] = {k: copy.deepcopy(c.card.get(k, _MISSING)) for k in keys.get(gate, ())}
+                        if pos[gate]: self.budget_boundary(lane)   # the serial loop's boundary before each later gate
+                        outcome = run_gate(gate, lane)
+                    finally:
+                        lane.bench_turn.release()   # may raise (listing the results): the gate crashed
+                except BaseException as failure:
+                    error = failure
+                if error is not None or outcome.crashed or not outcome.ok: stop_from(pos[gate])
+                events.put((gate, outcome, error, started, time.time()))   # always: the main thread waits for it
+                if error is not None or outcome.crashed or not outcome.ok: return
 
         group_hash = self.case_hash(c)
         self.log(c, "+".join(gates), "start (" + ", ".join("+".join(lane) for lane in lanes) + " at once)")
         done, error, stop, recorded = {}, None, False, 0
-        try:
-            with self.section(c):
+        # Put back inside the section: its exit publishes the deferred engine snapshot.
+        with self.section(c):
+            try:
                 pool = ThreadPoolExecutor(max_workers=len(lanes))
                 try:
                     for i in range(len(lanes)): pool.submit(contextvars.copy_context().run, lane_run, i)
                     while recorded < len(gates) and not stop:
                         gate = gates[recorded]
+                        # Where the serial loop would start this gate (the previous one is recorded): a G10
+                        # failure seen now wins; one that comes while the gate runs waits for its result.
+                        if recorded and boundary_stop(gate): break
                         while gate not in done:
                             event = events.get()
                             done[event[0]] = event[1:]
-                        if recorded and boundary_stop(gate): break
                         outcome, error, started, finished = done[gate]
                         if error is not None: break
                         stop = record(gate, outcome, started, finished)
@@ -403,16 +413,16 @@ class GatePipeline:
                 finally:
                     stop_from(recorded - 1)   # nothing after the last recorded gate is reached
                     pool.shutdown(wait=True)
-        finally:
-            for gate in reversed(gates[recorded:]):   # never recorded: put back as a serial loop would have left them
-                for k, v in snapshots.get(gate, {}).items():
-                    if v is _MISSING: c.card.pop(k, None)
-                    else: c.card[k] = v
-                now = detail_files(gate)
-                for name in set(now) - set(prior[gate]): (details / name).unlink(missing_ok=True)
-                for name, data in prior[gate].items():
-                    if now.get(name) != data: (details / name).write_bytes(data)
-                getattr(getattr(c, "engine", None), "__dict__", {}).get("progress_gates", set()).discard(gate)
+            finally:
+                for gate in reversed(gates[recorded:]):   # never recorded: put back as a serial loop would have left them
+                    for k, v in snapshots.get(gate, {}).items():
+                        if v is _MISSING: c.card.pop(k, None)
+                        else: c.card[k] = v
+                    now = detail_files(gate)
+                    for name in set(now) - set(prior[gate]): (details / name).unlink(missing_ok=True)
+                    for name, data in prior[gate].items():
+                        if now.get(name) != data: (details / name).write_bytes(data)
+                    getattr(getattr(c, "engine", None), "__dict__", {}).get("progress_gates", set()).discard(gate)
         if error is not None: raise error
         if self.case_hash(c) != group_hash:
             for gate in gates:

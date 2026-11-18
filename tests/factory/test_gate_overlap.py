@@ -7,6 +7,7 @@ from pathlib import Path as _P
 _ROOT = _P(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "factory"), str(_ROOT / "bin")]
 
+import contextlib
 import fcntl
 import json
 import pathlib
@@ -18,6 +19,7 @@ import unittest
 from contextlib import ExitStack
 from unittest import mock
 
+import gate_attempt
 import gate_state
 import run
 from durable import helpers
@@ -173,6 +175,66 @@ class Overlap(unittest.TestCase):
         self.assertIsNone(c.raised)
         self.assertIsNone(c.card["failed_gate"])
 
+    def test_a_failing_turn_hand_over_crashes_the_gate_instead_of_hanging(self):
+        real, broken = gate_state.digests, threading.Event()
+        def digests(c, bench):
+            if broken.is_set(): raise OSError("results tree unreadable")
+            return real(c, bench)
+        def g13(c):
+            broken.set(); return True, {}   # the release after this gate cannot list the results
+        out = {}
+        with mock.patch.object(gate_state, "digests", digests):
+            worker = threading.Thread(target=lambda: out.update(c=exercise(self, {"G13": g13}, Pool())), daemon=True)
+            worker.start(); worker.join(10)
+        self.assertFalse(worker.is_alive(), "the case worker hung waiting for G13's result")
+        self.assertIsInstance(out["c"].raised, OSError)
+
+    def test_discarded_gates_are_put_back_before_the_section_publishes(self):
+        """The section's exit publishes the deferred engine snapshot: it must not carry a discarded G7."""
+        at_exit = {}
+        @contextlib.contextmanager
+        def section(self_, c):
+            yield
+            at_exit.update(flakiness=dict(c.card["flakiness_rerun"]),
+                           details=(c.work / "gate-details" / "G7.json").read_text())
+        def g6(c):
+            dispatch(c, [], "g6-cheat"); self.assertTrue(g7_done.wait(5))
+            return False, {"cheats_passed": "1/1"}
+        g7_done = threading.Event()
+        def g7(c):
+            c.card["flakiness_rerun"] = {"new": 1}
+            (c.work / "gate-details" / "G7.json").write_text("new")
+            g7_done.set(); return True, {}
+        with mock.patch.object(run.GatePipeline, "section", section):
+            c = exercise(self, {"G6": g6, "G7": g7}, Pool())
+        self.assertEqual(c.card["failed_gate"], "G6")
+        self.assertEqual(at_exit, {"flakiness": {"old": 1}, "details": "old"})
+
+    def test_a_g10_failure_after_a_gate_started_lets_that_gate_finish_first(self):
+        """The serial loop checks G10 before starting a gate (once the previous one is recorded); a G10
+        rejection that arrives while G13 runs is reported after G13, whose own failure wins."""
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        (tmp / "gate-details").mkdir()
+        c = types.SimpleNamespace(work=tmp, card={"gates": {}}, role_cancel=threading.Event())
+        pipe = run._gate_pipeline()
+        pipe.overlap_lanes, pipe.overlap_card = (("G6",), ("G13",)), {}
+        pipe.budget_boundary, pipe.log, pipe.case_hash = (lambda c: None), mock.Mock(), (lambda c: "h")
+        pipe.bench = tmp / "bench"
+        g10, asked = threading.Event(), []
+        def boundary_stop(gate):
+            asked.append(gate); return g10.is_set()
+        def run_gate(gate, lane):
+            if gate == "G13":
+                until(lambda: "G13" in asked, 2)   # the boundary before G13 has passed
+                g10.set()                          # G10 rejects while G13 is still running
+                return gate_attempt.Outcome(False, {"strategy": "kept up"}, 0)
+            return gate_attempt.Outcome(True, {}, 0)
+        recorded = []
+        def record(gate, outcome, started, finished):
+            recorded.append(gate); return not outcome.ok
+        self.assertTrue(pipe.overlap_run(c, ["G6", "G13"], run_gate, record, boundary_stop))
+        self.assertEqual(recorded, ["G6", "G13"])
+
     def test_off_without_the_launch_flag(self):
         order = []
         g6 = lambda c: (order.append("G6"), (True, {}))[1]
@@ -214,6 +276,35 @@ class Evidence(unittest.TestCase):
         self.assertIsNone(c.card["failed_gate"])
         self.assertEqual(saved["G6"], ["g6-negative.json"])
         self.assertEqual(saved["G13"], ["g13-strategy.json"])
+
+    def test_a_gate_that_ends_on_helpers_saves_its_evidence_holding_the_turn(self):
+        """G7 runs plain_and_reference here, gives the case box up and every cheat finishes on helpers: it
+        must not digest bench/results while G14 is mid-gate, whose files are not yet in G14's own set."""
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        bench, results = tmp / "bench", tmp / "bench" / "results"
+        results.mkdir(parents=True)
+        g14_writing, g7_returned = threading.Event(), threading.Event()
+        def behave(job):
+            if job["name"].startswith("g7"): self.assertTrue(g14_writing.wait(5))
+        def g7(c):
+            run.sh(c, ["true"]); (results / "g7-reference.json").write_text("7")
+            dispatch(c, ["g7-a"], "g7-cheat")   # every cheat on helpers: no local command after
+            g7_returned.set()
+            return True, {}
+        def g14(c):
+            (results / "g14-partial.json").write_text("14"); g14_writing.set()
+            g7_returned.wait(5); time.sleep(0.3)   # still mid-gate when G7's evaluation returns
+            return True, {}
+        saved = {}
+        def save(c, gate, info, signature, before, bench_):
+            saved[gate] = sorted(rel for (kind, rel) in gate_state.digests(c, bench_) if before.get((kind, rel)) is None)
+            return False
+        with mock.patch.object(run, "BENCH", bench), mock.patch.object(gate_state, "fingerprint", return_value="f"), \
+             mock.patch.object(gate_state, "load", return_value=None), mock.patch.object(gate_state, "save", save):
+            c = exercise(self, {"G7": g7, "G14": g14}, Pool(behave), manifest0="m")
+        self.assertIsNone(c.card["failed_gate"])
+        self.assertEqual(saved["G7"], ["g7-reference.json"])
+        self.assertEqual(saved["G14"], ["g14-partial.json"])
 
 
 def until(condition, seconds=5):
