@@ -514,6 +514,9 @@ def _admitted_before(root, case_id):
 # bench gates (run.parallel_calibrators, GatePipeline side lane). Recertified imports keep theirs
 # unless a gate sends them to a writer round, where run.adopt_parallel_checks applies these.
 NEW_CASE_SETTINGS = {"bench_workers": 2, "parallel_gates": True}
+# 2026-11-18: G6/G7 on helper machines beside G13-G15 (run.overlap_cheat_gates). New admissions only:
+# never adopted at a writer round, so a case already in flight keeps its serial gate order.
+NEW_LAUNCH_SETTINGS = {"overlap_cheat_gates": True}
 
 
 def _card(value, case_id, dry_run, admitted_before=0):
@@ -533,7 +536,7 @@ def _card(value, case_id, dry_run, admitted_before=0):
     if not dry_run and value.get("recertify") is not True:
         # An explicit INPUTS value wins. Cards admitted earlier adopt these at their next new
         # writer round (run.adopt_parallel_checks).
-        card["recovery_config"] = {**NEW_CASE_SETTINGS, **(card.get("recovery_config") or {})}
+        card["recovery_config"] = {**NEW_CASE_SETTINGS, **NEW_LAUNCH_SETTINGS, **(card.get("recovery_config") or {})}
     return card
 
 

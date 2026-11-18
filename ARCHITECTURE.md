@@ -683,6 +683,29 @@ qualification before production cutover. The practice fixture is not a scientifi
 
 ## Helper machines (G5, G6/G7 and G10 built with transport; G15 not)
 
+Overlapped cheat gates (new launches only: `admit.NEW_LAUNCH_SETTINGS` gives `overlap_cheat_gates` to new
+admissions, never at a writer round; it also needs `parallel_gates` and a helper pool): from G6,
+`GatePipeline.overlap_run` runs the lanes `run.OVERLAP_LANES` (G6), (G7), (G13, G14, G15) at once, each on a
+copy of the case context with its own `role_cancel`, sharing the card. One `BenchTurn` (first come, first
+served) lets one lane at a time run local bench commands (`.bench.lock` is taken without waiting): a lane
+gives it up in `helpers._dispatch` and `run.sh` takes it back for its next local command, so a verdict the
+helpers settle needs no case-box time. Inventory changes made while a lane holds the turn are its own, and
+the other lanes' `evidence_scope` leaves them out. The main thread records results in GATES order with the
+serial loop's `record`; the first stop cancels every lane running a later gate (a helper dispatch stops at
+its next boundary, a bench command is killed, a strategy run has no cancel and finishes its gate, up to
+about 40 minutes), and gates after it are discarded: `run.OVERLAP_CARD` keys and `gate-details/<gate>.*`
+are put back and they leave `progress_gates`. Their gate-cache passes, checkpoint receipts and failure
+receipts stay (timing only). A lane's exception is raised at its gate's turn, a G10 failure wins at the
+next boundary, and a case edited meanwhile fails G6 as infrastructure. `gate_minutes` of overlapped gates
+include waiting for the turn. Checkpoint dispatches of one case share a semaphore of `helper_workers`
+(`helpers._case_slots`; G10 tries do not take it), so G7 waits for G6's helpers instead of being refused
+at the per-case cap. For G6 and G7, which stop at the first solving cheat, queued cheats later in guard
+order than one a helper found solving are never dispatched (`c.helper_cut_after_solving`, set by
+`run.evaluate_gate`); cheat_runs runs any guard it reaches without a result locally, so the cut cannot
+change a verdict. G5 never fans out to helpers (`run.evaluate_gate` hides the pool; about a minute saved
+against up to six helper boots). All of this is outside every gate fingerprint (`run.sh` is a side
+effect; `durable/helpers.py` is pinned in `release_pins`).
+
 Job side added on top, same flag and seal: G5's reference and key checkpoints (`run.g5_shards`,
 full G5 only, dispatched together, read by the same `read_completed`) and each G10 calibrator try
 (`run.hosted_tries`: one `kind: "try"` job per remaining try with no saved interrupted attempt, all

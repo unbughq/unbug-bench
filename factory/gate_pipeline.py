@@ -6,6 +6,7 @@ root. This module never imports the runner or discovers its globals.
 import json
 import copy
 import os
+import queue
 import contextlib
 import contextvars
 import sys
@@ -43,6 +44,58 @@ def import_facts(error):
     return facts
 
 
+class _Tickets:
+    """First come, first served: lanes take the case box's bench turn in the order they asked for it."""
+    def __init__(self):
+        self.cv, self.next, self.serving = threading.Condition(), 0, 0
+
+    def take(self):
+        with self.cv:
+            self.next += 1
+            return self.next - 1
+
+    def wait(self, ticket):
+        with self.cv: self.cv.wait_for(lambda: self.serving == ticket)
+
+    def done(self):
+        with self.cv:
+            self.serving += 1
+            self.cv.notify_all()
+
+
+class BenchTurn:
+    """One overlap lane's turn on the case box's bench instances. Bench commands take .bench.lock without
+    waiting, so only the lane holding the turn runs local bench work; a lane waiting on helpers gives it
+    up (durable.helpers._dispatch). The inventory files that change while a lane holds the turn are its
+    own (`mine`): the other lanes' evidence leaves them out. The first ticket is taken when the lane is
+    made, so lanes first run in the order they were made."""
+    def __init__(self, tickets, files, mine):
+        self.tickets, self.files, self.mine = tickets, files, mine
+        self.first, self.held, self.before = tickets.take(), False, {}
+
+    def acquire(self):
+        ticket, self.first = (self.tickets.take() if self.first is None else self.first), None
+        self.tickets.wait(ticket)
+        try:
+            self.before = self.files()
+        except BaseException:
+            self.tickets.done()
+            raise
+        self.held = True
+
+    def release(self):
+        if not self.held: return
+        self.held = False
+        try:
+            after = self.files()
+            self.mine.update(k for k in after.keys() | self.before.keys() if after.get(k) != self.before.get(k))
+        finally:
+            self.tickets.done()
+
+
+_MISSING = object()
+
+
 @dataclass
 class GatePipeline:
     bench: Path
@@ -70,6 +123,12 @@ class GatePipeline:
     early_lane: Callable = lambda c: None
     # Raises BudgetError before the first bench gate when G10's strong calls could not be funded.
     money_headroom: Callable = lambda c: None
+    # Lanes of consecutive gates that run at once from the first one when overlap(c) is true (G6 and G7,
+    # whose cheats run on helper machines, beside G13-G15 on the case box), recorded in gate order
+    # (overlap_run). overlap_card names the card keys each of them writes, restored when it is discarded.
+    overlap_lanes: tuple = ()
+    overlap: Callable = lambda c: False
+    overlap_card: dict = None
 
     def section(self, c):
         """Defer engine snapshots while two threads work on this case."""
@@ -259,30 +318,138 @@ class GatePipeline:
         return problems or None
 
 
+    def overlap_run(self, c, gates, run_gate, record, boundary_stop):
+        """The overlap lanes at once, each on its own copy of c (shared card, own role_cancel and bench
+        turn), inside one concurrent section. Results are recorded in gate order as a serial loop would:
+        once a gate stops the loop, every later lane is cancelled at once and the later gates are
+        discarded (card keys, gate-details and progress put back), an exception is raised at its gate's
+        turn and a G10 failure (boundary_stop) wins at the next boundary. A cancelled lane stops at its
+        next bench command or helper dispatch; a strategy run (G13-G15) has no cancel and finishes its
+        gate first. True when the loop must stop."""
+        pos = {g: i for i, g in enumerate(gates)}
+        lanes = [[g for g in lane if g in pos] for lane in self.overlap_lanes]
+        keys = self.overlap_card or {}
+        details = c.work / "gate-details"
+        def detail_files(gate):
+            return {p.name: p.read_bytes() for p in details.glob(f"{gate}.*") if p.is_file()} if details.is_dir() else {}
+        prior = {g: detail_files(g) for g in gates}
+        # Per-run state the lanes must share with c, made before they are copied.
+        for name, empty in (("gate_cached", set), ("strategy_shared", dict), ("engine_path_ordinals", dict),
+                            ("gate_fingerprint_versions", dict)):
+            c.__dict__.setdefault(name, empty())
+        import gate_state
+        base = getattr(c, "evidence_scope", None)
+        tickets, mine = _Tickets(), [set() for _ in lanes]
+        files = lambda: gate_state.digests(c, self.bench)
+        contexts = []
+        for i in range(len(lanes)):
+            lane = copy.copy(c)
+            lane.role_cancel = threading.Event()
+            lane.bench_turn = BenchTurn(tickets, files, mine[i])
+            lane.evidence_scope = (lambda i: lambda kind, rel: (base is None or base(kind, rel))
+                                   and not any((kind, rel) in m for j, m in enumerate(mine) if j != i))(i)
+            contexts.append(lane)
+        lock, stop_at, running = threading.Lock(), [len(gates)], {}
+        events, snapshots = queue.Queue(), {}
+
+        def stop_from(at):
+            """Gates after position `at` are not reached: cancel every lane running one."""
+            with lock:
+                stop_at[0] = min(stop_at[0], at)
+                for i, where in running.items():
+                    if where > stop_at[0]: contexts[i].role_cancel.set()
+
+        def lane_run(i):
+            lane = contexts[i]
+            for gate in lanes[i]:
+                started = time.time()
+                try:
+                    lane.bench_turn.acquire()
+                    with lock:
+                        if pos[gate] > stop_at[0]: return
+                        running[i] = pos[gate]
+                    snapshots[gate] = {k: copy.deepcopy(c.card.get(k, _MISSING)) for k in keys.get(gate, ())}
+                    if pos[gate]: self.budget_boundary(lane)   # the serial loop's boundary before each later gate
+                    outcome = run_gate(gate, lane)
+                except BaseException as error:
+                    stop_from(pos[gate])
+                    events.put((gate, None, error, started, time.time()))
+                    return
+                finally:
+                    lane.bench_turn.release()
+                events.put((gate, outcome, None, started, time.time()))
+                if outcome.crashed or not outcome.ok:
+                    stop_from(pos[gate])
+                    return
+
+        group_hash = self.case_hash(c)
+        self.log(c, "+".join(gates), "start (" + ", ".join("+".join(lane) for lane in lanes) + " at once)")
+        done, error, stop, recorded = {}, None, False, 0
+        try:
+            with self.section(c):
+                pool = ThreadPoolExecutor(max_workers=len(lanes))
+                try:
+                    for i in range(len(lanes)): pool.submit(contextvars.copy_context().run, lane_run, i)
+                    while recorded < len(gates) and not stop:
+                        gate = gates[recorded]
+                        while gate not in done:
+                            event = events.get()
+                            done[event[0]] = event[1:]
+                        if recorded and boundary_stop(gate): break
+                        outcome, error, started, finished = done[gate]
+                        if error is not None: break
+                        stop = record(gate, outcome, started, finished)
+                        recorded += 1
+                finally:
+                    stop_from(recorded - 1)   # nothing after the last recorded gate is reached
+                    pool.shutdown(wait=True)
+        finally:
+            for gate in reversed(gates[recorded:]):   # never recorded: put back as a serial loop would have left them
+                for k, v in snapshots.get(gate, {}).items():
+                    if v is _MISSING: c.card.pop(k, None)
+                    else: c.card[k] = v
+                now = detail_files(gate)
+                for name in set(now) - set(prior[gate]): (details / name).unlink(missing_ok=True)
+                for name, data in prior[gate].items():
+                    if now.get(name) != data: (details / name).write_bytes(data)
+                getattr(getattr(c, "engine", None), "__dict__", {}).get("progress_gates", set()).discard(gate)
+        if error is not None: raise error
+        if self.case_hash(c) != group_hash:
+            for gate in gates:
+                for field in ("gates", "gate_results", "gate_minutes"): c.card.get(field, {}).pop(gate, None)
+            self.log(c, gates[0], "case changed while gates ran in parallel")
+            c.card["gates"][gates[0]] = "invalid-infra"
+            c.card["failed_gate"] = gates[0]
+            c.card["failed_detail"] = {"error": "case_changed_during_parallel_gates"}
+            return True
+        return stop
+
+
     def run(self, c, *, replay_gate=None, around_gate=None):
         """Run gates, joining/cancelling the isolated G10 before returning to seal/checkpoint."""
         a = c.args
-        def run_gate(gate):
+        def run_gate(gate, on=None):
+            on = c if on is None else on
             def invoke():
-                if gate in getattr(c, "early", {}) and c.early_hash == self.case_hash(c):
-                    ok, info = c.early[gate]
+                if gate in getattr(on, "early", {}) and on.early_hash == self.case_hash(on):
+                    ok, info = on.early[gate]
                     return ok, {**info, "reused_from_early_check": True}
-                if getattr(c, 'engine', None) is not None:
+                if getattr(on, 'engine', None) is not None:
                     from durable.checkpoints import gate_call
                     from gate_state import inputs
                     import run
-                    binding = {"science": inputs(c, gate, run.BENCH),
-                               "ruling": getattr(c, "engine_ruling", None)}
-                    return gate_call(c, gate, lambda: self.check(c, gate), binding)
-                return self.check(c, gate)
+                    binding = {"science": inputs(on, gate, run.BENCH),
+                               "ruling": getattr(on, "engine_ruling", None)}
+                    return gate_call(on, gate, lambda: self.check(on, gate), binding)
+                return self.check(on, gate)
             retained = replay_gate(c, gate) if replay_gate else None
             if retained is not None:
                 ok, info = retained
                 self.publish(c, gate, 'completed' if ok else 'failed', 0, True)
                 return gate_attempt.Outcome(ok, info, 0)
-            with self.window(c, gate):
+            with self.window(on, gate):
                 outcome = gate_attempt.execute(
-                    (lambda: around_gate(c, gate, invoke)) if around_gate else invoke,
+                    (lambda: around_gate(on, gate, invoke)) if around_gate else invoke,
                     publish=lambda *args: self.publish(c, gate, *args),
                     record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError,
                     attempts=1 if getattr(c, "engine", None) is not None else 2, journal=None if getattr(c, "engine", None) is not None else c.work / "infra-attempts.json",
@@ -390,6 +557,13 @@ class GatePipeline:
                 stop = record(gate, outcome, started, finished, quiet()) or stop
             return stop
 
+        group = [g for g in order if any(g in lane for lane in self.overlap_lanes)]
+        start = order.index(group[0]) if group else 0
+        overlapping = (bool(group) and len(group) == sum(map(len, self.overlap_lanes)) and order[start:start + len(group)] == group
+                       and not a.dry_run and replay_gate is None and getattr(c, "audit_gates", None) is None and self.overlap(c))
+        def g10_failed(gate):
+            return future is not None and future.done() and future.exception() is None and not future.result().ok
+
         future, g10_started = None, None
         pool = ThreadPoolExecutor(max_workers=1)
         side_pool = ThreadPoolExecutor(max_workers=1) if side else None
@@ -397,7 +571,7 @@ class GatePipeline:
         try:
             if side and side_after is None: side_start()
             for gate in order:
-                if gate in side: continue
+                if gate in side or (overlapping and gate in group[1:]): continue
                 if lane["future"] is not None and ((lane["future"].done() and not lane_failed()) or gate == side_join):
                     if side_finish(): break
                 self.budget_boundary(c)
@@ -436,6 +610,9 @@ class GatePipeline:
                         g10_section = self.section(c)
                         g10_section.__enter__()
                         future = pool.submit(contextvars.copy_context().run, run_gate, "G10")
+                if overlapping and gate == group[0]:
+                    if self.overlap_run(c, group, run_gate, lambda g, o, s, f: record(g, o, s, f, quiet(g)), g10_failed): break
+                    continue
                 started = g10_started if gate == "G10" and future is not None else time.time()
                 if gate == "G10" and future is not None:
                     try:

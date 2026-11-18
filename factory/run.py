@@ -235,6 +235,8 @@ def sh(c, cmd, *, capture=False, timeout=None, input=None, cwd=None, check=False
     """Run a command; its output goes to the sealed log (and is returned when capture=True)."""
     if env is None and hasattr(c, "factory_slot"):
         env = {**os.environ, "UNBUG_FACTORY_SLOT": str(c.factory_slot)}
+    turn = getattr(c, "bench_turn", None)   # an overlap lane that gave the case box up to wait on helpers
+    if turn is not None and not turn.held: turn.acquire()
     log(c, "$", " ".join(map(str, cmd))[:400])
     output_path = c.work / "logs/commands.log"
     with output_path.open("a") as out:
@@ -1037,14 +1039,47 @@ def g10_money_headroom(c):
         raise BudgetError("budget_exhausted:grant_insufficient")
 
 
+# Run at once from G6 when overlap_cheat_gates is on (GatePipeline.overlap_run): G6's and G7's cheats on
+# helper machines, G13-G15 on the case box meanwhile; recorded in GATES order. The card keys each writes
+# are put back when a gate the serial loop would not have reached is discarded.
+OVERLAP_LANES = (("G6",), ("G7",), ("G13", "G14", "G15"))
+OVERLAP_CARD = {"G6": ("cheats_passed", "negative_probes_ok"), "G7": ("flakiness_rerun",),
+                "G13": ("strategy_reuse",), "G15": ("strategy_reuse",)}
+
+
+def overlap_cheat_gates(c):
+    """New launches with parallel gates and helper machines (admit.NEW_LAUNCH_SETTINGS); never a dry run."""
+    return (parallel_gates(c) and getattr(c.args, "overlap_cheat_gates", False) is True and not c.args.dry_run
+            and getattr(c.args, "helper_workers", 0) > 0 and getattr(c, "helper_pool", None) is not None)
+
+
+def evaluate_gate(c, gate):
+    """A gate's own function; only where its checkpoints run is decided here (not part of any gate's
+    fingerprint). G5 stays on the case box: its checkpoints take about a minute each there, against
+    about ten for a helper to boot. G6 and G7 stop at their first solving cheat (cheat_runs
+    stop_on_pass=True), so helpers may drop queued cheats behind one that solved
+    (helpers.checkpoint_shards)."""
+    pool, cut = c.__dict__.get("helper_pool"), c.__dict__.get("helper_cut_after_solving")
+    off = gate == "G5" and pool is not None
+    if off: c.helper_pool = None
+    c.helper_cut_after_solving = gate in ("G6", "G7")
+    try:
+        return globals()[gate.lower()](c)
+    finally:
+        if off: c.helper_pool = pool
+        if cut is None: c.__dict__.pop("helper_cut_after_solving", None)
+        else: c.helper_cut_after_solving = cut
+
+
 def _gate_pipeline():
     return GatePipeline(
-        bench=BENCH, evaluate=lambda c, gate: globals()[gate.lower()](c),
+        bench=BENCH, evaluate=evaluate_gate,
         case_hash=case_hash, log=log, publish=public_progress,
         budget_boundary=case_budget_boundary, after_gate=_gate_completed,
         overlap_reason=g10_overlap_reason, gates=tuple(GATES), money_headroom=g10_money_headroom,
         early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP,
-        side_gates=SIDE_GATES, side_lane=parallel_gates, side_early=('G2', 'G5'), early_lane=early_lane)
+        side_gates=SIDE_GATES, side_lane=parallel_gates, side_early=('G2', 'G5'), early_lane=early_lane,
+        overlap_lanes=OVERLAP_LANES, overlap=overlap_cheat_gates, overlap_card=OVERLAP_CARD)
 
 
 def checked_gate(c, gate):
@@ -2942,7 +2977,7 @@ def pause_on_term(signum, frame):
 
 def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_only=False):
     pipeline = _gate_pipeline()
-    if serial: pipeline.overlap_reason = lambda c: 'serial gate evaluation'
+    if serial: pipeline.overlap_reason, pipeline.overlap = (lambda c: 'serial gate evaluation'), (lambda c: False)
     if replay_only: pipeline.budget_boundary = lambda c: None
     return pipeline.run(c, replay_gate=replay_gate, around_gate=around_gate)
 
@@ -2962,7 +2997,7 @@ ENGINE_COST_CAP = 1e9
 ENGINE_SETTINGS = ("rounds", "runs", "scenario_runs", "pilot_tries", "pilot_runs", "calibrator_minutes",
                    "max_role_calls", "max_total_calls", "no_progress_minutes", "max_zero_tokens",
                    "agent_timeout", "max_repairs", "bench_workers", "concurrent_roles", "no_early_probe",
-                   "parallel_gates")
+                   "parallel_gates", "overlap_cheat_gates")
 # The CASE_SNAPSHOT subset of c.work, exactly (top-level names and globs).
 SNAPSHOT_RETAINED = (
     "case", "scorecard.json", "continuation-budget.json", "usage-receipts",
@@ -3718,6 +3753,9 @@ def argument_parser():
     p.add_argument("--parallel-gates", action=argparse.BooleanOptionalAction, default=False,
                    help="engine cases admitted with it: parallel calibrators and G10 overlap at quiescent checkpoints, "
                         "G2/G8/G9 beside the bench gates")
+    p.add_argument("--overlap-cheat-gates", action=argparse.BooleanOptionalAction, default=False,
+                   help="with parallel gates and helper machines: G6 and G7 on helpers while G13-G15 run here, "
+                        "recorded in gate order (new launches)")
     p.add_argument("--pilot-tries", type=int, default=3)
     p.add_argument("--no-early-probe", action="store_true", help="skip the one strong-tester try after G5")
     p.add_argument("--calibrator-minutes", type=float, default=30,  # founder may change; strong tries took ~20 min (2026-10-18)
