@@ -171,7 +171,8 @@ def main():
         else:
             assert outcome=='done'
             if mode!='compaction':assert receipts[0]['final_usage_known']
-            if mode=='tools':assert cap['unsupported_requests']>=1 and summary.get('result')=='OK'
+            # WebSearch is not offered (model_runtime): the CLI refuses the tool locally, sends no server tool.
+            if mode=='tools':assert cap['unsupported_requests']==0 and summary.get('result')=='OK'
             if mode=='compaction':assert controls['compaction']>0 or result['compact_boundaries']>0
             if mode=='concurrency':
                 assert queued.is_set() and helper_codes==[0,0] and len(seen)==3
