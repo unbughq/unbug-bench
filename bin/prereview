@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Pre-review a hand-built case with G8/G9's own reviewer prompt before it is launched (founder 2026-11-18).
+
+  bin/prereview CASE_DIR --out DIR --bench BENCH_CHECKOUT [--source port|hunt|plant] [--samples N] [--timeout-min M]
+
+The factory shows a case to its two reviewers only inside a paid gates run, hours in; each finding
+then costs a full rerun. This runs the same panel first, on subscription lanes (no OpenRouter cash):
+the prompt is the bench's factory/prompts/reviewer.md + its run context + reviewer-keys.md, built as
+factory/run.py review() builds it, and the reviewers are G8's two (OpenCode Go mimo, Codex), each in
+a fresh config with no MCP servers, plugins or skills (as factory/model_runtime.py runs them). Each
+sample reviews its own copy of the case; --samples N per reviewer, all in parallel, so one round
+samples more of what a gate panel could find. Writes DIR/<sample>/verdict.json, DIR/findings.md
+and DIR/summary.json. Exit 0 only when every sample approves fairness and realism.
+
+It is advice, not a gate: a pass here seals nothing and the gate still runs. Differences from the
+gate: no built bench images here (reviewers cannot inspect the box image), Codex runs sandboxed
+(workspace-write, network on) instead of unsandboxed in a worker, and no founder ruling is appended.
+Run it again after each fix until a round comes back clean twice.
+"""
+import argparse
+import concurrent.futures
+import json
+import os
+import pathlib
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "factory"))
+from codex_login import validate, worker_auth  # noqa: E402
+HOME = pathlib.Path.home()
+# factory/model_runtime.py CODEX_OFF: no subagents, web, apps/plugins, computer use or image generation.
+CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "browser_use_external",
+             "in_app_browser", "computer_use", "image_generation"]
+# OpenCode config for every call: no MCP servers, no subagents (factory opencode_config()).
+# small_model pinned and only the Go provider enabled, so compaction/title calls never reach a paid key.
+OPENCODE_MODEL = "opencode-go/mimo-v2.6-pro"
+OPENCODE_CONFIG = {"mcp": {}, "compaction": {"auto": True}, "permission": {"task": "deny"},
+                   "small_model": OPENCODE_MODEL, "enabled_providers": ["opencode-go"]}
+# Only these reach a reviewer: no user credentials (ssh, gh, git, cloud), keys or tool configs.
+ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "SHELL")
+
+
+def isolated(kind, d, scratch, timeout=3600):
+    """(command, env) for one reviewer in a fresh config home holding only its subscription login."""
+    env = {k: os.environ[k] for k in ENV_KEEP if k in os.environ}
+    env["HOME"] = str(scratch)   # no ~/.ssh, git or gh credentials, ~/.claude or ~/.agents skills
+    if kind == "mimo":   # G8 reviewer-1: opencode-go/mimo-v2.6-pro (effort 'default': no --variant)
+        # A fresh config home (no user MCP servers or plugins); the user's data home keeps the Go login.
+        (scratch / "opencode.json").write_text(json.dumps(OPENCODE_CONFIG))
+        env.update(XDG_CONFIG_HOME=str(scratch / "config"), XDG_CACHE_HOME=str(scratch / "cache"),
+                   XDG_DATA_HOME=str(HOME / ".local/share"), OPENCODE_CONFIG=str(scratch / "opencode.json"),
+                   OPENCODE_ENABLE_EXA="1", OPENCODE_DISABLE_CLAUDE_CODE="1")
+        # --standalone: a private server with this env; the shared background service has the user's config.
+        return ["opencode", "run", "--standalone", "--auto", "--archived", "--title", f"prereview-{d.name}",
+                "-m", OPENCODE_MODEL], env
+    # G8 reviewer-2: codex/gpt-6.1-sol, effort high, web search off (factory model_runtime codex branch)
+    # The factory's worker_auth(): external-token mode, no refresh token, so a sample can never rotate
+    # (and so invalidate) the user's own Codex login. Refuses an access token near expiry: run codex once.
+    auth = json.loads((HOME / ".codex/auth.json").read_text())
+    validate(auth, timeout)   # the token must outlive the whole review: nothing can refresh it
+    (scratch / "auth.json").touch(mode=0o600)
+    (scratch / "auth.json").write_text(json.dumps(worker_auth(auth)))
+    (scratch / "config.toml").write_text("")
+    env["CODEX_HOME"] = str(scratch)
+    return ["codex", "exec", "--skip-git-repo-check", *[x for f in CODEX_OFF for x in ("--disable", f)],
+            "-m", "gpt-6.1-sol", "-c", 'model_reasoning_effort="high"', "-c", 'web_search="disabled"',
+            "--sandbox", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", "-C", str(d)], env
+
+
+def reviewer_prompt(case_dir, bench_dir, source, verdict_path):
+    """factory/run.py review(): prompt('reviewer', run_context(...)) + reviewer-keys.md (no founder ruling)."""
+    # gate_runs/scenario_runs: factory/run.py --runs/--scenario-runs defaults (10, 3); keep in step with them.
+    context = {"case_dir": str(case_dir), "bench_dir": str(bench_dir), "bug_source": source,
+               "gate_runs": 10, "scenario_runs": 3, "mode": "case", "verdict_path": str(verdict_path)}
+    prompts = bench_dir / "factory/prompts"   # the bench's own prompts: the factory commit under review
+    return ((prompts / "reviewer.md").read_text() + "\n\n## This run\n\n"
+            + "```json\n" + json.dumps(context, indent=2) + "\n```\n"
+            + "\n" + (prompts / "reviewer-keys.md").read_text())
+
+
+def valid(vote):
+    """factory/run.py review_approvals(): both parts present with a boolean approve."""
+    return isinstance(vote, dict) and all(
+        isinstance(vote.get(k), dict) and type(vote[k].get("approve")) is bool for k in ("fairness", "realism"))
+
+
+def review(name, case, bench, source, out, timeout):
+    d, verdict, scratch, proc = out / name, out / name / "verdict.json", None, None
+    try:
+        shutil.copytree(case, d / "case")  # a copy (links followed, as the factory's): a reviewer cannot change the case
+        text = reviewer_prompt(d / "case", bench, source, verdict)
+        # Codex refuses helper binaries under a temp dir (factory model_runtime), so its home is under ~/.cache.
+        base = HOME / ".cache"; base.mkdir(exist_ok=True)
+        scratch = pathlib.Path(tempfile.mkdtemp(prefix="prereview-", dir=base))
+        cmd, env = isolated(name.split("-")[0], d, scratch, timeout)
+        with open(d / "log.txt", "w") as log:
+            proc = subprocess.Popen(cmd + [text], cwd=d, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, start_new_session=True)
+            try:
+                code = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                code = "timeout"
+    except (OSError, KeyError, ValueError) as error:
+        code = f"{type(error).__name__}: {error}"
+    finally:
+        if proc is not None:   # whatever the agent started (servers, shells) goes with it
+            try: os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            proc.wait()
+        if scratch is not None:
+            shutil.rmtree(scratch, ignore_errors=True)   # holds a copy of the subscription login
+    try:
+        vote = json.loads(verdict.read_text())
+    except (OSError, ValueError):
+        vote = None
+    return name, code, vote if valid(vote) else None
+
+
+def git_state(path):
+    run = lambda *a: subprocess.run(["git", "-C", str(path), *a], capture_output=True, text=True).stdout.strip()
+    return {"commit": run("rev-parse", "HEAD"), "dirty": bool(run("status", "--porcelain"))}
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("case", type=pathlib.Path)
+    p.add_argument("--out", type=pathlib.Path, required=True)
+    p.add_argument("--bench", type=pathlib.Path, required=True,
+                   help="a clean bench checkout the reviewers read, e.g. a detached worktree of origin/main")
+    p.add_argument("--source", choices=["port", "hunt", "plant"], help="default: case.json source")
+    p.add_argument("--samples", type=int, default=2)
+    p.add_argument("--timeout-min", type=int, default=75)
+    a = p.parse_args()
+    case, out, bench = a.case.resolve(), a.out.resolve(), a.bench.resolve()
+    if not (case / "case.json").is_file():
+        sys.exit(f"{case}: no case.json")
+    a.source = a.source or json.loads((case / "case.json").read_text()).get("source")
+    if a.source not in ("port", "hunt", "plant"):
+        sys.exit(f"{case}: case.json has no bug source; pass --source")
+    if a.samples < 1:
+        sys.exit("--samples must be at least 1")
+    if out.exists():
+        sys.exit(f"{out} exists")
+    if out.is_relative_to(REPO) or out.is_relative_to(bench) or out.is_relative_to(case):
+        sys.exit("--out must be outside the repo, the bench and the case (it holds private case copies)")
+    if not git_state(bench)["commit"]:
+        sys.exit(f"{bench}: not a git checkout")
+    out.mkdir(parents=True)
+    out.chmod(0o700)
+    names = [f"{r}-{i}" for r in ("mimo", "codex") for i in range(1, a.samples + 1)]
+    with concurrent.futures.ThreadPoolExecutor(len(names)) as pool:
+        results = list(pool.map(lambda n: review(n, case, bench, a.source, out, a.timeout_min * 60), names))
+    version = lambda b: subprocess.run([b, "--version"], capture_output=True, text=True).stdout.strip()
+    summary = {"case": str(case), "bench": {"path": str(bench), **git_state(bench)},
+               "cli": {"codex": version("codex"), "opencode": version("opencode")}, "samples": {}}
+    lines = [f"# Pre-review of {case}\n", f"Bench {summary['bench']['commit']}"
+             + (" (DIRTY)" if summary["bench"]["dirty"] else "") + ". No built images here: box-image checks were not possible.\n"]
+    for name, code, vote in results:
+        summary["samples"][name] = {"exit": code, "fairness": vote and vote["fairness"]["approve"],
+                                    "realism": vote and vote["realism"]["approve"]}
+        lines.append(f"## {name}: " + (f"NO VERDICT (exit {code}, see {name}/log.txt)" if vote is None else
+                     f"fairness {'approve' if vote['fairness']['approve'] else 'REJECT'}, "
+                     f"realism {'approve' if vote['realism']['approve'] else 'REJECT'}"))
+        for part in ("fairness", "realism"):
+            for f in (vote or {}).get(part, {}).get("findings") or []:
+                lines.append(f"- [{part}] " + (f if isinstance(f, str) else json.dumps(f)))
+        lines.append("")
+    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    (out / "findings.md").write_text("\n".join(lines))
+    print(json.dumps(summary["samples"]))
+    clean = all(s["fairness"] is True and s["realism"] is True for s in summary["samples"].values())
+    print("CLEAN" if clean else "NOT CLEAN", out / "findings.md")
+    sys.exit(0 if clean else 1)
+
+
+if __name__ == "__main__":
+    main()
