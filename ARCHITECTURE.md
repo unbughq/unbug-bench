@@ -319,7 +319,7 @@ repair request or an extending diagnosis retires it) except that no verdict is k
 run every gate. The next repair is done by hand and imported again. Its card defaults
 `recovery_config.no_early_probe` to true (speed plan 2026-11-18): the early probe only labels a case, and
 G10 runs the same strong tries; an explicit INPUTS value wins. The setting is in no gate fingerprint or
-calibration identity, and only a card ADMIT builds after this release carries it.
+calibration identity; the default (not an explicit value) reaches only hand-repaired cards ADMIT builds after this release.
 
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
