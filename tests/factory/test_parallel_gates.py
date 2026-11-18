@@ -130,6 +130,27 @@ class Calibrators(unittest.TestCase):
                 with mock.patch.object(bench, "inventory_services", return_value=[]):
                     self.assertTrue(run.parallel_calibrators(c), "a silent window without services is safe")
 
+    def test_the_serial_reason_names_the_blocker(self):
+        import bench
+        with tempfile.TemporaryDirectory() as tmp:
+            case = pathlib.Path(tmp)
+            c = types.SimpleNamespace(engine=object(), case=case,
+                                      args=types.SimpleNamespace(concurrent_roles=False, parallel_gates=True, bench_workers=2))
+            with mock.patch.object(bench, "load_scenario", return_value={}), \
+                 mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
+                 mock.patch.object(bench, "inventory_services", return_value=[{"name": "counter"}]), \
+                 mock.patch.object(bench, "factory_memory_fits", return_value=True):
+                self.assertEqual(run.g10_overlap_reason(c), "parallel calibrators unavailable (concurrent_roles is off)")
+                c.args.concurrent_roles = True
+                window = case / "harbor" / "t" / "steps" / "quiet" / "window.json"
+                window.parent.mkdir(parents=True); window.write_text("{}")
+                self.assertIn("silent window", run.g10_overlap_reason(c))
+                window.unlink()
+                with mock.patch.object(bench, "factory_memory_fits", return_value=False):
+                    self.assertIn("memory allowance for two testers", run.g10_overlap_reason(c))
+                with mock.patch.object(bench, "isolated_inventory_services", return_value=False):
+                    self.assertIn("not isolated", run.g10_overlap_reason(c))
+
     def test_the_flag_is_a_kept_engine_setting(self):
         self.assertIn("parallel_gates", run.ENGINE_SETTINGS)
         self.assertFalse(run.argument_parser().parse_args([]).parallel_gates)
@@ -215,6 +236,7 @@ class RunningCases(unittest.TestCase):
             with mock.patch.object(bench, "load_scenario", return_value={}), \
                  mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
                  mock.patch.object(bench, "factory_memory_fits", side_effect=lambda s, n: n <= fits), \
+                 mock.patch.object(run, "parallel_calibrators", return_value=True), \
                  mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=16):
                 run.scale_bench_workers(c)
             self.assertEqual(c.args.bench_workers, expected, fits)
@@ -228,9 +250,33 @@ class RunningCases(unittest.TestCase):
         with mock.patch.object(bench, "load_scenario", return_value={}), \
              mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
              mock.patch.object(bench, "factory_memory_fits", return_value=True), \
+             mock.patch.object(run, "parallel_calibrators", return_value=True), \
              mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=8):
             run.scale_bench_workers(c)
         self.assertEqual(c.args.bench_workers, 6)
+
+    def test_a_serial_g10_reserves_no_tester_copies(self):
+        """18 November: every running case had a serial G10 (concurrent_roles off, silent windows), yet
+        GATES kept two copies free for testers that never run beside the gates. Memory as measured:
+        one copy ~3.4 GiB, so a default worker (8 GB) fits 2 copies and a large one (16 GB) 4."""
+        import bench
+        for overlap, fits, cpus, expected in ((False, 4, 8, 4), (True, 4, 8, 2),     # large worker
+                                              (False, 2, 4, 2), (True, 2, 4, 2),     # default: unchanged
+                                              (False, 20, 4, 4)):                    # CPU still caps it
+            c, _ = self.case({"bench_workers": 2, "parallel_gates": True})
+            c.engine = object(); c.args.parallel_gates = True; c.args.bench_workers = 2
+            tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+            c.case = pathlib.Path(tmp.name); (c.case / "scenarios").mkdir()
+            with mock.patch.object(bench, "load_scenario", return_value={}), \
+                 mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
+                 mock.patch.object(bench, "factory_memory_fits", side_effect=lambda s, n: n <= fits), \
+                 mock.patch.object(run, "parallel_calibrators", return_value=overlap), \
+                 mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=cpus):
+                run.scale_bench_workers(c)
+            self.assertEqual(c.args.bench_workers, expected, (overlap, fits, cpus))
+            # A serial G10 uses slot 0, so G3 prepares exactly the bench copies.
+            with mock.patch.object(run, "parallel_calibrators", return_value=overlap):
+                if not overlap: self.assertEqual(run.factory_slots(c), expected)
 
     def test_gates_entry_keeps_passed_gate_cache_identities(self):
         c, _ = self.case({"bench_workers": 1})

@@ -84,7 +84,10 @@ create. A type other than `default` needs its approved rate in the request's `wo
 compute bound uses that rate and each live worker is judged at its own Boat type's approved rate, so a
 large worker does not trip the default type's `max_worker_rate_usd_per_second` (always the default rate; a
 `"default"` key in the map is ignored); the infrastructure approval is unchanged, so a dearer type fits
-fewer running slots. `preflight.py` adds advance warnings to the guard's alerts and
+fewer running slots. A bigger worker changes only how many bench copies a case runs (results do not
+depend on it): one copy is ~3.4 GiB of container caps, so `default` holds 2 and `large` about 4; GATES
+(`run.scale_bench_workers`) gives G6/G7 every copy that fits, less two for G10's testers only when they
+can overlap (`run.parallel_calibrators`; `run.calibrators_serial_reason` names why not). `preflight.py` adds advance warnings to the guard's alerts and
 status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
 degrade, pause or stop, and an unreadable input is an "unknown" warning. The guard itself alerts once router
 paid spend reaches 80% of its ceiling and when the provider credit falls below a floor (`UNBUG_LOW_CREDIT_USD`,
