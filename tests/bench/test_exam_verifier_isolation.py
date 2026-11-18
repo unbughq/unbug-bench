@@ -6,6 +6,12 @@ Run with Harbor 0.24's interpreter:
 import os, pathlib, subprocess, sys, tempfile, tomllib, types
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+try:
+    import harbor  # noqa: F401
+except ImportError:  # offline suite: use Harbor's own interpreter when installed, else skip
+    tool = pathlib.Path.home() / ".local/share/uv/tools/harbor/bin/python"
+    if tool.exists(): os.execv(tool, [str(tool), __file__])
+    print("skip: Harbor 0.24 not importable here"); raise SystemExit(0)
 # Harbor sees exactly the PYTHONPATH bin/run-exam gives it.
 sys.path.insert(0, str(ROOT / "bin"))
 import importlib.machinery
