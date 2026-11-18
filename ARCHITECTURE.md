@@ -734,8 +734,11 @@ workflows replay unchanged), reads
 the requests over `boat ssh`, leases each helper through `BoatPool` under case id `<case>-h<k>` (same
 release install and verify; `vm_type` may differ, except under the bounded campaign controller, which refuses
 a helper `vm_type` other than the request's approved one with `infra:compute_approval_unverified`, and
-admits a helper only below `max_running_sandboxes` - 2 running and `max_starts_per_hour` - 6 hourly starts,
-so helpers never take the last slots or starts from case workers), pushes the case tree, runs `helper_link.py run` on it
+admits a helper only below `max_running_sandboxes` - 2 running and every start window less a reserve
+(hourly `max_starts_per_hour` - 6, per minute 10 - 2, per day 180 - 36), so helpers never take the last
+slots or starts from case workers; with `warm_workers` set, a helper without its own `vm_type` could
+still take a warm worker whose refill is created at the full caps, so leave `warm_workers` unset while
+helpers are on), pushes the case tree, runs `helper_link.py run` on it
 (the real input check: release, bench, case, guard and scenario digests; then `bin/checkpoint`) and writes
 back the sealed result. Helpers are deleted on `release`, when the attempt ends or is cancelled, when
 polls stop for `idle_s`, and for every leftover helper record at controller start. A claim by an earlier

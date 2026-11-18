@@ -169,6 +169,13 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(board['spend_usd_micros'], self.read()['spend_usd_micros'])
         self.assertIn('case-alpha: 3 leases, 1h30m box time, 1 with no release recorded', render_board(board))
 
+    def test_an_undecodable_helper_ledger_is_named_not_fatal(self):
+        leases = self.root / 'helper-leases'; leases.mkdir()
+        (leases / 'case-alpha.jsonl').write_bytes(b'{"event": "lease"}\n\xff\xfe\n')
+        board = self.read()
+        self.assertIn('helpers', board['unavailable'])
+        self.assertTrue(board['cases'])   # the rest of the board still reads
+
     def test_unreadable_sections_are_named_not_guessed(self):
         def broken(*a, **k): raise RuntimeError('private detail')
         client = self.client(); client.get_event = broken

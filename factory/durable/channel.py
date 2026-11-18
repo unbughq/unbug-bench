@@ -83,8 +83,12 @@ class BoatChannel:
                 if not self._push(worker, blob_dir, name, blobs[name]):
                     return   # no frame: the next poll is ABSENT and the engine retries
             if self.helpers is not None and step_input.step.kind is StepKind.GATES:
-                if self.helpers.prepare(worker, step_input):   # a failure only leaves this attempt without helpers
+                # A failure only leaves this attempt without helpers; the next poll asks, as the
+                # write may have landed (an earlier poll's "off" is stale once prepare ran again).
+                if self.helpers.prepare(worker, step_input):
                     self._spool_config[step_input.idempotency_key] = True
+                else:
+                    self._spool_config.pop(step_input.idempotency_key, None)
             self.boat.ssh(worker, worker_command("start"), stdin=frame, timeout=self.command_timeout)
         except Exception:   # noqa: BLE001 - never raise on worker errors
             return
@@ -109,6 +113,8 @@ class BoatChannel:
                     if self._helpers_on(worker, key): self.helpers.watch(worker, step_input)
                 elif poll.state is PollState.DONE:
                     self.helpers.finish(step_input)
+                    self._spool_config.pop(key, None)
+                else:   # ABSENT: the engine starts it again, which prepares afresh
                     self._spool_config.pop(key, None)
             out_dir = attempt_paths(key)["out"]
             if poll.state is PollState.DONE:

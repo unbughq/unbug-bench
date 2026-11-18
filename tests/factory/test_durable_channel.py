@@ -345,6 +345,22 @@ class HelperRelayTests(unittest.TestCase):
     def test_a_prepared_attempt_is_relayed_without_asking(self):
         self.assertEqual(self.run_attempt(spool=False, prepared=True), (3, 0))
 
+    def test_a_restart_asks_again_even_when_its_prepare_reports_failure(self):
+        # The first start wrote no spool and a poll cached "off"; a re-start's prepare then wrote
+        # config.json but reported failure (e.g. ssh timed out after the write).
+        boat, helpers = self.Boat(False), self.Helpers(False)
+        channel = BoatChannel(FakeStore(), keys=None, sealer=None, boat=boat, helpers=helpers)
+        si = StepInput(batch_id=BATCH, case_id=CASE, seq=1, step=Step(StepKind.GATES, 1), attempt=1,
+                       plumbing_version=digest(7), bench_version=digest(8), inputs=Ref(digest(1), K.INPUTS),
+                       snapshot=Ref(digest(2), K.CASE_SNAPSHOT), deadline_s=60.0, money_ceiling_usd_micros=1)
+        lease = WorkerLease("bx-abcdefgh", CASE)
+        channel.start(lease, si, {CASE: b"k" * 32}, {})
+        channel.poll(lease, si)
+        boat.spool = True
+        channel.start(lease, si, {CASE: b"k" * 32}, {})
+        channel.poll(lease, si)
+        self.assertEqual(helpers.watched, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

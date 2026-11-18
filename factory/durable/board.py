@@ -251,7 +251,7 @@ def read_board(config, *, client=None, live_only: bool = False, now: Optional[fl
              'guard': guard_health(config['state_dir']), 'cases': []}
     try:
         board['helpers'] = _helpers(config['state_dir'])
-    except OSError:
+    except (OSError, ValueError):   # ValueError: an undecodable ledger line
         board['unavailable'].append('helpers')
     try:
         batches, money = _ledger(config)
