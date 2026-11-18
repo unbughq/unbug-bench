@@ -14,3 +14,10 @@
    **Fixed:** `spent_routes` is still validated against the whole chain; only exhaustion uses the narrowed set.
 4. NIT: assert the reset record. **Fixed:** the first test checks `exhausted_attempts[0].spent_routes` and the attempt phases.
 5. NIT: Murphy row. `docs/murphy-register.md` is not on main; the incident is recorded in the commit messages and this review.
+
+## Re-review (diff 2, commit 9c73480b): PASS
+
+- All five findings verified fixed; 67 retry tests OK.
+- NIT kept: lanes switched off only in the router's live config (`disabled_routes`, capacity 0) still count as leasable. Today the VM disables two MiniMax free lanes; no retained-answer role uses a MiniMax chain, so no answer can loop on them. Pre-existing and config-only.
+- NIT kept: `answer` walls by role only; `_call` also walls calls with a `user`. No retained-answer caller passes one.
+- Full suite on df7f131e: 199/201 scripts pass; boat_settlement and helper_transport failed under parallel load and pass alone on 9c73480b.
