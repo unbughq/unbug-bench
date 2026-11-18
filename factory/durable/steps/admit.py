@@ -534,6 +534,9 @@ def _card(value, case_id, dry_run, admitted_before=0):
         # An explicit INPUTS value wins. Cards admitted earlier adopt these at their next new
         # writer round (run.adopt_parallel_checks).
         card["recovery_config"] = {**NEW_CASE_SETTINGS, **(card.get("recovery_config") or {})}
+        if value.get("import_mode") == HAND_REPAIRED:
+            # Speed plan 2026-11-18: the early probe only labels the case; G10 runs that try anyway.
+            card["recovery_config"].setdefault("no_early_probe", True)
     return card
 
 

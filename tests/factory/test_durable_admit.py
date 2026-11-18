@@ -704,6 +704,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual((work / "case/statement.md").read_text(), text)
         self.assertNotIn("recertify", c.card)        # no verdict is kept: every gate runs
         self.assertEqual(c.card["imported_from"]["mode"], "hand_repaired")
+        self.assertIs(c.card["recovery_config"]["no_early_probe"], True)   # the probe only labels a hand case
         # Hand repair never combines with recertification (an otherwise valid recertify input).
         both = {k: v for k, v in value.items() if k != "models"}
         both.update(recertify=True, recovery_config={"runs": 10})
