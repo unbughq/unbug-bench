@@ -11,6 +11,8 @@ _INIT_LOCK = threading.Lock()
 # Counters only; never held across a model call or a snapshot, unlike checkpoint_lock.
 _COUNT_LOCK = threading.Lock()
 _PROGRESS_LOCK = threading.Lock()
+# Workspaces of same-case model calls in flight (engine.model_roots); shares _COUNT_LOCK with _unsettled.
+_ROOTS = threading.Condition(_COUNT_LOCK)
 
 
 def _lock(c):
@@ -30,8 +32,10 @@ def _count(c, name, delta):
 
 
 def _unsettled(c):
+    me = threading.get_ident()
     with _COUNT_LOCK:
-        return getattr(c.engine, 'isolated_model_active', 0) > 0 or getattr(c.engine, 'concurrent_sections', 0) > 0
+        return (getattr(c.engine, 'isolated_model_active', 0) > 0 or getattr(c.engine, 'concurrent_sections', 0) > 0
+                or any(owner != me for _, owner in getattr(c.engine, 'model_roots', ())))
 
 
 def checkpoint(c):
@@ -39,8 +43,8 @@ def checkpoint(c):
 
     Inside a concurrent section another thread may be writing retained work, so a
     snapshot taken there could be torn. The request is remembered and published when
-    the last section joins. The check runs before taking checkpoint_lock, which a
-    same-case model call holds for its whole run in the other thread.
+    the last section joins. A same-case model call in another thread (model_call) also
+    defers it: the last one to finish publishes.
     """
     if _unsettled(c):
         c.engine.checkpoint_deferred = True
@@ -229,16 +233,49 @@ def model_call(c, models, cwd, name, invoke, *, text=None):
             return invoke()
         finally:
             _count(c, 'isolated_model_active', -1)
-    # ponytail: serialize same-case calls that mutate retained work. Cases still
-    # run concurrently; isolated owner channels must remain outside this lock.
-    with _lock(c):
+    with _workspace(c, root):
         return _model_effect(c, models, root, name, invoke, text)
 
 
+def _overlaps(c, root, me):
+    return any(owner != me and (root.is_relative_to(other) or other.is_relative_to(root))
+               for other, owner in c.engine.model_roots)
+
+
+@contextlib.contextmanager
+def _workspace(c, root):
+    """Same-case calls wait only for a call whose workspace contains or lies inside theirs.
+
+    Each receipt records its own root alone, so calls on disjoint roots run together: an exam
+    owner's answer beside a G8 reviewer (8acb5c, 18 November: the strong calibrator's question
+    waited 9 of its 30 minutes for the reviewer to finish), or the two reviewers. A call never
+    starts during a snapshot (registered under checkpoint_lock), and while it runs, snapshots
+    from other threads are deferred (_unsettled).
+    """
+    me = threading.get_ident()
+    with _INIT_LOCK:
+        c.engine.__dict__.setdefault('model_roots', [])
+    entry = (root, me)
+    while True:
+        with _ROOTS:
+            _ROOTS.wait_for(lambda: not _overlaps(c, root, me))
+        with _lock(c), _ROOTS:   # never wait for a root while holding checkpoint_lock
+            if not _overlaps(c, root, me):
+                c.engine.model_roots.append(entry)
+                break
+    try:
+        yield
+    finally:
+        with _ROOTS:
+            c.engine.model_roots.remove(entry)
+            _ROOTS.notify_all()
+
+
 def _model_effect(c, models, root, name, invoke, text):
-    counts = c.__dict__.setdefault('engine_model_ordinals', {})
-    ordinal = counts.get(name, 0)
-    counts[name] = ordinal + 1
+    with _COUNT_LOCK:
+        counts = c.__dict__.setdefault('engine_model_ordinals', {})
+        ordinal = counts.get(name, 0)
+        counts[name] = ordinal + 1
     request = text.replace(str(c.work), "<work>") if isinstance(text, str) else text
     if isinstance(request, str) and getattr(c, "bench_root", None) is not None:
         request = request.replace(str(c.bench_root), "<bench>")
