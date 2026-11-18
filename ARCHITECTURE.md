@@ -404,6 +404,8 @@ as a Claude gate's exhaustion is. Tokens the turn total reports but the log neve
 the long-context tariff; an unreadable log stops the call (`missing_usage`). Codex's web search and
 other tools stay off (`CODEX_OFF`, `web_search="disabled"`), and the wall is unchanged: it blocks local
 and private networks, and Codex reaches its public API as before.
+Claude's searching roles (writer, stress tester) get `WebFetch` but never `WebSearch`: that is a
+server tool, which the gate refuses, and the refusals were logged as url-less G2 rows (18681d-h2).
 
 A durable case stopped by an infrastructure failure resumes instead: `start --resume-case
 <case>` makes it the only case of a new batch. It keeps its case ID, so its key, artifacts,
