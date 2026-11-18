@@ -273,13 +273,34 @@ def _split_prior(envelope, inputs):
     return rest[:size], case, rest[size:]
 
 
+# Root case files no G5-G7 or G13-G15 measurement reads, the wording a person repairs by hand
+# (tests/factory/test_narrow_fingerprints.py checks the measurement code never names them). G4's identity
+# already leaves them out; the reviews (G8, G9) and G16 read them, so their records keep them.
+WORDING = ("statement.md", "README.md", "disclosure.md", "provenance.json")
+MEASURED = ("G5", "G6", "G7", "G13", "G14", "G15")
+
+
+def _rebind_wording(data, case):
+    """A measured gate's record whose identity holds the repaired tree's WORDING digests instead of
+    the earlier run's, signed again as gate_state.save signs: gate_state.load, unchanged, then compares
+    every other input exactly. Only a hand repair's adopted records are rebound; nothing else is."""
+    record = json.loads(data)
+    files = [e for e in record["inputs"]["case"] if e[0] not in WORDING]
+    files += [[n, hashlib.sha256((case / n).read_bytes()).hexdigest()] for n in WORDING if (case / n).is_file()]
+    record["inputs"]["case"] = sorted(files, key=lambda e: pathlib.PurePosixPath(e[0]))   # gate_state.inputs' order
+    record["signature"] = hashlib.sha256(json.dumps(record["inputs"], sort_keys=True).encode()).hexdigest()
+    return json.dumps(record).encode()
+
+
 def _adopt_prior(card, work, case, snapshot, inputs):
     """Copy the earlier run's gate records into a hand-repaired import's work tree. They come only
     from the factory's own last snapshot of that case (runtime.start puts it beside the archive),
-    never from the archive. The card takes that run's seed, models, roles, slot and settings, which
-    the records' identities bind. Each PORTABLE record moves whole, with exactly the evidence it
-    lists, or not at all; gate_state.load still decides at GATES whether it holds for this tree.
-    G16 stays behind: its calibration identity hashes the whole tree. Returns the gates copied."""
+    never from the archive, and only for gates that run's card last passed. The card takes that
+    run's seed, models, roles, slot and settings, which the records' identities bind. Each PORTABLE
+    record moves whole, with exactly the evidence it lists, or not at all; a MEASURED gate's record
+    is rebound to this tree's WORDING (_rebind_wording), and gate_state.load still decides at GATES
+    whether it holds. G16 stays behind: its calibration identity hashes the whole tree. Returns the
+    gates copied."""
     import copy
     import fnmatch
     import io
@@ -303,6 +324,10 @@ def _adopt_prior(card, work, case, snapshot, inputs):
             else:
                 card.pop(name, None)
         for gate in sorted(REUSABLE - {"G16"}):
+            # A failing rerun leaves the gate's older pass record behind: only a gate whose last verdict
+            # on that run's card is a pass keeps its record.
+            if not isinstance(old.get("gates"), dict) or old["gates"].get(gate) != "pass":
+                continue
             record, evidence = f"gate-cache/{gate}.json", {}
             try:
                 found = {record: read(record)}
@@ -313,6 +338,8 @@ def _adopt_prior(card, work, case, snapshot, inputs):
                     name = (pathlib.PurePosixPath("bench-results") / path if e["kind"] == "bench" else path).as_posix()
                     evidence[name] = e["sha256"]
                     found[name] = read(name)   # a regular member: a link is not one
+                if gate in MEASURED:
+                    found[record] = _rebind_wording(found[record], work / "case")
             except (KeyError, ValueError, TypeError, AttributeError):
                 continue
             # Only what a snapshot may carry, never the case tree or a card, and nothing ADMIT wrote.

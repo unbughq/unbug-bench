@@ -190,10 +190,7 @@ reuses its G4/G5, and each gate's evidence is scoped to its own lane's files. Ga
 plumbing (`run._checkpoint_call`, `AllowanceSpent`, the early saved-cheat loop) is in
 `gate_state.SIDE_EFFECTS`, and bench-gate step receipts (`durable.checkpoints.directory(model=False)`)
 leave out the router, runtime, call gate and ordinary-retry files that only model stages and model
-effects key on. A record is reused when its identity matches the current one as `gate_state.comparable` projects both:
-G4-G7 and G13-G15 leave out the root wording no measurement reads (`gate_state.NOT_MEASURED`: statement, README,
-disclosure, provenance, build notes, search log), and no gate compares `bench_workers`; `gate_state.inputs`
-itself, which gate checkpoints, step receipts and sealed audits bind, still records every file. Every gate-cache miss logs the changed identity field names (never case file names). Otherwise the serial order G15, G3,
+effects key on. Every gate-cache miss logs the changed identity field names (never case file names). Otherwise the serial order G15, G3,
 G4, G5, saved cheats is kept. Any snapshot requested while two threads work on the case is deferred
 (`durable.checkpoints.concurrent_section`) and one is published when the last section joins; a
 case edited during that lane fails the step as infrastructure. Meanwhile each gate-cache pass outside
@@ -334,12 +331,17 @@ unless the archive's root is that case, its INPUTS name it, and the snapshot's c
 this seed. The new card takes that card's models, roles, slot and settings, and of its gate cache
 only whole G4-G9 and G13-G15 records move, each with exactly the evidence it lists (paths a
 snapshot may carry, never the case tree or a file ADMIT wrote, digests checked), listed in
-`imported_from.reused_records`. Nothing in the hand-made archive besides its case tree and card is
-read, so a gate cache planted there is never reused. GATES then reuses a record only where
-`gate_state.load` matches it: a fix to the statement, README, disclosure or provenance keeps G4-G7
-and G13-G15 while the code they bind is unchanged; G8 and G9 rerun on any case change, G1-G3,
-G10-G12, G16 and G17 always rerun, and a changed judge, guard, key, contestant text, fact sheet or
-answer key reruns every gate that measured with it.
+`imported_from.reused_records`, and only for a gate that card last passed (a failing rerun leaves the
+older pass record behind). Nothing in the hand-made archive besides its case tree and card is
+read, so a gate cache planted there is never reused. A G5-G7 or G13-G15 record is rebound to the
+repaired tree's root wording (`admit.WORDING`: statement, README, disclosure, provenance, which no
+measurement reads; `tests/factory/test_narrow_fingerprints.py` checks that) and signed again
+(`admit._rebind_wording`); G4's identity already leaves the wording out. GATES then reuses a record
+only where the unchanged `gate_state.load` matches every other input exactly: G8 and G9 rerun on any
+case change, G1-G3, G10-G12, G16 and G17 always rerun, and a changed judge, guard, key, contestant
+text, fact sheet, answer key, setting or seed reruns every gate that measured with it. Ordinary
+cases and resumes keep the full comparison. `gate_state.py` stays as it is: `sealed_audit.delivery_contract`
+hashes it, and sealed cases carry that contract.
 
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.

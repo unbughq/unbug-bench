@@ -719,10 +719,10 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_hand"))
         self.assertEqual(self.calls, [])
 
-    def prior_run(self, old, statement, keep=("G5", "G6", "G8")):
+    def prior_run(self, old, statement, keep=("G5", "G6", "G8"), gates=None):
         """The factory's own last snapshot of `old`, a hand-repaired case that ran GATES on `statement`:
-        its card and the gate records gate_state.save wrote under the real runner. Records of gates not
-        in `keep` are left out of the snapshot. Returns (context, snapshot bytes, bench root)."""
+        its card (last verdicts `gates`) and the gate records gate_state.save wrote under the real runner.
+        Records of gates not in `keep` are left out of the snapshot. Returns (context, snapshot bytes, bench root)."""
         import gate_state, io, shutil, tarfile
         archive = self.legacy_archive(old, statement)   # the earlier import's tree, unpacked as ADMIT did
         opened = subprocess.run(["age", "-d", "-i", str(self.statement_key)], input=archive,
@@ -734,7 +734,7 @@ class AdmitTests(unittest.TestCase):
         shutil.copytree(unpacked / old / "case", work / "case")
         roles = {"reviewer": {"model": "openrouter/xiaomi/mimo-v2.6-pro", "effort": "default"}}
         (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 11, "dry_run": False, "source": "port",
-            "gates": {"G5": "pass"}, "failed_gate": "G9", "models": self.real_inputs("x")["models"], "roles": roles,
+            "gates": gates or {"G5": "pass", "G6": "pass", "G8": "pass"}, "failed_gate": "G9", "models": self.real_inputs("x")["models"], "roles": roles,
             "rotation_slot": 2, "recovery_config": {"bench_workers": 2, "parallel_gates": True}}))
         step = StepInput(BATCH, old, 4, Step(StepKind.GATES, 1), 1, PLUMBING, BENCH_V, Ref("1" * 64, ArtifactKind.INPUTS),
                          Ref("2" * 64, ArtifactKind.CASE_SNAPSHOT), 600.0, 10_000_000)
@@ -791,18 +791,37 @@ class AdmitTests(unittest.TestCase):
             for rel in (f"gate-cache/{gate.upper()}.json", f"bench-results/runs/{gate}/checkpoint.json",
                         f"gate-details/{gate.upper()}.json", f"gate-checkpoints/{gate}/shard-1.json",
                         f"helper-results/{gate}-digest/checkpoint.json"):
-                self.assertEqual((work / rel).read_bytes(), (prior.work / rel).read_bytes(), rel)
+                data = (prior.work / rel).read_bytes()
+                if rel == "gate-cache/G5.json":   # a measured gate's record takes the new wording's digests
+                    data = admit._rebind_wording(data, work / "case")
+                self.assertEqual((work / rel).read_bytes(), data, rel)
         for name in ("seed", "models", "roles", "rotation_slot", "recovery_config"):
             self.assertEqual(c.card[name], prior.card[name], name)
         self.assertEqual(gate_state.load(c, "G5", bench), {"gate": "G5"})
         self.assertIsNone(gate_state.load(c, "G8", bench))   # the reviewers read the new wording
-        # The archive's own G6 record never reached the work tree, though it would have held.
+        # The archive's own G6 record never reached the work tree, though its evidence would have held.
         self.assertFalse((work / "gate-cache/G6.json").exists())
         self.assertFalse((work / "bench-results/runs/g6").exists())
         self.assertIsNone(gate_state.load(c, "G6", bench))
+        planted["gate-cache/G6.json"] = admit._rebind_wording(planted["gate-cache/G6.json"], work / "case")
         for rel, data in planted.items():
             (work / rel).parent.mkdir(parents=True, exist_ok=True); (work / rel).write_bytes(data)
         self.assertEqual(gate_state.load(c, "G6", bench), {"gate": "G6"})
+
+    def test_a_hand_repair_never_adopts_a_pass_its_earlier_run_later_failed(self):
+        """A failing rerun leaves the gate's older pass record in the snapshot: only the gates that run's
+        card last passed keep their records."""
+        old, text = "case-20261117T101500Z-hand-1", "# Candidate\n\nOversell when two carts check out."
+        registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        _, snapshot, _ = self.prior_run(old, text, gates={"G5": "pass", "G6": "fail", "G8": "invalid-infra"})
+        step_input = self.import_step(self.hand_inputs(reuse_gates_of=old), registry,
+                                      self.envelope(old, self.legacy_archive(old, text), snapshot))
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:imported_hand"))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(c.card["imported_from"]["reused_records"], ["G5"])
+        self.assertFalse((work / "gate-cache/G6.json").exists())
+        self.assertFalse((work / "gate-cache/G8.json").exists())
 
     def test_a_hand_repair_reuses_records_only_of_the_case_it_names(self):
         import io, tarfile
@@ -848,9 +867,10 @@ class AdmitTests(unittest.TestCase):
         (work / "case").mkdir(parents=True)
         (work / "case/statement.md").write_text("fixed by hand")
         (work / "continuation-budget.json").write_text("{}")
-        members = {"scorecard.json": json.dumps({"case": old, "seed": 11, "models": {"builder": ["m"]}, "rotation_slot": 2}).encode()}
+        members = {"scorecard.json": json.dumps({"case": old, "seed": 11, "models": {"builder": ["m"]}, "rotation_slot": 2,
+                                                 "gates": {f"G{i}": "pass" for i in range(1, 17)}}).encode()}
         def record(gate, *evidence):
-            members[f"gate-cache/{gate}.json"] = json.dumps({"evidence": [
+            members[f"gate-cache/{gate}.json"] = json.dumps({"inputs": {"case": []}, "evidence": [
                 {"kind": kind, "path": path, "sha256": hashlib.sha256(b"evidence").hexdigest()} for kind, path in evidence]}).encode()
             for kind, path in evidence:
                 members.setdefault(("bench-results/" if kind == "bench" else "") + path, b"evidence")

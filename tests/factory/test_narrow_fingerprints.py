@@ -47,14 +47,14 @@ class Fingerprints(unittest.TestCase):
 
 
 class WordingScope(unittest.TestCase):
-    """gate_state.comparable leaves gate_state.NOT_MEASURED out of G4-G7 and G13-G15 reuse."""
+    """A hand repair's adopted G5-G7 and G13-G15 records are rebound to its new admit.WORDING."""
     ROOT = Path(__file__).resolve().parents[2]
     # Reviewed mentions, none on a measurement path: a docstring; G10's helper try context; the
     # calibrators' contestant workspace (G10/G16), which withholds the private files and copies a
     # service project's own README.
     ALLOWED = {('bin/bench.py', 'load_scenario'), ('factory/durable/helper_link.py', '_try_context'),
                ('factory/calibration.py', '_PRIVATE_NAMES'), ('factory/calibration.py', 'prepare_delivery')}
-    WORDING = [name for name in gate_state.NOT_MEASURED if name not in gate_state.UNREAD]
+    from durable.steps.admit import MEASURED, WORDING
 
     def test_gate_identities_keep_every_case_file_they_recorded(self):
         """Gate checkpoints, step receipts and sealed audits bind gate_state.inputs: it is unchanged."""
@@ -85,7 +85,7 @@ class WordingScope(unittest.TestCase):
 
     def test_no_measurement_code_names_the_wording_files(self):
         found = set()
-        for gate in ('G5', 'G6', 'G7', 'G13', 'G14', 'G15'):
+        for gate in self.MEASURED:
             for pattern in gate_state.DEPENDENCIES[gate]:
                 if not pattern.startswith(('bin/', 'factory/')): continue
                 for p in gate_state.source_paths(self.ROOT, pattern):
@@ -98,7 +98,7 @@ class WordingScope(unittest.TestCase):
                 own = {node.name} if hasattr(node, 'name') else {
                     t.id for t in ast.walk(node) if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)}
                 if own & names.keys(): yield ast.get_source_segment(text, node)
-        sources = [s for gate in ('G5', 'G6', 'G7', 'G13', 'G14', 'G15')
+        sources = [s for gate in self.MEASURED
                    for s in closure((gate.lower(), *gate_state.EXTRA_ROOTS.get(gate, ())), self.ROOT / 'factory/run.py')]
         sources += closure(('ingredient_problems',), self.ROOT / 'factory/case_contract.py')
         for segment in sources:

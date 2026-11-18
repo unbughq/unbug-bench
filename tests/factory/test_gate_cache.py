@@ -211,18 +211,17 @@ class EvidenceCacheTests(unittest.TestCase):
         self.assertTrue(ok); self.assertTrue(info['reused_verified_evidence'])
 
 
-    WORDING = ('statement.md', 'README.md', 'disclosure.md', 'provenance.json')
-    MEASURED = ('G4', 'G5', 'G6', 'G7', 'G13', 'G14', 'G15')
+    MEASURED = ('G5', 'G6', 'G7', 'G13', 'G14', 'G15')
 
     def hand_case(self):
-        """A built case under the real runner's gate code, run on six bench copies."""
+        """A built case under the real runner's gate code."""
+        from durable.steps.admit import WORDING
         p = patch.object(gate_state, 'RUNNER', pathlib.Path(run.__file__)); p.start(); self.addCleanup(p.stop)
-        for name in self.WORDING + ('contestant.md', 'fact-sheet.md', 'answer-key.json', 'promise.md', 'case.json'):
+        for name in WORDING + ('contestant.md', 'fact-sheet.md', 'answer-key.json', 'promise.md', 'case.json'):
             (self.c.case / name).write_text('before ' + name)
         for name in ('guards/reference/fix.patch', 'scenarios/one/key.json'):
             (self.c.case / name).parent.mkdir(parents=True); (self.c.case / name).write_text('before')
         (self.root / 'bin').mkdir(exist_ok=True); (self.root / 'bin/bench.py').write_text('judge v1')
-        self.c.args.bench_workers = 6
 
     def save_gate(self, gate):
         before = gate_state.digests(self.c, self.root)
@@ -232,35 +231,33 @@ class EvidenceCacheTests(unittest.TestCase):
         self.assertTrue(gate_state.save(self.c, gate, {'gate': gate}, gate_state.fingerprint(self.c, gate, self.root),
                                         before, self.root))
 
-    def test_a_wording_fix_and_another_copy_count_rerun_only_the_gates_that_read_the_wording(self):
-        """Founder 2026-11-18: a hand repair of the wording must not rerun the measured gates."""
+    def rebind(self, gate):
+        """What ADMIT does to a record a hand repair adopts from its earlier run (admit._rebind_wording)."""
+        from durable.steps.admit import _rebind_wording
+        path = self.c.work / 'gate-cache' / f'{gate}.json'
+        path.write_bytes(_rebind_wording(path.read_bytes(), self.c.case))
+
+    def test_an_ordinary_case_reruns_its_measured_gates_after_a_wording_fix(self):
+        """FACTORY.md: any case change reruns G7 and the other measured gates. Only a hand repair's
+        adopted records are rebound to new wording, at ADMIT."""
         self.hand_case()
-        for gate in self.MEASURED + ('G8',): self.save_gate(gate)
-        for name in self.WORDING: (self.c.case / name).write_text('after: reworded by hand')
-        self.c.args.bench_workers = 3
+        for gate in self.MEASURED: self.save_gate(gate)
+        (self.c.case / 'statement.md').write_text('after: reworded')
         for gate in self.MEASURED:
+            with self.subTest(gate=gate): self.assertIsNone(gate_state.load(self.c, gate, self.root))
+
+    def test_a_rebound_record_holds_after_a_wording_fix_and_after_nothing_else(self):
+        """Founder 2026-11-18: a hand repair of the wording must not rerun the measured gates. The refusal
+        oracle freezes contestant.md, fact-sheet.md, answer-key.json, promise.md and case.json, and the
+        guards, keys and bench are the judge: changing any of them, a setting or the seed still reruns."""
+        from durable.steps.admit import WORDING
+        self.hand_case()
+        for gate in self.MEASURED: self.save_gate(gate)
+        for name in WORDING: (self.c.case / name).write_text('after: reworded by hand')
+        (self.c.case / 'provenance.json').unlink()
+        for gate in self.MEASURED:
+            self.rebind(gate)
             with self.subTest(gate=gate): self.assertEqual(gate_state.load(self.c, gate, self.root), {'gate': gate})
-        self.assertIsNone(gate_state.load(self.c, 'G8', self.root))   # the reviewers read every word
-        self.assertIn('gate cache miss G8: inputs changed: case', (self.c.work / 'logs/runner.log').read_text())
-
-    def test_a_record_in_todays_format_is_reused_after_a_statement_fix(self):
-        """Records on disk now (and in the hand cases' snapshots) hold every case file's digest."""
-        self.hand_case()
-        result = self.root / 'results/runs/g5/checkpoint.json'; result.parent.mkdir(parents=True); result.write_text('{}')
-        inputs = gate_state.inputs(self.c, 'G5', self.root)
-        self.assertIn('statement.md', [rel for rel, _ in inputs['case']])
-        record = {'fingerprint_version': 3, 'inputs': inputs,
-                  'signature': hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest(),
-                  'info': {'gate': 'G5'}, 'scientific_version': gate_state.scientific_version(self.c, 'G5', self.root),
-                  'evidence': [{'kind': 'bench', 'path': 'runs/g5/checkpoint.json', 'sha256': gate_state.digest(result)}]}
-        (self.c.work / 'gate-cache').mkdir(); (self.c.work / 'gate-cache/G5.json').write_text(json.dumps(record))
-        (self.c.case / 'statement.md').write_text('after')
-        self.assertEqual(gate_state.load(self.c, 'G5', self.root), {'gate': 'G5'})
-
-    def test_a_judge_guard_key_or_contestant_change_still_reruns_every_measured_gate(self):
-        """Only the wording no measurement reads is left out: the refusal oracle freezes contestant.md,
-        fact-sheet.md, answer-key.json, promise.md and case.json, and the guards and keys are the judge."""
-        self.hand_case()
         changes = {name: lambda name=name: (self.c.case / name).write_text('after') for name in (
             'contestant.md', 'fact-sheet.md', 'answer-key.json', 'promise.md', 'case.json', 'base/judge.py',
             'guards/reference/fix.patch', 'scenarios/one/key.json')}
@@ -270,18 +267,12 @@ class EvidenceCacheTests(unittest.TestCase):
         changes['nested wording'] = lambda: (self.c.case / 'base/README.md').write_text('a scenario readme')
         for what, change in changes.items():
             snapshot = (copy.deepcopy(vars(self.c.args)), self.c.seed)
-            for gate in self.MEASURED[1:]: self.save_gate(gate)
+            for gate in self.MEASURED: self.save_gate(gate)
             change()
-            for gate in self.MEASURED[1:]:
+            for gate in self.MEASURED:
+                self.rebind(gate)
                 with self.subTest(change=what, gate=gate): self.assertIsNone(gate_state.load(self.c, gate, self.root))
             vars(self.c.args).update(snapshot[0]); self.c.seed = snapshot[1]
-        # A stored identity edited where the comparison does not look still fails its signature.
-        self.save_gate('G5')
-        path = self.c.work / 'gate-cache/G5.json'; record = json.loads(path.read_text())
-        record['inputs']['case'] = [[rel, '0' * 64 if rel == 'statement.md' else sha] for rel, sha in record['inputs']['case']]
-        path.write_text(json.dumps(record))
-        self.assertIsNone(gate_state.load(self.c, 'G5', self.root))
-        self.assertIn('gate cache miss G5: signature', (self.c.work / 'logs/runner.log').read_text())
 
     def engine(self):
         self.c.engine = types.SimpleNamespace(key='b-test/case-test/3/gates:1/1', source_binding={
