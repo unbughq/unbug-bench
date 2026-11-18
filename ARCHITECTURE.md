@@ -138,7 +138,8 @@ then requires `control/check-drained.py` to exit 0, then sends `plumbing_release
 batch; `switch` checks drained and prints the root commands (source-current symlink, unit restart) without
 running them. Every Boat call goes through `bin/boat-call` with `BOAT_NO_UPDATE=1`.
 The control units and setup script live under `control/`. ADMIT reuses the existing
-selector, registry, freshness and idea-realism screens. A retried ADMIT keeps the provider
+selector, registry, freshness and idea-realism screens, in that order (a hand-repaired import under
+parallel gates leaves freshness to G2; see below). A retried ADMIT keeps the provider
 preflight checks that passed in the same step within 30 minutes and re-asks the rest (the writer's route is checked too while no statement exists; its selection and preflight calls give up after 10 minutes without output and move to the chain's next route, which the role keeps for later calls); an unresolved G2
 freshness review is asked again up to twice within the attempt, re-fetching flagged pages not read
 live (the hit still blocks until cleared)
@@ -317,6 +318,14 @@ gate cache and reruns every screen, records the mode in `imported_from`, and ans
 `admit:imported_hand`. The engine treats it like a recertified case (no WRITER or STRESS; a
 repair request or an extending diagnosis retires it) except that no verdict is kept, so GATES
 run every gate. The next repair is done by hand and imported again.
+Under parallel gates (the default) ADMIT skips the freshness screen for such an import
+(`freshness_deferred_to: G2` on the card): no writer is paid on it, so the same screen (searches,
+roles, re-asks, verdict rule) runs once, as G2 in the side lane beside G3-G5, recorded before G5's
+early probe and before G16 spends. A public match is then a G2 gate failure, not an
+`admit:freshness_*` rejection; its registry reservation stays until board cleanup; idea realism
+runs before freshness, so a case that is both public and unrealistic is labelled realism; and a
+case-caused freshness stop (a bot wall, review unavailable) lands after `admit:imported_hand`, so
+it needs a new import rather than a resume. With parallel gates off, ADMIT screens it as before.
 
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
@@ -329,7 +338,11 @@ names as a writer is an idea author and may not hold a reviewer role or the easy
 
 A rejected idea publishes `admit:<screen>_<evidence>` (`durable/admission_reasons.py`): the
 screen (dedup, freshness, realism, other) and a fixed evidence kind read from structured
-fields only, such as `freshness_upstream_fix`. The sealed card keeps per-candidate codes
+fields only, such as `freshness_upstream_fix`. When a confirmed public match sits beside
+flagged rows the reviewer left unresolved, `ordinary_freshness` still writes
+`freshness-verdict.json` with `confirmed_rows`, the rows G2 counted, so the label names those
+sources rather than `freshness_unrecorded`; G2 never reuses that receipt (its counts differ, so
+it re-asks). The sealed card keeps per-candidate codes
 (duplicate case ID, confirmed source classes, a release tag's version against the pin).
 `python3 factory/durable/admission_reasons.py --config <config> <case|batch>...` prints
 those codes for finished cases on the control VM: read-only, existing keys only.
