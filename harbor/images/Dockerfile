@@ -29,7 +29,7 @@ RUN mkdir -p /opt/tools && cd /opt/tools && npm init -y >/dev/null \
 COPY CONTESTANT.md ./
 COPY projects/medusa projects/medusa
 COPY factory/case_permissions.py factory/
-COPY bin/bench_judging.py bin/bench.py bin/setup bin/reset bin/check bin/land bin/shoppers bin/
+COPY bin/bench_judging.py bin/bench.py bin/processes.py bin/setup bin/reset bin/check bin/land bin/shoppers bin/
 COPY cases/medusa-oversell/checker/check.sql cases/medusa-oversell/checker/
 # bin/setup resets with the empty `none` guard (plain Medusa).
 RUN mkdir -p guards/none
