@@ -178,7 +178,8 @@ class InvalidRunsTests(unittest.TestCase):
             self.assertEqual([c['url'] for c in retrieval.judgment_projection([receipt])[0]['content']], [page, twin])
             self.assertFalse(retrieval.missing_twin(receipt))
             # An error body or a redirected twin is never kept as the page's text; the page is then fetched again.
-            for name, answer in (('wall', (403, twin, b'denied')), ('moved', (200, page + '/other.md', b'# other'))):
+            for name, answer in (('wall', (403, twin, b'denied')), ('moved', (200, page + '/other.md', b'# other')),
+                                 ('challenge', (200, twin, b' <html>Checking your browser</html>'))):
                 answers[twin] = answer
                 receipt, got = urls(name)
                 self.assertEqual(got, [page], name)
