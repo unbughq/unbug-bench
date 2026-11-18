@@ -125,15 +125,19 @@ def answer(c, models, identity, kind, schema, request, invoke, validate, *, wall
     if state.get('binding') != binding or not isinstance(state.get('attempts'), list):
         raise BudgetError('ordinary_retry_state_invalid')
     accounts = getattr(c, 'router_accounts', model_router.ACCOUNTS)
-    routes = model_router.routes(models[0], accounts)
-    if walled:
-        # A walled role never takes a free or Go lane, so only its gated lanes can be spent: counting
-        # the whole chain left it never exhausted and never reset (cae763, 2026-11-18).
-        ungated = set(model_router.ungated_lanes(models[0], accounts))
-        routes = [r for r in routes if r['pool'] + '/' + r['route'] not in ungated]
-    approved = {row['route'] for row in routes}
-    if not isinstance(state.get('spent_routes'), list) or not set(state['spent_routes']) <= approved:
+    if not isinstance(state.get('spent_routes'), list) or not set(state['spent_routes']) <= {
+            row['route'] for row in model_router.routes(models[0], accounts)}:
         raise BudgetError('ordinary_retry_state_invalid')
+    # Exhaustion counts only the lanes this call can lease (as model_runtime._call does): a lane with
+    # no price maximum, or a free or Go lane for a walled role, can never be spent. Counting the whole
+    # chain left a walled role that had spent its one gated lane never exhausted and never reset, so
+    # every retry stopped at once as router:unbounded_route (cae763, 2026-11-18).
+    ungated = set(model_router.ungated_lanes(models[0], accounts)) if walled else set()
+    routes = [r for r in model_router._bounded_routes(models[0], accounts)
+              if r['pool'] + '/' + r['route'] not in ungated]
+    approved = {row['route'] for row in routes}
+    # With no leasable lane at all the call itself reports unbounded_route; that is not an exhausted answer.
+    exhausted = lambda: bool(approved) and approved <= set(state['spent_routes'])
     def save(): atomic_json(path, state)
     attempt = getattr(getattr(c, 'engine', None), 'key', None)
     previous = state.get('engine_attempt')
@@ -141,13 +145,17 @@ def answer(c, models, identity, kind, schema, request, invoke, validate, *, wall
         raise BudgetError('ordinary_retry_state_invalid')
     if attempt is not None and attempt != previous:
         last = state['attempts'][-1] if state['attempts'] else None
-        if previous is not None and last and last['phase'] == 'invalid' and approved <= set(state['spent_routes']):
+        # A pending judgment with every leasable lane spent is the shape the cae763 loop saved: it was
+        # queued before its call found no lane. It resets like an exhausted invalid answer.
+        stuck = last and last['phase'] == 'pending' and last['kind'] == 'judgment'
+        if previous is not None and last and (last['phase'] == 'invalid' or stuck) and exhausted():
             history = state.setdefault('exhausted_attempts', [])
             if not isinstance(history, list): raise BudgetError('ordinary_retry_state_invalid')
             history.append({'engine_attempt': previous, 'spent_routes': list(state['spent_routes'])})
             state['spent_routes'] = []
-            state['attempts'].append({'kind': 'judgment', 'phase': 'pending',
-                                     'output': f'answer-{len(state["attempts"])}.json'})
+            if not stuck:
+                state['attempts'].append({'kind': 'judgment', 'phase': 'pending',
+                                         'output': f'answer-{len(state["attempts"])}.json'})
         # Pending/valid work also adopts the new key, preventing a second reset in this attempt.
         state['engine_attempt'] = attempt
         save()
@@ -188,7 +196,7 @@ def answer(c, models, identity, kind, schema, request, invoke, validate, *, wall
                 save()
                 return value
         if not row or row['phase'] == 'invalid':
-            if approved <= set(state['spent_routes']): raise BudgetError('malformed_output_exhausted')
+            if exhausted(): raise BudgetError('malformed_output_exhausted')
             row = {'kind': 'judgment', 'phase': 'pending', 'output': f'answer-{len(state["attempts"])}.json'}
             state['attempts'].append(row); save()
         if row['phase'] != 'pending': raise BudgetError('ordinary_retry_state_invalid')
