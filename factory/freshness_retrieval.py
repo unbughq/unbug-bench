@@ -59,6 +59,12 @@ def companion(url):
     return f"https://docs.medusajs.com{parsed.path.rstrip('/')}/index.html.md"
 
 
+def missing_twin(receipt):
+    """A live docs page saved without its twin (before 18 Nov, or the twin failed) is fetched again."""
+    return (receipt['retrieved_from'] == 'live' and companion(receipt['url']) is not None
+            and not any(r.get('twin') is True for r in receipt['responses']))
+
+
 def retrieve(rows, directory, *, archive=True, deadline=None, access=False):
     directory = Path(directory)
     if access and directory.exists():
@@ -76,9 +82,17 @@ def retrieve(rows, directory, *, archive=True, deadline=None, access=False):
             receipt['responses'].append({**response, 'body': name, 'sha256': hashlib.sha256(body).hexdigest()})
             return response, body
         response, _ = retain(row['url'])
-        if response['status'] == 200 and (twin := companion(row['url'])):
-            try: retain(twin)   # kept beside the page; a failed twin leaves the live page as it was
-            except InvalidInfra: pass
+        twin = companion(response.get('final_url') or row['url']) if response['status'] == 200 else None
+        if twin:
+            # Kept only as an exact, unredirected 200 of the page actually served; anything else is dropped,
+            # so an error body or another page is never handed to the reviewer as this page's text.
+            try: twin_response, twin_body = fetch(twin, deadline=deadline, access=access) if access else fetch(twin)
+            except InvalidInfra: twin_response = None
+            if twin_response and twin_response['status'] == 200 and twin_response['final_url'] == twin and twin_body:
+                name = f'{index}-{len(receipt["responses"])}.body'
+                (directory / name).write_bytes(twin_body)
+                receipt['responses'].append({**twin_response, 'twin': True, 'body': name,
+                                             'sha256': hashlib.sha256(twin_body).hexdigest()})
         if response['status'] != 200:
             receipt['retrieved_from'] = 'none'
             receipt['live_failure'] = ('http_' + str(response['status']) if type(response['status']) is int
@@ -166,7 +180,7 @@ def judgment_projection(receipts):
         raw = re.sub(r'(/web/[0-9]{14})(?:id_)?/', r'\1id_/', selected) if selected else None
         content = [{k: response[k] for k in ('url', 'final_url', 'sha256')}
                    for response in receipt['responses'] if response['status'] == 200 and
-                   (source == 'live' and response['url'] in (receipt['url'], companion(receipt['url'])) or
+                   (source == 'live' and (response['url'] == receipt['url'] or response.get('twin') is True) or
                     source == 'archive' and response['url'] == raw)]
         rows.append({**{k: receipt[k] for k in ('url', 'retrieved_from', 'live_failure',
                     'archive_available', 'archive_snapshot_url')}, 'content': content})

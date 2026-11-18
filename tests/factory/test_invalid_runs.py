@@ -163,22 +163,30 @@ class InvalidRunsTests(unittest.TestCase):
         # 1110a (18 Nov): docs.medusajs.com renders client-side; the reviewer needs the page's text twin.
         page = 'https://docs.medusajs.com/resources/references/medusa-workflows/createAndCompleteReturnOrderWorkflow'
         twin = page + '/index.html.md'
-        bodies = {page: b'<div>Loading...</div>', twin: b'# createAndCompleteReturnOrderWorkflow',
-                  'https://github.com/medusajs/medusa/issues/1': b'issue'}
+        answers = {page: (200, page, b'<div>Loading...</div>'), twin: (200, twin, b'# createAndCompleteReturnOrderWorkflow'),
+                   'https://github.com/medusajs/medusa/issues/1': (200, 'https://github.com/medusajs/medusa/issues/1', b'issue')}
         def fetched(url, **kwargs):
-            if url not in bodies: raise InvalidInfra('public response unavailable')
-            return {'url': url, 'final_url': url, 'status': 200}, bodies[url]
-        with patch.object(retrieval, 'fetch', side_effect=fetched) as fetch:
-            receipt, = retrieval.retrieve([{'url': page}], self.work / 'docs', archive=False, access=True)
-            self.assertEqual([r['url'] for r in receipt['responses']], [page, twin])
+            status, final, body = answers[url]
+            return {'url': url, 'final_url': final, 'status': status}, body
+        def urls(directory, row_url=page):
+            receipt, = retrieval.retrieve([{'url': row_url}], self.work / directory, archive=False, access=True)
             self.assertEqual(receipt['retrieved_from'], 'live')
+            return receipt, [r['url'] for r in receipt['responses']]
+        with patch.object(retrieval, 'fetch', side_effect=fetched) as fetch:
+            receipt, got = urls('docs')
+            self.assertEqual(got, [page, twin])
             self.assertEqual([c['url'] for c in retrieval.judgment_projection([receipt])[0]['content']], [page, twin])
-            del bodies[twin]   # a missing twin leaves the live page exactly as before
-            receipt, = retrieval.retrieve([{'url': page}], self.work / 'docs2', archive=False, access=True)
-            self.assertEqual([r['url'] for r in receipt['responses']], [page])
+            self.assertFalse(retrieval.missing_twin(receipt))
+            # An error body or a redirected twin is never kept as the page's text; the page is then fetched again.
+            for name, answer in (('wall', (403, twin, b'denied')), ('moved', (200, page + '/other.md', b'# other'))):
+                answers[twin] = answer
+                receipt, got = urls(name)
+                self.assertEqual(got, [page], name)
+                self.assertTrue(retrieval.missing_twin(receipt), name)
             fetch.reset_mock()   # other hosts are fetched once, as before
-            retrieval.retrieve([{'url': 'https://github.com/medusajs/medusa/issues/1'}], self.work / 'gh', archive=False)
+            receipt, got = urls('gh', 'https://github.com/medusajs/medusa/issues/1')
             self.assertEqual(fetch.call_count, 1)
+            self.assertFalse(retrieval.missing_twin(receipt))
 
     def test_g2_unflagged_model_retrieval_claims_cannot_clear_failed_fetches(self):
         rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]

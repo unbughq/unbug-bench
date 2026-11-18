@@ -72,7 +72,7 @@ def obtain(c, rows, directory, *, flagged):
                 saved = retrieval.load(target, [row])
                 # A changing live page must not change judgment identity merely
                 # because another URL is held. Failed URLs refresh once per cycle.
-                if (saved[0]['retrieved_from'] == 'live' or
+                if (saved[0]['retrieved_from'] == 'live' and not retrieval.missing_twin(saved[0]) or
                         row['url'] not in refresh and type(saved[0]['archive_available']) is bool):
                     return saved
             except InvalidInfra:
