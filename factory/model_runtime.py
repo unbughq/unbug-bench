@@ -654,7 +654,11 @@ class ModelRuntime:
                 from durable.classify import FAILURE_STOPS
                 if failure.get('source_stop') not in FAILURE_STOPS:
                     failure = {k: v for k, v in failure.items() if k != 'source_stop'}
-                retry_lane = failure.get('per_call') and subscription_outage_retries(context, lease, error)
+                # Only a call whose spending the ledger still knows: an unknown one refuses the retry
+                # as budget_exhausted (require_case_budget), a worse stop than the outage wait.
+                retry_lane = (failure.get('per_call')
+                              and case_spending(_read_json(getattr(c, 'ledger', '/nonexistent'), {}))['spent_usd'] is not None
+                              and subscription_outage_retries(context, lease, error))
                 if failure.get('per_call'):
                     stop = str(error).partition(':')[0]
                     if 'source_stop' not in failure and stop in FAILURE_STOPS:
