@@ -705,6 +705,10 @@ class AdmitTests(unittest.TestCase):
         self.assertNotIn("recertify", c.card)        # no verdict is kept: every gate runs
         self.assertEqual(c.card["imported_from"]["mode"], "hand_repaired")
         self.assertIs(c.card["recovery_config"]["no_early_probe"], True)   # the probe only labels a hand case
+        self.assertIs(c.args.no_early_probe, True)                          # and the runner skips it (run.py G5)
+        explicit = admit._card({**value, "recovery_config": {"no_early_probe": False}}, "case", False)
+        self.assertIs(explicit["recovery_config"]["no_early_probe"], False)   # a launch that asks for the probe keeps it
+        self.assertNotIn("no_early_probe", admit._card({**value, "import_mode": None}, "case", False)["recovery_config"])
         # Hand repair never combines with recertification (an otherwise valid recertify input).
         both = {k: v for k, v in value.items() if k != "models"}
         both.update(recertify=True, recovery_config={"runs": 10})
