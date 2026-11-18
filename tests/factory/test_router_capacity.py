@@ -29,6 +29,7 @@ from test_durable_policy import SPEC
 
 TWIN = 'openrouter/xiaomi/mimo-v2.6-pro'
 GO = 'opencode-go/mimo-v2.6-pro'
+CLAUDE = 'claude/claude-opus-5-5'
 
 
 class RouterCapacity(unittest.TestCase):
@@ -164,6 +165,33 @@ class RouterCapacity(unittest.TestCase):
                 self.setUp()
                 with self.assertRaises(model_router.ProviderWait):
                     self.go_call(stop)
+
+
+    def claude_call(self, stops):
+        """A Claude call whose CLI fails with each of `stops` in turn, then succeeds."""
+        c, ledger, runtime = self.engine_case()
+        c.card['roles']['writer']['model'] = CLAUDE; c.router_accounts = ('claude-factory-token-2',)
+        c.engine.ceiling_usd = c.args.case_budget = 500   # a subscription window holds $50 of funding
+        self.store = model_router.Store(self.root / 'claude.sqlite', capacities={'claude-factory-token-2': 1})
+        self.stack.enter_context(patch.object(model_router, '_rpc', self.store.rpc))
+        routes, stops = [], list(stops)
+        def transport(ctx, models, *args, **kwargs):
+            ctx.model_process_state['started'] = True
+            routes.append(ctx.model_lease.route)
+            if stops: raise budget.BudgetError(stops.pop(0))
+            state = model_call_gate.Allowance(ctx.model_lease)
+            state.finish(state.reserve(1), dict(prompt_tokens=0, completion_tokens=0, total_tokens=0))
+            state.close(); ctx.model_cap_used = state.snapshot()
+            return 0
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), patch.object(model_runtime, 'SUBSCRIPTION_RETRY_SECONDS', 0, create=True), \
+             patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport):
+            return runtime.call(c, [CLAUDE], 'x', self.root, 'builder-1'), routes
+
+    def test_one_claude_cli_fault_retries_its_lane_inside_the_attempt(self):
+        # Speed plan 2026-11-18: one claude_error ended whole attempts as infra (2abb0a-h1: 63 min each).
+        self.assertEqual(self.claude_call(['claude_error']), (0, [CLAUDE, CLAUDE]))
+        with self.assertRaises(model_router.ProviderWait):   # a second fault on the lane still ends the attempt
+            self.setUp(); self.claude_call(['claude_error', 'claude_error'])
 
 
 if __name__ == '__main__':
