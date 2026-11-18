@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import os
 import sys
+import threading
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,13 +37,15 @@ class Past(Exception): pass
 def pin_checker(refused, code=0):
     """A model call that runs the real ModelRuntime._call up to and through its role pin check."""
     runtime = model_runtime.ModelRuntime.__new__(model_runtime.ModelRuntime)
+    lock = threading.Lock()   # the patch below is process-wide; side-by-side reviewers take turns
     def call(c, chain, text, cwd, name, **kw):
-        saved = model_runtime.copy.copy
-        model_runtime.copy.copy = lambda _: (_ for _ in ()).throw(Past())   # the first step after the check
-        try: runtime._call(c, chain, text, cwd, name)
-        except Past: return code
-        except ValueError as error: refused.append((name, str(error))); return code
-        finally: model_runtime.copy.copy = saved
+        with lock:
+            saved = model_runtime.copy.copy
+            model_runtime.copy.copy = lambda _: (_ for _ in ()).throw(Past())   # the first step after the check
+            try: runtime._call(c, chain, text, cwd, name)
+            except Past: return code
+            except ValueError as error: refused.append((name, str(error))); return code
+            finally: model_runtime.copy.copy = saved
     return call
 
 
@@ -70,7 +73,7 @@ class PreflightRolePin(unittest.TestCase):
             with self.assertRaises(Exception):   # both inconclusive: the gate's normal fallback stop
                 independent_review.review(context(work=Path(t) / 'work'), r, 'G11', {'evidence': Path(t) / 'evidence'},
                                           'review', lambda v: v)
-        self.assertEqual(names, ['reviewer-g11', 'reviewer-2-g11'])
+        self.assertEqual(sorted(names), ['reviewer-2-g11', 'reviewer-g11'])   # asked side by side
         self.assertEqual(refused, [])
 
     def test_every_call_name_maps_to_the_role_whose_model_it_uses(self):
@@ -107,7 +110,7 @@ class PreflightRolePin(unittest.TestCase):
                     ('run.py', '_second_answer'),               # _SECOND_PREFIX + '-second-opinion-…'
                     ('run.py', '_author_try'),                  # strong-/easy-calibrator-<name>-<i>
                     ('run.py', 'engine_writer_round'),          # builder-<n>, builder-<n>-fix-<k>
-                    ('independent_review.py', 'review')}        # reviewer / reviewer-N by index
+                    ('independent_review.py', 'ask')}           # reviewer / reviewer-N by index
         seen_variable = set()
         for path in sorted((ROOT / 'factory').rglob('*.py')):
             tree = ast.parse(path.read_text())
