@@ -178,7 +178,6 @@ class InvalidRunsTests(unittest.TestCase):
             receipt, got = urls('docs')
             self.assertEqual(got, [page, twin])
             self.assertEqual([c['url'] for c in retrieval.judgment_projection([receipt])[0]['content']], [page, twin])
-            self.assertFalse(retrieval.missing_twin(receipt))
             # An error body, a redirected twin or an HTML 200 is never kept as the page's text.
             for name, answer in (('wall', (403, twin, b'denied')), ('moved', (200, page + '/other.md', b'# other')),
                                  ('challenge', (200, twin, b'\xef\xbb\xbf\x0c<!doctype html>Checking your browser')),
@@ -186,13 +185,9 @@ class InvalidRunsTests(unittest.TestCase):
                 answers[twin] = answer
                 receipt, got = urls(name)
                 self.assertEqual(got, [page], name)
-                self.assertFalse(retrieval.missing_twin(receipt), name)   # tried once; not refetched every cycle
-                receipt.pop('twin_tried')   # a receipt saved before twins existed is refetched once
-                self.assertTrue(retrieval.missing_twin(receipt), name)
             fetch.reset_mock()   # other hosts are fetched once, as before
             receipt, got = urls('gh', 'https://github.com/medusajs/medusa/issues/1')
             self.assertEqual(fetch.call_count, 1)
-            self.assertFalse(retrieval.missing_twin(receipt))
 
     def test_g2_unflagged_model_retrieval_claims_cannot_clear_failed_fetches(self):
         rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]

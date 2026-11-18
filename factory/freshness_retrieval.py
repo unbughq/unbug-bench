@@ -59,13 +59,6 @@ def companion(url):
     return f"https://docs.medusajs.com{parsed.path.rstrip('/')}/index.html.md"
 
 
-def missing_twin(receipt):
-    """A live docs page saved before its twin was ever tried (receipts from before 18 Nov) is fetched again once."""
-    served = receipt['responses'][0].get('final_url') if receipt['responses'] else None
-    return (receipt['retrieved_from'] == 'live' and companion(served or receipt['url']) is not None
-            and receipt.get('twin_tried') is not True)
-
-
 def retrieve(rows, directory, *, archive=True, deadline=None, access=False):
     directory = Path(directory)
     if access and directory.exists():
@@ -85,7 +78,6 @@ def retrieve(rows, directory, *, archive=True, deadline=None, access=False):
         response, _ = retain(row['url'])
         twin = companion(response.get('final_url') or row['url']) if response['status'] == 200 else None
         if twin:
-            receipt['twin_tried'] = True   # one try per fetch: a failed twin is not refetched every cycle
             # Kept only as an exact, unredirected 200 of the page actually served; anything else is dropped,
             # so an error body or another page is never handed to the reviewer as this page's text.
             try: twin_response, twin_body = fetch(twin, deadline=deadline, access=access) if access else fetch(twin)
