@@ -269,6 +269,11 @@ def card_text(card):
 KEYSWAP_CODEX = (BENCH / "harbor/keyswap/codex.toml").read_text()
 
 
+def harbor_pythonpath():
+    """Contestant agents, plus bin/exam_harbor: the contestant box gets a decoy /logs/verifier."""
+    return f"{BENCH / 'bin/exam_harbor'}:{BENCH / 'contestants'}"
+
+
 def unbug_harbor(log):
     """Harbor plus the frozen Unbug wheel in a separate venv (the clean room's install recipe)."""
     venv = pathlib.Path.home() / "unbug-venv"
@@ -411,7 +416,7 @@ def main():
         for arm, try_number in selected:
             job_name = f"{arm}-try-{try_number}"
             agent, extra = ARMS[arm]
-            env = dict(os.environ, TMPDIR=str(priv), PYTHONPATH=str(BENCH / "contestants"))
+            env = dict(os.environ, TMPDIR=str(priv), PYTHONPATH=harbor_pythonpath())
             harbor_args = ["-k", "1", "-n", "1", *extra]
             harbor = shutil.which("harbor") or str(pathlib.Path.home() / ".local/bin/harbor")
             env.pop("UNBUG_FORK_SAVE", None); env.pop("UNBUG_FORK_FROM", None)
@@ -459,6 +464,8 @@ def main():
             if len(trials) != 1:
                 raise RuntimeError("expected one Harbor trial")
             trial = trials[0]
+            if not (trial / "verifier-decoy").is_dir():  # bin/exam_harbor/sitecustomize.py
+                raise RuntimeError("contestant box shared the judge's output dir; trial is not scored")
             for receipt in trial.glob("steps/*/artifacts/**/questions.jsonl"):
                 if any(json.loads(line).get("owner_error") for line in receipt.read_text().splitlines()):
                     raise RuntimeError("owner transport failed; trial is not scored")
