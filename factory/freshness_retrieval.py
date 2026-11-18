@@ -50,6 +50,15 @@ def fetch(url, *, deadline=None, access=False):
         raise InvalidInfra('public retrieval unavailable') from error
 
 
+def companion(url):
+    """The plain-text twin of a Medusa docs page. 1110a (18 Nov): the docs render client-side, so a live
+    fetch is a "Loading..." shell the G2 reviewer can neither clear nor confirm, on every re-ask."""
+    parsed = urlparse(url)
+    # ponytail: docs.medusajs.com only (it serves <page>/index.html.md); add hosts when another shell page stalls G2.
+    if parsed.hostname != 'docs.medusajs.com' or parsed.path.endswith('.md') or parsed.query: return None
+    return f"https://docs.medusajs.com{parsed.path.rstrip('/')}/index.html.md"
+
+
 def retrieve(rows, directory, *, archive=True, deadline=None, access=False):
     directory = Path(directory)
     if access and directory.exists():
@@ -67,6 +76,9 @@ def retrieve(rows, directory, *, archive=True, deadline=None, access=False):
             receipt['responses'].append({**response, 'body': name, 'sha256': hashlib.sha256(body).hexdigest()})
             return response, body
         response, _ = retain(row['url'])
+        if response['status'] == 200 and (twin := companion(row['url'])):
+            try: retain(twin)   # kept beside the page; a failed twin leaves the live page as it was
+            except InvalidInfra: pass
         if response['status'] != 200:
             receipt['retrieved_from'] = 'none'
             receipt['live_failure'] = ('http_' + str(response['status']) if type(response['status']) is int
@@ -154,7 +166,7 @@ def judgment_projection(receipts):
         raw = re.sub(r'(/web/[0-9]{14})(?:id_)?/', r'\1id_/', selected) if selected else None
         content = [{k: response[k] for k in ('url', 'final_url', 'sha256')}
                    for response in receipt['responses'] if response['status'] == 200 and
-                   (source == 'live' and response['url'] == receipt['url'] or
+                   (source == 'live' and response['url'] in (receipt['url'], companion(receipt['url'])) or
                     source == 'archive' and response['url'] == raw)]
         rows.append({**{k: receipt[k] for k in ('url', 'retrieved_from', 'live_failure',
                     'archive_available', 'archive_snapshot_url')}, 'content': content})

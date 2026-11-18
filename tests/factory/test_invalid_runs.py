@@ -159,6 +159,27 @@ class InvalidRunsTests(unittest.TestCase):
         (self.work / 'retrieval/0-0.body').write_text('changed by reviewer')
         with self.assertRaises(InvalidInfra): retrieval.load(self.work / 'retrieval', [row])
 
+    def test_g2_docs_shell_page_keeps_its_markdown_twin(self):
+        # 1110a (18 Nov): docs.medusajs.com renders client-side; the reviewer needs the page's text twin.
+        page = 'https://docs.medusajs.com/resources/references/medusa-workflows/createAndCompleteReturnOrderWorkflow'
+        twin = page + '/index.html.md'
+        bodies = {page: b'<div>Loading...</div>', twin: b'# createAndCompleteReturnOrderWorkflow',
+                  'https://github.com/medusajs/medusa/issues/1': b'issue'}
+        def fetched(url, **kwargs):
+            if url not in bodies: raise InvalidInfra('public response unavailable')
+            return {'url': url, 'final_url': url, 'status': 200}, bodies[url]
+        with patch.object(retrieval, 'fetch', side_effect=fetched) as fetch:
+            receipt, = retrieval.retrieve([{'url': page}], self.work / 'docs', archive=False, access=True)
+            self.assertEqual([r['url'] for r in receipt['responses']], [page, twin])
+            self.assertEqual(receipt['retrieved_from'], 'live')
+            self.assertEqual([c['url'] for c in retrieval.judgment_projection([receipt])[0]['content']], [page, twin])
+            del bodies[twin]   # a missing twin leaves the live page exactly as before
+            receipt, = retrieval.retrieve([{'url': page}], self.work / 'docs2', archive=False, access=True)
+            self.assertEqual([r['url'] for r in receipt['responses']], [page])
+            fetch.reset_mock()   # other hosts are fetched once, as before
+            retrieval.retrieve([{'url': 'https://github.com/medusajs/medusa/issues/1'}], self.work / 'gh', archive=False)
+            self.assertEqual(fetch.call_count, 1)
+
     def test_g2_unflagged_model_retrieval_claims_cannot_clear_failed_fetches(self):
         rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]
         for row in rows:
