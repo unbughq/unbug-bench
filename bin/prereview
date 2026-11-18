@@ -29,6 +29,8 @@ import sys
 import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "factory"))
+from codex_login import validate, worker_auth  # noqa: E402
 HOME = pathlib.Path.home()
 # factory/model_runtime.py CODEX_OFF: no subagents, web, apps/plugins, computer use or image generation.
 CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "browser_use_external",
@@ -42,7 +44,7 @@ OPENCODE_CONFIG = {"mcp": {}, "compaction": {"auto": True}, "permission": {"task
 ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "SHELL")
 
 
-def isolated(kind, d, scratch):
+def isolated(kind, d, scratch, timeout=3600):
     """(command, env) for one reviewer in a fresh config home holding only its subscription login."""
     env = {k: os.environ[k] for k in ENV_KEEP if k in os.environ}
     env["HOME"] = str(scratch)   # no ~/.ssh, git or gh credentials, ~/.claude or ~/.agents skills
@@ -58,10 +60,10 @@ def isolated(kind, d, scratch):
     # G8 reviewer-2: codex/gpt-6.1-sol, effort high, web search off (factory model_runtime codex branch)
     # The factory's worker_auth(): external-token mode, no refresh token, so a sample can never rotate
     # (and so invalidate) the user's own Codex login. Refuses an access token near expiry: run codex once.
-    sys.path.insert(0, str(REPO / "factory"))
-    from codex_login import worker_auth
+    auth = json.loads((HOME / ".codex/auth.json").read_text())
+    validate(auth, timeout)   # the token must outlive the whole review: nothing can refresh it
     (scratch / "auth.json").touch(mode=0o600)
-    (scratch / "auth.json").write_text(json.dumps(worker_auth(json.loads((HOME / ".codex/auth.json").read_text()))))
+    (scratch / "auth.json").write_text(json.dumps(worker_auth(auth)))
     (scratch / "config.toml").write_text("")
     env["CODEX_HOME"] = str(scratch)
     return ["codex", "exec", "--skip-git-repo-check", *[x for f in CODEX_OFF for x in ("--disable", f)],
@@ -71,6 +73,7 @@ def isolated(kind, d, scratch):
 
 def reviewer_prompt(case_dir, bench_dir, source, verdict_path):
     """factory/run.py review(): prompt('reviewer', run_context(...)) + reviewer-keys.md (no founder ruling)."""
+    # gate_runs/scenario_runs: factory/run.py --runs/--scenario-runs defaults (10, 3); keep in step with them.
     context = {"case_dir": str(case_dir), "bench_dir": str(bench_dir), "bug_source": source,
                "gate_runs": 10, "scenario_runs": 3, "mode": "case", "verdict_path": str(verdict_path)}
     prompts = bench_dir / "factory/prompts"   # the bench's own prompts: the factory commit under review
@@ -93,7 +96,7 @@ def review(name, case, bench, source, out, timeout):
         # Codex refuses helper binaries under a temp dir (factory model_runtime), so its home is under ~/.cache.
         base = HOME / ".cache"; base.mkdir(exist_ok=True)
         scratch = pathlib.Path(tempfile.mkdtemp(prefix="prereview-", dir=base))
-        cmd, env = isolated(name.split("-")[0], d, scratch)
+        cmd, env = isolated(name.split("-")[0], d, scratch, timeout)
         with open(d / "log.txt", "w") as log:
             proc = subprocess.Popen(cmd + [text], cwd=d, env=env, stdout=log, stderr=subprocess.STDOUT,
                                     stdin=subprocess.DEVNULL, start_new_session=True)
@@ -151,7 +154,9 @@ def main():
     names = [f"{r}-{i}" for r in ("mimo", "codex") for i in range(1, a.samples + 1)]
     with concurrent.futures.ThreadPoolExecutor(len(names)) as pool:
         results = list(pool.map(lambda n: review(n, case, bench, a.source, out, a.timeout_min * 60), names))
-    summary = {"case": str(case), "bench": {"path": str(bench), **git_state(bench)}, "samples": {}}
+    version = lambda b: subprocess.run([b, "--version"], capture_output=True, text=True).stdout.strip()
+    summary = {"case": str(case), "bench": {"path": str(bench), **git_state(bench)},
+               "cli": {"codex": version("codex"), "opencode": version("opencode")}, "samples": {}}
     lines = [f"# Pre-review of {case}\n", f"Bench {summary['bench']['commit']}"
              + (" (DIRTY)" if summary["bench"]["dirty"] else "") + ". No built images here: box-image checks were not possible.\n"]
     for name, code, vote in results:
