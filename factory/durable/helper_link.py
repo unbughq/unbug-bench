@@ -262,6 +262,8 @@ def main(argv=None, stdin=None, stdout=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv != ["run"]: return 2
     try:
+        from durable.worker_step import release_run
+        release_run()   # the release's own factory modules only, as on a case worker
         out = serve(json.loads((stdin or sys.stdin).read()))
     except Exception as error:   # the control side only needs to know it failed; the text may hold paths
         print(type(error).__name__, file=sys.stderr)

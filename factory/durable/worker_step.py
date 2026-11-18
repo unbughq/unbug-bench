@@ -521,8 +521,7 @@ class Worker:
 
     def runner(self):
         if self._runner is None:
-            import run
-            self._runner = run
+            self._runner = release_run()
         return self._runner
 
     def _save_baseline(self, step_input, ledger, before):
@@ -705,6 +704,26 @@ def overlay(snapshot, files):
         for name, path in sorted(files.items()):
             new.add(path, arcname=name, recursive=False)
     return buffer.getvalue()
+
+
+# Imported lazily by G2 (run.ensure_freshness, run._g2). Loaded here, while the release dir is known to serve them.
+EAGER = ("admission", "ordinary_freshness", "freshness_fanout")
+
+
+def release_run():
+    """`run`, with every factory module imported from here on served by this release or by nothing (1108c,
+    18 November: G2 loaded the baked bench's stale admission.py). bin/bench.py appends <bench>/factory to
+    sys.path on first import; take it off again so a module the release dir cannot serve fails loudly
+    instead of running baked code."""
+    import importlib
+    import run
+    import bench
+    baked = str(pathlib.Path(bench.__file__).resolve().parents[1] / "factory")
+    while baked != str(FACTORY) and baked in sys.path:
+        sys.path.remove(baked)
+    for name in EAGER:
+        importlib.import_module(name)
+    return run
 
 
 def restore(snapshot, work):
