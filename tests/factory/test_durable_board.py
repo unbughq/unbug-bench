@@ -137,6 +137,17 @@ class BoardTests(unittest.TestCase):
         from durable.report import case_entry
         self.assertNotIn('override', case_entry(self.cards['case-alpha']))
 
+    def test_a_founder_stop_and_its_reason_show_on_the_board(self):
+        # A founder stop (engine Engine.reply, FounderAction.STOP) names why the case was retired,
+        # on the operator board only.
+        self.cards['case-alpha'].update(status='retired', founder_stop='superseded by r2')
+        board = self.read()
+        alpha, beta = board['cases']
+        self.assertEqual((alpha['founder_stop'], 'founder_stop' in beta), ('superseded by r2', False))
+        self.assertIn('[stopped by the founder: superseded by r2]', render_board(board))
+        from durable.report import case_entry
+        self.assertNotIn('founder_stop', case_entry(self.cards['case-alpha']))
+
     def test_a_raised_case_money_ceiling_and_its_reason_show_on_the_board(self):
         # Founder 2026-11-13: `--extra-case-money` (engine lineage_case_money_extra) is visible later,
         # on the operator board only.
