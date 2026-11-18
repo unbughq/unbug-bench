@@ -177,12 +177,14 @@ class InvalidRunsTests(unittest.TestCase):
             self.assertEqual(got, [page, twin])
             self.assertEqual([c['url'] for c in retrieval.judgment_projection([receipt])[0]['content']], [page, twin])
             self.assertFalse(retrieval.missing_twin(receipt))
-            # An error body or a redirected twin is never kept as the page's text; the page is then fetched again.
+            # An error body, a redirected twin or an HTML 200 is never kept as the page's text.
             for name, answer in (('wall', (403, twin, b'denied')), ('moved', (200, page + '/other.md', b'# other')),
-                                 ('challenge', (200, twin, b' <html>Checking your browser</html>'))):
+                                 ('challenge', (200, twin, b'\xef\xbb\xbf <html>Checking your browser</html>'))):
                 answers[twin] = answer
                 receipt, got = urls(name)
                 self.assertEqual(got, [page], name)
+                self.assertFalse(retrieval.missing_twin(receipt), name)   # tried once; not refetched every cycle
+                receipt.pop('twin_tried')   # a receipt saved before twins existed is refetched once
                 self.assertTrue(retrieval.missing_twin(receipt), name)
             fetch.reset_mock()   # other hosts are fetched once, as before
             receipt, got = urls('gh', 'https://github.com/medusajs/medusa/issues/1')
