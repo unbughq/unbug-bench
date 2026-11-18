@@ -23,3 +23,6 @@ Known differences from the gate (in the docstring and findings.md): no built ben
 
 ## Diff 4 (`--reviewers`, Codex-only default): PASS
 SHOULDs fixed: duplicate/whitespace reviewer names deduped and stripped; CLI versions recorded only for the CLIs used, and a missing CLI no longer loses summary.json. NITs fixed: dead empty check dropped, usage and docstring say the default is the Codex half of the panel.
+
+## Diff 5 (source-only scope note): FAIL, then fixed
+BLOCKER: "skip ... live traffic" could skip source checks the gate requires (traffic falsifies intent_check, probe reads, blind routes). Fixed: skip only checks that need running or looking inside the built box or a container; traffic, probe, judge, monitor, bench, Dockerfile and contestant-visible code are still judged. SHOULD (docstring word) and NITs (note marked as bin/prereview-only; "fail fairness or realism") fixed.
