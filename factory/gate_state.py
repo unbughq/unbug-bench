@@ -210,7 +210,8 @@ def inputs(c, gate, bench):
         if not p.is_file(): continue
         rel = p.relative_to(c.case).as_posix()
         if gate not in {"G8", "G9"} and rel in {"BUILD-NOTES.md", "freshness.jsonl"}: continue
-        if gate == "G4" and not (rel.startswith("base/") or rel in {"case.json", "promise.md"}): continue
+        # G4 runs the base scenario, which starts the case's own services from services/ or projects/.
+        if gate == "G4" and not (rel.startswith(("base/", "services/", "projects/")) or rel in {"case.json", "promise.md"}): continue
         files.append((rel, digest(p)))
     dependencies = dependency_files(c, (*STAGE_DEPENDENCIES[gate], "factory/case_contract.py"), bench)
     settings = {"runs": 10, "scenario_runs": 3, "bench_workers": 1, "dry_run": False, "rehearse_only": False}
