@@ -22,6 +22,7 @@ from durable.artifacts import ArtifactError
 from durable.contract import (BATCH_SCOPED, RELEASE_ROOT, WORKER_COMMAND, ArtifactKind, ArtifactStore, Outcome, Poll,
                               PollState, Ref, StepInput, StepKind, StepResult, WorkerLease, _check, attempt_paths, key_frame,
                               poll_from_record, start_frame, UNANSWERED)
+from durable.helper_link import spool_rel
 from durable.workers import BoatCli, boat_id
 
 BLOB_NAME = re.compile(r"([0-9a-f]{64})\.(" + "|".join(k.value for k in ArtifactKind) + r")\.age")
@@ -64,6 +65,7 @@ class BoatChannel:
         self.command_timeout, self.blob_timeout = command_timeout, blob_timeout
         self.output_retry_s, self.clock = output_retry_s, clock
         self._missing_since = {}
+        self._spool_config = {}   # idempotency key -> whether its attempt has a helper spool config
 
     # -- WorkerChannel
 
@@ -81,7 +83,8 @@ class BoatChannel:
                 if not self._push(worker, blob_dir, name, blobs[name]):
                     return   # no frame: the next poll is ABSENT and the engine retries
             if self.helpers is not None and step_input.step.kind is StepKind.GATES:
-                self.helpers.prepare(worker, step_input)   # a failure only leaves this attempt without helpers
+                if self.helpers.prepare(worker, step_input):   # a failure only leaves this attempt without helpers
+                    self._spool_config[step_input.idempotency_key] = True
             self.boat.ssh(worker, worker_command("start"), stdin=frame, timeout=self.command_timeout)
         except Exception:   # noqa: BLE001 - never raise on worker errors
             return
@@ -102,8 +105,11 @@ class BoatChannel:
                 return RUNNING
             poll = poll_from_record(json.loads(lines[0]))
             if self.helpers is not None and step_input.step.kind is StepKind.GATES:
-                if poll.state is PollState.RUNNING: self.helpers.watch(worker, step_input)
-                elif poll.state is PollState.DONE: self.helpers.finish(step_input)
+                if poll.state is PollState.RUNNING:
+                    if self._helpers_on(worker, key): self.helpers.watch(worker, step_input)
+                elif poll.state is PollState.DONE:
+                    self.helpers.finish(step_input)
+                    self._spool_config.pop(key, None)
             out_dir = attempt_paths(key)["out"]
             if poll.state is PollState.DONE:
                 for ref in output_refs(poll.result):
@@ -128,12 +134,26 @@ class BoatChannel:
         _check(isinstance(lease, WorkerLease) and lease.case_id == step_input.case_id, "lease is for another case")
         if self.helpers is not None:
             self.helpers.finish(step_input)
+            self._spool_config.pop(step_input.idempotency_key, None)
         try:
             self.boat.ssh(boat_id(lease.worker_id), worker_command("cancel"),
                           stdin=json.dumps(key_frame(step_input.idempotency_key)).encode(),
                           timeout=self.command_timeout)
         except Exception:   # noqa: BLE001 - the next poll shows whether the cancel landed
             return
+
+    def _helpers_on(self, worker: str, key: str) -> bool:
+        """Whether the attempt has a helper spool config, asked once per attempt. An attempt started
+        before helpers were turned on has none (prepare runs only at start): relaying for it would
+        only ssh its worker every tick. An unclear answer is asked again on the next poll."""
+        on = self._spool_config.get(key)
+        if on is None:
+            code, out = self.boat.ssh(worker, f"if test -f ~/{spool_rel(key)}/config.json; then echo on; else echo off; fi",
+                                      timeout=self.command_timeout)
+            if code != 0 or out.strip() not in (b"on", b"off"):
+                return False
+            on = self._spool_config[key] = out.strip() == b"on"
+        return on
 
     # -- blobs
 

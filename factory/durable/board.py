@@ -21,6 +21,7 @@ Controller-side imports stay inside read_board: the laptop client ships only ren
 """
 from __future__ import annotations
 
+import json
 import math
 import statistics
 import time
@@ -249,6 +250,10 @@ def read_board(config, *, client=None, live_only: bool = False, now: Optional[fl
     board = {'at': at, 'unavailable': [], 'controller': _controller(config),
              'guard': guard_health(config['state_dir']), 'cases': []}
     try:
+        board['helpers'] = _helpers(config['state_dir'])
+    except OSError:
+        board['unavailable'].append('helpers')
+    try:
         batches, money = _ledger(config)
     except Exception:
         board['unavailable'].append('ledger')
@@ -306,6 +311,28 @@ def read_board(config, *, client=None, live_only: bool = False, now: Optional[fl
         board['cases'] = [r for r in board['cases'] if r['live']]
     board['cases'].sort(key=lambda r: (not r['live'], -(r['last_event_at'] or 0), r['batch'], r['case']))
     return _summarise(board)
+
+
+def _helpers(state_dir) -> dict:
+    """Helper-box time per case from the broker's lease ledger (state/helper-leases/<case>.jsonl):
+    leases, box seconds of released helpers, and leases with no release yet. Machine time only: it
+    is infrastructure, never case money. Refusals and job outcomes are not in this ledger."""
+    from pathlib import Path
+    out = {}
+    for path in sorted(Path(state_dir).glob('helper-leases/*.jsonl')):
+        row = out[path.stem] = {'leases': 0, 'box_s': 0.0, 'open': 0}
+        for line in path.read_text().splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get('event') == 'lease':
+                row['leases'] += 1
+                row['open'] += 1
+            elif event.get('event') == 'release' and type(event.get('seconds')) in (int, float):
+                row['box_s'] += event['seconds']
+                row['open'] -= 1
+    return out
 
 
 def _summarise(board: dict) -> dict:
@@ -409,6 +436,10 @@ def render_board(board: dict) -> str:
                      for k, v in t['steps'].items()]
             split += [f"{n} {ago(t[n + '_s'])}" for n in ('setup', 'wait', 'human') if t[n + '_s']]
             lines.append(f"  {r['case']}: {ago(t['elapsed_s'])} = " + ', '.join(split))
+    if board.get('helpers'):
+        lines += ['', 'HELPER BOXES (infrastructure time, not case money):']
+        lines += [f"  {case}: {h['leases']} leases, {ago(int(h['box_s']))} box time" + (f", {h['open']} with no release recorded" if h['open'] > 0 else '')
+                  for case, h in board['helpers'].items()]
     for message in guard.get('alerts', []):
         lines.append(f'NEEDS YOU: {message}')
     if controller.get('state') in ('inactive', 'failed'):

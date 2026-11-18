@@ -20,7 +20,7 @@ sys.path[:0] = [str(ROOT / "tests/factory"), str(ROOT / "factory"), str(ROOT / "
 os.environ.setdefault("BENCH", str(ROOT))
 
 import test_durable_workers as support   # noqa: E402
-from durable.contract import (ArtifactKind as K, ContractError, Outcome, PollState, Ref, Step, StepInput,  # noqa: E402
+from durable.contract import (ArtifactKind as K, ContractError, Outcome, Poll, PollState, Ref, Step, StepInput,  # noqa: E402
                               StepKind, StepResult, WorkerLease, attempt_paths, to_record)
 from durable import workers as W   # noqa: E402
 from durable.channel import BoatChannel, blob_name   # noqa: E402
@@ -291,6 +291,59 @@ class ChannelTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             self.channel.poll(WorkerLease(self.lease.worker_id, "case-other"), si)
         self.assertEqual(len(self.h.calls()), before)
+
+
+class HelperRelayTests(unittest.TestCase):
+    """GATES attempts relay for helpers only when their spool has a config: an attempt started before
+    helpers were turned on never gets an ssh loop, and the spool is asked about once per attempt."""
+
+    class Boat:
+        def __init__(self, spool):
+            self.spool, self.calls = spool, []
+
+        def ssh(self, worker, script, stdin=None, timeout=None):
+            self.calls.append(script)
+            if "config.json; then" in script:
+                return (0, b"on\n") if self.spool else (0, b"off\n")
+            if script.endswith("worker_step.py poll"):
+                return 0, json.dumps(to_record(Poll(PollState.RUNNING))).encode() + b"\n"
+            return 0, b""
+
+    class Helpers:
+        def __init__(self, prepared):
+            self.prepared, self.watched = prepared, 0
+
+        def prepare(self, worker, si):
+            return self.prepared
+
+        def watch(self, worker, si):
+            self.watched += 1
+
+        def finish(self, si):
+            pass
+
+    def run_attempt(self, *, spool, prepared=None, polls=3):
+        boat, helpers = self.Boat(spool), self.Helpers(prepared)
+        channel = BoatChannel(FakeStore(), keys=None, sealer=None, boat=boat, helpers=helpers)
+        snap = Ref(digest(2), K.CASE_SNAPSHOT)
+        si = StepInput(batch_id=BATCH, case_id=CASE, seq=1, step=Step(StepKind.GATES, 1), attempt=1,
+                       plumbing_version=digest(7), bench_version=digest(8), inputs=Ref(digest(1), K.INPUTS),
+                       snapshot=snap, deadline_s=60.0, money_ceiling_usd_micros=1)
+        lease = WorkerLease("bx-abcdefgh", CASE)
+        if prepared is not None:
+            channel.start(lease, si, {CASE: b"k" * 32}, {})
+        for _ in range(polls):
+            self.assertEqual(channel.poll(lease, si).state, PollState.RUNNING)
+        return helpers.watched, sum("config.json; then" in c for c in boat.calls)
+
+    def test_an_attempt_started_before_helpers_were_on_gets_no_relay(self):
+        self.assertEqual(self.run_attempt(spool=False), (0, 1))
+
+    def test_an_attempt_with_a_spool_config_is_relayed_and_asked_about_once(self):
+        self.assertEqual(self.run_attempt(spool=True), (3, 1))     # e.g. after a controller restart
+
+    def test_a_prepared_attempt_is_relayed_without_asking(self):
+        self.assertEqual(self.run_attempt(spool=False, prepared=True), (3, 0))
 
 
 if __name__ == "__main__":
