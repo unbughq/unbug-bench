@@ -654,6 +654,11 @@ def _freshness_searches(c, plans, deadline, role_completed):
                     f"in this app. Use distinct queries and real result URLs; log every search, hit or not. "
                     f"A url must always be the result page itself, never a search-results page: a search_page_url row's url "
                     f"must become the result page it found, and any further results are NEW rows. "
+                    # 8acb5c (18 Nov): a GitHub search with no results has no result page; the searcher logged
+                    # url null (missing_url), which no re-run can fix, and admission stopped after two top-ups.
+                    f"A GitHub search with no results logs url `https://github.com/search?type=issues&q=<url-encoded query>` "
+                    f"(the one search URL G2 accepts); a web search with no results is not logged, search again instead. "
+                    f"Never leave url empty. "
                     f"Make at most {missing + FRESHNESS_EXTRA_SEARCHES} new searches in total, and stop as soon as the evidence is complete. "
                     f"Flag ambiguous public matches for independent confirmation; no retrieval is not a no-hit. "
                     f"Revisit every historical {who} row missing these evidence fields, older than 24 hours or marked retrieval failed: rerun the query, "

@@ -353,6 +353,7 @@ class AdmissionTests(unittest.TestCase):
             if name.endswith('-freshness'):
                 self.assertIn('search_page_url', text)
                 self.assertIn('never a search-results page', text)
+                self.assertIn('https://github.com/search?type=issues&q=', text)   # 8acb5c: no-result GitHub row
                 repaired = scratch_rows(cwd)
                 repaired[0]['url'], repaired[1]['url'] = result, 'https://github.com/medusajs/medusa/discussions/701'
                 scratch_write(cwd, repaired)
