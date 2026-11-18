@@ -1,5 +1,6 @@
 """Real public execution/card replays; no Docker, providers, SSH, Boat or decryption."""
 import argparse
+import http.client
 import copy
 import datetime
 import gzip
@@ -166,6 +167,7 @@ class InvalidRunsTests(unittest.TestCase):
         answers = {page: (200, page, b'<div>Loading...</div>'), twin: (200, twin, b'# createAndCompleteReturnOrderWorkflow'),
                    'https://github.com/medusajs/medusa/issues/1': (200, 'https://github.com/medusajs/medusa/issues/1', b'issue')}
         def fetched(url, **kwargs):
+            if isinstance(answers[url], Exception): raise answers[url]
             status, final, body = answers[url]
             return {'url': url, 'final_url': final, 'status': status}, body
         def urls(directory, row_url=page):
@@ -179,7 +181,8 @@ class InvalidRunsTests(unittest.TestCase):
             self.assertFalse(retrieval.missing_twin(receipt))
             # An error body, a redirected twin or an HTML 200 is never kept as the page's text.
             for name, answer in (('wall', (403, twin, b'denied')), ('moved', (200, page + '/other.md', b'# other')),
-                                 ('challenge', (200, twin, b'\xef\xbb\xbf <html>Checking your browser</html>'))):
+                                 ('challenge', (200, twin, b'\xef\xbb\xbf\x0c<!doctype html>Checking your browser')),
+                                 ('cut', http.client.IncompleteRead(b'# partial'))):
                 answers[twin] = answer
                 receipt, got = urls(name)
                 self.assertEqual(got, [page], name)

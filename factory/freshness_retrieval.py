@@ -89,10 +89,10 @@ def retrieve(rows, directory, *, archive=True, deadline=None, access=False):
             # Kept only as an exact, unredirected 200 of the page actually served; anything else is dropped,
             # so an error body or another page is never handed to the reviewer as this page's text.
             try: twin_response, twin_body = fetch(twin, deadline=deadline, access=access) if access else fetch(twin)
-            except InvalidInfra: twin_response = None
+            except Exception: twin_response = None   # optional: any failed read (IncompleteRead too) just drops it
             # Markdown text, not an HTML page (a challenge or another shell answering 200).
             if (twin_response and twin_response['status'] == 200 and twin_response['final_url'] == twin
-                    and twin_body.strip() and not twin_body.lstrip(b'\xef\xbb\xbf \t\r\n').startswith(b'<')):
+                    and not (text := twin_body.decode('utf-8-sig', 'replace').lstrip()).startswith('<') and text):
                 name = f'{index}-{len(receipt["responses"])}.body'
                 (directory / name).write_bytes(twin_body)
                 receipt['responses'].append({**twin_response, 'twin': True, 'body': name,
