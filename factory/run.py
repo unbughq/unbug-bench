@@ -651,7 +651,7 @@ def _freshness_searches(c, plans, deadline, role_completed):
                     f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
                     f'{{"who": "{who}", "kind": "web" | "github", "query": "...", "url": "...", "at": "<UTC ISO time>", '
                     f'"hit": false | true, "retrieved": true, "note": "evidence/result summary", "app_version": "pinned version", "version_scope": "why the result applies or does not"}}. `hit` is true if the result discusses this bug, its fix or a workaround '
-                    f"in this app. Use distinct queries and real result URLs; log every search, hit or not. "
+                    f"in this app. Use distinct queries and real result URLs; log every search, hit or not (except a web search with no results, below). "
                     f"A url must always be the result page itself, never a search-results page (one exception: a GitHub search with no results, below): a search_page_url row's url "
                     f"must become the result page it found, and any further results are NEW rows. "
                     # 8acb5c (18 Nov): a GitHub search with no results has no result page; the searcher logged
