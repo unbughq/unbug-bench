@@ -353,6 +353,10 @@ class AdmissionTests(unittest.TestCase):
             if name.endswith('-freshness'):
                 self.assertIn('search_page_url', text)
                 self.assertIn('never a search-results page', text)
+                # 8acb5c: a no-result GitHub search must have a url form, and both bans must name the exception.
+                self.assertIn('https://github.com/search?type=<the type you searched', text)
+                self.assertIn('never a search-results page (one exception: a GitHub search with no results', text)
+                self.assertIn('never a search-results page, except that GitHub no-result URL', text)
                 repaired = scratch_rows(cwd)
                 repaired[0]['url'], repaired[1]['url'] = result, 'https://github.com/medusajs/medusa/discussions/701'
                 scratch_write(cwd, repaired)

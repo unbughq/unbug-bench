@@ -648,16 +648,21 @@ def _freshness_searches(c, plans, deadline, role_completed):
         try:
             text = (f"Freshness check only; change nothing else. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
                     f"case_dir to learn the bug and pinned app version. Then make {need} searches for this bug, its fix or workarounds in this app, and "
-                    f"append each as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
+                    f"append each logged search as one JSON line to `<case_dir>/freshness.jsonl` (create it if missing): "
                     f'{{"who": "{who}", "kind": "web" | "github", "query": "...", "url": "...", "at": "<UTC ISO time>", '
                     f'"hit": false | true, "retrieved": true, "note": "evidence/result summary", "app_version": "pinned version", "version_scope": "why the result applies or does not"}}. `hit` is true if the result discusses this bug, its fix or a workaround '
-                    f"in this app. Use distinct queries and real result URLs; log every search, hit or not. "
-                    f"A url must always be the result page itself, never a search-results page: a search_page_url row's url "
+                    f"in this app. Use distinct queries and real result URLs; log every search, hit or not (except a web search with no results, below). "
+                    f"A url must always be the result page itself, never a search-results page (one exception: a GitHub search with no results, below): a search_page_url row's url "
                     f"must become the result page it found, and any further results are NEW rows. "
+                    # 8acb5c (18 Nov): a GitHub search with no results has no result page; the searcher logged
+                    # url null (missing_url), which no re-run can fix, and admission stopped after two top-ups.
+                    f"A GitHub search with no results has no result page: log it with url `https://github.com/search?type=<the type you searched: issues, pullrequests, discussions, commits or code>&q=<url-encoded query>`, "
+                    f"the only search URL G2 accepts; a web search with no results is not logged, search again instead. "
+                    f"Never leave url empty. "
                     f"Make at most {missing + FRESHNESS_EXTRA_SEARCHES} new searches in total, and stop as soon as the evidence is complete. "
                     f"Flag ambiguous public matches for independent confirmation; no retrieval is not a no-hit. "
                     f"Revisit every historical {who} row missing these evidence fields, older than 24 hours or marked retrieval failed: rerun the query, "
-                    f"then amend its evidence fields truthfully, retaining its query, its result page (never a search-results page) and all hits. If the rerun cannot retrieve "
+                    f"then amend its evidence fields truthfully, retaining its query, its result page (never a search-results page, except that GitHub no-result URL) and all hits. If the rerun cannot retrieve "
                     f"that row's result URL, leave the row and log the rerun as a NEW row with the SAME query and a retrievable result URL; "
                     f"it supersedes the old row. Do not drop failed searches "
                     f"or invent evidence; an unresolved search blocks admission. Repair evidence for this SAME idea; never select a replacement. "
