@@ -37,6 +37,12 @@ assert r["counts"] == {"correct": 3, "false_alarm": 1} and r["escalation_false_a
 r = claims.score(all_claims("protected", **{"order-edit": "unknown"}), checkpoint(), S0)
 assert r["counts"] == {"correct": 3, "false_alarm": 1} and r["response_correct"], r
 assert r["human_minutes"]["unresolved_claims"] == 10, r
+# Abstain (unknown on an expected violation) and a missing claim do not change response_correct either.
+expected = {**S0, "expected_violations": ["draft-order"]}
+r = claims.score(all_claims("protected", **{"draft-order": "unknown"}), checkpoint(violated=["draft-order"]), expected)
+assert r["counts"] == {"correct": 3, "abstain": 1} and r["response_correct"], r
+r = claims.score({"response": "keep", "claims": all_claims("protected")["claims"][1:]}, checkpoint(), S0)
+assert r["counts"] == {"correct": 3, "missing": 1} and r["response_correct"], r
 # Withdrawn to a safe fallback while still overselling is false assurance too.
 r = claims.score(all_claims("withdrawn-safe-fallback", response="withdraw"), checkpoint(violated=["cancel-resale"]), S0)
 assert r["counts"]["false_assurance"] == 1, r
