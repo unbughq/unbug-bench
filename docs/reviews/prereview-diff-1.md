@@ -20,3 +20,6 @@
 ## Diff 3: PASS
 NITs fixed: token validated for the whole timeout; CLI versions recorded; import at module top; run-count defaults commented.
 Known differences from the gate (in the docstring and findings.md): no built bench images, Codex sandboxed rather than unsandboxed, no founder ruling, local Codex 0.167.2 vs the factory's pinned 0.162.1.
+
+## Diff 4 (`--reviewers`, Codex-only default): PASS
+SHOULDs fixed: duplicate/whitespace reviewer names deduped and stripped; CLI versions recorded only for the CLIs used, and a missing CLI no longer loses summary.json. NITs fixed: dead empty check dropped, usage and docstring say the default is the Codex half of the panel.

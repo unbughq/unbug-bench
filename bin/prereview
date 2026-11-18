@@ -2,10 +2,10 @@
 """Pre-review a hand-built case with G8/G9's own reviewer prompt before it is launched (founder 2026-11-18).
 
   bin/prereview CASE_DIR --out DIR --bench BENCH_CHECKOUT [--source port|hunt|plant] [--samples N]
-                [--reviewers codex|mimo,codex] [--timeout-min M]
+                [--reviewers mimo,codex (default codex)] [--timeout-min M]
 
 The factory shows a case to its two reviewers only inside a paid gates run, hours in; each finding
-then costs a full rerun. This runs the same panel first, on subscription lanes (no OpenRouter cash):
+then costs a full rerun. This runs the same panel (by default its Codex half) first, on subscription lanes (no OpenRouter cash):
 the prompt is the bench's factory/prompts/reviewer.md + its run context + reviewer-keys.md, built as
 factory/run.py review() builds it, and the reviewers are G8's two (OpenCode Go mimo, Codex), each in
 a fresh config with no MCP servers, plugins or skills (as factory/model_runtime.py runs them). By default only
@@ -43,6 +43,7 @@ OPENCODE_MODEL = "opencode-go/mimo-v2.6-pro"
 OPENCODE_CONFIG = {"mcp": {}, "compaction": {"auto": True}, "permission": {"task": "deny"},
                    "small_model": OPENCODE_MODEL, "enabled_providers": ["opencode-go"]}
 # Only these reach a reviewer: no user credentials (ssh, gh, git, cloud), keys or tool configs.
+CLI = {"mimo": "opencode", "codex": "codex"}
 ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "SHELL")
 
 
@@ -146,8 +147,8 @@ def main():
     a.source = a.source or json.loads((case / "case.json").read_text()).get("source")
     if a.source not in ("port", "hunt", "plant"):
         sys.exit(f"{case}: case.json has no bug source; pass --source")
-    reviewers = a.reviewers.split(",")
-    if not reviewers or not set(reviewers) <= {"mimo", "codex"}:
+    reviewers = list(dict.fromkeys(r.strip() for r in a.reviewers.split(",")))
+    if not set(reviewers) <= {"mimo", "codex"}:
         sys.exit("--reviewers takes mimo and/or codex")
     if a.samples < 1:
         sys.exit("--samples must be at least 1")
@@ -162,9 +163,11 @@ def main():
     names = [f"{r}-{i}" for r in reviewers for i in range(1, a.samples + 1)]
     with concurrent.futures.ThreadPoolExecutor(len(names)) as pool:
         results = list(pool.map(lambda n: review(n, case, bench, a.source, out, a.timeout_min * 60), names))
-    version = lambda b: subprocess.run([b, "--version"], capture_output=True, text=True).stdout.strip()
+    def version(cli):
+        try: return subprocess.run([cli, "--version"], capture_output=True, text=True).stdout.strip()
+        except OSError as error: return f"{type(error).__name__}: {error}"
     summary = {"case": str(case), "bench": {"path": str(bench), **git_state(bench)},
-               "cli": {"codex": version("codex"), "opencode": version("opencode")}, "samples": {}}
+               "cli": {CLI[r]: version(CLI[r]) for r in reviewers}, "samples": {}}
     lines = [f"# Pre-review of {case}\n", f"Bench {summary['bench']['commit']}"
              + (" (DIRTY)" if summary["bench"]["dirty"] else "") + ". No built images here: box-image checks were not possible.\n"]
     for name, code, vote in results:
