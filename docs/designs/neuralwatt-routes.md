@@ -136,7 +136,7 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
    captured on the trial (Rollout step 1), map to `credit` and `rate`. Until then the generic check
    holds: any 402 or "insufficient credits" is `credit`, any 429 or "rate limit" is `rate`. Item 8 is
    the follow-up commit that lands with the captured fixtures; the lane stays off until it does
-   (Rollout step 7).
+   (Rollout step 6).
 9. **`bin/setup-secrets neuralwatt`**
    - It prompts for the key without echo and checks that the key starts with `sk-`.
    - It writes `$tmp/neuralwatt-key`, the same as the `opencode-2` branch, and re-encrypts the bundle.
@@ -173,10 +173,12 @@ Strictly in this order. No release reaches any batch until step 3 is done.
      in it. Old router code refuses `neuralwatt-key` in its config (`Store.__init__`: `unapproved
      account`), so it would not start, and every acquire on every batch would fail
      `router_unavailable`.
-   - Add `neuralwatt-key` to the router config `accounts`, set `capacities['neuralwatt-key'] = 8`
-     and `disabled_routes: ["neuralwatt/"]`, then restart the router while no model calls are in
+   - Record `git -C /home/user/unbug-bench rev-parse HEAD` first (the rollback target), and check
+     whether `unbug-durable.service` is active: it runs `factory/durable/cli.py` from the same checkout.
+   - Add `neuralwatt-key` to the router config `accounts`, set `capacities['neuralwatt-key'] = 8`,
+     and add `"neuralwatt/"` to `disabled_routes`, keeping any existing entries, then restart the router while no model calls are in
      flight. That is the only time config changes take effect (`model_router.py:1153-1156`).
-   - Harmless on its own, because no caller offers the account yet, and the lane is off.
+   - Harmless on its own: no caller offers the account until step 6, and the lane is off.
    - Rollback: drain, remove `neuralwatt-key` from the router config, restart, and only then move
      the checkout back. An old router that still sees a request offering `neuralwatt-key` fails
      every acquire for about `LEASE_SECONDS` (its queue scan, `model_router.py:552`), so no caller
@@ -185,26 +187,38 @@ Strictly in this order. No release reaches any batch until step 3 is done.
    - Point `source-current` at the release source, then run
      `sudo -n /usr/bin/systemctl restart unbug-durable-case-campaign.service`.
    - `ACCOUNTS` now knows `neuralwatt-key`.
-5. **Bundle.**
-   - Back up `bundle_file` and the controller config.
-   - The founder runs `bin/setup-secrets neuralwatt`, starting from a Mac bundle that holds every
-     key the VM bundle holds.
-   - On the VM, check the new bundle before installing it: `age -d -i <identity_file> <new> | tar -t`
-     must list every name in `worker_credentials.accounts` plus `neuralwatt-key`.
-   - Install it with `mv`. Then add `neuralwatt-key` to `worker_credentials.accounts`, and restart
-     the controller.
-   - Rollback: restore both backups, then restart. Remove `neuralwatt-key` from
-     `worker_credentials.accounts` before any controller downgrade, or the controller refuses to
-     start (`invalid_worker_accounts`).
-   - A case that ran an NW call is never moved below this release: its ledger's reservation rows
-     carry `open_steps`, which older `usage_coverage` reads as unknown coverage.
-6. **Which cases get it.**
+5. **Which cases get the release.**
    - Send `plumbing_release <batch>` to each batch that should use it: new launches, and running
      cases not yet past G10. Never cases past G10 (standing rule).
    - A case picks it up at its next checkpoint, which reruns its changed gates. That cost is
      accepted per batch, by operator choice.
-7. **Lane on.** Only after the step 1 follow-up commit is reviewed, installed and live on the
-   controller: drain the router, remove `neuralwatt/` from `disabled_routes`, restart.
+   - Safe before step 6: no box carries `neuralwatt-key` yet, so `offered_accounts()` never offers
+     it. No client counts a lane it can't spend, so there is no cae763-style retry loop.
+6. **Lane on.** Only after the step 1 follow-up commit is reviewed, installed and live on the
+   controller (step 4 again for that release). Key and switch go together, never the key alone:
+   1. Back up `bundle_file` and the controller config.
+   2. The founder runs `bin/setup-secrets neuralwatt`, starting from a Mac bundle that holds every
+      key the VM bundle holds.
+   3. On the VM, check the new bundle before installing it: `age -d -i <identity_file> <new> | tar -t`
+      must list every name in `worker_credentials.accounts` plus `neuralwatt-key`.
+   4. Drain the router. Remove only the `neuralwatt/` entry from `disabled_routes`, keeping any
+      other entry, then restart the router.
+   5. Install the bundle with `mv`, add `neuralwatt-key` to `worker_credentials.accounts`, and
+      restart the controller.
+   - Rollback: put `neuralwatt/` back in `disabled_routes` (drained restart), restore both backups,
+     and restart the controller. Remove `neuralwatt-key` from `worker_credentials.accounts` before
+     any controller downgrade, or the controller refuses to start (`invalid_worker_accounts`).
+   - A case that ran an NW call is never moved below this release: its ledger's reservation rows
+     carry `open_steps`, which older `usage_coverage` reads as unknown coverage.
+
+**Known costs, recorded.**
+- A case with less money left than one whole request ($0.57 MiMo, $0.63 GLM) gets an NW
+  reservation that stops before sending and books its small bound. This over-counts only.
+- The pre-stop at `booked + nw_request_worst > maximum` can label a call that finished within one
+  request of its maximum `usage_reservation_exceeded`. That is retried as infra.
+- Not verified: OpenCode's side calls on `small_model`, such as session titles, may emit no step
+  parts. Step 1 compares the trial account's Neuralwatt usage against the booked steps, and the
+  "upper bound" claim waits on that check.
 
 ## What it deletes
 
