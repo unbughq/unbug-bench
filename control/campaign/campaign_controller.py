@@ -1,11 +1,27 @@
-import fcntl,json,math,os,sys,time
+import fcntl,json,math,os,re,sys,time
 from pathlib import Path
 root=Path(os.environ.get('UNBUG_CAMPAIGN_ROOT',Path(__file__).parent))
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'factory'))
 from durable import cli
-from durable.guard import CHECKPOINT_GRACE_S,CheckFailed,campaign_limits,compute_bound,compute_fits,reserve_start,worker_rate
+from durable.guard import CHECKPOINT_GRACE_S,STARTS_PER_DAY,STARTS_PER_MINUTE,CheckFailed,campaign_limits,compute_bound,compute_fits,reserve_start,worker_rate
 from durable.runtime import Runtime
 from durable.workers import PoolError,_atomic_json
+
+# Slots and starts (per hour, minute and day) a helper box may never take, so helpers cannot starve case workers.
+# ponytail: fixed reserve; move it into campaign-request.json if it ever needs tuning per campaign.
+HELPER_RESERVE_SLOTS,HELPER_RESERVE_STARTS,HELPER_RESERVE_MINUTE,HELPER_RESERVE_DAY=2,6,2,36
+HELPER_ID=re.compile(r'case-.*-[0-9]+-h[0-9]+')   # helper_link.helper_case_id of an engine case id (case-<batch>-<n>)
+
+def helper_limits(case,request):
+ """The request and (minute, day) start limits reserve_start applies to this create: a helper box
+ sees every cap less the case reserve."""
+ if not HELPER_ID.fullmatch(case):return request,None
+ cap,hourly=request.get('max_running_sandboxes'),request.get('max_starts_per_hour')
+ if type(cap) is not int or type(hourly) is not int:return request,None   # reserve_start refuses it
+ if cap<=HELPER_RESERVE_SLOTS:raise PoolError('infra:worker_slots_full')
+ if hourly<=HELPER_RESERVE_STARTS:raise PoolError('infra:worker_start_rate')
+ return ({**request,'max_running_sandboxes':cap-HELPER_RESERVE_SLOTS,'max_starts_per_hour':hourly-HELPER_RESERVE_STARTS},
+         (STARTS_PER_MINUTE-HELPER_RESERVE_MINUTE,STARTS_PER_DAY-HELPER_RESERVE_DAY))
 
 def grace():
  return float(os.environ.get('UNBUG_CHECKPOINT_GRACE_S',CHECKPOINT_GRACE_S))
@@ -78,7 +94,9 @@ class BoundedRuntime(Runtime):
     # Refused before reserve_start, so a refused helper books no start against the rate.
     if vm_type not in (None,request.get('vm_type','default')):raise PoolError('infra:compute_approval_unverified')
     # Timed after the inventory lookup inside reserve_start, right before the create request.
-    now=reserve_start(self.state/'campaign-starts.json',request,running)
+    # A helper box is refused first when the campaign nears its caps: it then runs on the case box.
+    limited,limits=helper_limits(case,request)
+    now=reserve_start(self.state/'campaign-starts.json',limited,running,limits=limits)
     remaining=request['deadline_epoch']-now
     if remaining<1:raise PoolError('infra:campaign_deadline')
     self.pool.ttl=min(7200,int(remaining+grace()))

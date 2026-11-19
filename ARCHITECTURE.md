@@ -748,16 +748,24 @@ Transport (`factory/durable/helper_link.py`, off unless runtime config has `"hel
 vm_type, min_per_copy, job_timeout_s}`): the case worker holds no Boat credentials, so `SpoolPool` turns
 lease/run/release into request files under `~/durable/helpers/<attempt>/req` and waits for answers in
 `res`; the control VM's `Broker`, started from `BoatChannel` for GATES attempts only (spool written at
-start, relay kept alive by each poll, no new engine step, so recorded workflows replay unchanged), reads
+start, relay kept alive by each poll only for an attempt whose spool has a `config.json`, asked once per
+attempt, so attempts started before helpers were turned on get no relay; no new engine step, so recorded
+workflows replay unchanged), reads
 the requests over `boat ssh`, leases each helper through `BoatPool` under case id `<case>-h<k>` (same
 release install and verify; `vm_type` may differ, except under the bounded campaign controller, which refuses
-a helper `vm_type` other than the request's approved one with `infra:compute_approval_unverified`), pushes the case tree, runs `helper_link.py run` on it
+a helper `vm_type` other than the request's approved one with `infra:compute_approval_unverified`, and
+admits a helper only below `max_running_sandboxes` - 2 running and every start window less a reserve
+(hourly `max_starts_per_hour` - 6, per minute 10 - 2, per day 180 - 36), so helpers never take the last
+slots or starts from case workers; with `warm_workers` set, a helper without its own `vm_type` could
+still take a warm worker whose refill is created at the full caps, so leave `warm_workers` unset while
+helpers are on), pushes the case tree, runs `helper_link.py run` on it
 (the real input check: release, bench, case, guard and scenario digests; then `bin/checkpoint`) and writes
 back the sealed result. Helpers are deleted on `release`, when the attempt ends or is cancelled, when
 polls stop for `idle_s`, and for every leftover helper record at controller start. A claim by an earlier
 controller process is answered as lost, so the case worker requeues. `per_case` and `total` cap helpers;
 a refused lease just leaves that work to run on the case worker. Lease and release seconds per helper go
-to `<state>/helper-leases/<case>.jsonl`; the case worker also books released lease seconds on the case card
+to `<state>/helper-leases/<case>.jsonl` (the board's HELPER BOXES line: leases and box time, infrastructure,
+never case money); the case worker also books released lease seconds on the case card
 (`helper_lease`), and with `usd_per_hour` in the helpers config, as `helper_lease_usd` beside the model spend,
 and a dispatch that would take spend plus lease money to the case limit stops like a model-budget stop. A
 helper runs `bin/checkpoint` with the case worker's own `UNBUG_*` env and `agent_timeout` (carried in the

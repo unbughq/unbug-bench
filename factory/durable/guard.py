@@ -180,9 +180,10 @@ def starts_over(starts: list, hourly: int, now: float, adding: int = 0, *,
 BOAT_START_LIMITS = (BOAT_STARTS_PER_MINUTE, BOAT_STARTS_PER_DAY)
 
 
-def reserve_start(path, request: dict, running: Callable, clock: Callable = lambda: time.time()) -> float:
+def reserve_start(path, request: dict, running: Callable, clock: Callable = lambda: time.time(), *,
+                  limits: Optional[tuple] = None) -> float:
     """Record one worker start and return its time, or refuse it with a reason the engine waits on
-    (classify.py). The caller holds the campaign create lock until the create request has been
+    (classify.py). `limits` (per minute, per day) defaults to the campaign's, as in starts_over. The caller holds the campaign create lock until the create request has been
     recorded, so `running` sees every earlier start. The clock is read after the inventory
     lookup, which can take minutes, so the recorded time is when the create really goes out."""
     try:
@@ -193,7 +194,7 @@ def reserve_start(path, request: dict, running: Callable, clock: Callable = lamb
     if running() >= cap:
         raise PoolError("infra:worker_slots_full")
     now = clock()
-    if starts_over(starts, hourly, now, adding=1):
+    if starts_over(starts, hourly, now, adding=1, limits=limits):
         raise PoolError("infra:worker_start_rate")
     _atomic_json(Path(path), [t for t in starts if now - t < 86400] + [now])
     return now
