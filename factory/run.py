@@ -2941,6 +2941,11 @@ def g10(c):
             except BaseException as error:
                 if not (isinstance(error, BudgetError) and str(error) == 'budget_exhausted'):
                     c.role_cancel.set()
+                if isinstance(error, BudgetError) and str(error) == 'cancelled':
+                    # An owner failure cancels both testers; the blind one often stops first. Raise the owner's stop.
+                    real = [e for e in (f.exception() for f in futures)  # exception() waits for each tester
+                            if e is not None and not (isinstance(e, BudgetError) and str(e) == 'cancelled')]
+                    if real: raise real[0]
                 raise  # executor joins all workers before seal/wipe; the section then publishes
         c.pilot_passes = [guard for child in contexts for guard in child.pilot_passes]
     else:
