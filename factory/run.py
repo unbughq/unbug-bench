@@ -77,11 +77,15 @@ def parallel_gates(c):
 
 
 def parallel_calibrators(c):
-    # Engine snapshots are deferred to quiescent points (durable.checkpoints.concurrent_section);
-    # only cases with parallel_gates use it; an older case keeps its serial G10 until it adopts the
-    # setting at a new writer round.
-    if under_engine(c) and not parallel_gates(c): return False
-    if not getattr(c.args, "concurrent_roles", False): return False
+    return calibrators_serial_reason(c) is None
+
+
+def calibrators_serial_reason(c):
+    """Why G10's two testers cannot run side by side, or None. Engine snapshots are deferred to quiescent
+    points (durable.checkpoints.concurrent_section); only cases with parallel_gates use it; an older
+    case keeps its serial G10 until it adopts the setting at a new writer round."""
+    if under_engine(c) and not parallel_gates(c): return "case is not on parallel gates"
+    if not getattr(c.args, "concurrent_roles", False): return "concurrent_roles is off"
     import bench
     try:
         scenarios = [bench.load_scenario(c.case / "base")]
@@ -90,15 +94,18 @@ def parallel_calibrators(c):
             # window beside another slot's copy reads two ids and fails (cae763, 14 November).
             folder = c.case / "scenarios"
             every = scenarios + [bench.load_scenario(d) for d in folder.iterdir() if d.is_dir()] if folder.is_dir() else scenarios
-            if bench.inventory_services(every): return False
-        return bench.isolated_inventory_services(scenarios) and bench.factory_memory_fits(scenarios, 2)
-    except (OSError, ValueError): return False  # an incomplete case may fail before G3
+            if bench.inventory_services(every): return "silent window beside an inventory service"
+        if not bench.isolated_inventory_services(scenarios): return "inventory endpoints are not isolated"
+        if not bench.factory_memory_fits(scenarios, 2): return "memory allowance for two testers"
+    except (OSError, ValueError): return "case files could not be read"  # an incomplete case may fail before G3
+    return None
 
 
 def g10_overlap_reason(c):
     # 2026-10-20: reserve two whole tester instances beyond the foreground pool.
     if getattr(c.args, "dry_run", False): return "dry run"
-    if not parallel_calibrators(c): return "parallel calibrators unavailable (isolation or memory)"
+    if not parallel_calibrators(c):
+        return f"parallel calibrators unavailable ({calibrators_serial_reason(c) or 'isolation or memory'})"
     import bench
     try:
         scenarios = [bench.load_scenario(c.case / "base")] + [bench.load_scenario(d) for d in (c.case / "scenarios").iterdir() if d.is_dir()]
@@ -3352,10 +3359,12 @@ MAX_GATE_BENCH_WORKERS = 8
 
 def scale_bench_workers(c):
     """At GATES entry: the cheat checks (G6/G7: ~20 guards x 10 stress runs, ~4.5 of 18681d's 8 hours on
-    11-12 November) spread over c.args.bench_workers copies. On a worker with room to spare (a Boat
-    "large" machine fits ~6 copies, "default" ~3), use as many as fit beside the two tester
-    instances G10 reserves, by memory and by CPU (one vCPU per copy), never fewer than the case's
-    own setting. Results do not depend on the copy count (fixed run numbers and seeds).
+    11-12 November) spread over c.args.bench_workers copies. On a worker with room to spare, use as
+    many as fit by memory and by CPU (one vCPU per copy), never fewer than the case's own setting,
+    beside the two tester instances G10 reserves when its testers can overlap (parallel_calibrators);
+    a serial G10 runs on slot 0 and needs none. One copy's caps are ~3.4 GiB (Medusa a+b 2x1280m,
+    postgres 768m, redis 128m, a service ~64m; 18 November), so a Boat "default" worker (8 GB) holds
+    2 copies and a "large" one (16 GB) about 4. Results do not depend on the copy count (fixed run numbers and seeds).
     Known cost: the gate cache identity and the early probe's slot include the count, so when it
     rises, GATES reruns the writer step's G4/G5/G15 (~45 min) and one strong-tester try instead of
     reusing them; the cheat checks save hours. Every GATES attempt on the same machine type
@@ -3366,9 +3375,9 @@ def scale_bench_workers(c):
         scenarios = [bench.load_scenario(c.case / "base")] + [bench.load_scenario(d) for d in sorted((c.case / "scenarios").iterdir()) if d.is_dir()]
         if not bench.isolated_inventory_services(scenarios): return False
         n = getattr(c.args, "bench_workers", 1)
-        cpus = os.cpu_count() or 1
-        while (n < MAX_GATE_BENCH_WORKERS and n + 1 + 2 <= cpus
-               and bench.factory_memory_fits(scenarios, n + 1 + 2)): n += 1
+        cpus, testers = os.cpu_count() or 1, 2 if parallel_calibrators(c) else 0
+        while (n < MAX_GATE_BENCH_WORKERS and n + 1 + testers <= cpus
+               and bench.factory_memory_fits(scenarios, n + 1 + testers)): n += 1
     except Exception: return False   # unsure: keep the case's setting
     if n == getattr(c.args, "bench_workers", 1): return False
     log(c, "bench workers", c.args.bench_workers, "->", n)
