@@ -131,7 +131,7 @@ def keep_mixed_receipt(run, c):
             run.checked_freshness_verdict(one, [row], [answer])
             if one.freshness_confirmed_hits: confirmed.append(index)
     atomic_json(c.work / 'freshness-verdict.json', {
-        'binding': {**search_binding(c, flagged), 'confirmation_contract': 2}, 'hits': answers,
+        'binding': {**search_binding(c, flagged), 'confirmation_contract': run.CONFIRMATION_CONTRACT}, 'hits': answers,
         'verdict_path': c.freshness_verdict_path, 'review_summary': c.freshness_review_summary,
         'confirmed_rows': confirmed, 'retrieval_sha256': retrieval.digest(c.freshness_retrieval)})
 

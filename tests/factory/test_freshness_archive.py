@@ -79,8 +79,24 @@ class ArchiveTests(unittest.TestCase):
             run.ensure_freshness(self.c)
         self.assertEqual(len(seen), 1)
         self.assertIn(run.SOURCE_CODE_NOT_PUBLIC, seen[0])
-        self.assertIn("app's own source code", seen[0])
-        self.assertIn('a commit or PR that fixes it', seen[0])
+        self.assertIn('reports or fixes it', seen[0])
+        self.assertIn('later version of the code that fixes it', seen[0])
+
+    def test_verdict_from_before_the_source_rule_is_reviewed_again(self):
+        self.assertTrue(self.review()[0])
+        path = self.c.work / 'freshness-verdict.json'
+        receipt = json.loads(path.read_text())
+        self.assertEqual(receipt['binding']['confirmation_contract'], run.CONFIRMATION_CONTRACT)
+        receipt['binding']['confirmation_contract'] = 2
+        path.write_text(json.dumps(receipt))
+        calls = []
+        def reviewer(c, models, text, cwd, name, **kwargs):
+            calls.append(name)
+            (Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': self.answers}))
+            return 0
+        with patch.object(run, 'opencode', side_effect=reviewer):
+            self.assertTrue(run.ensure_freshness(self.c)[0])
+        self.assertEqual(calls, ['reviewer-g2-confirm'])
 
     def test_archived_same_bug_blocks(self):
         self.answers[13].update(retrieved=True, same_bug=True, retrieved_from='archive',
