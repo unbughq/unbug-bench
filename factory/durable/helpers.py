@@ -128,8 +128,7 @@ def try_context(c) -> dict:
     return {"case_id": getattr(c, "case_id", None), "seed": c.seed, "args": args, "models": c.models,
             "card": {k: c.card[k] for k in ("case", "seed", "models", "roles", "provider_accounts", "rotation_slot")
                      if k in c.card},
-            # A list, as JSON gives it back: the helper's sealed job must equal this one (open_sealed).
-            "router_accounts": None if getattr(c, "router_accounts", None) is None else list(c.router_accounts),
+            "router_accounts": getattr(c, "router_accounts", None),
             "batch": [getattr(c, "batch_id", None), getattr(c, "job_id", None), getattr(c, "batch_deadline", None)],
             "attempt": getattr(engine, "key", None), "deadline_epoch": getattr(engine, "deadline_epoch", None)}
 
