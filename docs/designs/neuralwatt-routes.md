@@ -211,15 +211,19 @@ Strictly in this order. No release reaches any batch until step 3 is done.
         restart the controller. From now on, every new acquire delivers secrets without the key.
      2. Wait until every live case has started a new step, which re-delivers secrets. Each step's
         `router_accounts` is fixed at `Ctx` init, so a step that already holds the key keeps
-        offering it. In an emergency, end those steps instead: SIGTERM to `worker_step` books
-        `infra:step_crashed`, an infra retry, and its retry gets the new secrets.
+        offering it. In an emergency, end those steps instead: SIGTERM the forked attempt child
+        (not the `supervise` parent, which would leave the child running with the key). Its parent
+        then finds no result and books `infra:step_crashed` (`worker_step.py:470-471`), an infra
+        retry, and the retry gets the new secrets. Send no helpers during the wait: a helper's job
+        copies the parent's `router_accounts` (`helper_link.py:213`), key included, onto a box
+        that has none.
      3. Only then drain the router, put `neuralwatt/` back in `disabled_routes`, and restart it.
         Done in the other order, a keyed step counts a lane it can never lease, and a malformed
         answer loops on outage waits (the cae763 shape).
-     4. A case whose `ordinary-retries/*/state.json` lists an NW route in `spent_routes` fails
-        `infra:ordinary_retry_state_invalid` once the key is gone (`ordinary_retry.py:128-130`).
-        Delete that call's state file. This resets that one call's retry count, at most one extra
-        round of retries.
+     4. Nothing to clean up in retry state. A case that spent an NW lane keeps that route in
+        its snapshot's `ordinary-retries/*/state.json`. `ordinary_retry.answer` checks saved routes
+        against every account the code knows, not the ones offered now, so the route stays valid
+        with the key gone (test: `test_a_spent_neuralwatt_route_survives_the_key_being_withdrawn`).
      5. Remove `neuralwatt-key` from `worker_credentials.accounts` before any controller downgrade,
         or the controller refuses to start (`invalid_worker_accounts`).
    - A case that ran an NW call is never moved below this release: its ledger's reservation rows

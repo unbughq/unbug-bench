@@ -125,8 +125,11 @@ def answer(c, models, identity, kind, schema, request, invoke, validate, *, wall
     if state.get('binding') != binding or not isinstance(state.get('attempts'), list):
         raise BudgetError('ordinary_retry_state_invalid')
     accounts = getattr(c, 'router_accounts', model_router.ACCOUNTS)
+    # Saved routes are checked against every account this code knows, not the ones offered now: a case
+    # that spent a Neuralwatt lane keeps that route in its snapshot after the key is withdrawn
+    # (neuralwatt-routes rollback). Spending is still bounded by `approved` below.
     if not isinstance(state.get('spent_routes'), list) or not set(state['spent_routes']) <= {
-            row['route'] for row in model_router.routes(models[0], accounts)}:
+            row['route'] for row in model_router.routes(models[0], model_router.ACCOUNTS)}:
         raise BudgetError('ordinary_retry_state_invalid')
     # Exhaustion counts only the lanes this call can lease (as model_runtime._call does): a lane with
     # no price maximum, or a free or Go lane for a walled role, can never be spent. Counting the whole
