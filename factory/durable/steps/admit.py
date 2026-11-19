@@ -23,6 +23,9 @@ INPUTS (batch key), reusing the card and case.json schemas:
         An initial snapshot that is a legacy checkpoint (still age ciphertext to the statement
         key) is an import: see `_import_legacy`. Optional `"import_mode": "idea_only"` keeps
         only that archive's statement and case metadata and starts the case at WRITER.
+        `"import_mode": "hand_repaired"` keeps the whole tree and runs every gate; with
+        `"reuse_gates_of": "<earlier case id>"` (and no models, roles, slot or recovery_config)
+        it keeps that case's verifiable gate records too: see `_adopt_prior`.
         Every real candidate runs the existing semantic dedup, public freshness and
         independent idea-realism checks before it can be handed to WRITER.
         Optional `rotation_slot` overrides the existing cohort table; otherwise the count of
@@ -104,6 +107,13 @@ def _inputs(plaintext):
         raise _Invalid("inputs")
     # Idea-only keeps no verdicts, so it never combines with recertification.
     if value.get("import_mode") not in (None, IDEA_ONLY, HAND_REPAIRED) or (value.get("import_mode") and value.get("recertify")):
+        raise _Invalid("inputs")
+    # A hand repair may reuse its earlier case's gate records (_adopt_prior), whose card then fixes
+    # the models, roles, slot and settings those records bind.
+    prior = value.get("reuse_gates_of")
+    if prior is not None and (value.get("import_mode") != HAND_REPAIRED or not isinstance(prior, str)
+            or _CASE.fullmatch(prior) is None
+            or any(value.get(k) is not None for k in ("models", "roles", "rotation_slot", "recovery_config"))):
         raise _Invalid("inputs")
     if value["dry_run"]:
         return value
@@ -224,6 +234,10 @@ def _upgrade_registry(plaintext, sealer, batch_key):
 
 
 AGE = b"age-encryption.org/v1\n"
+# runtime.start's import for INPUTS `reuse_gates_of`: this line, a JSON line {"case", "archive_bytes"},
+# the hand-made archive (age ciphertext as above) and the factory's own last snapshot of that case.
+# Only the controller makes one: the operator's `prepare` accepts age ciphertext alone.
+PRIOR_MAGIC = b"unbug-prior-gates/v1\n"
 # Fixed refusal codes, published on the scorecard: they name the failed check, never case content.
 IMPORT_REFUSALS = ("import_key", "import_layout", "import_layout_root", "import_layout_card", "import_layout_meta",
                    "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
@@ -244,7 +258,105 @@ RECERTIFY_ROUTE_KEYS = {"builder": "writer", "attacker": "stress_tester", "stron
 _MODEL = re.compile(r"[A-Za-z0-9_.:-]+/[A-Za-z0-9_.:/-]{1,200}")
 
 
-def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None):
+def _split_prior(envelope, inputs):
+    """(archive, prior case id, prior snapshot) of a PRIOR_MAGIC import, for a hand repair that names
+    that case in INPUTS `reuse_gates_of`."""
+    try:
+        line, rest = envelope[len(PRIOR_MAGIC):].split(b"\n", 1)
+        header = json.loads(line)
+        case, size = header["case"], header["archive_bytes"]
+    except (ValueError, KeyError, TypeError):
+        raise _Invalid("import_hand") from None
+    if (not isinstance(case, str) or type(size) is not int or not 0 < size <= len(rest)
+            or inputs.get("import_mode") != HAND_REPAIRED or inputs.get("reuse_gates_of") != case):
+        raise _Invalid("import_hand")
+    return rest[:size], case, rest[size:]
+
+
+# Root case files no G5-G7 or G13-G15 measurement reads, the wording a person repairs by hand
+# (tests/factory/test_narrow_fingerprints.py checks the measurement code never names them). G4's identity
+# already leaves them out; the reviews (G8, G9) and G16 read them, so their records keep them.
+WORDING = ("statement.md", "README.md", "disclosure.md", "provenance.json")
+MEASURED = ("G5", "G6", "G7", "G13", "G14", "G15")
+
+
+def _rebind_wording(data, case):
+    """A measured gate's record whose identity holds the repaired tree's WORDING digests instead of
+    the earlier run's, signed again as gate_state.save signs: gate_state.load, unchanged, then compares
+    every other input exactly. Only a hand repair's adopted records are rebound; nothing else is."""
+    record = json.loads(data)
+    files = [e for e in record["inputs"]["case"] if e[0] not in WORDING]
+    files += [[n, hashlib.sha256((case / n).read_bytes()).hexdigest()] for n in WORDING if (case / n).is_file()]
+    record["inputs"]["case"] = sorted(files, key=lambda e: pathlib.PurePosixPath(e[0]))   # gate_state.inputs' order
+    record["signature"] = hashlib.sha256(json.dumps(record["inputs"], sort_keys=True).encode()).hexdigest()
+    return json.dumps(record).encode()
+
+
+def _adopt_prior(card, work, case, snapshot, inputs):
+    """Copy the earlier run's gate records into a hand-repaired import's work tree. They come only
+    from the factory's own last snapshot of that case (runtime.start puts it beside the archive),
+    never from the archive, and only for gates that run's card last passed. The card takes that
+    run's seed, models, roles, slot and settings, which the records' identities bind. Each PORTABLE
+    record moves whole, with exactly the evidence it lists, or not at all; a MEASURED gate's record
+    is rebound to this tree's WORDING (_rebind_wording), and gate_state.load still decides at GATES
+    whether it holds. G16 stays behind: its calibration identity hashes the whole tree. Returns the
+    gates copied."""
+    import copy
+    import fnmatch
+    import io
+    from gate_state import REUSABLE
+    from run import SNAPSHOT_RETAINED
+    places = [p for p in SNAPSHOT_RETAINED if p not in ("case", "scorecard.json", "gate-cache")]
+    reused, tops = [], set()
+    with tarfile.open(fileobj=io.BytesIO(snapshot), mode="r:gz") as tar:
+        members = {m.name: m for m in tar.getmembers() if m.isreg()}
+        def read(name):
+            return tar.extractfile(members[name]).read()
+        try:
+            old = json.loads(read("scorecard.json"))
+        except (KeyError, ValueError):
+            raise _Invalid("import_hand") from None
+        if not isinstance(old, dict) or old.get("case") != case or old.get("seed") != inputs["seed"]:
+            raise _Invalid("import_hand")
+        for name in ("models", "roles", "rotation_slot", "recovery_config"):
+            if name in old:
+                card[name] = copy.deepcopy(old[name])
+            else:
+                card.pop(name, None)
+        for gate in sorted(REUSABLE - {"G16"}):
+            # A failing rerun leaves the gate's older pass record behind: only a gate whose last verdict
+            # on that run's card is a pass keeps its record.
+            if not isinstance(old.get("gates"), dict) or old["gates"].get(gate) != "pass":
+                continue
+            record, evidence = f"gate-cache/{gate}.json", {}
+            try:
+                found = {record: read(record)}
+                for e in json.loads(found[record])["evidence"]:
+                    path = pathlib.PurePosixPath(e["path"])
+                    if e["kind"] not in ("bench", "work") or path.is_absolute() or ".." in path.parts or not path.parts:
+                        raise ValueError(gate)
+                    name = (pathlib.PurePosixPath("bench-results") / path if e["kind"] == "bench" else path).as_posix()
+                    evidence[name] = e["sha256"]
+                    found[name] = read(name)   # a regular member: a link is not one
+                if gate in MEASURED:
+                    found[record] = _rebind_wording(found[record], work / "case")
+            except (KeyError, ValueError, TypeError, AttributeError):
+                continue
+            # Only what a snapshot may carry, never the case tree or a card, and nothing ADMIT wrote.
+            heads = {name.split("/")[0] for name in evidence}
+            if (not all(any(fnmatch.fnmatchcase(head, p) for p in places) for head in heads)
+                    or any((work / head).exists() and head not in tops for head in heads)
+                    or any(hashlib.sha256(found[name]).hexdigest() != sha for name, sha in evidence.items())):
+                continue
+            for name, data in found.items():
+                (work / name).parent.mkdir(parents=True, exist_ok=True)
+                (work / name).write_bytes(data)
+            tops |= heads
+            reused.append(gate)
+    return reused
+
+
+def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None, prior=None):
     """Turn a rewrapped pre-durable checkpoint into this case's first work tree, in worker RAM.
 
     Only the old case tree is kept. Its card, ledger, gate caches, reviews and search evidence
@@ -263,6 +375,10 @@ def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None):
     it, so a sealed archive can lack case/statement.md. The board already holds that statement,
     sealed under the batch key: `board_statement(old case id)` returns it (checked against the
     board's statement digest) or None, and only then is a missing statement.md filled from it.
+
+    A hand repair whose import carries its earlier case's snapshot (`prior`: (case id, snapshot),
+    see _split_prior) must be that case's own tree, and keeps that run's verifiable gate records
+    (_adopt_prior); every other gate reruns.
     """
     idea_only = inputs.get("import_mode") == IDEA_ONLY
     from worker_secrets import SECRETS
@@ -283,6 +399,8 @@ def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None):
             if len(roots) != 1 or _CASE.fullmatch(next(iter(roots))) is None:
                 raise _Invalid("import_layout_root")
             name = next(iter(roots))
+            if prior is not None and name != prior[0]:
+                raise _Invalid("import_hand")   # another case's tree beside this case's gate records
             # Agent state and bench results may hold links; only the case tree and card are read.
             wanted = [m for m in members if m.name == f"{name}/scorecard.json" or m.name == f"{name}/case"
                       or m.name.startswith(f"{name}/case/")]
@@ -373,6 +491,8 @@ def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None):
         else:
             fresh["rotation_slot"] = next((i for i, slot in enumerate(slots, 1) if slot.get("writer") == family(writer)),
                                           fresh["rotation_slot"])
+    if prior is not None:
+        summary["reused_records"] = _adopt_prior(fresh, work, *prior, inputs)
     fresh["imported_from"] = summary
     atomic_json(work / "scorecard.json", fresh)
     return summary
@@ -782,12 +902,17 @@ def run(worker, step_input, keys):
         work = base / step_input.case_id
         if step_input.snapshot is not None:
             restored = worker.open_blob(sealer, case_key, step_input.snapshot)
-            if restored.startswith(AGE):
+            if restored.startswith((AGE, PRIOR_MAGIC)):
                 if inputs["dry_run"] or inputs.get("board_dedup"):
                     return fail("admit:inputs_invalid")
                 try:
+                    prior = None
+                    if restored.startswith(PRIOR_MAGIC):
+                        restored, *prior = _split_prior(restored, inputs)
+                    elif inputs.get("reuse_gates_of") is not None:
+                        raise _Invalid("import_hand")   # its earlier records come only through runtime.start
                     _import_legacy(restored, work, inputs, step_input.case_id,
-                                   lambda old: _board_statement(registry.root, refs, sealer, batch_key, old))
+                                   lambda old: _board_statement(registry.root, refs, sealer, batch_key, old), prior)
                 except (_Invalid, ValueError, KeyError, AttributeError, TypeError, tarfile.TarError) as error:
                     # The archive itself is wrong: a retry would only rebuild a worker for the same refusal.
                     code = str(error) if str(error) in IMPORT_REFUSALS else "import_invalid"

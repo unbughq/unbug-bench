@@ -603,6 +603,23 @@ def factory_bug_waste_keys(case_id: str, override: Optional[str] = None) -> list
     return _resume_point(case_id, override)[1]
 
 
+def latest_snapshot(case_id: str) -> Optional[Ref]:
+    """The snapshot a finished case recorded last (what its next step would restore), or None when the
+    case is unknown, still runs, or recorded none. Read-only: a hand repair of the case reuses the gate
+    records it holds (runtime.start, INPUTS reuse_gates_of)."""
+    runs = (DBOS.list_workflows(workflow_ids=[case_id], name=case_workflow.__qualname__, load_input=False, load_output=False)
+            + DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__,
+                                  load_input=False, load_output=False))
+    if not runs or any(w.status in ("PENDING", "ENQUEUED") for w in runs):
+        return None
+    found = []
+    for w in DBOS.list_workflows(workflow_id_prefix=case_id + "/", name=slot_workflow.__qualname__, load_input=False):
+        result = w.output.get("result") if w.status == "SUCCESS" and isinstance(w.output, dict) else None
+        if len(w.workflow_id.split("/")) == 4 and isinstance(result, dict) and result.get("snapshot"):
+            found.append(((w.created_at or 0, w.workflow_id), result["snapshot"]))
+    return Ref(**max(found)[1]) if found else None
+
+
 def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
     """Where a case stopped by an infrastructure failure continues, from its recorded attempts.
 
@@ -2402,6 +2419,10 @@ class Engine:
     def factory_bug_waste_keys(self, case_id: str, override: Optional[str] = None) -> list:
         """See the module function: what a resume of this case books as waste first."""
         return factory_bug_waste_keys(case_id, override)
+
+    def latest_snapshot(self, case_id: str) -> Optional[Ref]:
+        """See the module function: the snapshot a hand repair of this case takes its gate records from."""
+        return latest_snapshot(case_id)
 
     def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None,
                     resume_of: Optional[str] = None, override: Optional[str] = None,

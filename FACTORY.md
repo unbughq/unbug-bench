@@ -135,6 +135,12 @@ An unannounced step's live window is never shared between strategies or cached p
 case's other steps are; a strategy that completed in full is reused as a whole, as before.
 A borrowed execution is also saved in the borrower's own per-step cache, so a restart does not run it again.
 Pass rules and `--scenario-runs` are unchanged (`bin/strategy` `execute_shared`).
+A case the founder repairs by hand and imports again naming its earlier run (founder 2026-11-18,
+INPUTS `reuse_gates_of`) is the one exception to "any change reruns" a reused gate: its G4-G7 and
+G13-G15 records from that run's own snapshot, for gates that run last passed, still hold when only the
+root statement, README, disclosure or provenance changed, since no measurement reads them. Any other
+case change reruns them, as do a changed judge, guard, key, setting or seed; G8, G9 and G16 read the
+wording and rerun (ARCHITECTURE.md, hand repairs).
 
 **Not copied from Olympus:** "the strongest models must fail" (that would skew results
 against our contestants' model) and "deterministic tests only" (our bugs depend on timing

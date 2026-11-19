@@ -19,6 +19,17 @@ import sealed_audit
 
 
 class AuditTests(unittest.TestCase):
+    def test_the_delivery_contract_is_the_one_sealed_cases_carry(self):
+        """verify_exam_metadata refuses a sealed card whose delivery contract differs from the current code's,
+        so an edit of any file below makes every sealed case unexaminable (the seal freeze; 2026-11-18 the
+        hand-repair gate reuse first changed gate_state.py). Change these only with a reviewed contract pin."""
+        self.assertEqual(sealed_audit.delivery_contract(), {
+            "run.py": "e9e5e71b886e448735a024d052e7db3c8ec9e1e2d53eafbe060a5b375667752c",
+            "gate_state.py": "85ff257e30d745bd4d93636d85431b94f584d32ecfe1606c89f94eeae26325eb",
+            "calibration.py": "391794408ae17a52f5e827f9aa1bacb5c58b3102cbdd67defe749dc3e573a602",
+            "sealed_audit.py": "681286c25638d981f13b5090b21be5d0da365ba0669072d3df52f7ac2be198b7",
+            "prompts/pilot.md": "5c8d1c8db27f95a4e4ac3b6abbdf91877da654899f006c8c8f43be5f1281b840"})
+
     def test_exam_rejects_legacy_and_failed_fairness(self):
         card = {"case": "synthetic", "sha256": "a" * 64,
                 "gates": {f"G{i}": "pass" for i in range(1, 16)}}

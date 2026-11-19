@@ -233,7 +233,8 @@ already earned gate cache identities remain valid. An explicit true or false sta
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
-side transfers blobs; workers receive no R2 credentials. Invoke executors through
+side transfers blobs (its one opening of a case snapshot, for a hand repair's
+`reuse_gates_of`, only seals the bytes again unparsed); workers receive no R2 credentials. Invoke executors through
 `guarded_run`; sanitize exception paths and disable Conductor/DBOS Cloud.
 Worker steps share structured wait classification: quota/rate/credit/capacity wait durably,
 credential delivery, unbounded routes and router outages park without consuming
@@ -284,7 +285,8 @@ recipient; `prepare <first case id> case <file>` stores that ciphertext unopened
 case scope, and `start --import-file` passes the ref as the first ADMIT snapshot (only with
 `max_cases_started` 1 and `legacy_registry`). ADMIT opens it in worker RAM with the
 statement key and keeps only the old case tree: its card, ledger, caches, reviews and
-search evidence are dropped, and the old card survives as numbers in `imported_from`.
+search evidence are dropped, and the old card survives as numbers in `imported_from`
+(a hand repair's `reuse_gates_of` is the one exception, below).
 The existing screens then run once on the case's own statement, skipping only its old
 registry entry, and a rejection ends the case without selecting another idea. A case
 whose old card passed G1 starts at STRESS; others start at WRITER. Every gate reruns.
@@ -320,8 +322,8 @@ later resumes of that lineage carry the repaired GATES seq so the decision repla
 
 A case a person repaired by hand (founder 2026-11-17) is imported with INPUTS
 `"import_mode": "hand_repaired"` (and no `concurrent_roles` in its `recovery_config`: a copied
-`false` makes G10's testers take turns). ADMIT keeps its whole case tree like any import, drops every
-gate cache and reruns every screen, records the mode in `imported_from`, and answers
+`false` makes G10's testers take turns). ADMIT keeps its whole case tree like any import, drops the
+archive's gate caches and reruns every screen, records the mode in `imported_from`, and answers
 `admit:imported_hand`. The engine treats it like a recertified case (no WRITER or STRESS; a
 repair request or an extending diagnosis retires it) except that no verdict is kept, so GATES
 run every gate. The next repair is done by hand and imported again.
@@ -333,6 +335,29 @@ early probe and before G16 spends. A public match is then a G2 gate failure, not
 runs before freshness, so a case that is both public and unrealistic is labelled realism; and a
 case-caused freshness stop (a bot wall, review unavailable) lands after `admit:imported_hand`, so
 it needs a new import rather than a resume. With parallel gates off, ADMIT screens it as before.
+
+A repair of a case the factory already ran (founder 2026-11-18) adds INPUTS
+`"reuse_gates_of": "<that case id>"`, with no models, roles, slot or `recovery_config`. `start`
+takes that case's last recorded snapshot (`engine.latest_snapshot`: every workflow of it finished)
+from the store, opens it under that case's key in controller RAM, and seals it unparsed under the
+new case after the archive (`admit.PRIOR_MAGIC`); a snapshot past the bucket's expiry refuses
+(`import_prior_missing`) until it is put back from the backup. `prepare` accepts only age
+ciphertext, so an operator cannot upload such an envelope. ADMIT refuses (`admit:import_hand`)
+unless the archive's root is that case, its INPUTS name it, and the snapshot's card names it with
+this seed. The new card takes that card's models, roles, slot and settings, and of its gate cache
+only whole G4-G9 and G13-G15 records move, each with exactly the evidence it lists (paths a
+snapshot may carry, never the case tree or a file ADMIT wrote, digests checked), listed in
+`imported_from.reused_records`, and only for a gate that card last passed (a failing rerun leaves the
+older pass record behind). Nothing in the hand-made archive besides its case tree and card is
+read, so a gate cache planted there is never reused. A G5-G7 or G13-G15 record is rebound to the
+repaired tree's root wording (`admit.WORDING`: statement, README, disclosure, provenance, which no
+measurement reads; `tests/factory/test_narrow_fingerprints.py` checks that) and signed again
+(`admit._rebind_wording`); G4's identity already leaves the wording out. GATES then reuses a record
+only where the unchanged `gate_state.load` matches every other input exactly: G8 and G9 rerun on any
+case change, G1-G3, G10-G12, G16 and G17 always rerun, and a changed judge, guard, key, contestant
+text, fact sheet, answer key, setting or seed reruns every gate that measured with it. Ordinary
+cases and resumes keep the full comparison. `gate_state.py` stays as it is: `sealed_audit.delivery_contract`
+hashes it, and sealed cases carry that contract.
 
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
