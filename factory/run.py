@@ -2278,13 +2278,17 @@ def g7(c):
     """Flakiness: G4-G6 seeded runs again with a new seed; same verdicts. (Same day, same VM: see README.)"""
     seed = c.seed + 7919
     none, ref, s = plain_and_reference(c, seed, "g7")
+    broke, solved = sum(x["broken"] for x in none), sum(x["solved"] for x in ref)
+    c.card["flakiness_rerun"] = {"seed": seed, "plain_app_broke": f"{broke}/{len(none)}", "reference_fix": f"{solved}/{len(ref)}"}
+    if not (all(x["clean"] for x in none + ref) and broke >= 1 and solved == len(ref) and s.get("legit_completion", 0) >= 0.95):
+        # Already failing: like G6's generic probes, the cheat checkpoints (hours) cannot change the verdict.
+        c.card["flakiness_rerun"]["cheats_passed"] = "not run"
+        return False, c.card["flakiness_rerun"]
     failed = []
     passed, total = cheat_runs(c, seed, "g7", guards=reopened_first(c, "G7", cheats(c)), failures=failed, stop_on_pass=True)
     if passed: record_passing_cheats(c, "G7", failed)
-    broke, solved = sum(x["broken"] for x in none), sum(x["solved"] for x in ref)
-    c.card["flakiness_rerun"] = {"seed": seed, "plain_app_broke": f"{broke}/{len(none)}", "reference_fix": f"{solved}/{len(ref)}", "cheats_passed": f"{passed}/{total}"}
-    ok = all(x["clean"] for x in none + ref) and broke >= 1 and solved == len(ref) and s.get("legit_completion", 0) >= 0.95 and passed == 0
-    return ok, c.card["flakiness_rerun"]
+    c.card["flakiness_rerun"]["cheats_passed"] = f"{passed}/{total}"
+    return passed == 0, c.card["flakiness_rerun"]
 
 
 def review(c):
