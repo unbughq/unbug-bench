@@ -50,18 +50,21 @@ class RunArtifacts:
         """Bench files written during this run: evidence only, unless include_state (the wipe).
         slot_state.is_state names what a slot or a running bench still uses (readiness receipt, compose
         and port overrides, inventory services, pending decisions, temporaries, progress, seed IDs); the
-        gather leaves it, as gate_state.inventory does. The lock and seed IDs stay even for the wipe."""
+        gather leaves it, as gate_state.inventory does. The lock and seed IDs stay even for the wipe.
+        Written since t0 by ctime, not mtime: bench.py freezes inventory services with shutil.copytree, which
+        keeps the case files' old mtimes (8acb5c, 19 November: those copies stayed out of the snapshot, so
+        G13-G15 missed their evidence on every restored attempt, and the wipe left them on the bench)."""
         results = self.bench / "results"
         def kept(rel):
             return (slot_state.always_kept(rel.as_posix())
                     or (not include_state and slot_state.is_state(rel.as_posix())))
-        return [f for f in results.rglob("*") if f.is_file() and f.stat().st_mtime >= c.t0
+        return [f for f in results.rglob("*") if f.is_file() and f.stat().st_ctime >= c.t0
                 and not kept(f.relative_to(results))]
 
 
     def result_dirs_since(self, c):
         """Bench result directories made during this run, deepest first (their names come from the case)."""
-        return sorted((d for d in (self.bench / "results").rglob("*") if d.is_dir() and d.stat().st_mtime >= c.t0), key=lambda d: -len(d.parts))
+        return sorted((d for d in (self.bench / "results").rglob("*") if d.is_dir() and d.stat().st_ctime >= c.t0), key=lambda d: -len(d.parts))
 
 
     @processes.deadline(600, independent=True)

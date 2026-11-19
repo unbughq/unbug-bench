@@ -325,6 +325,33 @@ class EvidenceCacheTests(unittest.TestCase):
         self.assertEqual(published[-1], ['bench-results/runs/g5/checkpoint.json', 'gate-cache/G5.json'])
         self.assertEqual(self.c.engine.progress_gates, {'G5'})
 
+    def test_a_frozen_service_copy_survives_the_snapshot_restore(self):
+        """8acb5c, 2abb0a, cb5e26 (19 November): bench.py freezes a scenario's inventory services with
+        shutil.copytree, which keeps the case files' old mtimes. The gather took only files with mtime >= t0,
+        so those copies stayed in bench/results, out of the CASE_SNAPSHOT, and G4-G7/G13-G16 missed with
+        'evidence file missing or changed' on every restored attempt."""
+        import shutil, time
+        from durable.worker_step import restore, snapshot_bytes
+        service = self.root / 'case-service'; service.mkdir(); (service / 'Dockerfile').write_text('FROM x\n')
+        os.utime(service / 'Dockerfile', (time.time() - 30 * 86400,) * 2)   # a case file from last month
+        self.c.t0 = time.time() - 1
+        before = gate_state.digests(self.c, self.root)
+        run_dir = self.root / 'results/runs/20261119T102708Z-strategy-frozen-first-fix-5'
+        frozen = run_dir / 'scenarios/01-base/inventory_sources/counter'
+        shutil.copytree(service, frozen)   # as bench.py freezes it
+        (run_dir / 'summary.json').write_text('{}')
+        self.assertTrue(gate_state.save(self.c, 'G4', {'pass': True}, gate_state.fingerprint(self.c, 'G4', self.root), before, self.root))
+        cited = {e['path'] for e in json.loads((self.c.work / 'gate-cache/G4.json').read_text())['evidence']}
+        self.assertIn(frozen.relative_to(self.root / 'results').as_posix() + '/Dockerfile', cited)
+        with patch.object(run, 'BENCH', self.root), patch.object(run, 'HOME', self.root):
+            snapshot = snapshot_bytes(self.c, run)
+        shutil.rmtree(self.root / 'results')   # the next attempt's box has a fresh bench
+        restore(snapshot, self.c.work)
+        self.assertEqual(gate_state.load(self.c, 'G4', self.root), {'pass': True})
+        restored = self.c.work / 'bench-results' / frozen.relative_to(self.root / 'results') / 'Dockerfile'
+        restored.write_text('FROM y\n')   # evidence that really changed still reruns the gate
+        self.assertIsNone(gate_state.load(self.c, 'G4', self.root))
+
     def test_a_g8_pass_survives_the_next_engine_attempt(self):
         """cae763 (14 November): run.context_for_step sets args.agent_timeout to the attempt's remaining
         time, and G8/G9/G16 identity held it, so their passes (founder-ruled ones included) were re-rolled
