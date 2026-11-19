@@ -354,7 +354,8 @@ def _adopt_prior(card, work, case, snapshot, inputs):
                 (work / name).write_bytes(data)
             tops |= heads
             reused.append(gate)
-    idea = (old.get("imported_from") or {}).get("case") if isinstance(old.get("imported_from"), dict) else None
+    earlier = old.get("imported_from") if isinstance(old.get("imported_from"), dict) else {}
+    idea = earlier.get("idea_case") or earlier.get("case")   # a repair of a repair keeps the first idea entry
     return reused, idea if isinstance(idea, str) and _CASE.fullmatch(idea) else None
 
 
