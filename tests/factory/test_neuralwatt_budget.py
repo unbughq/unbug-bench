@@ -3,7 +3,7 @@
 neuralwatt-smoke-20261119.json holds rollout step 1's capture on the trial key: OpenCode 1.19.0's own event
 streams for both models under the factory's opencode_config, the request bodies OpenCode sent, and the error
 bodies (401/404 real; 402/429/503 from Neuralwatt's docs, marked source=docs: not provokable without spending
-the trial). The control-flow tests keep the Go step shape for exact arithmetic; the last three run the real
+the trial), wrapped in OpenCode's real APIError event (captured with a bad key). The control-flow tests keep the Go step shape for exact arithmetic; the last three run the real
 streams and bodies.
 """
 import sys
@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 from decimal import Decimal, ROUND_CEILING
+import copy
 import json
 import os
 import tempfile
@@ -31,11 +32,19 @@ TOKENS = dict(input=1000, output=2000, reasoning=500, cache=dict(read=4000, writ
 # MiMo's OpenRouter twin pins $0.435/M input, $0.87/M output and reasoning, $0.0036/M cache read.
 STEP = (1000 * .435 + 2500 * .87 + 4000 * .0036) / 1_000_000
 SMOKE = json.loads((Path(__file__).with_name('fixtures') / 'neuralwatt-smoke-20261119.json').read_text())
-# OpenCode's error event for a provider 402 (test_budget's OpenRouter 402 shape) carrying Neuralwatt's own 402 body:
-# its message never says "insufficient credits", so the status code alone must make it credit.
-_ALLOWANCE = SMOKE['errors']['key_allowance']
-CREDIT_402 = dict(type='error', error=dict(name='APIError', data=dict(statusCode=_ALLOWANCE['status'],
-    message=_ALLOWANCE['body']['error']['message'], responseBody=json.dumps(_ALLOWANCE['body']))))
+
+
+def opencode_error(name):
+    """OpenCode's real APIError event (captured with a bad key) carrying another Neuralwatt error body."""
+    error, event = SMOKE['errors'][name], copy.deepcopy(SMOKE['opencode_error_event']['event'])
+    body = error['body']['error']
+    event['error']['data'].update(statusCode=error['status'], message=body.get('message', body['code']),
+                                  isRetryable=body.get('retryable', False), responseBody=json.dumps(error['body']))
+    return event
+
+
+# Neuralwatt's 402 never says "insufficient credits": the status code alone must make it credit.
+CREDIT_402 = opencode_error('key_allowance')
 
 
 def finish(i, cost=0):
@@ -186,6 +195,7 @@ class NeuralwattBudget(unittest.TestCase):
                 parts = [e['part'] for e in events if e['type'] == 'step_finish']
                 self.assertTrue(parts and all(p['tokens']['input'] + p['tokens']['cache']['read'] > 0 for p in parts))
                 # OpenCode prices the step at the twin (opencode_config's cost); the booking is never below it.
+                self.assertEqual(len(data['events']), len(parts))
                 for event, part in zip(data['events'], parts):
                     self.assertAlmostEqual(part['cost'], go_step_cost(route, part['tokens']), places=12)
                     self.assertEqual(event['cost'], max(part['cost'], go_step_cost(route, part['tokens'])))
@@ -200,6 +210,22 @@ class NeuralwattBudget(unittest.TestCase):
         for request in SMOKE['requests']:
             self.assertEqual(request['stream_options'], {'include_usage': True})
             self.assertLessEqual(request['max_tokens'], OPENROUTER_OUTPUT)
+
+    def test_a_neuralwatt_429_ends_the_call_as_rate_with_no_phantom_tail(self):
+        # OpenCode's error event is terminal. The one-notice allowance for CLIs once skipped it, so the call
+        # ended as missing_usage, never told the router, and booked a whole request it never sent.
+        for name in ('concurrent', 'uncached_window', 'uncached_too_large'):
+            event = opencode_error(name)
+            for before in ([], [start(0), finish(0), start(1)]):
+                with self.subTest(error=name, steps=len(before)):
+                    self.ledger.unlink(missing_ok=True)
+                    lease, row = self.reserve(NW)
+                    with self.assertRaises(budget.BudgetError) as stop:
+                        self.call(lease, row, before + [event])
+                    self.assertEqual((str(stop.exception), stop.exception.provider_failure['reason']), ('provider_limit:' + NW, 'rate'))
+                    data, gap = self.settle_unknown(lease)
+                    self.assertEqual(gap, (nw_request_worst(NW).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
+                                           if before else 0))   # one open step: its request may have been sent
 
     def test_every_neuralwatt_error_body_classifies(self):
         want = {402: 'credit', 429: 'rate', 503: 'outage', 404: 'outage', 401: None}

@@ -1134,7 +1134,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         _save(path, ledger)
         if not collecting_usage and ledger['zero_token_streak'] >= max_zero_tokens: raise BudgetError('zero_tokens')
 
-    def diagnostic(text, response=False, partial=False, reset_at=None, retry_after=None, status_code=None, error_type=None, allow_outage=True, shared=False):
+    def diagnostic(text, response=False, partial=False, reset_at=None, retry_after=None, status_code=None, error_type=None, allow_outage=True, shared=False, terminal=False):
         nonlocal rate_limits
         text = text.lower()
         if driver == 'codex' and not response and (('refresh token' in text and any(s in text for s in (
@@ -1157,7 +1157,8 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             if observation['reason'] == 'rate':
                 if partial: return False
                 rate_limits += 1
-                if rate_limits < 2 and not provider_model.startswith('openrouter/'): return True
+                # One retry notice is let through for a CLI that keeps going; a terminal error has nothing after it.
+                if rate_limits < 2 and not terminal and not provider_model.startswith('openrouter/'): return True
             label = 'process_error' if observation['reason'] == 'outage' else 'provider_limit:' + provider_model
             raise BudgetError(label, provider_failure=observation)
         return False
@@ -1359,7 +1360,11 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         # Never scan tool output or echoed command/prompt text for provider errors.
         if kind == 'error' or (kind == 'system' and event.get('subtype') in ('error', 'api_retry', 'retry')) or (kind == 'result' and event.get('is_error')) or (driver == 'claude' and kind == 'assistant' and event.get('error')):
             info = provider_diagnostic(event)
-            if diagnostic(**info, allow_outage=kind != 'system', shared=True): return
+            # An OpenCode error event with an HTTP status is the AI SDK's final APIError (it has already retried):
+            # a 429 there is the call's rate stop, not a notice to skip. Skipped, the call ended as missing_usage
+            # with a phantom tail. A status-less 'retrying' message stays one notice.
+            if diagnostic(**info, allow_outage=kind != 'system', shared=True,
+                          terminal=driver == 'opencode' and kind == 'error' and info.get('status_code') is not None): return
         elif driver == 'claude' and kind == 'result':
             diagnostic(str(event.get('result', '')), response=True)
         elif driver == 'codex' and kind == 'turn.failed':

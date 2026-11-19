@@ -506,5 +506,37 @@
    ]
   },
   "rule": "any payment: paid; $50 total spend: standard; $500: pro"
+ },
+ "opencode_error_event": {
+  "source": "trial: OpenCode 1.19.0 run with NEURALWATT_API_KEY=sk-invalid000 (no spend)",
+  "event": {
+   "type": "error",
+   "timestamp": 1795120129267,
+   "sessionID": "ses_e0a80a633ffevQpGsOC41oyQHQ",
+   "error": {
+    "name": "APIError",
+    "data": {
+     "message": "Invalid API key",
+     "statusCode": 401,
+     "isRetryable": false,
+     "responseHeaders": {
+      "cf-cache-status": "DYNAMIC",
+      "cf-ray": "a5d1f6a6aad5b831-CDG",
+      "connection": "keep-alive",
+      "content-length": "94",
+      "content-type": "application/json",
+      "date": "Thu, 19 Nov 2026 20:28:49 GMT",
+      "nel": "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}",
+      "report-to": "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=vrmIKYmGfxJH2BTF8kKTwIage8HE7CHKctzwVdTDyHBNnKNx7SKSb74XbqcDfMCfdXVxEXSTq3tdCrOmyzkE8xWN5dfhhRB834PjQeb84WOlv34Jw%2F6JbWg2d%2BC4KkVhOGvSBg%3D%3D\"}]}",
+      "server": "cloudflare",
+      "x-request-id": "48ee4c70-e80b-453f-bd78-f4fab616fc68"
+     },
+     "responseBody": "{\"error\":{\"message\":\"Invalid API key\",\"type\":\"authentication_error\",\"code\":\"invalid_api_key\"}}",
+     "metadata": {
+      "url": "https://api.neuralwatt.com/v1/chat/completions"
+     }
+    }
+   }
+  }
  }
 }
