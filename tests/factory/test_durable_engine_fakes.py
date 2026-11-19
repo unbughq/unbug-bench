@@ -740,6 +740,7 @@ def engine_main(workdir):
     def actions():
         done = set()
         while not stop.is_set():
+            seen = {}   # one card read per case per tick: a slow read must not let a later action fire first
             for i, act in enumerate(scenario.get("actions", [])):
                 if i in done:
                     continue
@@ -750,10 +751,12 @@ def engine_main(workdir):
                         continue
                 if "case" in when:
                     case_id = f"case-{spec.batch_id[2:]}-{when['case']}"
-                    try:
-                        card = DBOS.get_event(case_id, "card", timeout_seconds=0.01)
-                    except Exception:
-                        card = None
+                    if case_id not in seen:
+                        try:
+                            seen[case_id] = DBOS.get_event(case_id, "card", timeout_seconds=0.01)
+                        except Exception:
+                            seen[case_id] = None
+                    card = seen[case_id]
                     if not card or card.get("status") != when["status"]:
                         continue
                 done.add(i)
