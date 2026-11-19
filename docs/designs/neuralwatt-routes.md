@@ -211,12 +211,13 @@ Strictly in this order. No release reaches any batch until step 3 is done.
         restart the controller. From now on, every new acquire delivers secrets without the key.
      2. Wait until every live case has started a new step, which re-delivers secrets. Each step's
         `router_accounts` is fixed at `Ctx` init, so a step that already holds the key keeps
-        offering it. In an emergency, end those steps instead: SIGTERM the forked attempt child
-        (not the `supervise` parent, which would leave the child running with the key). Its parent
-        then finds no result and books `infra:step_crashed` (`worker_step.py:470-471`), an infra
-        retry, and the retry gets the new secrets. Send no helpers during the wait: a helper's job
-        copies the parent's `router_accounts` (`helper_link.py:213`), key included, onto a box
-        that has none.
+        offering it. In an emergency, end those steps instead: SIGTERM every process of the attempt
+        (the forked attempt child and the agent programs it started, as `stop(key)` finds them,
+        `factory/durable/worker_step.py:172-180`), but not the `supervise` parent. The parent then
+        finds no result and books `infra:step_crashed` (`factory/durable/worker_step.py:470-471`),
+        an infra retry, and the retry gets the new secrets. Send no helpers during the wait: a
+        helper's job copies the parent's `router_accounts` (`factory/durable/helper_link.py:213`),
+        key included, onto a box that has none.
      3. Only then drain the router, put `neuralwatt/` back in `disabled_routes`, and restart it.
         Done in the other order, a keyed step counts a lane it can never lease, and a malformed
         answer loops on outage waits (the cae763 shape).
