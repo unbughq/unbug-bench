@@ -1007,12 +1007,43 @@ def _gate_completed(c, gate, ok, quiescent):
         engine_checkpoint(c)
 
 
+def adopt_release_moved_receipts(c):
+    """8acb5c 2026-11-19 (founder: save its finished tries): an exam row keys its owner files by absolute
+    path (calibration_identity), and that path names the release folder. A row recorded under an earlier
+    release of the same file differs only in that folder, so completed_attempts quarantined it when a new
+    release landed. Relabel such a key to this release's path when the file's sha256 is unchanged, and put
+    back the newest quarantined receipt when results.json is gone. Nothing else changes: completed_attempts
+    still verifies every row's whole identity and workspace, and quarantines again on any other difference."""
+    if getattr(c, "work", None) is None: return   # standalone gate checks have no receipts
+    here = pathlib.Path(__file__).with_name("exam_responder.py")
+    mine = str(here)
+    moved = re.compile(r"/home/user/releases/[0-9a-f]{64}/factory/exam_responder\.py")
+    from calibration import atomic_results
+    for name in ("strong_calibrator", "early_probe"):
+        path = c.work / name / "results.json"
+        source = path if path.exists() else max(path.parent.glob("results-unverified-*.json"),
+            key=lambda p: int(p.stem.rsplit("-", 1)[1]), default=None)
+        if source is None: continue
+        sha = hashlib.sha256(here.read_bytes()).hexdigest()
+        rows, changed = jload(source, None), source != path
+        if not isinstance(rows, list): continue
+        for row in rows:
+            files = ((row.get("identity") or {}).get("owner") or {}).get("files") if isinstance(row, dict) else None
+            if not isinstance(files, dict): continue
+            for key in [k for k in files if k != mine and moved.fullmatch(k) and files[k] == sha and mine not in files]:
+                files[mine] = files.pop(key); changed = True
+        if changed:
+            atomic_results(path, rows)
+            log(c, "G10", f"{name}: receipts recorded under an earlier release folder relabelled to this one")
+
+
 def g10_money_headroom(c):
     """Founder 2026-11-12: before bench gate work, check the strong calibrator's calls are funded.
     Each reserves its route's whole maximum (budget.reserve_invocation), so a shortfall found
     mid-G10 stopped the case after G7 and a resume reran G7 (2.3 h). Raises the money stop now, which
     the engine already turns into a wait for the batch bound; no call is admitted that would not be."""
     if not under_engine(c) or c.args.dry_run or not getattr(c, "models", None): return
+    adopt_release_moved_receipts(c)   # its count of finished tries reads results.json
     from decimal import Decimal
     from budget import invocation_headroom, event_charge, G10_TRIES
     accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
@@ -2747,6 +2778,7 @@ def g17(c):
 
 def g10(c):
     """Easy rejects all solves; zero strong solves requires G17 diagnosis."""
+    adopt_release_moved_receipts(c)
     if getattr(c.args, "resume", None) and not getattr(c, "budget_resumed", False):
         from budget import resume_ledger  # hand over the ledger first, so the two testers can start together
         resume_ledger(c.ledger); c.budget_resumed = True
@@ -2803,6 +2835,8 @@ def g11(c):
     """Fake pass: bin/fake-pass-check on every pilot pass, plus a fresh-seed re-run on the case's traffic.
     fake-pass-check's own re-runs use the base bench traffic, not the case's; its 'runs' findings are
     replaced by the case re-run (README, open gaps)."""
+    # Also here: a G11 pass saved before the relabel checked only the passes then on disk, and must not replay.
+    adopt_release_moved_receipts(c)
     if not getattr(c, "pilot_passes", None):  # G10 kept from an earlier run (2026-10-19): its solved tries are on disk
         c.pilot_passes = [pathlib.Path(r["guard"]) for role in ("strong_calibrator", "easy_calibrator")
                           for r in (jload(c.work / role / "results.json") or []) if r.get("solved")]
