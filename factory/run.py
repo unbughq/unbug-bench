@@ -1063,17 +1063,81 @@ def evaluate_gate(c, gate):
     fingerprint). G5 stays on the case box: its checkpoints take about a minute each there, against
     about ten for a helper to boot. G6 and G7 stop at their first solving cheat (cheat_runs
     stop_on_pass=True), so helpers may drop queued cheats behind one that solved
-    (helpers.checkpoint_shards)."""
+    (helpers.checkpoint_shards). G11's bench jobs may run side by side on bench slots (g11_slots)."""
     pool, cut = c.__dict__.get("helper_pool"), c.__dict__.get("helper_cut_after_solving")
     off = gate == "G5" and pool is not None
     if off: c.helper_pool = None
     c.helper_cut_after_solving = gate in ("G6", "G7")
+    slots = g11_slots(c) if gate == "G11" else 1
+    if slots > 1: c.g11_side_by_side = lambda c, guards, seed: g11_side_by_side(c, guards, seed, slots=slots)
     try:
         return globals()[gate.lower()](c)
     finally:
+        c.__dict__.pop("g11_side_by_side", None)
         if off: c.helper_pool = pool
         if cut is None: c.__dict__.pop("helper_cut_after_solving", None)
         else: c.helper_cut_after_solving = cut
+
+
+def g11_slots(c):
+    """Bench slots G11's per-guard jobs may use side by side: slot 0 plus the extra slots that are
+    prepared now (bench.factory_slot_ready; the card's prepared_factory_slots is only G3's cleanup
+    high-water mark, and a later round may have retired slots above its current count), as many as the
+    box's memory fits, under G5's isolation rule. 1 keeps the serial path."""
+    limit = max(getattr(c, "prepared_factory_slots", 1), getattr(c.args, "bench_workers", 1))
+    if limit < 2: return 1
+    import bench
+    try:
+        n = 1
+        while n < limit and bench.factory_slot_ready(BENCH / "results", n): n += 1
+        scenarios = [bench.load_scenario(c.case / "base")]
+        if n < 2 or not bench.isolated_inventory_services(scenarios): return 1
+        while n > 1 and not bench.factory_memory_fits(scenarios, n): n -= 1
+        return n
+    except Exception: return 1  # unsure: run serially
+
+
+def g11_side_by_side(c, guards, seed, *, slots):
+    """G11's bench work on `slots` bench slots (set up by evaluate_gate; outside G11's hashed sources).
+    The baseline (a guardless fake-pass-check) runs once on slot 0, as the serial command's does; each
+    guard's fake-pass-check then reuses its table list (--traffic-tables), and each guard's case re-run
+    runs too, every job whole on one slot (own ports, database, results and lock: G5's key pattern), with
+    the serial path's guards, seeds and run counts. Every job joins before anything is read, and results
+    and errors are taken in the serial order: the baseline, each guard's scan, then g11 reads re-runs in
+    guard order. Returns (report in the serial command's shape, rerun(index) -> (summary, records))."""
+    import queue, factory_pool
+    from durable.checkpoints import concurrent_section
+    free = queue.Queue()
+    for slot in range(1, slots): free.put(slot)
+    def on_slot(work):
+        slot = free.get()
+        try: return work(slot)
+        finally: free.put(slot)
+    def baseline():
+        try: return fake_pass_report(c, [], seed, env=factory_pool.worker_env(0))
+        finally: free.put(0)
+    def scan(index):
+        tables = futures["baseline"].result().get("tables_changed_by_traffic")   # waits without holding a slot
+        if not isinstance(tables, list):
+            from run_validity import InvalidInfra
+            raise InvalidInfra("fake-pass report missing or incomplete")
+        return on_slot(lambda slot: fake_pass_report(c, [guards[index]], seed, env=factory_pool.worker_env(slot),
+                                                     traffic_tables=tables))
+    def rerun(index):
+        return on_slot(lambda slot: checkpoint(c, [c.case / 'base'], guards[index], 5, seed, 'g11-rerun', slot=slot))
+    log(c, "G11", f"{len(guards)} guard(s) side by side on {slots} bench slots")
+    # ponytail: a failed job does not cancel the others; the gate waits for them, as only the serial
+    # order may decide which failure is raised.
+    futures = {}
+    with concurrent_section(c), ThreadPoolExecutor(max_workers=1 + 2 * len(guards)) as pool:
+        submit = lambda work, *args: pool.submit(contextvars.copy_context().run, work, *args)
+        futures["baseline"] = submit(baseline)
+        for index in range(len(guards)):
+            futures["scan", index] = submit(scan, index)
+            futures["rerun", index] = submit(rerun, index)
+    report = futures["baseline"].result()
+    report = {**report, "guards": [row for index in range(len(guards)) for row in futures["scan", index].result()["guards"]]}
+    return report, lambda index: futures["rerun", index].result()
 
 
 def _gate_pipeline():
@@ -2942,62 +3006,22 @@ def g10_turn(c, gate, invoke):
             c.card.setdefault("cleanup_errors", []).append({"stage": "g10_tester_services", "error": type(error).__name__})
 
 
-def fake_pass_report(c, guards, seed, *, workers=1, env=None):
-    """bin/fake-pass-check's report on `guards` (on the bench slot `env` names, else the case's own)."""
+def fake_pass_report(c, guards, seed, *, workers=1, env=None, traffic_tables=None):
+    """bin/fake-pass-check's report on `guards` (on the bench slot `env` names, else the case's own).
+    traffic_tables: the baseline's list of tables traffic changes, from an earlier report on the same
+    seed and scenario, instead of re-running the baseline traffic."""
     from run_validity import InvalidInfra
     command = [BENCH / "bin/fake-pass-check", *guards, "--runs", "5", "--seed", seed, "--scenario", c.case / "base"]
     if workers > 1: command += ["--factory-workers", workers]
+    if traffic_tables is not None: command += ["--traffic-tables", json.dumps(traffic_tables)]
     p = sh(c, command, capture=True, timeout=7200, env=env)
     found = re.findall(r"^Evidence: (.+)$", p.stdout, re.M)
     report = jload(found[-1], {}) if len(found) == 1 else {}
     rows = report.get("guards")
-    if p.returncode or not isinstance(rows, list) or len(rows) != len(guards):
+    if (p.returncode or not isinstance(rows, list) or len(rows) != len(guards)
+            or traffic_tables is not None and report.get("tables_changed_by_traffic") != traffic_tables):
         raise InvalidInfra("fake-pass report missing or incomplete")
     return report
-
-
-def g11_slots(c):
-    """Bench slots G11's per-guard work may use side by side: the most of G3's prepared slots (G10 is
-    joined before G11, so its tester slots are idle) whose copies the box's memory fits, under G5's
-    isolation rule. 1 keeps the serial path. Not verdict code: it only decides where runs execute."""
-    n = max(getattr(c, "prepared_factory_slots", 1), getattr(c.args, "bench_workers", 1))
-    if n < 2: return 1
-    import bench
-    try:
-        scenarios = [bench.load_scenario(c.case / "base")]
-        if not bench.isolated_inventory_services(scenarios): return 1
-        while n > 1 and not bench.factory_memory_fits(scenarios, n): n -= 1
-        return n
-    except Exception: return 1  # unsure: run serially
-
-
-def g11_side_by_side(c, guards, seed, slots):
-    """G11's per-guard jobs (a one-guard fake-pass-check, then the case re-run), each whole on its own
-    bench slot (G5's key pattern: own ports, database, results and lock), with the same guards, seeds and
-    run counts as the serial path. Every job finishes before anything is read; results and errors are then
-    taken in the serial order, so the first failure in guard order is the one raised. Returns the merged
-    report and rerun(index) -> (summary, records)."""
-    import queue, factory_pool
-    from durable.checkpoints import concurrent_section
-    free = queue.Queue()
-    for slot in range(slots): free.put(slot)
-    def job(kind, index):
-        slot = free.get()
-        try:
-            if kind == "scan": return fake_pass_report(c, [guards[index]], seed, env=factory_pool.worker_env(slot))
-            return checkpoint(c, [c.case / 'base'], guards[index], 5, seed, 'g11-rerun', slot=slot)
-        finally: free.put(slot)
-    log(c, "G11", f"{len(guards)} guard(s) side by side on {slots} bench slots")
-    # Scans (8 runs each) queue before re-runs (5). ponytail: a failed job does not cancel the others;
-    # the gate waits for them, as only the serial order may decide which failure is raised.
-    with concurrent_section(c), ThreadPoolExecutor(max_workers=slots) as pool:
-        futures = {(kind, index): pool.submit(contextvars.copy_context().run, job, kind, index)
-                   for kind in ("scan", "rerun") for index in range(len(guards))}
-    reports = [futures["scan", index].result() for index in range(len(guards))]
-    report = {**reports[0], "guards": [row for r in reports for row in r["guards"]]}
-    tables = [r.get("tables_changed_by_traffic") for r in reports]
-    if any(t != tables[0] for t in tables): report["tables_changed_by_traffic"] = tables  # per slot, guard order
-    return report, lambda index: futures["rerun", index].result()
 
 
 def g11(c):
@@ -3013,9 +3037,9 @@ def g11(c):
         return False, {"why": "no pilot pass to check"}
     seed = c.seed + 104729
     from run_validity import InvalidInfra, require_valid
-    slots = g11_slots(c)
-    if slots > 1:
-        report, rerun = g11_side_by_side(c, guards, seed, slots)
+    side_by_side = getattr(c, "g11_side_by_side", None)   # set by evaluate_gate: placement only, not verdict code
+    if side_by_side is not None:
+        report, rerun = side_by_side(c, guards, seed)
     else:
         report = fake_pass_report(c, guards, seed, workers=getattr(c.args, "bench_workers", 1))
         rerun = lambda index: checkpoint(c, [c.case / 'base'], guards[index], 5, seed, 'g11-rerun')

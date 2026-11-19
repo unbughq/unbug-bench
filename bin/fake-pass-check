@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fake-pass check: adversarial review of a guard beyond the known cheating probes.
 
-  bin/fake-pass-check <guard> [<guard> ...] [--negative-probes name,name,...] [--runs 5] [--seed N]
+  bin/fake-pass-check <guard> [<guard> ...] [--negative-probes name,name,...] [--runs 5] [--seed N] [--traffic-tables JSON]
 
 Per guard:
   1. Static scan of db.sql / app.patch for forbidden actions (roles, ownership, grants, RLS,
@@ -185,6 +185,8 @@ def main():
     p.add_argument("--seed", type=int, default=int(time.time()) % 100000, help="stress seed base (default: from the clock, recorded)")
     p.add_argument("--factory-workers", type=int, default=1)
     p.add_argument("--scenario", action="append", default=[], help="case baseline used for calibration")
+    p.add_argument("--traffic-tables", help="JSON list of the tables traffic changes, from an earlier run's report on "
+                   "the same seed and scenarios (factory G11 side by side): the baseline traffic runs are skipped")
     a = p.parse_args()
     scenarios = [bench.load_scenario(path) for path in a.scenario]
     if a.factory_workers < 1: p.error("factory-workers must be positive")
@@ -197,8 +199,8 @@ def main():
         # where orders succeed (`none`) and where every reservation is refused (`refuse-all`).
         bench.reset("none", scenarios=scenarios)
         base = catalog(); seed_digests = digests(base["tables"]); seed_stock = stocked()
-        dynamic = set()
-        for g in ("none", "refuse-all"):
+        dynamic = set(json.loads(a.traffic_tables)) if a.traffic_tables is not None else set()
+        for g in ("none", "refuse-all") if a.traffic_tables is None else ():
             bench.run_case(g, 1, options={"mode": "stress", "seed_base": a.seed}, label=f"fakepass-baseline-{g}", scenarios=scenarios)
             dynamic |= {t for t, d in digests(base["tables"]).items() if d != seed_digests[t]}
         dynamic = sorted(dynamic)
