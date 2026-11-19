@@ -18,6 +18,11 @@ assert "any other name, comment or text in that code that points at a coming bli
 assert "known bench limitation (founder ruling 2026-11-19)" in rules and "`oversold_other_items`" in rules
 assert "Do not fail fairness for the missing exposure seconds." in rules
 assert "Still fail the case if its promise covers such a product and no check in that checkpoint's `intent_checks` fails" in rules
+# Founder 2026-11-20 (cae763/f46dac/1bb2ad G8): a required check for a readable promise clause is graded at that checkpoint.
+assert "every check the case itself calls required for a promise clause the contestant can already read must be graded at that checkpoint. Only an owner-only rule may wait for the step that raises it." in rules
+assert "Graded means listed in that checkpoint's `intent_checks`" in rules
+assert "only an owner-only rule may wait for the step that raises it" in flat("factory/prompts/builder.md")
+assert "def intent_failures" in (ROOT / "bin/claims.py").read_text()   # the scorer function the rule names
 # The rule describes the real bench code.
 bench = (ROOT / "bin/bench.py").read_text()
 assert "CREATE ROLE bench_checker LOGIN BYPASSRLS" in bench and "UNBUG_MONITOR_BLIND" in bench
