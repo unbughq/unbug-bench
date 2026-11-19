@@ -130,26 +130,15 @@ class Calibrators(unittest.TestCase):
                 with mock.patch.object(bench, "inventory_services", return_value=[]):
                     self.assertTrue(run.parallel_calibrators(c), "a silent window without services is safe")
 
-    def test_the_serial_reason_names_the_blocker(self):
-        import bench
-        with tempfile.TemporaryDirectory() as tmp:
-            case = pathlib.Path(tmp)
-            c = types.SimpleNamespace(engine=object(), case=case,
-                                      args=types.SimpleNamespace(concurrent_roles=False, parallel_gates=True, bench_workers=2))
-            with mock.patch.object(bench, "load_scenario", return_value={}), \
-                 mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
-                 mock.patch.object(bench, "inventory_services", return_value=[{"name": "counter"}]), \
-                 mock.patch.object(bench, "factory_memory_fits", return_value=True):
-                self.assertEqual(run.g10_overlap_reason(c), "parallel calibrators unavailable (concurrent_roles is off)")
-                c.args.concurrent_roles = True
-                window = case / "harbor" / "t" / "steps" / "quiet" / "window.json"
-                window.parent.mkdir(parents=True); window.write_text("{}")
-                self.assertIn("silent window", run.g10_overlap_reason(c))
-                window.unlink()
-                with mock.patch.object(bench, "factory_memory_fits", return_value=False):
-                    self.assertIn("memory allowance for two testers", run.g10_overlap_reason(c))
-                with mock.patch.object(bench, "isolated_inventory_services", return_value=False):
-                    self.assertIn("not isolated", run.g10_overlap_reason(c))
+    def test_g3_and_g10_identity_sources_are_unchanged(self):
+        # gate_state.runner_inputs hashes these into G3 (via factory_slots) and G10: an edit, even a
+        # behaviour-neutral one, reruns every in-flight case's G3 and paid G10 testers. Put new reasons
+        # in an unhashed function (see g10_side_by_side_reason) instead of editing these.
+        expected = {"parallel_calibrators": "5f31ab38ef4dac64fe93eb72f8fbe67ae5fc49c200dd0b06d47980a862eda97e",
+                    "g10_overlap_reason": "6dda31b2820f832f6c15cbc677864b4730f318125a404bb91d8beee025b86762"}
+        for gate, names in (("G3", expected), ("G10", ("parallel_calibrators",))):
+            found = gate_state.runner_inputs(gate)
+            self.assertEqual({name: found.get(name) for name in names}, {name: expected[name] for name in names}, gate)
 
     def test_the_flag_is_a_kept_engine_setting(self):
         self.assertIn("parallel_gates", run.ENGINE_SETTINGS)

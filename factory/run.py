@@ -77,15 +77,11 @@ def parallel_gates(c):
 
 
 def parallel_calibrators(c):
-    return calibrators_serial_reason(c) is None
-
-
-def calibrators_serial_reason(c):
-    """Why G10's two testers cannot run side by side, or None. Engine snapshots are deferred to quiescent
-    points (durable.checkpoints.concurrent_section); only cases with parallel_gates use it; an older
-    case keeps its serial G10 until it adopts the setting at a new writer round."""
-    if under_engine(c) and not parallel_gates(c): return "case is not on parallel gates"
-    if not getattr(c.args, "concurrent_roles", False): return "concurrent_roles is off"
+    # Engine snapshots are deferred to quiescent points (durable.checkpoints.concurrent_section);
+    # only cases with parallel_gates use it; an older case keeps its serial G10 until it adopts the
+    # setting at a new writer round.
+    if under_engine(c) and not parallel_gates(c): return False
+    if not getattr(c.args, "concurrent_roles", False): return False
     import bench
     try:
         scenarios = [bench.load_scenario(c.case / "base")]
@@ -94,18 +90,15 @@ def calibrators_serial_reason(c):
             # window beside another slot's copy reads two ids and fails (cae763, 14 November).
             folder = c.case / "scenarios"
             every = scenarios + [bench.load_scenario(d) for d in folder.iterdir() if d.is_dir()] if folder.is_dir() else scenarios
-            if bench.inventory_services(every): return "silent window beside an inventory service"
-        if not bench.isolated_inventory_services(scenarios): return "inventory endpoints are not isolated"
-        if not bench.factory_memory_fits(scenarios, 2): return "memory allowance for two testers"
-    except (OSError, ValueError): return "case files could not be read"  # an incomplete case may fail before G3
-    return None
+            if bench.inventory_services(every): return False
+        return bench.isolated_inventory_services(scenarios) and bench.factory_memory_fits(scenarios, 2)
+    except (OSError, ValueError): return False  # an incomplete case may fail before G3
 
 
 def g10_overlap_reason(c):
     # 2026-10-20: reserve two whole tester instances beyond the foreground pool.
     if getattr(c.args, "dry_run", False): return "dry run"
-    if not parallel_calibrators(c):
-        return f"parallel calibrators unavailable ({calibrators_serial_reason(c) or 'isolation or memory'})"
+    if not parallel_calibrators(c): return "parallel calibrators unavailable (isolation or memory)"
     import bench
     try:
         scenarios = [bench.load_scenario(c.case / "base")] + [bench.load_scenario(d) for d in (c.case / "scenarios").iterdir() if d.is_dir()]

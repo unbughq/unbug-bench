@@ -247,7 +247,9 @@ ALTER ROLE bench_checker NOBYPASSRLS;
 ```
 In monitor_blind, use `bench.blind_leaks()`: per login (`arm_monitor`, `bench_checker`), the tables
 outside that allowlist where it still reads a row; blind means every list is empty while the
-administrator still sees live orders. Routes that need only the contestant's root on the box (the
+administrator still sees live orders. A case on an older bench release has no `blind_leaks`
+(`hasattr(bench, "blind_leaks")` is false): there, `SET ROLE` each login and count the rows of every
+public table and view outside the allowlist yourself. Routes that need only the contestant's root on the box (the
 app role, admin API, nested Docker) are known bench limitations.
 
 Each pending scenario.json has delivery: pending; its key.json contains pending_correct

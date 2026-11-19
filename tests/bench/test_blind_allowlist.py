@@ -11,6 +11,9 @@ ADMIN = ROOT / "cases/medusa-oversell-v2/scenarios/S11/admin.sql"
 builder = (ROOT / "factory/prompts/builder.md").read_text()
 assert builder.split("```sql\n")[1].split("```")[0] in ADMIN.read_text()
 assert "bench.blind_leaks()" in builder
+# A case keeps its bench release until a BenchRelease, so a writer round may run on a bench without
+# blind_leaks: the guidance must name the fallback or that judge fails with AttributeError.
+assert 'hasattr(bench, "blind_leaks")' in builder
 if not shutil.which("initdb"):
     print("blind allowlist: SKIPPED, no local initdb")
     sys.exit(0)
