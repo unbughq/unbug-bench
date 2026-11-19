@@ -147,6 +147,8 @@ class MaximaTests(unittest.TestCase):
             except ValueError: return False
         qualified |= {m for m in models if reaches_free(m)}
         qualified |= GO_ROUTES   # each Go plan route is bounded at its OpenRouter twin's maximum
+        from token_prices import NW_ROUTES
+        qualified |= NW_ROUTES   # and so is each Neuralwatt route (its chain still starts at Go)
         for model in models:
             result = store.rpc('acquire', dict(paid_protocol=1,id=uuid.uuid4().hex, model=model, accounts=list(router.ACCOUNTS),
                 role='writer', deadline=time.time()+3600))

@@ -85,7 +85,7 @@ class RouterTests(unittest.TestCase):
         self.assertEqual((lease['kind'], lease['route'], lease['account']),
                          ('lease', 'opencode/minimax-m3.1-flash-free', 'opencode-go-key'))
         self.assertEqual(self.store.rpc('capacity', {'route': 'opencode-go/minimax-m3.1-flash'})['slots'], 0)
-        mimo = self.acquire('opencode-go/mimo-v2.6-pro')
+        mimo = self.acquire('opencode-go/mimo-v2.6-pro', accounts=router.ACCOUNTS[:-1])   # a box without the Neuralwatt key
         self.assertEqual((mimo['route'], mimo['account']), ('openrouter/xiaomi/mimo-v2.6-pro', 'openrouter-key'))
         with self.assertRaises(ValueError):
             router.Store(self.root / 'bad.sqlite', disabled_routes=('',))

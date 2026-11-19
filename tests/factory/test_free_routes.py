@@ -159,10 +159,10 @@ class FreeRoutes(unittest.TestCase):
                 self.assertEqual(seen.pop(), (model_runtime.invocation_role(name),
                                               ('opencode-go-key/' + go, 'opencode-go-key-2/' + go,
                                                'opencode-go-key/' + FREE, 'opencode-go-key-2/' + FREE)))
-                # So does GLM, whose chain now ends in OpenRouter's gated route.
+                # So does GLM, whose chain now ends in OpenRouter's gated route: both Go lanes, Neuralwatt and free.
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), ['opencode/glm-5.3-flash-free'], 'x', '/', name, user=user)
-                self.assertEqual(len(seen.pop()[1]), 3)
+                self.assertEqual(len(seen.pop()[1]), 4)
                 # Muse (86b100's writer) keeps only its gated OpenRouter route behind the wall: never the Go plan.
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), ['opencode-go/muse-spark-1.3-contributor'], 'x', '/', name, user=user)
