@@ -370,6 +370,7 @@ class RunningCases(unittest.TestCase):
                                               (False, 20, 4, 4)):                    # CPU still caps it
             c, _ = self.case({"bench_workers": 2, "parallel_gates": True})
             c.engine = object(); c.args.parallel_gates = True; c.args.bench_workers = 2
+            c.args.overlap_cheat_gates = True
             tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
             c.case = pathlib.Path(tmp.name); (c.case / "scenarios").mkdir()
             with mock.patch.object(bench, "load_scenario", return_value={}), \
@@ -382,6 +383,25 @@ class RunningCases(unittest.TestCase):
             # A serial G10 uses slot 0, so G3 prepares exactly the bench copies.
             with mock.patch.object(run, "parallel_calibrators", return_value=overlap):
                 if not overlap: self.assertEqual(run.factory_slots(c), expected)
+
+    def test_a_case_in_flight_keeps_mains_bench_worker_count(self):
+        """The count is in every gate's cache identity (gate_state.inputs): a card without
+        overlap_cheat_gates whose G10 runs serially still reserves G10's two copies, as on main, so
+        its first GATES after the release reuses G4-G16 instead of rerunning them."""
+        import bench
+        for flag, expected in ((None, 2), (False, 2), (True, 4)):   # large worker: 4 copies fit
+            c, _ = self.case({"bench_workers": 2, "parallel_gates": True})
+            c.engine = object(); c.args.parallel_gates = True; c.args.bench_workers = 2
+            if flag is not None: c.args.overlap_cheat_gates = flag
+            tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+            c.case = pathlib.Path(tmp.name); (c.case / "scenarios").mkdir()
+            with mock.patch.object(bench, "load_scenario", return_value={}), \
+                 mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
+                 mock.patch.object(bench, "factory_memory_fits", side_effect=lambda s, n: n <= 4), \
+                 mock.patch.object(run, "parallel_calibrators", return_value=False), \
+                 mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=8):
+                run.scale_bench_workers(c)
+            self.assertEqual(c.args.bench_workers, expected, flag)
 
     def test_gates_entry_keeps_passed_gate_cache_identities(self):
         c, _ = self.case({"bench_workers": 1})

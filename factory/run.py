@@ -3485,7 +3485,7 @@ def scale_bench_workers(c):
     11-12 November) spread over c.args.bench_workers copies. On a worker with room to spare, use as
     many as fit by memory and by CPU (one vCPU per copy), never fewer than the case's own setting,
     beside the two tester instances G10 reserves when its testers can overlap (parallel_calibrators);
-    a serial G10 runs on slot 0 and needs none. One copy's caps are ~3.4 GiB (Medusa a+b 2x1280m,
+    a serial G10 runs on slot 0 and needs none, but only a new launch (overlap_cheat_gates) drops them. One copy's caps are ~3.4 GiB (Medusa a+b 2x1280m,
     postgres 768m, redis 128m, a service ~64m; 18 November), so a Boat "default" worker (8 GB) holds
     2 copies and a "large" one (16 GB) about 4. Results do not depend on the copy count (fixed run numbers and seeds).
     Known cost: the gate cache identity and the early probe's slot include the count, so when it
@@ -3498,7 +3498,10 @@ def scale_bench_workers(c):
         scenarios = [bench.load_scenario(c.case / "base")] + [bench.load_scenario(d) for d in sorted((c.case / "scenarios").iterdir()) if d.is_dir()]
         if not bench.isolated_inventory_services(scenarios): return False
         n = getattr(c.args, "bench_workers", 1)
-        cpus, testers = os.cpu_count() or 1, 2 if parallel_calibrators(c) else 0
+        # Only new launches (overlap_cheat_gates) drop the testers' copies: the count is in every gate's
+        # cache identity, so a case in flight keeps main's count and its earned gates.
+        overlap = parallel_calibrators(c) or getattr(c.args, "overlap_cheat_gates", False) is not True
+        cpus, testers = os.cpu_count() or 1, 2 if overlap else 0
         while (n < MAX_GATE_BENCH_WORKERS and n + 1 + testers <= cpus
                and bench.factory_memory_fits(scenarios, n + 1 + testers)): n += 1
     except Exception: return False   # unsure: keep the case's setting
