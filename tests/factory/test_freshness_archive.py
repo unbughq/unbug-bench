@@ -69,6 +69,19 @@ class ArchiveTests(unittest.TestCase):
         with patch.object(run, 'opencode', side_effect=AssertionError('paid repeat')):
             self.assertTrue(run.g2(self.c)[0])
 
+    def test_confirmers_told_the_apps_own_source_is_not_public(self):
+        seen = []
+        def reviewer(c, models, text, cwd, name, **kwargs):
+            seen.append(text)
+            (Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': self.answers}))
+            return 0
+        with patch.object(run, 'opencode', side_effect=reviewer):
+            run.ensure_freshness(self.c)
+        self.assertEqual(len(seen), 1)
+        self.assertIn(run.SOURCE_CODE_NOT_PUBLIC, seen[0])
+        self.assertIn("app's own source code", seen[0])
+        self.assertIn('a commit or PR that fixes it', seen[0])
+
     def test_archived_same_bug_blocks(self):
         self.answers[13].update(retrieved=True, same_bug=True, retrieved_from='archive',
             archive_available=True, archive_snapshot_url='https://web.archive.org/web/20260101000000/' + DEAD)

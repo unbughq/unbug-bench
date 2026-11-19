@@ -1959,6 +1959,15 @@ def confirm_timeout(c, flagged_count):
                getattr(getattr(c, 'args', None), 'agent_timeout', 1800))
 
 
+# Founder 2026-11-19 (1bb2ad-h8 failed G2 on the pinned app's own source files): every case's bug sits in
+# public code, so reading the code is not a public mention.
+SOURCE_CODE_NOT_PUBLIC = (
+    "The app's own source code (a file, tree or blame view of the code) is not the same bug just because the "
+    "defect can be seen by reading it, since every case's bug is in public code; it is the same bug only if the "
+    "page itself reports it, for example a comment, TODO or linked issue naming this defect, or a commit or PR "
+    "that fixes it.")
+
+
 def confirm_hits(c, flagged, *, retained_path=None):
     """Founder 2026-10-20: a searcher's own `hit` fails G2 only once the reviewer (another family) confirms it is this
     bug, in this app, at a version that still applies. The provenance pattern, other apps or unrelated pages do not
@@ -2047,7 +2056,7 @@ def confirm_hits(c, flagged, *, retained_path=None):
             f"Open each URL. A result is the same bug only if it describes this bug (or its fix or a workaround) in this "
             f"app, for a version where it still applies, so a contestant could find the answer there. The real-world "
             f"pattern the case was ported from (its provenance), the same pattern in another app, and unrelated pages are "
-            f"not the same bug. Set retrieved_from live for a retrieved live page. "
+            f"not the same bug. {SOURCE_CODE_NOT_PUBLIC} Set retrieved_from live for a retrieved live page. "
             f"Founder 2026-10-28 archive ruling: if the live URL is dead (HTTP 404/410, DNS failure or confirmed deleted), "
             f"also check the Wayback Machine availability API at https://archive.org/wayback/available?url=<encoded URL> "
             f"and any returned web.archive.org snapshot. Record archive_checked true only after a successful archive lookup, "
