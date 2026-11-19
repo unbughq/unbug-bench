@@ -353,7 +353,8 @@ class GatePipeline:
             """Record the lane's first gate now (waiting for it). True when the loop must stop."""
             lane["first"].wait()
             if lane["future"].done() and lane["future"].exception(): return side_finish()  # raised: surface it now
-            if not lane["results"]: return False
+            # No result means the lane raised; its finally sets `first` before the future is done, so join it.
+            if not lane["results"]: return side_finish()
             lane["taken"] = True
             return record(*lane["results"][0], quiet())
 

@@ -826,10 +826,15 @@ def statement_precheck(c):
             c.duplicate_feedback = {"duplicate_of": verdict["duplicate_of"], "reason": verdict["reason"]}
             c.precheck_problems = [f"duplicate of {verdict['duplicate_of']}"]
             c.card["admission"] = {"status": "rejected", "screen": "internal_duplicate"}; return False
-    ok, info = ensure_freshness(c)
-    if not ok:
-        c.precheck_problems = ["candidate public freshness screen failed"]
-        c.card["admission"] = {"status": "rejected", "screen": "public_freshness"}; return False
+    if (c.card.get("imported_from") or {}).get("mode") == "hand_repaired" and parallel_gates(c):
+        # No writer is paid on a hand repair, so the same screen runs once, as G2 in the lane beside the
+        # bench gates; side_early records its verdict before G5's after_gate and G16 spend model money.
+        c.card["freshness_deferred_to"] = "G2"
+    else:
+        ok, info = ensure_freshness(c)
+        if not ok:
+            c.precheck_problems = ["candidate public freshness screen failed"]
+            c.card["admission"] = {"status": "rejected", "screen": "public_freshness"}; return False
     # Founder 2026-11-09: a recertified case was built and passed G9 (realism of the built case);
     # the pre-build idea screen re-judges that question from the statement alone, so it is skipped.
     if c.card.get("recertify"):

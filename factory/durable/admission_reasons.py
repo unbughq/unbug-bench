@@ -121,6 +121,10 @@ def freshness_details(verdict, app_repo):
     hits = verdict.get("hits") if isinstance(verdict, dict) else None
     if not isinstance(hits, list):
         return {"evidence": "unrecorded"}
+    # A receipt kept beside unresolved rows lists the rows G2 counted; an older one held only counted rows.
+    counted = verdict.get("confirmed_rows")
+    if isinstance(counted, list):
+        hits = [h for i, h in enumerate(hits, 1) if i in counted]
     confirmed = [h for h in hits if isinstance(h, dict) and h.get("same_bug") is True and h.get("retrieved") is True
                  and isinstance(h.get("url"), str)]
     if not confirmed:

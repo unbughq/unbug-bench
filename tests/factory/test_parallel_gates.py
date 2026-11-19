@@ -395,6 +395,24 @@ class SideLane(unittest.TestCase):
         self.assertEqual(c.card["failed_gate"], "G2")
         self.assertNotIn("G5", c.card["gates"])
 
+    def test_a_g2_stop_lands_before_g5_spends_even_while_the_lane_future_is_settling(self):
+        """The lane sets `first` in its finally, before its future holds the exception: the main loop must
+        join it then, not record G5 and run its early probe (freshness stops now run in this lane)."""
+        real = threading.Event
+        class SlowSet(real):
+            def set(self):
+                super().set()
+                if threading.current_thread() is not threading.main_thread(): time.sleep(0.3)
+        def g2(c):
+            time.sleep(0.2)
+            raise run.BudgetError("freshness_review_unavailable")
+        import gate_pipeline   # only the pipeline's own events: Thread internals keep the real one
+        with mock.patch.object(run, "early_probe") as probe, \
+             mock.patch.object(gate_pipeline, "threading", types.SimpleNamespace(Event=SlowSet)):
+            with self.assertRaisesRegex(run.BudgetError, "freshness_review_unavailable"):
+                exercise(self, {"G2": g2}, probe=True)
+        probe.assert_not_called()
+
     def test_a_passing_g2_is_recorded_ahead_of_g5(self):
         with mock.patch.object(run, "early_probe") as probe:
             c = exercise(self, {"G2": lambda c: (time.sleep(0.2), (True, {}))[1]}, probe=True)
