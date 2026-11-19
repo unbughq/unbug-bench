@@ -184,7 +184,10 @@ repair round included, adopts them when a new writer round begins
 (`run.adopt_parallel_checks`): every check and gate runs again after a writer round, a retry of a
 round that already began keeps its settings, and an explicit `parallel_gates` on the card is never
 overridden (`false` is the only pin; an older card's `bench_workers` is replaced). For those cases G10's two calibrators run at once and
-may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second thread after G1,
+may overlap the bench gates from G6 (when G10 does not overlap, as for a case with a silent `window.json` beside an
+inventory service, its two testers still run side by side in G10's own turn on slots 0 and 1, and slot 1's inventory
+services are stopped when it ends: `run.g10_turn`, which leaves the hashed G3/G10 sources untouched; a card's
+`concurrent_roles: false` keeps them one at a time), and G2, G8 and G9 run in order on a second thread after G1,
 joining before G6 (G2 is recorded before G5, ahead of its early probe, so a G2 failure stops the loop before that spend). The G8/G9 panel's reviewers run at once when the money left covers each one's largest hold together (`run.holds_fit`), otherwise one after the other. G6 and G7 stop at the first passing cheat, since they pass only at zero (G6 then skips `verify-negative`; the cheat's name goes to sealed-side `gate-details`); G1 only warns when an inventory service lacks `host_ports` or `mem_limit`. In a writer step's early checks under the same G10 overlap conditions
 (`run.early_lane`, at least two bench workers), G3 runs first, then G15 keeps the foreground pool
 while G4, G5 and the saved-cheat sample run in order on the first reserved tester instance; both
@@ -316,7 +319,8 @@ writer round and then runs all gates (no stress round, the October case had its 
 later resumes of that lineage carry the repaired GATES seq so the decision replays.
 
 A case a person repaired by hand (founder 2026-11-17) is imported with INPUTS
-`"import_mode": "hand_repaired"`. ADMIT keeps its whole case tree like any import, drops every
+`"import_mode": "hand_repaired"` (and no `concurrent_roles` in its `recovery_config`: a copied
+`false` makes G10's testers take turns). ADMIT keeps its whole case tree like any import, drops every
 gate cache and reruns every screen, records the mode in `imported_from`, and answers
 `admit:imported_hand`. The engine treats it like a recertified case (no WRITER or STRESS; a
 repair request or an extending diagnosis retires it) except that no verdict is kept, so GATES

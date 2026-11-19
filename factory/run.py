@@ -2853,6 +2853,55 @@ def g10(c):
     return easy['solved'] < easy['tries'], c.card['calibrators']
 
 
+def g10_side_by_side_reason(c):
+    """Why G10's two testers take turns in G10's own turn (None: side by side on slots 0 and 1, g10_turn).
+    parallel_calibrators' checks without its silent-window rule, which keeps a window from running beside
+    another slot's inventory copy (cae763): no window runs in G10's turn, and its end stops slot 1's copy.
+    Outside the sources gate_state.runner_inputs hashes: editing parallel_calibrators, g10_overlap_reason,
+    factory_slots or g10 would change every case's G3 and G10 identity."""
+    if getattr(c, "audit_keep_easy", False): return "a sealed audit keeps the easy tester's saved tries"
+    if under_engine(c) and not parallel_gates(c): return "the card has no parallel_gates"
+    if not getattr(c.args, "concurrent_roles", False): return "concurrent_roles is off on the card"
+    if getattr(c, "prepared_factory_slots", 1) < 2: return "G3 prepared one bench slot"
+    import bench
+    try:
+        scenarios = [bench.load_scenario(c.case / "base")]
+        if not bench.isolated_inventory_services(scenarios): return "base scenario endpoints are not isolated"
+        if not bench.factory_memory_fits(scenarios, 2): return "memory allowance for two tester copies"
+    except (OSError, ValueError): return "scenario isolation or memory could not be verified"
+    return None
+
+
+def stop_tester_services(c, slot):
+    """bin/bench.py's own inventory cleanup, run in one bench slot's environment."""
+    import factory_pool
+    subprocess.run([sys.executable, "-c", "import bench; bench.stop_inventory_services()"], cwd=BENCH / "bin",
+                   env=factory_pool.worker_env(slot), check=True, capture_output=True, timeout=600)
+
+
+def g10_turn(c, gate, invoke):
+    """G10 in its own turn (run_gates' around_gate; an overlap that set calibrator_slot_offset at G6 is left
+    alone): with no g10_side_by_side_reason, its strong and easy testers run side by side on slots 0 and 1
+    (g10's concurrent branch; strong keeps slot 0, the early probe's), the same tries, seeds and models as
+    one at a time. Nothing else runs then, and slot 1's inventory copy is stopped once both testers have
+    returned, on any outcome, so no later window sees two. A cleanup failure is recorded, not a verdict;
+    a fresh G3 stops the copy again."""
+    if gate != "G10" or hasattr(c, "calibrator_slot_offset"): return invoke()
+    reason = g10_side_by_side_reason(c)
+    if reason is not None:
+        log(c, "G10", "testers one at a time:", reason)
+        return invoke()
+    log(c, "G10", "testers side by side on slots 0 and 1")
+    c.calibrator_slot_offset = 0
+    try:
+        return invoke()
+    finally:
+        c.__dict__.pop("calibrator_slot_offset", None)
+        try: stop_tester_services(c, 1)
+        except Exception as error:
+            c.card.setdefault("cleanup_errors", []).append({"stage": "g10_tester_services", "error": type(error).__name__})
+
+
 def g11(c):
     """Fake pass: bin/fake-pass-check on every pilot pass, plus a fresh-seed re-run on the case's traffic.
     fake-pass-check's own re-runs use the base bench traffic, not the case's; its 'runs' findings are
@@ -2993,11 +3042,11 @@ def pause_on_term(signum, frame):
     raise PauseRequested()
 
 
-def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_only=False):
+def run_gates(c, *, replay_gate=None, serial=False, replay_only=False):
     pipeline = _gate_pipeline()
     if serial: pipeline.overlap_reason = lambda c: 'serial gate evaluation'
     if replay_only: pipeline.budget_boundary = lambda c: None
-    return pipeline.run(c, replay_gate=replay_gate, around_gate=around_gate)
+    return pipeline.run(c, replay_gate=replay_gate, around_gate=g10_turn)
 
 
 def validate_and_repair(c):
