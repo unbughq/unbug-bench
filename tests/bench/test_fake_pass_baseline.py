@@ -39,5 +39,37 @@ class BaselineTests(unittest.TestCase):
             self.assertEqual(reset.call_args.kwargs["scenarios"], scenarios)
             self.assertTrue(all(call.kwargs["scenarios"] == scenarios for call in traffic.call_args_list))
 
+    def test_traffic_tables_skip_the_baseline_runs_and_are_reported(self):
+        import json, io, contextlib
+        for given in (None, ["order", "zeta"]):
+            with tempfile.TemporaryDirectory() as tmp:
+                argv = ["fake-pass-check", "g", "--seed", "9"] + ([] if given is None else ["--traffic-tables", json.dumps(given)])
+                seen = {}
+                def check(guard, runs, seed, base, dynamic, *a, **k):
+                    seen["dynamic"] = dynamic
+                    return {"guard": str(guard), "verdict": "clean", "findings": []}
+                with patch.object(sys, "argv", argv), patch.object(m.bench, "RESULTS", Path(tmp)), \
+                     patch.object(m.bench, "reset"), patch.object(m.bench, "resolve_guard", lambda g: Path(g)), \
+                     patch.object(m.bench, "run_case") as traffic, patch.object(m, "check_guard", check), \
+                     patch.object(m, "catalog", return_value={"tables": ["order", "zeta"]}), \
+                     patch.object(m, "digests", side_effect=[{"order": "a", "zeta": "b"}, {"order": "x", "zeta": "b"},
+                                                             {"order": "x", "zeta": "b"}]), \
+                     patch.object(m, "stocked", return_value="seed"), contextlib.redirect_stdout(io.StringIO()) as out:
+                    m.main()
+                report = json.loads(Path(out.getvalue().split("Evidence: ")[1].strip()).read_text())
+                want = ["order"] if given is None else given
+                self.assertEqual(report["tables_changed_by_traffic"], want)
+                self.assertEqual(seen["dynamic"], set(want))
+                self.assertEqual(traffic.call_count, 2 if given is None else 0)
+
+
+    def test_traffic_tables_must_be_a_list_of_names(self):
+        import subprocess
+        for bad in ('"order"', '{"a": 1}', 'nope', '[1]'):
+            r = subprocess.run([sys.executable, str(ROOT / "bin/fake-pass-check"), "g", "--traffic-tables", bad],
+                               capture_output=True, text=True, timeout=60, cwd=ROOT)
+            self.assertEqual(r.returncode, 2, bad)
+            self.assertIn("must be a JSON list of table names", r.stderr)
+
 
 if __name__ == "__main__": unittest.main()
