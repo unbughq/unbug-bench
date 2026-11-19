@@ -2851,15 +2851,16 @@ def g11(c):
         def validate(payload):
             items = payload.get('fixes') if isinstance(payload, dict) else None
             if not isinstance(items, list) or len(items) != len(guards): return None
-            start = 0
-            for row, findings in zip(items, flags):
-                # Flags numbered per fix ([0,1,2] each) or straight through all fixes (8acb5c: [0,1,2], [3,4,5]).
+            for row in items:
                 if (row.get('classification') not in ('rule_violation', 'checker_false_positive')
-                        or not isinstance(row.get('evidence'), str) or not row['evidence'].strip()
-                        or row.get('findings_reviewed') not in (list(range(len(findings))),
-                                                                list(range(start, start + len(findings))))):
+                        or not isinstance(row.get('evidence'), str) or not row['evidence'].strip()):
                     return None
-                start += len(findings)
+            # One numbering for the whole verdict: per fix ([0,1,2] each) or straight through all fixes
+            # (8acb5c: [0,1,2], [3,4,5], ...).
+            per_fix = [list(range(len(findings))) for findings in flags]
+            running = [list(range(sum(map(len, flags[:index])), sum(map(len, flags[:index + 1]))))
+                       for index in range(len(flags))]
+            if [row.get('findings_reviewed') for row in items] not in (per_fix, running): return None
             return [row['classification'] == 'checker_false_positive' for row in items]
         approved = adjudicate(c, sys.modules[__name__], 'G11', {'case': c.case, 'evidence': directory},
             'Read ./case and ./evidence, including fixes. Judge EVERY forbidden flag against the actual '
