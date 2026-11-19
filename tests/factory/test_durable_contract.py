@@ -266,8 +266,14 @@ class Shapes(unittest.TestCase):
         BenchRelease(A)
         FounderReply(FounderAction.CONTINUE, ref(K.FOUNDER_RULING))
         FounderReply(FounderAction.RETIRE)
+        FounderReply(FounderAction.STOP, reason="superseded by r2")
+        self.assertEqual(to_record(FounderReply(FounderAction.RETIRE)), {"action": "retire", "ruling": None})
         for bad in (lambda: BenchRelease("v2"), lambda: FounderReply(FounderAction.CONTINUE),
-                    lambda: FounderReply(FounderAction.RETIRE, ref(K.FOUNDER_RULING)), lambda: FounderReply("maybe")):
+                    lambda: FounderReply(FounderAction.RETIRE, ref(K.FOUNDER_RULING)), lambda: FounderReply("maybe"),
+                    lambda: FounderReply(FounderAction.STOP), lambda: FounderReply(FounderAction.STOP, reason=" "),
+                    lambda: FounderReply(FounderAction.STOP, reason="x" * 201),
+                    lambda: FounderReply(FounderAction.STOP, reason="line\nbreak"),
+                    lambda: FounderReply(FounderAction.RETIRE, reason="why")):
             with self.assertRaises(ContractError):
                 bad()
 

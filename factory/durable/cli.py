@@ -65,8 +65,8 @@ def dispatch(runtime, request):
         payload = dict(request["payload"])
         if payload.get("ruling") is not None:
             payload["ruling"] = Ref(**payload["ruling"])
-        runtime.engine.reply(request["destination"], FounderReply(**payload))
-        return {"sent": True}
+        # {"action": "stop", "reason": ...} retires a live case in any state; sent is false once it has ended.
+        return {"sent": runtime.engine.reply(request["destination"], FounderReply(**payload))}
     if op == "resume_held":
         case, _, batch = request["destination"].partition("@")
         if not CASE_ID.fullmatch(case) or (batch and not BATCH_ID.fullmatch(batch)):
@@ -209,7 +209,10 @@ def main(argv=None):
     commands.add_parser("board", help="read-only Sealing Board: every case in every batch, as JSON").add_argument(
         "--live", action="store_true", help="only cases still running in a live batch")
     for name in ("bench_release", "plumbing_release", "bound_raised", "founder_reply"):
-        p = commands.add_parser(name)
+        p = commands.add_parser(name, help=None if name != "founder_reply" else
+                                "answer an escalated case ({\"action\": \"continue\"|\"retire\"}), or retire a live "
+                                "case in any state at its next safe point ({\"action\": \"stop\", \"reason\": ...}; "
+                                "cancels its running attempt, recorded on the card and the board)")
         p.add_argument("destination")
         p.add_argument("payload_file")
     commands.add_parser("resume_held", help="rerun a case held for a factory release (held_for_release) "

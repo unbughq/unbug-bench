@@ -50,6 +50,7 @@ CASE_EVENT = "case_event"          # internal topic: case -> batch
 WAKE = "wake"                      # internal topic: batch -> a case waiting on the bound
 PENDING_ADMISSION = "pending_admission"  # test-only V2 pending-workflow control
 PROBE_CONTROL = "probe_control"          # batch -> a V2 admission probe
+STOP = "founder_stop"              # internal topic: founder_stop_workflow -> its case, cutting a nap short
 SEAM = dict(retries_allowed=True, interval_seconds=1.0, max_attempts=12, backoff_rate=2.0)
 TERMINAL = ("sealed", "retired", "held", "stopped_admission", "engine_error")
 
@@ -271,8 +272,16 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
     while _RT.executor is None:
         time.sleep(30)
     lease = WorkerLease(worker_id, step_input.case_id)
+
+    def stopped() -> bool:
+        """A founder stop of this case cancels the attempt on its worker. Read live, not recorded: a
+        step's result is all that is recorded. An unreadable record is no stop yet; the next poll asks again."""
+        try:
+            return founder_stop_reason(step_input.batch_id, step_input.case_id) is not None
+        except Exception:
+            return False
     try:
-        result = guarded_run(_RT.executor.bound(started_at, lease), step_input)
+        result = guarded_run(_RT.executor.bound(started_at, lease, stopped), step_input)
     except Exception:
         result = StepResult(Outcome.INFRA_ERROR, "engine:executor_raised")
     if result.reason in ("engine:executor_raised", "engine:executor_bad_result"):
@@ -691,6 +700,8 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         latest.output.get("status") if isinstance(latest.output, dict) else None)
     if stopped not in RESUMABLE_STATUSES:
         raise ContractError("resume:not_stopped_by_infra")
+    if override is None and isinstance(latest.output, dict) and latest.output.get("founder_stop") is not None:
+        raise ContractError("resume:founder_stopped")   # a founder's decision, as an escalation's RETIRE is
     # A retired hand-repaired import is never resumed, whatever retired it: it is repaired by hand
     # and imported again. A resume of a gate's repair request would hand its feedback to a writer.
     if stopped == "retired" and any(
@@ -1035,6 +1046,28 @@ def slot_workflow(job: dict) -> dict:
     return attempt_workflow(job)
 
 
+def founder_stop_id(batch_id: str, case_id: str) -> str:
+    """The workflow that records a founder stop of the case workflow running case_id in batch_id."""
+    return f"founder-stop/{batch_id}/{case_id}"
+
+
+def founder_stop_reason(batch_id: str, case_id: str) -> Optional[str]:
+    """The founder's reason, once that case is stopped. In a workflow this is a recorded read."""
+    reason = DBOS.get_event(founder_stop_id(batch_id, case_id), "reason", timeout_seconds=0.001)
+    return reason if isinstance(reason, str) else None
+
+
+@DBOS.workflow()
+def founder_stop_workflow(job: dict) -> None:
+    """A founder stop (Engine.reply, FounderAction.STOP). Its event is the record the case's safe points
+    (_Case.stop_check) and its running attempt (attempt_step) read; the messages end any wait it is in."""
+    DBOS.set_event("reason", job["reason"])
+    DBOS.send(job["case"], {"kind": "stop"}, topic=STOP)    # a nap (_Case.nap)
+    DBOS.send(job["case"], {"kind": "stop"}, topic=WAKE)    # a bound, release or fix wait
+    DBOS.send(job["case"], to_record(FounderReply(FounderAction.STOP, reason=job["reason"])),
+              topic=Topic.FOUNDER_REPLY.value)              # an escalation
+
+
 def _probe_reply(operation: str, phase: str) -> dict:
     while True:
         msg = DBOS.recv(PROBE_CONTROL, timeout_seconds=_RT.timing.batch_poll_s)
@@ -1176,6 +1209,7 @@ class _Case:
         self.override: Optional[str] = None   # the operator's reason, when an override resumed this case
         self.roles: Optional[dict] = None     # a resume's role swap (resume_point), sent with every step
         self.case_money_extra: Optional[dict] = None   # the lineage's raised case-money ceiling, for the card
+        self.founder_stop: Optional[str] = None   # the founder's reason, once a stop retired this case
 
     @property
     def replaying(self) -> bool:
@@ -1224,6 +1258,8 @@ class _Case:
             card["override"] = self.override
         if self.case_money_extra is not None:   # only a lineage with a grant: other cards are unchanged
             card["case_money_extra"] = self.case_money_extra
+        if self.founder_stop is not None:   # only a stopped case: other cards are unchanged
+            card["founder_stop"] = self.founder_stop
         DBOS.set_event("card", card)
 
     def tell(self, kind: str, *, _idempotency_key: Optional[str] = None, **fields) -> None:
@@ -1260,6 +1296,32 @@ class _Case:
         if self.worker_id is not None:
             release_step(self.case_id, self.worker_id)
             self.worker_id = None
+
+    def stop_check(self) -> None:
+        """A safe point: no attempt in flight and no money reserved. Retire here if the founder stopped
+        this case (Engine.reply, FounderAction.STOP). A replayed history never stops; nor does a workflow
+        that passed this point before the patch, so its replay is unchanged."""
+        if self.replaying or not DBOS.patch("founder_stop"):
+            return
+        reason = founder_stop_reason(self.batch_id, self.case_id)
+        if reason is not None:
+            self.retire_for_founder(reason)
+
+    def retire_for_founder(self, reason: str) -> None:
+        """Retired, its worker released; the batch starts no replacement (no line_stopped)."""
+        LOG.info("founder stop %s: %s", self.workflow_id, reason)
+        self.founder_stop = reason
+        if self.status == "held_for_release":
+            DBOS.set_event("release_hold", None)   # a later resume_held finds no hold
+        self.finish("retired")
+
+    def nap(self, seconds: float) -> None:
+        """DBOS.sleep that a founder stop cuts short. Workflows recorded before the patch keep the sleep."""
+        if not DBOS.patch("founder_stop"):
+            DBOS.sleep(seconds)
+            return
+        DBOS.recv(STOP, timeout_seconds=seconds)
+        self.stop_check()
 
     def current(self, name: str) -> str:
         value = DBOS.get_event(self.batch_id, name, timeout_seconds=5.0)
@@ -1304,6 +1366,7 @@ class _Case:
         admit = step.kind is StepKind.ADMIT
         admission_started = False
         while True:
+            self.stop_check()
             attempt += 1
             pv, bv = versions if versions is not None else (self.current("plumbing"), self.bench)
             snapshot = self.snapshot if (not admit or DBOS.patch("admit_checkpoint_input")) else None
@@ -1362,6 +1425,7 @@ class _Case:
                 self.bench = out["input"]["bench_version"]
                 self.gates_versions = (out["input"]["plumbing_version"], self.bench)
             self.absorb(step, attempt, result)
+            self.stop_check()   # before any decision: a cancelled attempt never leads to a hold or a diagnosis
             if restoring:
                 prev, self.worker_id = None, None   # its worker is gone; the first live attempt leases one
                 continue
@@ -1440,10 +1504,10 @@ class _Case:
                     self.release_worker()
                 if not self.replaying:
                     if step_s is not None:
-                        DBOS.sleep(min(step_s, _RT.timing.credential_retry_s))
+                        self.nap(min(step_s, _RT.timing.credential_retry_s))
                     else:
                         waited = sum(OPERATIONAL_RECHECK_S) if keep else 0
-                        DBOS.sleep(max(0.001, _RT.timing.credential_retry_s - waited))
+                        self.nap(max(0.001, _RT.timing.credential_retry_s - waited))
                 self.status = "running"
                 self.last_reason = None
                 self.card()
@@ -1457,7 +1521,7 @@ class _Case:
                         else _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s) and self.worker_id is not None:
                     release_step(self.case_id, self.worker_id)
                     self.worker_id = None
-                DBOS.sleep(_RT.timing.pause_retry_s)
+                self.nap(_RT.timing.pause_retry_s)
                 continue
             if action is Action.RETRY:
                 continue
@@ -1476,7 +1540,7 @@ class _Case:
                         or not self.keeps_worker_for(seconds, patched=DBOS.patch('keep_worker_through_waits'))):
                     self.release_worker()
                 if not self.replaying:
-                    DBOS.sleep(seconds)
+                    self.nap(seconds)
                 continue
             if action is Action.WAIT_FOR_BOUND:
                 if not self.replaying and not self.wait_for_bound(
@@ -1502,8 +1566,8 @@ class _Case:
                     if not DBOS.patch('admission_backoff_keeps_worker'):
                         self.release_worker()
                     if not self.replaying:
-                        DBOS.sleep(min(_RT.timing.admission_backoff_max_s,
-                                       _RT.timing.admission_backoff_s * 2 ** min(backoffs - 1, 16)))
+                        self.nap(min(_RT.timing.admission_backoff_max_s,
+                                     _RT.timing.admission_backoff_s * 2 ** min(backoffs - 1, 16)))
                     if now_step() >= self.spec.deadline_epoch:   # the sleep may have crossed it
                         return Action.STOP_ADMISSION, result
                     infra = self.spec.max_infra_retries_per_step   # one attempt per backoff
@@ -1570,9 +1634,9 @@ class _Case:
             return
         self.status = "waiting_for_credit"
         self.card()
-        DBOS.sleep(seconds)
+        self.nap(seconds)
         while not credit_ready_step():
-            DBOS.sleep(_RT.timing.wake_poll_s)
+            self.nap(_RT.timing.wake_poll_s)
         self.status, self.last_reason = "running", None
         self.card()
 
@@ -1584,6 +1648,7 @@ class _Case:
         while self.current('plumbing') in failed_releases:
             self.tell('waiting')
             DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s)
+            self.stop_check()
         self.status = 'running'
         self.card()
 
@@ -1818,6 +1883,7 @@ class _Case:
                                                                  self.spec.deadline_epoch - now)))
             if isinstance(msg, dict) and msg.get("kind") == "resume" and msg.get("hold") == hold:
                 break
+            self.stop_check()
         DBOS.set_event("release_hold", None)
         self.status = "running"
         self.card()
@@ -1837,9 +1903,11 @@ class _Case:
                 continue
             try:
                 reply = FounderReply(action=msg["action"], ruling=None if msg.get("ruling") is None
-                                     else Ref(**msg["ruling"]))
+                                     else Ref(**msg["ruling"]), reason=msg.get("reason"))
             except (ContractError, KeyError, TypeError):
                 continue
+            if reply.action is FounderAction.STOP:
+                self.retire_for_founder(reply.reason)
             if reply.action is FounderAction.RETIRE:
                 self.finish("retired")
             self.status = "running"
@@ -1916,7 +1984,10 @@ def case_workflow(job: dict) -> dict:
     except _Stop:
         pass
     case.tell("done", status=case.status, sealed=case.sealed)
-    return {"case_id": case.case_id, "status": case.status, "sealed": case.sealed}
+    out = {"case_id": case.case_id, "status": case.status, "sealed": case.sealed}
+    if case.founder_stop is not None:   # only a stopped case: resume_point refuses it without an override
+        out["founder_stop"] = case.founder_stop
+    return out
 
 
 # ---- the batch workflow --------------------------------------------------------------------------
@@ -2480,10 +2551,25 @@ class Engine:
         DBOS.send(batch_id, to_record(payload), topic=topic.value)
         DBOS.send(batch_id, {"kind": "nudge"}, topic=CASE_EVENT)
 
-    def reply(self, case_id: str, reply: FounderReply) -> None:
+    def reply(self, case_id: str, reply: FounderReply) -> bool:
+        """CONTINUE and RETIRE answer an escalation. STOP retires the case workflow case_id, whatever it is
+        doing, at its next safe point (_Case.stop_check): a running attempt is cancelled on its worker and
+        settles as any cancel does, its worker is released, and the reason goes on the card. Only the
+        first stop of a workflow is recorded; False, and nothing recorded, once that workflow has ended."""
         if not isinstance(reply, FounderReply):
             raise ContractError("reply carries a FounderReply")
-        DBOS.send(case_id, to_record(reply), topic=Topic.FOUNDER_REPLY.value)
+        if reply.action is not FounderAction.STOP:
+            DBOS.send(case_id, to_record(reply), topic=Topic.FOUNDER_REPLY.value)
+            return True
+        runs = DBOS.list_workflows(workflow_ids=[case_id], name=case_workflow.__qualname__)
+        if not runs:
+            raise ContractError("stop:unknown_case")
+        if runs[0].status not in ("PENDING", "ENQUEUED"):
+            return False
+        job = runs[0].input["args"][0]
+        with SetWorkflowID(founder_stop_id(job["spec"]["batch_id"], job["case_id"])):
+            DBOS.start_workflow(founder_stop_workflow, {"case": case_id, "reason": reply.reason})
+        return True
 
     def resume_held(self, case_workflow_id: str) -> bool:
         """An operator's go-ahead for a case held for a factory release (status held_for_release):

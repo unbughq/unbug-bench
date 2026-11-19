@@ -438,18 +438,29 @@ class BoundRaised:
 
 class FounderAction(str, Enum):
     CONTINUE = "continue"   # rerun the escalated step with the ruling as input
-    RETIRE = "retire"       # retire the case
+    RETIRE = "retire"       # retire the escalated case
+    STOP = "stop"           # retire a live case in any state, at its next safe point, for the reason given
+
+
+FOUNDER_REASON_MAX = 200
 
 
 @dataclass(frozen=True)
 class FounderReply:
     action: FounderAction
     ruling: Optional[Ref] = None   # FOUNDER_RULING, required for CONTINUE
+    # Printable, required for STOP: shown on the card and the board. Absent from other replies' records.
+    reason: Optional[str] = field(default=None, metadata={"omit_none": True})
 
     def __post_init__(self):
         object.__setattr__(self, "action", _enum(FounderAction, self.action, "founder action"))
         _ref(self.ruling, ArtifactKind.FOUNDER_RULING, "ruling")
         _check((self.ruling is not None) == (self.action is FounderAction.CONTINUE), "CONTINUE carries a ruling")
+        stop = self.action is FounderAction.STOP
+        _check((self.reason is not None) == stop, "STOP carries a reason")
+        _check(not stop or (type(self.reason) is str and 0 < len(self.reason.strip())
+                            and len(self.reason) <= FOUNDER_REASON_MAX and self.reason.isprintable()),
+               f"a STOP reason is printable text of at most {FOUNDER_REASON_MAX} characters")
 
 
 # ---- the worker wire protocol (WP2 control side, WP5a worker side) ---------------------------

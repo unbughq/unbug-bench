@@ -557,6 +557,23 @@ reason rides in the resume record, so a third override of the lineage is refused
 retires at its next `factory_bug` diagnosis. The override's case card and the board show the reason;
 the published scorecard does not.
 
+A founder stop retires a live case whatever it is doing: `founder_reply <case> <payload>` with
+`{"action": "stop", "reason": <text>}` (contract v6 `FounderAction.STOP`, its `FounderReply.reason`
+printable and at most 200 characters; `CONTINUE` and `RETIRE` still only answer an escalation and their
+records are unchanged). `Engine.reply` starts one `founder_stop_workflow` per case workflow
+(`founder-stop/<batch>/<case>`, so a repeated stop records nothing new and only the first reason
+counts) and answers `sent: false` for a workflow that has already ended. Its event `reason` is the
+record; its messages end whatever wait the case is in (topic `founder_stop` for a backoff, retry or
+credit sleep, `wake` for a bound, release or fix wait, `founder_reply` for an escalation). A running
+attempt reads the record at each poll (`attempt_step`, not recorded) and is cancelled on its worker
+by the ordinary cancel path: the tombstone and `infra:cancelled` with the usage so far, settled as any
+cancel is, so no money stays reserved. The case retires at its next safe point (`_Case.stop_check`:
+before each attempt, right after each attempt's result and before any decision on it, and after each
+wait), releases its worker, and puts the reason on its card (`founder_stop`) and the board; the batch
+starts no replacement and its other cases carry on. Patch `founder_stop` keeps replay identical: a
+workflow recorded before it replays its sleeps and stops at its first safe point after its recorded
+history. A stopped case resumes only under an override (`resume:founder_stopped`).
+
 Founder 2026-11-13: a resume may raise its lineage's case-money ceiling so a case can finish:
 `start --resume-case <case> --extra-case-money <usd_micros> --case-money-reason <text>`. `start`'s
 `resume_money` check then lets the earlier spend plus the batch's case money reach the $50 default

@@ -783,6 +783,9 @@ def engine_main(workdir):
                     observed["lifted"] = router_store.lift_credit() == "lifted"
                 if "resume_held" in act:
                     observed["resume_sent"] = engine.resume_held(f"case-{spec.batch_id[2:]}-{act['resume_held']}")
+                if "stop" in act:   # {"case": n, "reason": text}: the founder stops case n (`founder_reply`)
+                    observed["stop_sent"] = engine.reply(f"case-{spec.batch_id[2:]}-{act['stop']['case']}",
+                                                         FounderReply("stop", reason=act["stop"]["reason"]))
                 if "case" in when:
                     observed.update(status=card.get("status"), reason=card.get("reason"))
                 fakes["worker"].f.append("actions.log", observed)
