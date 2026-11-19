@@ -1569,6 +1569,14 @@ class Resume(unittest.TestCase):
         self.addCleanup(r.close)
         self.assertEqual(out['result']['cases'], {C1: 'retired'})
         self.assertEqual(self.resume(r), {"refused": "resume:hand_repaired"})
+        # Founder 2026-11-19: a listed case resumes past this rule, and only by an operator override.
+        listed = {"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1, "script": {},
+                  "hand_resume_exceptions": [C1]}
+        self.assertEqual(self.engine_run(listed, workdir=r.work).run(), {"refused": "resume:hand_repaired"})
+        scenario = {**listed, "override": "founder exception"}
+        out = self.engine_run(scenario, workdir=r.work).run()
+        self.assertNotEqual(out.get("refused"), "resume:hand_repaired")
+        self.assertIn(C1 + "@b-u", out["result"]["cases"])
 
     # 86b100 on 10 November: its recertify G16 asked for a repair, which retires a recertified case.
     def test_a_recertified_case_retired_at_a_repairable_gate_resumes_into_a_writer_repair(self):
