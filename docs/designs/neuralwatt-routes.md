@@ -70,7 +70,7 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
    - `lasting()` is unchanged, so a credit or quota block on `neuralwatt-key` expires on its backoff.
    - Router config: `capacities['neuralwatt-key'] = 8`. The off switch is
      `disabled_routes: ["neuralwatt/"]`.
-3. **Offered accounts** (`model_runtime.py`, case context set-up)
+3. **Offered accounts** (`run.Ctx.__init__`, `factory/run.py:163-167`; all three construction sites go through it, and the `helper_link.py:213` override stays)
    - `c.router_accounts` is computed once, when the case context is built:
      `tuple(a for a in ACCOUNTS if a != 'neuralwatt-key' or (SECRETS / a).is_file())`.
    - Every caller already reads `getattr(c, 'router_accounts', ACCOUNTS)`: `_account_order`,
@@ -90,8 +90,9 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
      - The context is Neuralwatt's `max_model_len`, 1048560, which is below the twins' 1048576.
      - The output is `OPENROUTER_OUTPUT`, the same cap the gated OpenRouter config gives OpenCode.
    - `cfg["small_model"] = model` for `neuralwatt/` models, as for `openrouter/` and `opencode-go/`.
-   - The env key for `neuralwatt-key` is `NEURALWATT_API_KEY`: at the key-loading site (around line
-     600) and in `diagnosis_environment`.
+   - The env key for `neuralwatt-key` is `NEURALWATT_API_KEY`, at the key-loading site (around line
+     600). Not in `diagnosis_environment`: diagnosis runs walled (`user='pilot'`), which excludes
+     ungated lanes.
    - `bounded_route` excludes `NW_ROUTES` for `WALLED_ROLES`, as it does Go.
    - Move-on: `go_quota_moves_on` becomes true for an NW lease on reason `quota` or `credit`, so the
      call moves to the OpenRouter twin inside the attempt.
@@ -101,16 +102,30 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
      `NEURALWATT_API_KEY`; otherwise it raises `credential_expiring`.
    - `free_environment` passes `NEURALWATT_API_KEY` for an NW lease, and never `OPENCODE_API_KEY`.
 6. **`budget.py`**
-   - **Step.** An NW step books `max(OpenCode's cost, go_step_cost(route, tokens))` as case money.
-     It is not zeroed. It keeps `plan_list_cost_usd`, the same as Go.
-   - **Unseen tail.** For an NW route the tail is
-     `min(bound − booked, open_steps × nw_request_worst(route))`, where `open_steps` is the number
-     of OpenCode `step-start` parts with no matching `step-finish`.
-     - No step in flight books $0, so a 402 before any token is free.
-     - Neuralwatt never bills above list, so this is an upper bound.
+   - **Step.** An NW step sets the part's cost to `max(OpenCode's cost, go_step_cost(route, tokens))`
+     and books it as case money.
+     - `plan_listed` stays None, so the event carries no `priced:'plan'` and no
+       `plan_list_cost_usd`.
+     - `event_bound_charge` is `cost + plan_list_cost_usd`, so keeping both would count each step
+       twice.
+   - **Unseen tail.**
+     - `_run_budgeted` writes `invocation_reservations[lease_id]['open_steps']` inside its exit
+       transaction, for a reserved call. The value is the number of OpenCode
+       `session:messageID` keys in `starts − finishes`.
+     - `_settle_leaf`, for `NW_ROUTES`, books `min(bound − booked, n × nw_request_worst(route))`.
+       This applies only when the field is present, no `cancellation-failed:` or `unverified-*`
+       key is open, and `cleanup_errors` did not grow. Otherwise it keeps today's `bound − booked`.
+     - `n` is `open_steps` for a classified credit, rate or quota refusal. It is
+       `max(open_steps, 1)` for any other stop (stall, timeout, cancel), because a request can be
+       in flight before its step-start part appears.
+     - A credit refusal with no step open books $0.
+     - Neuralwatt never bills above list, so this is an upper bound. One request is bounded by
+       `nw_request_worst` only because OpenCode sends `max_tokens` ≤ `limit.output` (32768),
+       which is below the twin's output.
 7. **`durable/classify.py`**
    - Add `("neuralwatt/", "router:neuralwatt_limit")` to the limit-family prefixes.
-   - Add `router:neuralwatt_limit: WAIT` to `stop_registry.py:59` and to `PUBLISHED_REASONS`.
+   - Add `router:neuralwatt_limit: WAIT` to `stop_registry.py:59`. `REASONS` and
+     `PUBLISHED_REASONS` derive from `_LIMIT_FAMILY`.
    - A Neuralwatt 402 then reads as that provider's limit with its short backoff. It is not
      `router:credit`, which parks for an OpenRouter top-up.
 8. **`budget.classify_provider_failure`**: Neuralwatt's out-of-credit and rate-limit bodies, as
@@ -121,29 +136,47 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
 
 ## Rollout runbook
 
-Strictly in this order. Each step is safe on its own.
+Strictly in this order. No release reaches any batch until step 3 is done.
 
-1. Merge, then install the release (`install`), and make it `current_plumbing` for new batches.
-2. Restart the router on the new code, only when drained (no model calls in flight). The router
-   offers Neuralwatt lanes only to callers that offer the account, and nobody does yet.
-3. Restart the controller on the new code. `ACCOUNTS` now knows `neuralwatt-key`, so step 4 passes
-   `invalid_worker_accounts`.
-4. The founder runs `bin/setup-secrets neuralwatt` and copies the re-encrypted bundle to the VM's
-   `bundle_file`. Then add `neuralwatt-key` to `worker_credentials.accounts` and to the router
-   config `accounts`, and restart the controller. Every new box now carries the key. If the bundle
-   lacks the key, step 4 is undone, because `pack` raises.
-5. Smoke test on a worker box, with a non-case prompt, before any case gets the release. Check:
-   - both model ids answer through OpenCode with `@ai-sdk/openai-compatible`;
-   - tokens and usage are non-zero;
-   - speed (tokens per second).
-
-   Capture a real 402 body by exhausting a tiny request budget if possible, or from Neuralwatt's
-   error docs, and save it as the move-on fixture. Save one real NW step part as the budget-test
-   fixture.
-6. Send `plumbing_release <batch>` to each batch that should use it: new launches, and running
-   cases that have not yet passed G10. Never send it to cases past G10 (standing rule).
-   - A case picks the release up at its next checkpoint, which reruns its changed gates.
-   - That cost is accepted per batch, by operator choice.
+1. **Key on the VM, before merge.**
+   - The founder puts the trial key in `/home/user/.neuralwatt-trial-key` (mode 600). It is not in
+     the worker bundle yet.
+   - A one-off direct API call from the VM reads that file and never prints it. It runs a
+     non-case prompt on both model ids and records:
+     - non-zero usage;
+     - tokens per second;
+     - the real out-of-credit and rate-limit bodies, provoked with a request too large for a tiny
+       remaining balance if possible, or else taken from Neuralwatt's error docs and marked as such.
+   - The bodies are committed as fixtures, and item 8 lands in this branch.
+2. **Merge and install**, after the diff review.
+   - Run `unbug install` for the release. Nothing uses it yet: a batch's plumbing is fixed in its
+     start spec (`contract.py:357`), and only `plumbing_release <batch>` or a new start spec moves
+     a case.
+3. **Router: config, then a drained restart.**
+   - Add `neuralwatt-key` to the router config `accounts`, set `capacities['neuralwatt-key'] = 8`,
+     then restart the router while no model calls are in flight. That is the only time config
+     changes take effect (`model_router.py:1153-1156`), including `disabled_routes`, the off switch.
+   - Harmless on its own, because no caller offers the account yet.
+4. **Controller on new code.**
+   - Point `source-current` at the release source, then run
+     `sudo -n /usr/bin/systemctl restart unbug-durable-case-campaign.service`.
+   - `ACCOUNTS` now knows `neuralwatt-key`.
+5. **Bundle.**
+   - Back up `bundle_file` and the controller config.
+   - The founder runs `bin/setup-secrets neuralwatt`, starting from a Mac bundle that holds every
+     key the VM bundle holds.
+   - On the VM, check the new bundle before installing it: `age -d -i <identity_file> <new> | tar -t`
+     must list every name in `worker_credentials.accounts` plus `neuralwatt-key`.
+   - Install it with `mv`. Then add `neuralwatt-key` to `worker_credentials.accounts`, and restart
+     the controller.
+   - Rollback: restore both backups, then restart. Remove `neuralwatt-key` from
+     `worker_credentials.accounts` before any controller downgrade, or the controller refuses to
+     start (`invalid_worker_accounts`).
+6. **Which cases get it.**
+   - Send `plumbing_release <batch>` to each batch that should use it: new launches, and running
+     cases not yet past G10. Never cases past G10 (standing rule).
+   - A case picks it up at its next checkpoint, which reruns its changed gates. That cost is
+     accepted per batch, by operator choice.
 
 ## What it deletes
 
@@ -163,19 +196,25 @@ Nothing. Go and NW share one twin map, not two copies.
 
 - **Routes, on real router state.**
   - Load the real 11-19 health rows (`openrouter-key` credit block, Go quota blocks) from
-    `factory.before-force-lift-20261119.sqlite3`; health rows only, no keys.
+    `factory.before-force-lift-20261119.sqlite3`; health rows only, no keys. Saved as
+    `tests/factory/fixtures/router-health-20261119.json`, with the source query in the test
+    docstring.
   - Acquire for a real saved MiMo and GLM role (from a real card fixture) with `neuralwatt-key`
     offered. It gets `neuralwatt-key/neuralwatt/…`.
   - With the old `ACCOUNTS`, or no key file (via `router_accounts`), the same acquire gets no NW
     lane.
   - Walled roles get no NW lane (`bounded_route` and `ungated_lanes`).
 - **Maximum.** `nw_maximum` equals the twin's maximum except `price_source`, and `valid_maximum`
-  accepts a funded NW lease.
+  accepts a funded NW lease. The price record has `service_tier == "standard"`, and its listed prices
+  equal the pins.
 - **Budget.**
   - Using the real captured NW step part, the step books the twin list cost.
   - The same step on Go books $0.
-  - A 402 receipt with no steps books a $0 tail.
+  - An NW event has no `plan_list_cost_usd`, and `event_bound_charge == cost`.
+  - A credit refusal with no step open books a $0 tail.
   - One open step books `min(bound − booked, nw_request_worst)`.
+  - A stall with no step-start books one `nw_request_worst`.
+  - With a `cancellation-failed:` key open, the tail falls back to `bound − booked`.
 - **Gate.** In the `enforce` NW branch:
   - no key → `credential_expiring`;
   - walled user → `route_feature_unsupported`;
@@ -187,6 +226,9 @@ Nothing. Go and NW share one twin map, not two copies.
 - Full suite.
 
 ## Murphy rows
+
+The register is not on `main`. The row is recorded here and goes into the register when that file
+lands.
 
 - New row `new-neuralwatt-1`: "single paid provider: OpenRouter balance exhaustion parks every case
   on the MiMo/GLM fallback" (seen 2026-11-19; seven cases parked).
