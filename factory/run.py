@@ -991,6 +991,7 @@ def case_hash(c):
 def strong_attempts_exist(c):
     """Finished strong tries for the current calibration identity (any tester slot) are already on disk."""
     from calibration import completed_attempts
+    adopt_release_moved_receipts(c)
     if not (c.work / "strong_calibrator" / "results.json").exists(): return False
     identity = calibration_identity(c, "strong_calibrator", "exam", runs=c.args.pilot_runs)
     return bool(completed_attempts(c.work / "strong_calibrator" / "results.json", identity, c.work))
@@ -1011,15 +1012,18 @@ def adopt_release_moved_receipts(c):
     """8acb5c 2026-11-19 (founder: save its finished tries): an exam row keys its owner files by absolute
     path (calibration_identity), and that path names the release folder. A row recorded under an earlier
     release of the same file differs only in that folder, so completed_attempts quarantined it when a new
-    release landed. Relabel such a key to this release's path when the file's sha256 is unchanged, and put
+    release landed. Relabel such a key to this release's path when the file's sha256 is unchanged, put
     back the newest quarantined receipt when results.json is gone, and point a row whose workspace was moved
-    aside by a later rerun back at that byte-identical copy. Nothing else changes: completed_attempts
-    still verifies every row's whole identity and workspace, and quarantines again on any other difference."""
+    aside by a later rerun back at that byte-identical copy. The result is written only when every row
+    then verifies (completed_attempts on a scratch copy); otherwise nothing changes."""
     if getattr(c, "work", None) is None: return   # standalone gate checks have no receipts
     here = pathlib.Path(__file__).with_name("exam_responder.py")
     mine = str(here)
     moved = re.compile(r"/home/user/releases/[0-9a-f]{64}/factory/exam_responder\.py")
-    from calibration import atomic_results
+    from calibration import atomic_results, completed_attempts
+    def digest_is(ws, artifacts):
+        try: return ws.is_dir() and tree_digest(ws) == artifacts
+        except Exception: return False   # a partial or linked workspace is no match
     for name in ("strong_calibrator", "early_probe"):
         path = c.work / name / "results.json"
         source = path if path.exists() else max(path.parent.glob("results-unverified-*.json"),
@@ -1027,7 +1031,7 @@ def adopt_release_moved_receipts(c):
         if source is None: continue
         sha = hashlib.sha256(here.read_bytes()).hexdigest()
         rows, changed = jload(source, None), source != path
-        if not isinstance(rows, list): continue
+        if not isinstance(rows, list) or not rows: continue
         for row in rows:
             files = ((row.get("identity") or {}).get("owner") or {}).get("files") if isinstance(row, dict) else None
             if not isinstance(files, dict): continue
@@ -1036,16 +1040,21 @@ def adopt_release_moved_receipts(c):
             # A rerun of the early probe moved this try's untouched workspace aside (<ws>-interrupted-<ns>);
             # point the row back at the copy whose content digest is the row's own.
             ws = pathlib.Path(str(row.get("workspace")))
-            if ws.is_dir() and tree_digest(ws) == row.get("artifacts"): continue
+            if digest_is(ws, row.get("artifacts")): continue
             for aside in sorted(ws.parent.glob(ws.name + "-interrupted-*")):
-                if aside.is_dir() and tree_digest(aside) == row.get("artifacts"):
+                if digest_is(aside, row.get("artifacts")):
                     row["workspace"] = str(aside)
                     if row.get("guard") == str(ws / "guard"): row["guard"] = str(aside / "guard")
                     changed = True
                     break
-        if changed:
-            atomic_results(path, rows)
-            log(c, "G10", f"{name}: receipts recorded under an earlier release folder relabelled to this one")
+        if not changed: continue
+        identity = calibration_identity(c, "strong_calibrator", "exam", runs=c.args.pilot_runs)
+        with tempfile.TemporaryDirectory() as scratch:   # completed_attempts quarantines inside scratch only
+            trial = pathlib.Path(scratch) / "results.json"
+            trial.write_text(json.dumps(rows))
+            if len(completed_attempts(trial, identity, c.work)) != len(rows): continue
+        atomic_results(path, rows)
+        log(c, "G10", f"{name}: receipts recorded under an earlier release folder relabelled to this one")
 
 
 def g10_money_headroom(c):
@@ -2926,6 +2935,7 @@ def g11(c):
 
 def _retain_delivery(c):
     from sealed_audit import retain_delivery
+    adopt_release_moved_receipts(c)   # a cached G10/G11 skip never ran it in this step
     retain_delivery(c, sys.modules[__name__])
 
 
