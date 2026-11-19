@@ -229,11 +229,16 @@ def execute(job: dict, key: bytes, *, check, run, machine=machine_class) -> dict
     return seal(key, job, run(job) if job.get("kind") == "try" else collect(run(job)), mine)
 
 
-def run_jobs(pool, jobs: dict, *, cap: int, key: bytes, accept, boundary=lambda: None, ledger=None) -> dict:
+def run_jobs(pool, jobs: dict, *, cap: int, key: bytes, accept, boundary=lambda: None, ledger=None,
+             skip=lambda name: False, slots=None) -> dict:
     """{name: accept(job, files)} for every job a helper completed; others are omitted.
 
     At most `cap` helpers at once, at most cap + len(jobs) leases in all. `boundary()` runs before
-    each dispatch; what it raises (a money or lease stop) stops dispatch and propagates.
+    each dispatch; what it raises (a money or lease stop) stops dispatch and propagates. A queued job
+    for which `skip(name)` is true is dropped, never dispatched. With `slots` (a semaphore the case's
+    dispatches share) each worker takes one before its first job and keeps it until it exits, so a
+    second dispatch waits for the first one's helpers instead of being refused at the per-case cap;
+    while it waits, `boundary()` runs every few seconds, so a stop still ends the wait.
     """
     todo, done, fatal = queue.Queue(), {}, []
     for name in jobs: todo.put((name, 1))
@@ -241,11 +246,22 @@ def run_jobs(pool, jobs: dict, *, cap: int, key: bytes, accept, boundary=lambda:
     note = ledger or (lambda event: None)
 
     def worker():
+        held = [False]
+        try: run_worker(held)
+        finally:
+            if held[0]: slots.release()
+
+    def run_worker(held):
         handle = began = None
         while not fatal:
             try: name, attempt = todo.get_nowait()
             except queue.Empty: break
-            try: boundary()
+            if skip(name): continue
+            try:
+                while slots is not None and not held[0]:
+                    held[0] = slots.acquire(timeout=5)
+                    if not held[0]: boundary()
+                boundary()
             except BaseException as stop:
                 fatal.append(stop); todo.put((name, attempt)); break
             try:
@@ -285,17 +301,32 @@ def _release(pool, handle, dead, began, note):
 
 
 def checkpoint_shards(c, guards, runs, seed, label, *, case, scenarios, bench, boundary=lambda: None) -> dict:
-    """{str(guard): (summary, records)} for the cheat checkpoints helpers completed (G6/G7)."""
+    """{str(guard): (summary, records)} for the cheat checkpoints helpers completed (G6/G7).
+
+    With c.helper_cut_after_solving (set by the composition root for G6 and G7, whose cheat_runs stop
+    at the first solving cheat), queued guards later in guard order than one a helper found solving
+    are never dispatched: cheat_runs stops before reaching them. The cut only leaves jobs out, and
+    cheat_runs runs any guard it reaches without a shard here, so it cannot change a verdict."""
+    order = [str(g) for g in guards] if getattr(c, "helper_cut_after_solving", False) else None
     return run_checkpoints(c, {str(g): {"guard": g, "scenarios": scenarios, "runs": runs, "seed": seed, "label": label}
-                               for g in guards}, case=case, bench=bench, boundary=boundary)
+                               for g in guards}, case=case, bench=bench, boundary=boundary, cut=order)
 
 
-def run_checkpoints(c, specs, *, case, bench, boundary=lambda: None) -> dict:
+def _solves(c, records):
+    """cheat_runs' own test of one guard's batch; a batch it would refuse (require_valid, CaseProblem)
+    counts as not solving, so it never cuts anything."""
+    import run
+    try: return any(v["solved"] for v in run.verdicts(c, records))
+    except Exception: return False
+
+
+def run_checkpoints(c, specs, *, case, bench, boundary=lambda: None, cut=None) -> dict:
     """{name: (summary, records)} for the checkpoints helpers completed; the rest are left to the caller.
 
     `specs` is {name: {guard (path), scenarios (digests), runs, seed, label, workers (optional)}}.
     Needs c.helper_pool and c.args.helper_workers > 0. Results are rebuilt on disk and read by
-    checkpoint_evidence.read_completed, the serial path's own reader.
+    checkpoint_evidence.read_completed, the serial path's own reader. `cut` (names in order): once
+    a completed batch solves, queued jobs later in that order are dropped (checkpoint_shards).
     """
     from durable.checkpoints import verdict_code
     workers = getattr(c.args, "bench_workers", 1)
@@ -308,17 +339,35 @@ def run_checkpoints(c, specs, *, case, bench, boundary=lambda: None) -> dict:
             for name, x in specs.items()}
     names = {digest_of(job): name for name, job in jobs.items()}
 
+    solved = []   # positions in `cut` of completed batches that solve
+
     def accept(job, files):
         try:
-            return _read_batch(c, job, files, job["label"])
+            result = _read_batch(c, job, files, job["label"])
         except Exception as error:   # charged to the row the local rerun (run.checkpoint, no slot) uses
             x = specs[names[digest_of(job)]]
             _charge_invalid(c, {"operation": "checkpoint", "case": case, "guard": trees[names[digest_of(job)]],
                                 "scenarios": x["scenarios"], "runs": x["runs"], "seed": x["seed"], "slot": None,
                                 "label": x["label"], "bench": bench, "workers": workers}, error)
             raise HelperInvalid(type(error).__name__) from error
+        if cut is not None and _solves(c, result[1]): solved.append(cut.index(names[digest_of(job)]))
+        return result
 
-    return _dispatch(c, jobs, accept, boundary, label=",".join(sorted({x["label"] for x in specs.values()})))
+    skip = (lambda name: bool(solved) and cut.index(name) > min(solved)) if cut is not None else (lambda name: False)
+    return _dispatch(c, jobs, accept, boundary, label=",".join(sorted({x["label"] for x in specs.values()})),
+                     skip=skip, slots=_case_slots(c))
+
+
+_SLOTS, _SLOTS_LOCK = {}, threading.Lock()
+
+
+def _case_slots(c):
+    """One semaphore of helper_workers per case work dir, shared by its checkpoint dispatches (G6 and G7
+    overlapping): G7's workers wait for G6's helpers instead of being refused at the per-case cap and
+    running locally. G10 tries (try_shards) do not take it."""
+    cap = max(1, c.args.helper_workers)
+    with _SLOTS_LOCK:
+        return _SLOTS.setdefault((str(c.work), cap), threading.BoundedSemaphore(cap))
 
 
 def _job_env(c):
@@ -379,18 +428,28 @@ def try_shards(c, jobs, *, boundary=lambda: None) -> dict:
                                 label="g10-" + next((j["name"] for j in jobs.values()), ""))} if todo else done
 
 
-def _dispatch(c, jobs, accept, boundary, *, label):
+def _dispatch(c, jobs, accept, boundary, *, label, skip=lambda name: False, slots=None):
+    """run_jobs for this case. A gate lane holding the case box's bench turn (gate_pipeline overlap)
+    gives it up while helpers work; its next local bench command (run.sh) waits for it again, so a
+    verdict the helpers already settle is reported without waiting for the case box. A cancelled lane
+    (role_cancel) stops dispatching."""
     def ledger(event):
         with _LEDGER_LOCK, (c.work / "helper-ledger.jsonl").open("a") as f:
             f.write(json.dumps({**event, "label": label, "at": round(time.time())}) + "\n")
 
     def lease_boundary():
+        cancel = getattr(c, "role_cancel", None)
+        if cancel is not None and cancel.is_set():
+            from budget import BudgetError
+            raise BudgetError("cancelled")
         boundary()
         book_lease(c)
 
+    turn = getattr(c, "bench_turn", None)
+    if turn is not None: turn.release()
     try:
         return run_jobs(c.helper_pool, jobs, cap=max(1, c.args.helper_workers), key=secrets.token_bytes(32),
-                        accept=accept, boundary=lease_boundary, ledger=ledger)
+                        accept=accept, boundary=lease_boundary, ledger=ledger, skip=skip, slots=slots)
     finally:
         book_lease(c, enforce=False)
 

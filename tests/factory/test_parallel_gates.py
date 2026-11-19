@@ -418,11 +418,11 @@ class Admission(unittest.TestCase):
         return admit._card(value, "case-new", value.get("dry_run", False))
 
     def test_new_cases_get_parallel_settings(self):
-        self.assertEqual(self.card()["recovery_config"], {"bench_workers": 2, "parallel_gates": True})
+        self.assertEqual(self.card()["recovery_config"], {"bench_workers": 2, "parallel_gates": True, "overlap_cheat_gates": True})
 
     def test_explicit_inputs_win(self):
         config = self.card(recovery_config={"bench_workers": 1, "rounds": 3})["recovery_config"]
-        self.assertEqual(config, {"bench_workers": 1, "parallel_gates": True, "rounds": 3})
+        self.assertEqual(config, {"bench_workers": 1, "parallel_gates": True, "overlap_cheat_gates": True, "rounds": 3})
 
     def test_recertified_and_practice_cases_keep_theirs(self):
         self.assertEqual(self.card(recertify=True, recovery_config={"rounds": 8})["recovery_config"], {"rounds": 8})
