@@ -195,7 +195,8 @@ Strictly in this order. No release reaches any batch until step 3 is done.
    - Safe before step 6: no box carries `neuralwatt-key` yet, so `offered_accounts()` never offers
      it. No client counts a lane it can't spend, so there is no cae763-style retry loop.
 6. **Lane on.** Only after the step 1 follow-up commit is reviewed, installed and live on the
-   controller (step 4 again for that release). Key and switch go together, never the key alone:
+   controller: steps 2, 4 and 5 again for the follow-up release (and step 3 if it touches
+   `model_router.py`), because item 8 runs on the worker. Key and switch go together, never the key alone:
    1. Back up `bundle_file` and the controller config.
    2. The founder runs `bin/setup-secrets neuralwatt`, starting from a Mac bundle that holds every
       key the VM bundle holds.
@@ -205,9 +206,22 @@ Strictly in this order. No release reaches any batch until step 3 is done.
       other entry, then restart the router.
    5. Install the bundle with `mv`, add `neuralwatt-key` to `worker_credentials.accounts`, and
       restart the controller.
-   - Rollback: put `neuralwatt/` back in `disabled_routes` (drained restart), restore both backups,
-     and restart the controller. Remove `neuralwatt-key` from `worker_credentials.accounts` before
-     any controller downgrade, or the controller refuses to start (`invalid_worker_accounts`).
+   - Rollback, key first and lane last (the forward order reversed):
+     1. Restore the bundle backup, remove `neuralwatt-key` from `worker_credentials.accounts`, and
+        restart the controller. From now on, every new acquire delivers secrets without the key.
+     2. Wait until every live case has started a new step, which re-delivers secrets. Each step's
+        `router_accounts` is fixed at `Ctx` init, so a step that already holds the key keeps
+        offering it. In an emergency, end those steps instead: SIGTERM to `worker_step` books
+        `infra:step_crashed`, an infra retry, and its retry gets the new secrets.
+     3. Only then drain the router, put `neuralwatt/` back in `disabled_routes`, and restart it.
+        Done in the other order, a keyed step counts a lane it can never lease, and a malformed
+        answer loops on outage waits (the cae763 shape).
+     4. A case whose `ordinary-retries/*/state.json` lists an NW route in `spent_routes` fails
+        `infra:ordinary_retry_state_invalid` once the key is gone (`ordinary_retry.py:128-130`).
+        Delete that call's state file. This resets that one call's retry count, at most one extra
+        round of retries.
+     5. Remove `neuralwatt-key` from `worker_credentials.accounts` before any controller downgrade,
+        or the controller refuses to start (`invalid_worker_accounts`).
    - A case that ran an NW call is never moved below this release: its ledger's reservation rows
      carry `open_steps`, which older `usage_coverage` reads as unknown coverage.
 

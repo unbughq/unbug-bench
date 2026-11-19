@@ -71,7 +71,8 @@ class RealStateRoutes(unittest.TestCase):
 
     def test_the_off_switch_keeps_an_offered_key_on_the_openrouter_twin(self):
         # Rollout step 3 ships the lane off (disabled_routes); the key offered changes nothing until step 6.
-        self.store.disabled_routes = ('neuralwatt/',)
+        self.store = router.Store(self.store.path, clock=lambda: self.now, capacities={'neuralwatt-key': 8},
+                                  disabled_routes=('neuralwatt/',))   # the router config path (main())
         self.spend_go()
         wait = self.acquire(MIMO)
         self.assertEqual((wait['kind'], wait['account'], wait['reason']), ('wait', 'openrouter-key', 'credit'))
