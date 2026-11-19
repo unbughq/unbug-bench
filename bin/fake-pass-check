@@ -190,6 +190,11 @@ def main():
     a = p.parse_args()
     scenarios = [bench.load_scenario(path) for path in a.scenario]
     if a.factory_workers < 1: p.error("factory-workers must be positive")
+    if a.traffic_tables is not None:
+        try: tables = json.loads(a.traffic_tables)
+        except ValueError: tables = None
+        if not isinstance(tables, list) or not all(isinstance(t, str) for t in tables):
+            p.error("--traffic-tables must be a JSON list of table names")
     report = {"seed_base": a.seed, "runs": a.runs, "guards": []}
     temporary = tempfile.TemporaryDirectory(prefix="fake-pass-probes-")
     guards = a.guards + negative_probes([n for n in a.negative_probes.split(",") if n], temporary.name)

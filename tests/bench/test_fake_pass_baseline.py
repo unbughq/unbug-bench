@@ -63,4 +63,13 @@ class BaselineTests(unittest.TestCase):
                 self.assertEqual(traffic.call_count, 2 if given is None else 0)
 
 
+    def test_traffic_tables_must_be_a_list_of_names(self):
+        import subprocess
+        for bad in ('"order"', '{"a": 1}', 'nope', '[1]'):
+            r = subprocess.run([sys.executable, str(ROOT / "bin/fake-pass-check"), "g", "--traffic-tables", bad],
+                               capture_output=True, text=True, timeout=60, cwd=ROOT)
+            self.assertEqual(r.returncode, 2, bad)
+            self.assertIn("must be a JSON list of table names", r.stderr)
+
+
 if __name__ == "__main__": unittest.main()
