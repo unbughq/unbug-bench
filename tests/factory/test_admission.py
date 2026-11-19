@@ -230,6 +230,46 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(model.call_count, 1 + ordinary_freshness.REVIEW_REASKS)
         self.assertEqual(c.card['admission_freshness']['unresolved_hits'], 1)
 
+    def test_a_hand_repair_with_parallel_gates_leaves_freshness_to_the_g2_lane(self):
+        for mode, deferred in (("hand_repaired", True), (None, False)):
+            with self.subTest(mode=mode):
+                c = self.c; c.card = {"imported_from": {"mode": mode}} if mode else {}
+                with patch.object(run, "prior_statements", return_value={}), \
+                     patch.object(run, "parallel_gates", return_value=True), \
+                     patch.object(run, "idea_realism", return_value=True), \
+                     patch.object(run, "ensure_freshness", return_value=(True, {})) as fresh:
+                    self.assertTrue(run.statement_precheck(c))
+                self.assertEqual(fresh.called, not deferred)
+                self.assertEqual(c.card.get("freshness_deferred_to"), "G2" if deferred else None)
+        # Without the lane (parallel_gates off) a hand repair keeps the blocking screen.
+        c.card = {"imported_from": {"mode": "hand_repaired"}}
+        with patch.object(run, "prior_statements", return_value={}), patch.object(run, "parallel_gates", return_value=False), \
+             patch.object(run, "idea_realism", return_value=True), \
+             patch.object(run, "ensure_freshness", return_value=(True, {})) as fresh:
+            self.assertTrue(run.statement_precheck(c))
+        fresh.assert_called_once()
+
+    def test_a_public_match_beside_an_unresolved_row_keeps_its_verdict_and_sources(self):
+        """2b6c68: one confirmed match and one unresolved row read freshness_unrecorded, because the
+        receipt was kept only when nothing stayed unresolved. The unresolved same_bug answer is not counted."""
+        from durable import admission_reasons
+        c = self.c; self.rows[0]['hit'] = True; self.rows[1]['hit'] = True
+        (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, self.rows)))
+        def confirm(ctx, models, text, cwd, name, **kwargs):
+            answer = {'same_bug': True, 'resolved': True, 'retrieved': True, 'app_version': '2.19.0',
+                      'version_scope': 'Synthetic exact pinned version', 'why': 'Same synthetic fix'}
+            (pathlib.Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': [
+                {**answer, 'url': self.rows[0]['url']}, {**answer, 'url': self.rows[1]['url'], 'resolved': False}]}))
+            return 0
+        with patch.object(run, 'prior_statements', return_value={}), patch.object(run, 'opencode', confirm):
+            self.assertFalse(run.statement_precheck(c))
+        self.assertEqual((c.card['admission_freshness']['confirmed_hits'], c.card['admission_freshness']['unresolved_hits']), (1, 1))
+        verdict = json.loads((c.work / 'freshness-verdict.json').read_text())
+        self.assertEqual(verdict['confirmed_rows'], [1])
+        row = admission_reasons.candidate_row(c.card, verdict=verdict, app_repo='medusajs/medusa')
+        self.assertTrue(row['evidence'].startswith('upstream_'), row)
+        self.assertEqual(row['confirmed_hits'], 1)
+
     def test_evidence_repair_cannot_change_the_selected_bug(self):
         self.c.engine = ENGINE()   # top-ups run under the engine's attempt deadline
         c = self.c; original = (c.case / 'statement.md').read_bytes()

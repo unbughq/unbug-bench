@@ -80,12 +80,14 @@ class Executor:
 
     # ---- the attempt (StepExecutor) ------------------------------------------------------------
 
-    def bound(self, started_at: float, lease: WorkerLease) -> "_Bound":
+    def bound(self, started_at: float, lease: WorkerLease, stopped=lambda: False) -> "_Bound":
         """Bind a recorded lease and control-side start time to a replayable attempt."""
-        return _Bound(self, started_at, lease)
+        return _Bound(self, started_at, lease, stopped)
 
     def run(self, si: StepInput, *, started_at: Optional[float] = None,
-            lease: Optional[WorkerLease] = None) -> StepResult:
+            lease: Optional[WorkerLease] = None, stopped=lambda: False) -> StepResult:
+        """stopped() true: the founder stopped the case. The attempt is not started, or is cancelled on its
+        worker (a tombstone and infra:cancelled with the usage so far), and ends with that result."""
         start = self.clock() if started_at is None else started_at
         try:
             if lease is None:
@@ -101,7 +103,7 @@ class Executor:
             # A replay may have started the worker before the crash. Reconcile it even
             # when inputs cannot currently be fetched; never assume zero spend here.
             keys = blobs = None
-        if keys is not None:
+        if keys is not None and not stopped():
             try:
                 self.channel.start(lease, sent, keys, blobs)
             except Exception:
@@ -117,6 +119,11 @@ class Executor:
         last_answer = self.clock()
         while True:
             self.pause()   # shutdown: leave the step unrecorded, so a restart reattaches
+            if stopped():
+                try:
+                    self.channel.cancel(lease, si)   # the poll below shows whether it landed
+                except Exception:
+                    pass
             poll = self._poll(lease, si)
             if poll is not UNANSWERED:
                 last_answer = self.clock()
@@ -387,8 +394,8 @@ class Executor:
         return ref
 
 class _Bound:
-    def __init__(self, executor: Executor, started_at: float, lease: WorkerLease):
-        self._executor, self._started_at, self._lease = executor, started_at, lease
+    def __init__(self, executor: Executor, started_at: float, lease: WorkerLease, stopped=lambda: False):
+        self._executor, self._started_at, self._lease, self._stopped = executor, started_at, lease, stopped
 
     def run(self, si: StepInput) -> StepResult:
-        return self._executor.run(si, started_at=self._started_at, lease=self._lease)
+        return self._executor.run(si, started_at=self._started_at, lease=self._lease, stopped=self._stopped)

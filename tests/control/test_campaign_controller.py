@@ -239,6 +239,45 @@ class ControllerTests(unittest.TestCase):
                 self.create()
         self.assertEqual(caught.exception.reason, "infra:worker_start_rate")
 
+    def test_helper_boxes_leave_a_reserve_of_slots_and_starts_for_cases(self):
+        self.request["max_running_sandboxes"] = 4
+        self.request["approved_infrastructure_usd"] = 100
+        self.write()
+        helper = "case-import-04d417-h2-1-h3"   # helper_link.helper_case_id of case-import-04d417-h2-1
+        self.create(helper); self.create(helper)
+        starts = (self.root / "campaign-starts.json").read_text()
+        with self.assertRaises(PoolError) as caught:
+            self.create(helper)                                 # 2 of 4 slots stay for case workers
+        self.assertEqual(caught.exception.reason, "infra:worker_slots_full")
+        self.assertEqual((self.root / "campaign-starts.json").read_text(), starts)   # a refusal books no start
+        self.create("case-import-04d417-h2-1"); self.create("case-import-04d417-h2-1")   # cases use the reserve
+        self.assertEqual(len(self.pool.created), 4)
+        for worker in list(self.pool.live):
+            self.pool._delete_raw(worker)
+        now = time.time()
+        (self.root / "campaign-starts.json").write_text(json.dumps([now - 3000] * 24))
+        with self.assertRaises(PoolError) as caught:
+            self.create(helper)                                 # 24 of 30 hourly starts used: 6 stay for cases
+        self.assertEqual(caught.exception.reason, "infra:worker_start_rate")
+        self.create("case-import-04d417-h2-1")
+
+    def test_helper_boxes_leave_a_reserve_of_daily_and_minute_starts_for_cases(self):
+        from durable.guard import STARTS_PER_DAY
+        helper, case = "case-import-04d417-h2-1-h3", "case-import-04d417-h2-1"
+        now = time.time()
+        day = [now - 7200 - i for i in range(STARTS_PER_DAY - self.module.HELPER_RESERVE_DAY)]
+        (self.root / "campaign-starts.json").write_text(json.dumps(day))
+        with self.assertRaises(PoolError) as caught:
+            self.create(helper)                                 # the last daily starts stay for cases
+        self.assertEqual(caught.exception.reason, "infra:worker_start_rate")
+        self.pool._delete_raw(self.create(case))
+        minute = [now - 1] * (STARTS_PER_MINUTE - self.module.HELPER_RESERVE_MINUTE)
+        (self.root / "campaign-starts.json").write_text(json.dumps(minute))
+        with self.assertRaises(PoolError) as caught:
+            self.create(helper)                                 # and the last starts of each minute
+        self.assertEqual(caught.exception.reason, "infra:worker_start_rate")
+        self.create(case)
+
     def test_reserve_start_keeps_one_day_of_starts(self):
         path = self.root / "starts.json"
         now = time.time()

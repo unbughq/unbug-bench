@@ -84,7 +84,10 @@ create. A type other than `default` needs its approved rate in the request's `wo
 compute bound uses that rate and each live worker is judged at its own Boat type's approved rate, so a
 large worker does not trip the default type's `max_worker_rate_usd_per_second` (always the default rate; a
 `"default"` key in the map is ignored); the infrastructure approval is unchanged, so a dearer type fits
-fewer running slots. `preflight.py` adds advance warnings to the guard's alerts and
+fewer running slots. A bigger worker changes only how many bench copies a case runs (results do not
+depend on it): one copy is ~3.4 GiB of container caps, so `default` holds 2 and `large` about 4; GATES
+(`run.scale_bench_workers`) gives G6/G7 every copy that fits, less two for G10's testers only when they
+can overlap (`run.parallel_calibrators`; `run.calibrators_serial_reason` names why not). `preflight.py` adds advance warnings to the guard's alerts and
 status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
 degrade, pause or stop, and an unreadable input is an "unknown" warning. The guard itself alerts once router
 paid spend reaches 80% of its ceiling and when the provider credit falls below a floor (`UNBUG_LOW_CREDIT_USD`,
@@ -138,7 +141,8 @@ then requires `control/check-drained.py` to exit 0, then sends `plumbing_release
 batch; `switch` checks drained and prints the root commands (source-current symlink, unit restart) without
 running them. Every Boat call goes through `bin/boat-call` with `BOAT_NO_UPDATE=1`.
 The control units and setup script live under `control/`. ADMIT reuses the existing
-selector, registry, freshness and idea-realism screens. A retried ADMIT keeps the provider
+selector, registry, freshness and idea-realism screens, in that order (a hand-repaired import under
+parallel gates leaves freshness to G2; see below). A retried ADMIT keeps the provider
 preflight checks that passed in the same step within 30 minutes and re-asks the rest (the writer's route is checked too while no statement exists; its selection and preflight calls give up after 10 minutes without output and move to the chain's next route, which the role keeps for later calls); an unresolved G2
 freshness review is asked again up to twice within the attempt, re-fetching flagged pages not read
 live (the hit still blocks until cleared)
@@ -180,8 +184,11 @@ repair round included, adopts them when a new writer round begins
 (`run.adopt_parallel_checks`): every check and gate runs again after a writer round, a retry of a
 round that already began keeps its settings, and an explicit `parallel_gates` on the card is never
 overridden (`false` is the only pin; an older card's `bench_workers` is replaced). For those cases G10's two calibrators run at once and
-may overlap the bench gates from G6, and G2, G8 and G9 run in order on a second thread after G1,
-joining before G6 (G2 is recorded before G5, ahead of its early probe, so a G2 failure stops the loop before that spend). G6 and G7 stop at the first passing cheat, since they pass only at zero (G6 then skips `verify-negative`; the cheat's name goes to sealed-side `gate-details`); G1 only warns when an inventory service lacks `host_ports` or `mem_limit`. In a writer step's early checks under the same G10 overlap conditions
+may overlap the bench gates from G6 (when G10 does not overlap, as for a case with a silent `window.json` beside an
+inventory service, its two testers still run side by side in G10's own turn on slots 0 and 1, and slot 1's inventory
+services are stopped when it ends: `run.g10_turn`, which leaves the hashed G3/G10 sources untouched; a card's
+`concurrent_roles: false` keeps them one at a time), and G2, G8 and G9 run in order on a second thread after G1,
+joining before G6 (G2 is recorded before G5, ahead of its early probe, so a G2 failure stops the loop before that spend). The G8/G9 panel's reviewers run at once when the money left covers each one's largest hold together (`run.holds_fit`), otherwise one after the other. G6 and G7 stop at the first passing cheat, since they pass only at zero (G6 then skips `verify-negative`; the cheat's name goes to sealed-side `gate-details`); G1 only warns when an inventory service lacks `host_ports` or `mem_limit`. In a writer step's early checks under the same G10 overlap conditions
 (`run.early_lane`, at least two bench workers), G3 runs first, then G15 keeps the foreground pool
 while G4, G5 and the saved-cheat sample run in order on the first reserved tester instance; both
 finish and every failure goes to the writer in serial order. The lane is fingerprinted as the
@@ -226,7 +233,8 @@ already earned gate cache identities remain valid. An explicit true or false sta
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
-side transfers blobs; workers receive no R2 credentials. Invoke executors through
+side transfers blobs (its one opening of a case snapshot, for a hand repair's
+`reuse_gates_of`, only seals the bytes again unparsed); workers receive no R2 credentials. Invoke executors through
 `guarded_run`; sanitize exception paths and disable Conductor/DBOS Cloud.
 Worker steps share structured wait classification: quota/rate/credit/capacity wait durably,
 credential delivery, unbounded routes and router outages park without consuming
@@ -277,7 +285,8 @@ recipient; `prepare <first case id> case <file>` stores that ciphertext unopened
 case scope, and `start --import-file` passes the ref as the first ADMIT snapshot (only with
 `max_cases_started` 1 and `legacy_registry`). ADMIT opens it in worker RAM with the
 statement key and keeps only the old case tree: its card, ledger, caches, reviews and
-search evidence are dropped, and the old card survives as numbers in `imported_from`.
+search evidence are dropped, and the old card survives as numbers in `imported_from`
+(a hand repair's `reuse_gates_of` is the one exception, below).
 The existing screens then run once on the case's own statement, skipping only its old
 registry entry, and a rejection ends the case without selecting another idea. A case
 whose old card passed G1 starts at STRESS; others start at WRITER. Every gate reruns.
@@ -312,11 +321,43 @@ writer round and then runs all gates (no stress round, the October case had its 
 later resumes of that lineage carry the repaired GATES seq so the decision replays.
 
 A case a person repaired by hand (founder 2026-11-17) is imported with INPUTS
-`"import_mode": "hand_repaired"`. ADMIT keeps its whole case tree like any import, drops every
-gate cache and reruns every screen, records the mode in `imported_from`, and answers
+`"import_mode": "hand_repaired"` (and no `concurrent_roles` in its `recovery_config`: a copied
+`false` makes G10's testers take turns). ADMIT keeps its whole case tree like any import, drops the
+archive's gate caches and reruns every screen, records the mode in `imported_from`, and answers
 `admit:imported_hand`. The engine treats it like a recertified case (no WRITER or STRESS; a
 repair request or an extending diagnosis retires it) except that no verdict is kept, so GATES
 run every gate. The next repair is done by hand and imported again.
+Under parallel gates (the default) ADMIT skips the freshness screen for such an import
+(`freshness_deferred_to: G2` on the card): no writer is paid on it, so the same screen (searches,
+roles, re-asks, verdict rule) runs once, as G2 in the side lane beside G3-G5, recorded before G5's
+early probe and before G16 spends. A public match is then a G2 gate failure, not an
+`admit:freshness_*` rejection; its registry reservation stays until board cleanup; idea realism
+runs before freshness, so a case that is both public and unrealistic is labelled realism; and a
+case-caused freshness stop (a bot wall, review unavailable) lands after `admit:imported_hand`, so
+it needs a new import rather than a resume. With parallel gates off, ADMIT screens it as before.
+
+A repair of a case the factory already ran (founder 2026-11-18) adds INPUTS
+`"reuse_gates_of": "<that case id>"`, with no models, roles, slot or `recovery_config`. `start`
+takes that case's last recorded snapshot (`engine.latest_snapshot`: every workflow of it finished)
+from the store, opens it under that case's key in controller RAM, and seals it unparsed under the
+new case after the archive (`admit.PRIOR_MAGIC`); a snapshot past the bucket's expiry refuses
+(`import_prior_missing`) until it is put back from the backup. `prepare` accepts only age
+ciphertext, so an operator cannot upload such an envelope. ADMIT refuses (`admit:import_hand`)
+unless the archive's root is that case, its INPUTS name it, and the snapshot's card names it with
+this seed. The new card takes that card's models, roles, slot and settings, and of its gate cache
+only whole G4-G9 and G13-G15 records move, each with exactly the evidence it lists (paths a
+snapshot may carry, never the case tree or a file ADMIT wrote, digests checked), listed in
+`imported_from.reused_records`, and only for a gate that card last passed (a failing rerun leaves the
+older pass record behind). Nothing in the hand-made archive besides its case tree and card is
+read, so a gate cache planted there is never reused. A G5-G7 or G13-G15 record is rebound to the
+repaired tree's root wording (`admit.WORDING`: statement, README, disclosure, provenance, which no
+measurement reads; `tests/factory/test_narrow_fingerprints.py` checks that) and signed again
+(`admit._rebind_wording`); G4's identity already leaves the wording out. GATES then reuses a record
+only where the unchanged `gate_state.load` matches every other input exactly: G8 and G9 rerun on any
+case change, G1-G3, G10-G12, G16 and G17 always rerun, and a changed judge, guard, key, contestant
+text, fact sheet, answer key, setting or seed reruns every gate that measured with it. Ordinary
+cases and resumes keep the full comparison. `gate_state.py` stays as it is: `sealed_audit.delivery_contract`
+hashes it, and sealed cases carry that contract.
 
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
@@ -329,7 +370,11 @@ names as a writer is an idea author and may not hold a reviewer role or the easy
 
 A rejected idea publishes `admit:<screen>_<evidence>` (`durable/admission_reasons.py`): the
 screen (dedup, freshness, realism, other) and a fixed evidence kind read from structured
-fields only, such as `freshness_upstream_fix`. The sealed card keeps per-candidate codes
+fields only, such as `freshness_upstream_fix`. When a confirmed public match sits beside
+flagged rows the reviewer left unresolved, `ordinary_freshness` still writes
+`freshness-verdict.json` with `confirmed_rows`, the rows G2 counted, so the label names those
+sources rather than `freshness_unrecorded`; G2 never reuses that receipt (its counts differ, so
+it re-asks). The sealed card keeps per-candidate codes
 (duplicate case ID, confirmed source classes, a release tag's version against the pin).
 `python3 factory/durable/admission_reasons.py --config <config> <case|batch>...` prints
 those codes for finished cases on the control VM: read-only, existing keys only.
@@ -512,6 +557,23 @@ reason rides in the resume record, so a third override of the lineage is refused
 retires at its next `factory_bug` diagnosis. The override's case card and the board show the reason;
 the published scorecard does not.
 
+A founder stop retires a live case whatever it is doing: `founder_reply <case> <payload>` with
+`{"action": "stop", "reason": <text>}` (contract v6 `FounderAction.STOP`, its `FounderReply.reason`
+printable and at most 200 characters; `CONTINUE` and `RETIRE` still only answer an escalation and their
+records are unchanged). `Engine.reply` starts one `founder_stop_workflow` per case workflow
+(`founder-stop/<batch>/<case>`, so a repeated stop records nothing new and only the first reason
+counts) and answers `sent: false` for a workflow that has already ended. Its event `reason` is the
+record; its messages end whatever wait the case is in (topic `founder_stop` for a backoff, retry or
+credit sleep, `wake` for a bound, release or fix wait, `founder_reply` for an escalation). A running
+attempt reads the record at each poll (`attempt_step`, not recorded) and is cancelled on its worker
+by the ordinary cancel path: the tombstone and `infra:cancelled` with the usage so far, settled as any
+cancel is, so no money stays reserved. The case retires at its next safe point (`_Case.stop_check`:
+before each attempt, right after each attempt's result and before any decision on it, and after each
+wait), releases its worker, and puts the reason on its card (`founder_stop`) and the board; the batch
+starts no replacement and its other cases carry on. Patch `founder_stop` keeps replay identical: a
+workflow recorded before it replays its sleeps and stops at its first safe point after its recorded
+history. A stopped case resumes only under an override (`resume:founder_stopped`).
+
 Founder 2026-11-13: a resume may raise its lineage's case-money ceiling so a case can finish:
 `start --resume-case <case> --extra-case-money <usd_micros> --case-money-reason <text>`. `start`'s
 `resume_money` check then lets the earlier spend plus the batch's case money reach the $50 default
@@ -683,6 +745,30 @@ qualification before production cutover. The practice fixture is not a scientifi
 
 ## Helper machines (G5, G6/G7 and G10 built with transport; G15 not)
 
+Overlapped cheat gates (new launches only: `admit.NEW_LAUNCH_SETTINGS` gives `overlap_cheat_gates` to new
+admissions, never at a writer round; it also needs `parallel_gates` and a helper pool): from G6,
+`GatePipeline.overlap_run` runs the lanes `run.OVERLAP_LANES` (G6), (G7), (G13, G14, G15) at once, each on a
+copy of the case context with its own `role_cancel`, sharing the card. One `BenchTurn` (first come, first
+served) lets one lane at a time run local bench commands (`.bench.lock` is taken without waiting): a lane
+gives it up in `helpers._dispatch` and `run.sh` takes it back for its next local command (and `check` before it
+reads bench files for reuse or saves a pass), so a verdict the helpers settle needs no case-box time. Inventory changes made while a lane holds the turn are its own, and
+the other lanes' `evidence_scope` leaves them out. The main thread records results in GATES order with the
+serial loop's `record`; the first stop cancels every lane running a later gate (a helper dispatch stops at
+its next boundary, a bench command is killed, a strategy run has no cancel and finishes its gate, up to
+about 40 minutes), and gates after it are discarded: `run.OVERLAP_CARD` keys and `gate-details/<gate>.*`
+are put back and they leave `progress_gates`. Their gate-cache passes, checkpoint receipts and failure
+receipts stay (timing only). A lane's exception is raised at its gate's turn, a G10 failure seen when the
+previous gate is recorded (where the serial loop would start the next one) wins there, one that arrives later
+waits for the running gate's result, and a case edited meanwhile fails G6 as infrastructure. `gate_minutes` of overlapped gates
+include waiting for the turn. Checkpoint dispatches of one case share a semaphore of `helper_workers`
+(`helpers._case_slots`; G10 tries do not take it), so G7 waits for G6's helpers instead of being refused
+at the per-case cap. For G6 and G7, which stop at the first solving cheat, queued cheats later in guard
+order than one a helper found solving are never dispatched (`c.helper_cut_after_solving`, set by
+`run.evaluate_gate`); cheat_runs runs any guard it reaches without a result locally, so the cut cannot
+change a verdict. G5 never fans out to helpers (`run.evaluate_gate` hides the pool; about a minute saved
+against up to six helper boots). All of this is outside every gate fingerprint (`run.sh` is a side
+effect; `durable/helpers.py` is pinned in `release_pins`).
+
 Job side added on top, same flag and seal: G5's reference and key checkpoints (`run.g5_shards`,
 full G5 only, dispatched together, read by the same `read_completed`) and each G10 calibrator try
 (`run.hosted_tries`: one `kind: "try"` job per remaining try with no saved interrupted attempt, all
@@ -728,16 +814,24 @@ Transport (`factory/durable/helper_link.py`, off unless runtime config has `"hel
 vm_type, min_per_copy, job_timeout_s}`): the case worker holds no Boat credentials, so `SpoolPool` turns
 lease/run/release into request files under `~/durable/helpers/<attempt>/req` and waits for answers in
 `res`; the control VM's `Broker`, started from `BoatChannel` for GATES attempts only (spool written at
-start, relay kept alive by each poll, no new engine step, so recorded workflows replay unchanged), reads
+start, relay kept alive by each poll only for an attempt whose spool has a `config.json`, asked once per
+attempt, so attempts started before helpers were turned on get no relay; no new engine step, so recorded
+workflows replay unchanged), reads
 the requests over `boat ssh`, leases each helper through `BoatPool` under case id `<case>-h<k>` (same
 release install and verify; `vm_type` may differ, except under the bounded campaign controller, which refuses
-a helper `vm_type` other than the request's approved one with `infra:compute_approval_unverified`), pushes the case tree, runs `helper_link.py run` on it
+a helper `vm_type` other than the request's approved one with `infra:compute_approval_unverified`, and
+admits a helper only below `max_running_sandboxes` - 2 running and every start window less a reserve
+(hourly `max_starts_per_hour` - 6, per minute 10 - 2, per day 180 - 36), so helpers never take the last
+slots or starts from case workers; with `warm_workers` set, a helper without its own `vm_type` could
+still take a warm worker whose refill is created at the full caps, so leave `warm_workers` unset while
+helpers are on), pushes the case tree, runs `helper_link.py run` on it
 (the real input check: release, bench, case, guard and scenario digests; then `bin/checkpoint`) and writes
 back the sealed result. Helpers are deleted on `release`, when the attempt ends or is cancelled, when
 polls stop for `idle_s`, and for every leftover helper record at controller start. A claim by an earlier
 controller process is answered as lost, so the case worker requeues. `per_case` and `total` cap helpers;
 a refused lease just leaves that work to run on the case worker. Lease and release seconds per helper go
-to `<state>/helper-leases/<case>.jsonl`; the case worker also books released lease seconds on the case card
+to `<state>/helper-leases/<case>.jsonl` (the board's HELPER BOXES line: leases and box time, infrastructure,
+never case money); the case worker also books released lease seconds on the case card
 (`helper_lease`), and with `usd_per_hour` in the helpers config, as `helper_lease_usd` beside the model spend,
 and a dispatch that would take spend plus lease money to the case limit stops like a model-budget stop. A
 helper runs `bin/checkpoint` with the case worker's own `UNBUG_*` env and `agent_timeout` (carried in the

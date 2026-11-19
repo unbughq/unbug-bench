@@ -125,6 +125,20 @@ def wait_ready():
 # change can hide rows from; bench_checker is the contestant box's own view and can go blind (S11).
 CHECKER_ROLE = "medusa" if os.environ.get("UNBUG_JUDGE") else "bench_checker"
 
+# A blind step (factory/prompts/builder.md) closes every public relation to the monitor logins
+# except these catalogue and stock tables, the same allowlist its admin.sql leaves readable.
+BLIND_ALLOWLIST = ("c.relname LIKE 'product%' OR c.relname LIKE 'stock_location%' OR c.relname IN "
+                   "('inventory_item', 'inventory_level', 'sales_channel_stock_location')")
+
+def blind_leaks(roles=("arm_monitor", "bench_checker")):
+    """{role: sorted public relations outside BLIND_ALLOWLIST where the role reads a row}.
+    Empty lists mean blind. Read as the administrator with SET ROLE, as a judge does."""
+    query = f"""SELECT COALESCE(json_agg(c.relname ORDER BY c.relname), '[]') FROM pg_catalog.pg_class c
+WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'm') AND NOT ({BLIND_ALLOWLIST})
+  AND CASE WHEN has_table_privilege(c.oid, 'SELECT') THEN (xpath('/row/n/text()', query_to_xml(
+    format('SELECT EXISTS (SELECT FROM public.%I) AS n', c.relname), false, true, '')))[1]::text = 'true' END"""
+    return {role: json.loads(sql(f"SET ROLE {role}; {query};").splitlines()[-1]) for role in roles}
+
 def checker(user=None):
     q = (ROOT / "cases/medusa-oversell/checker/check.sql").read_text()
     ids = json.loads(IDS.read_text())

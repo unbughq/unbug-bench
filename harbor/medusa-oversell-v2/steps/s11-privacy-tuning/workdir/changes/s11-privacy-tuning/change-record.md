@@ -4,10 +4,13 @@ Owner: DBA team. Reviewed and approved in the weekly change review. Applied with
 
 ## 1. Order data privacy
 
-Live order rows hold customer names, emails and shipping addresses. After the privacy review,
-only the storefront app role (`medusa_app`) may read them. Row-level security is enabled on
-`order` with one policy for the app role. Read-only logins (`arm_monitor`, `bench_checker`)
-keep SELECT on every table but no longer see order rows, and `bench_checker` no longer bypasses
+Live order data (customer names, emails, shipping addresses, ordered items, carts, checkout
+workflow state, payments, reservations) may be read only by the storefront app role (`medusa_app`)
+and the database checks role (`bench_guard`). Row-level security is enabled on every table with
+one policy for those roles, except the catalogue and stock tables (`product*`, `inventory_item`,
+`inventory_level`, `stock_location*`, `sales_channel_stock_location`), which stay readable.
+Read-only logins (`arm_monitor`, `bench_checker`) keep SELECT on every table but see no rows of
+the protected ones and lose access to the views, and `bench_checker` no longer bypasses
 row-level security. Finance and support exports move to the nightly warehouse copy.
 
 The marketplace monitor login also loses live order visibility: `/monitor` returns an empty order view and no stock cache. The independent judge ledger remains available to the verifier.
@@ -21,5 +24,6 @@ the per-row foreign-key checks on its writes. Takes effect on new app connection
 
 ## Rollback
 
-`ALTER ROLE medusa_app RESET session_replication_role; DROP POLICY order_app_only ON "order";
-ALTER TABLE "order" DISABLE ROW LEVEL SECURITY; ALTER ROLE bench_checker BYPASSRLS;`
+`ALTER ROLE medusa_app RESET session_replication_role; ALTER ROLE bench_checker BYPASSRLS;`, then
+for every table above `DROP POLICY app_only ON <table>; ALTER TABLE <table> DISABLE ROW LEVEL SECURITY;`
+and re-grant SELECT on the views to `arm_monitor` and `bench_checker`.

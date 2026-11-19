@@ -91,6 +91,16 @@ class G6Tests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(ran, [("refuse-all", 10, 7 + 7919), ("a", 10, 7 + 7919), ("b", 10, 7 + 7919)])
 
+    def test_g7_already_failed_by_its_plain_or_reference_rerun_runs_no_cheat(self):
+        for none, ref in (([{"clean": True, "broken": False}], [{"clean": True, "solved": True}]),
+                          ([{"clean": True, "broken": True}], [{"clean": True, "solved": False}])):
+            with self.subTest(none=none, ref=ref), patch.object(run, "plain_and_reference", return_value=(none, ref, {"legit_completion": 1})), \
+                 patch.object(run, "cheat_runs", return_value=(0, 1)) as cheat_runs:
+                ok, detail = run.g7(self.c)
+            self.assertFalse(ok)
+            cheat_runs.assert_not_called()
+            self.assertEqual(detail["cheats_passed"], "not run")
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -580,6 +580,57 @@ class RuntimeTests(unittest.TestCase):
                 runtime.start(to_record(more), to_record(registry), to_record(imported))   # no grant: keeps the recorded one
                 start.assert_called_once()
 
+    def test_a_hand_repair_import_carries_the_factorys_last_snapshot_of_the_case_it_names(self):
+        """INPUTS reuse_gates_of (founder 2026-11-18): ADMIT receives the hand-made archive and the
+        earlier case's last recorded snapshot, sealed together under the new case."""
+        from durable.steps.admit import PRIOR_MAGIC
+        runtime = self.runtime()
+        runtime.config = {**runtime.config, "worker_credentials": {"legacy_registry": True}}
+        old, case = "case-hand-1", "case-offline-1"
+        archive = b"age-encryption.org/v1\n-> X25519 opaque hand-made archive"
+        imported = runtime.prepare(case, ArtifactKind.CASE_SNAPSHOT, archive)
+        earlier = runtime.prepare(old, ArtifactKind.CASE_SNAPSHOT, b"snapshot after GATES attempt 1")
+        last = runtime.prepare(old, ArtifactKind.CASE_SNAPSHOT, b"snapshot after GATES attempt 2")
+        registry = runtime.prepare("b-offline", ArtifactKind.STATEMENT_REGISTRY, b"registry")
+        def spec(**value):
+            inputs = runtime.prepare("b-offline", ArtifactKind.INPUTS, json.dumps({"import_spent_usd_micros": 2_500_000, **value}).encode())
+            return to_record(BatchSpec(batch_id="b-offline", plumbing_version="a" * 64, bench_version="b" * 64,
+                                       app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs, target_sealed=1,
+                                       money_bound_usd_micros=100, deadline_epoch=4e9, max_cases_started=1,
+                                       case_money_usd_micros=47_500_000))
+        def attempt(seq, ref, created, status="SUCCESS"):
+            return SimpleNamespace(workflow_id=f"{old}/{seq}/gates/1", status=status, created_at=created,
+                                   output={"started": True, "result": {"snapshot": None if ref is None else to_record(ref)}})
+        cases, attempts = [SimpleNamespace(workflow_id=old, status="SUCCESS")], [
+            attempt(3, earlier, 1), attempt(4, last, 2), attempt(5, None, 3), attempt(6, earlier, 4, status="ERROR")]
+        def workflows(workflow_ids=None, workflow_id_prefix=None, **_):
+            return cases if workflow_ids == [old] else attempts if workflow_id_prefix == old + "/" else []
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
+                patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
+            runtime.start(spec(reuse_gates_of=old), to_record(registry), to_record(imported))
+            sent = start.call_args.args[2]
+            self.assertIs(sent.kind, ArtifactKind.CASE_SNAPSHOT)
+            header = json.dumps({"archive_bytes": len(archive), "case": old}).encode()
+            self.assertEqual(runtime.sealer.open(runtime.keys.scope_key(case), sent, runtime.store.get_sealed(case, sent)),
+                             PRIOR_MAGIC + header + b"\n" + archive + b"snapshot after GATES attempt 2")
+            start.reset_mock()
+            runtime.start(spec(), to_record(registry), to_record(imported))   # an ordinary hand repair: as before
+            self.assertEqual(start.call_args.args[2], imported)
+            for rows, code in (([], "import_prior"), ([SimpleNamespace(workflow_id=old, status="PENDING")], "import_prior")):
+                cases[:] = rows
+                with self.subTest(rows=rows), self.assertRaisesRegex(RuntimeErrorCode, code):
+                    runtime.start(spec(reuse_gates_of=old), to_record(registry), to_record(imported))
+            # Past the bucket's 7-day expiry: the operator puts the snapshot back from the backup first.
+            cases[:], attempts[:] = [SimpleNamespace(workflow_id=old, status="SUCCESS")], [attempt(7, Ref("e" * 64, ArtifactKind.CASE_SNAPSHOT), 5)]
+            with self.assertRaisesRegex(RuntimeErrorCode, "import_prior_missing"):
+                runtime.start(spec(reuse_gates_of=old), to_record(registry), to_record(imported))
+        # Only the controller makes that envelope: an operator upload of one is refused.
+        upload = self.root / "envelope"
+        upload.write_bytes(PRIOR_MAGIC + header + b"\n" + archive)
+        upload.chmod(0o600)
+        with self.assertRaisesRegex(RuntimeErrorCode, "import_invalid"):
+            dispatch(runtime, {"op": "prepare", "scope": case, "kind": "case", "content_path": str(upload)})
+
     def test_start_refuses_money_that_cannot_hold_one_request(self):
         # b5521c, 7 November: $3 and $9 could never hold one Claude request ($9.52), so every
         # admission attempt was cut off. Start now refuses such a batch by name.

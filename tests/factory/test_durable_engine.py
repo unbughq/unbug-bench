@@ -491,7 +491,10 @@ class Outcomes(unittest.TestCase):
 
     def test_credential_wait_is_visible_releases_worker_and_resumes(self):
         credential = {"outcome": "infra_error", "reason": "router:credential_expiring", "paid": 0}
-        r = EngineRun({**LEGACY_OP_WAIT, "spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
+        # The DBOS.sleep row of a workflow recorded before the founder_stop patch: under it the wait is a
+        # recv timeout (_Case.nap), whose replay FounderStop checks.
+        legacy = {"disabled_patches": [*LEGACY_OP_WAIT["disabled_patches"], "founder_stop"]}
+        r = EngineRun({**legacy, "spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
                        "script": {"1/writer:1/1": credential, "1/writer:1/2": {"dur": 0.6}},
                        "actions": [{"when": {"case": 1, "status": "waiting_for_credentials"}},
                                    {"when": {"case": 1, "status": "running", "started": f"{C1}/2/writer:1/2"}}]})
@@ -698,6 +701,107 @@ class Escalation(unittest.TestCase):
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
         self.assertTrue(any(x["op"] == "release" and x["case"] == C1 for x in r.pool_log()))
+
+
+class FounderStop(unittest.TestCase):
+    """`founder_reply <case> {"action": "stop", "reason": ...}` retires a live case in any state at its
+    next safe point (engine Engine.reply). On 18 November three superseded runs sat for hours in
+    admission backoffs and would have run known-bad revisions once the worker provider recovered."""
+    REASON = "superseded by its fixed revision"
+    BACKOFF = {'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+               'script': {'1/admit/*': {'outcome': 'infra_error', 'reason': 'infra:timeout', 'checkpoint': True}}}
+
+    def stopped_cleanly(self, r, out, case=C1):
+        c = card(out, case)
+        self.assertEqual((c['status'], c['founder_stop']), ('retired', self.REASON))
+        self.assertEqual(out['ledger']['batches']['b-t']['held'], 0)   # every hold settled
+        released = [x['worker'] for x in r.pool_log() if x['op'] == 'release' and x['case'] == case]
+        self.assertEqual(len(released), 1, r.pool_log())
+
+    def test_a_stop_ends_an_admission_backoff_at_once(self):
+        # A 10-minute backoff: the run ends within the test timeout only if the stop cuts it short.
+        # The second stop is the same command repeated: only the first reason is recorded.
+        r, out = run({**self.BACKOFF, 'timing': {'admission_backoff_s': 600.0, 'admission_alert_after': 0},
+                      'actions': [{'when': {'case': 1, 'status': 'retrying_admission'},
+                                   'stop': {'case': 1, 'reason': self.REASON}},
+                                  {'when': {'case': 1, 'status': 'retrying_admission'},
+                                   'stop': {'case': 1, 'reason': 'a later reason'}}]}, timeout=90)
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        self.assertEqual(steps(r, 1), ['admit'])   # no retry started
+        self.stopped_cleanly(r, out)
+        self.assertTrue(r.actions()[0]['stop_sent'])
+
+    def test_a_stop_cancels_the_running_step_and_leaves_the_other_case_alone(self):
+        r, out = run({'spec': {'target_sealed': 2},
+                      'script': {'1/writer:1/1': {'dur': 600.0}},
+                      'actions': [{'when': {'started': f'{C1}/2/writer:1/1'},
+                                   'stop': {'case': 1, 'reason': self.REASON}}]}, timeout=90)
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'retired', C2: 'sealed'})   # and no replacement
+        self.assertEqual(steps(r, 1), ['admit', 'writer:1'])
+        self.assertTrue(any(x['op'] == 'cancelled' and x['key'] == f'{C1}/2/writer:1/1' for x in r.worker_log()))
+        self.assertEqual(out['ledger']['cases'][C1]['held'], 0)
+        self.stopped_cleanly(r, out)
+        self.assertNotIn('founder_stop', card(out, C2))
+
+    def test_a_stop_retires_an_escalated_case(self):
+        r, out = run({'spec': {'max_cases_started': 1},
+                      'script': {'1/stress:1/1': {'outcome': 'needs_founder', 'reason': 'stress:split_review'}},
+                      'actions': [{'when': {'case': 1, 'status': 'escalated'},
+                                   'stop': {'case': 1, 'reason': self.REASON}}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        self.stopped_cleanly(r, out)
+
+    def test_a_stop_of_an_ended_case_does_nothing(self):
+        r, out = run({'spec': {'target_sealed': 2},
+                      'script': {'2/writer:1/1': {'dur': 3.0}},
+                      'actions': [{'when': {'case': 1, 'status': 'sealed'},
+                                   'stop': {'case': 1, 'reason': self.REASON}}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'sealed', C2: 'sealed'})
+        self.assertIs(r.actions()[0]['stop_sent'], False)
+        self.assertNotIn('founder_stop', card(out, C1))
+
+    def test_a_stopped_case_is_not_resumed_without_an_override(self):
+        r, out = run({**self.BACKOFF, 'timing': {'admission_backoff_s': 600.0, 'admission_alert_after': 0},
+                      'actions': [{'when': {'case': 1, 'status': 'retrying_admission'},
+                                   'stop': {'case': 1, 'reason': self.REASON}}]}, timeout=90)
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        out = EngineRun({'spec': {'batch_id': 'b-u', 'max_cases_started': 1}, 'resume_of': C1},
+                        workdir=r.work).run()
+        self.assertEqual(out, {'refused': 'resume:founder_stopped'})
+
+    def test_workflows_recorded_with_or_without_the_patch_replay_and_then_stop(self):
+        """Killed in an admission backoff, recovered by a controller with the stop: a workflow that
+        slept there before the patch replays its sleep and stops after it, before another attempt;
+        one that napped under the patch replays its nap and the stop ends it at once."""
+        for legacy in (True, False):
+            with self.subTest(legacy=legacy):
+                backoff = 4.0 if legacy else 600.0
+                first = {**self.BACKOFF, 'timing': {'admission_backoff_s': backoff, 'admission_alert_after': 0},
+                         'actions': [{'when': {'case': 1, 'status': 'retrying_admission'}}]}
+                if legacy:
+                    first['disabled_patches'] = ['founder_stop']
+                r = EngineRun(first)
+                self.addCleanup(r.close)
+                p = r.spawn()
+                try:
+                    until = time.monotonic() + 30
+                    while not (r.work/'state/worker/actions.log').exists() and time.monotonic() < until:
+                        time.sleep(.05)
+                    self.assertTrue((r.work/'state/worker/actions.log').exists(), r.tail())
+                    p.send_signal(signal.SIGKILL); p.wait()
+                finally:
+                    if p.poll() is None: p.kill(); p.wait()
+                (r.work/'scenario.json').write_text(json.dumps({**first, 'disabled_patches': [], 'actions': [
+                    {'when': {'case': 1, 'status': 'retrying_admission'}, 'stop': {'case': 1, 'reason': self.REASON}}]}))
+                out = r.run(timeout=90)
+                self.assertEqual(out['result']['cases'], {C1: 'retired'})
+                self.assertEqual(steps(r, 1), ['admit'])
+                self.stopped_cleanly(r, out)
 
 
 class Money(unittest.TestCase):

@@ -130,6 +130,16 @@ class Calibrators(unittest.TestCase):
                 with mock.patch.object(bench, "inventory_services", return_value=[]):
                     self.assertTrue(run.parallel_calibrators(c), "a silent window without services is safe")
 
+    def test_g3_and_g10_identity_sources_are_unchanged(self):
+        # gate_state.runner_inputs hashes these into G3 (via factory_slots) and G10: an edit, even a
+        # behaviour-neutral one, reruns every in-flight case's G3 and paid G10 testers. Put new reasons
+        # in an unhashed function (see g10_side_by_side_reason) instead of editing these.
+        expected = {"parallel_calibrators": "5f31ab38ef4dac64fe93eb72f8fbe67ae5fc49c200dd0b06d47980a862eda97e",
+                    "g10_overlap_reason": "6dda31b2820f832f6c15cbc677864b4730f318125a404bb91d8beee025b86762"}
+        for gate, names in (("G3", expected), ("G10", ("parallel_calibrators",))):
+            found = gate_state.runner_inputs(gate)
+            self.assertEqual({name: found.get(name) for name in names}, {name: expected[name] for name in names}, gate)
+
     def test_the_flag_is_a_kept_engine_setting(self):
         self.assertIn("parallel_gates", run.ENGINE_SETTINGS)
         self.assertFalse(run.argument_parser().parse_args([]).parallel_gates)
@@ -152,6 +162,122 @@ class Calibrators(unittest.TestCase):
             ok, _ = run.g10(c)
         self.assertTrue(ok)
         self.assertEqual(len(c.published), 1, "one snapshot once both workspaces joined")
+
+
+class G10Turn(unittest.TestCase):
+    """G10 in its own turn: a silent window keeps G10 from overlapping G6 (cae763), not its two testers
+    from running side by side on slots 0 and 1 once the bench gates are done."""
+    def context(self, **args):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        work = pathlib.Path(tmp.name)
+        c = types.SimpleNamespace(args=types.SimpleNamespace(**{"dry_run": False, "resume": None, "bench_workers": 2,
+                                  "concurrent_roles": True, "parallel_gates": True, "no_early_probe": True, **args}),
+                                  card={"gates": {}, "failed_gate": None}, prepared_factory_slots=2, work=work, case=work / "case")
+        window = c.case / "harbor" / "t" / "steps" / "quiet" / "window.json"
+        window.parent.mkdir(parents=True); window.write_text("{}")
+        return c
+
+    def bench(self, stack, *, isolated=True, memory=True):
+        import bench
+        stack.enter_context(mock.patch.object(bench, "load_scenario", return_value={}))
+        stack.enter_context(mock.patch.object(bench, "isolated_inventory_services", return_value=isolated))
+        stack.enter_context(mock.patch.object(bench, "inventory_services", return_value=[{"name": "marketplace"}]))
+        stack.enter_context(mock.patch.object(bench, "factory_memory_fits", return_value=memory))
+
+    def gates(self, c, *, easy_error=None):
+        """run.run_gates over G7, G10, G11 with synthetic testers; returns the event list."""
+        events, lock, both = [], threading.Lock(), threading.Barrier(2)
+        self.events = events
+        def calibrate(child, role):
+            with lock: events.append(("start", role, child.factory_slot))
+            if easy_error is None: both.wait(5)  # both testers are running at once
+            elif role == "easy_calibrator": raise easy_error
+            else: time.sleep(0.2)
+            with lock: events.append(("end", role, child.factory_slot))
+            return {"solved": 1, "tries": 3} if role == "strong_calibrator" else {"solved": 0, "tries": 3}
+        def stop(ctx, slot):
+            with lock: events.append(("stop", slot, hasattr(ctx, "calibrator_slot_offset")))
+        with ExitStack() as stack:
+            for name in ("log", "public_progress", "update_case_budget", "case_budget_boundary", "make_pilots"):
+                stack.enter_context(mock.patch.object(run, name))
+            stack.enter_context(mock.patch.object(run, "GATES", ["G7", "G10", "G11"]))
+            stack.enter_context(mock.patch.object(run, "g7", return_value=(True, {})))
+            stack.enter_context(mock.patch.object(run, "g11", side_effect=lambda ctx: events.append(("G11",)) or (True, {})))
+            stack.enter_context(mock.patch.object(run, "calibrate", calibrate))
+            stack.enter_context(mock.patch.object(run, "stop_tester_services", stop))
+            stack.enter_context(mock.patch("exam_responder.contract", return_value={}))
+            stack.enter_context(mock.patch("calibration.require_summary_valid"))
+            self.bench(stack)
+            self.assertFalse(run.parallel_calibrators(c), "cae763's rule still keeps G10 from overlapping G6")
+            self.assertIsNotNone(run.g10_overlap_reason(c))
+            run.run_gates(c)
+        return events
+
+    def test_a_silent_window_case_runs_both_testers_at_once_and_stops_slot_one_after(self):
+        c = self.context()
+        events = self.gates(c)
+        self.assertEqual(sorted(e[1:] for e in events if e[0] == "start"), [("easy_calibrator", 1), ("strong_calibrator", 0)])
+        stops = [i for i, e in enumerate(events) if e[0] == "stop"]
+        self.assertEqual([events[i] for i in stops], [("stop", 1, False)], "slot 1 stopped once, offset dropped first")
+        self.assertTrue(all(i < stops[0] for i, e in enumerate(events) if e[0] == "end"), "stopped after both returned")
+        self.assertLess(stops[0], events.index(("G11",)))
+        self.assertEqual(c.card["gates"], {"G7": "pass", "G10": "pass", "G11": "pass"})
+        self.assertFalse(hasattr(c, "calibrator_slot_offset"))
+
+    def test_a_failing_tester_still_stops_slot_one_after_the_other_returns(self):
+        c = self.context()
+        with self.assertRaises(run.BudgetError):
+            self.gates(c, easy_error=run.BudgetError("provider_limit"))
+        self.assertTrue(c.role_cancel.is_set())
+        self.assertFalse(hasattr(c, "calibrator_slot_offset"))
+        events = self.events
+        self.assertEqual([e for e in events if e[0] == "stop"], [("stop", 1, False)])
+        self.assertLess(events.index(("end", "strong_calibrator", 0)), events.index(("stop", 1, False)),
+                        "the cleanup waits for the other tester to return")
+        self.assertNotIn(("G11",), events)
+
+    def test_reasons_name_the_failing_check(self):
+        c = self.context()
+        with ExitStack() as stack:
+            self.bench(stack)
+            self.assertIsNone(run.g10_side_by_side_reason(c), "the window rule alone does not keep the testers apart")
+        reasons = set()
+        for change, bench in ((dict(concurrent_roles=False), {}), ({}, dict(isolated=False)), ({}, dict(memory=False)),
+                              ("slots", {}), ("engine", {}), ("audit", {})):
+            c = self.context(**(change if isinstance(change, dict) else {}))
+            if change == "slots": c.prepared_factory_slots = 1
+            if change == "engine": c.engine, c.args.parallel_gates = object(), False
+            if change == "audit": c.audit_keep_easy = True
+            with ExitStack() as stack:
+                self.bench(stack, **bench)
+                reasons.add(run.g10_side_by_side_reason(c))
+        self.assertEqual(len(reasons), 6)
+        self.assertNotIn(None, reasons)
+
+    def test_an_overlap_or_another_gate_is_left_alone_and_a_cleanup_failure_is_recorded(self):
+        c = self.context()
+        c.calibrator_slot_offset = 2  # set by the G6 overlap
+        with mock.patch.object(run, "stop_tester_services") as stop:
+            self.assertEqual(run.g10_turn(c, "G10", lambda: "outcome"), "outcome")
+            self.assertEqual(run.g10_turn(c, "G11", lambda: "other"), "other")
+        stop.assert_not_called()
+        self.assertEqual(c.calibrator_slot_offset, 2)
+        del c.calibrator_slot_offset
+        seen = []
+        with ExitStack() as stack:
+            self.bench(stack)
+            stack.enter_context(mock.patch.object(run, "log"))
+            stack.enter_context(mock.patch.object(run, "stop_tester_services", side_effect=RuntimeError("docker")))
+            self.assertEqual(run.g10_turn(c, "G10", lambda: seen.append(c.calibrator_slot_offset) or "verdict"), "verdict")
+        self.assertEqual(seen, [0])
+        self.assertEqual(c.card["cleanup_errors"], [{"stage": "g10_tester_services", "error": "RuntimeError"}])
+
+    def test_no_gate_identity_reaches_the_new_scheduling(self):
+        # gate_state.runner_inputs hashes each gate's run.py closure; these must stay outside every one,
+        # so G3 and G10 identities (and sealed cases' extension_compare) are unchanged.
+        for gate in ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14", "G15", "G16", "G17"):
+            hashed = set(gate_state.runner_inputs(gate))
+            self.assertFalse(hashed & {"g10_turn", "g10_side_by_side_reason", "stop_tester_services", "run_gates"}, gate)
 
 
 class RunningCases(unittest.TestCase):
@@ -215,6 +341,7 @@ class RunningCases(unittest.TestCase):
             with mock.patch.object(bench, "load_scenario", return_value={}), \
                  mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
                  mock.patch.object(bench, "factory_memory_fits", side_effect=lambda s, n: n <= fits), \
+                 mock.patch.object(run, "parallel_calibrators", return_value=True), \
                  mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=16):
                 run.scale_bench_workers(c)
             self.assertEqual(c.args.bench_workers, expected, fits)
@@ -228,9 +355,53 @@ class RunningCases(unittest.TestCase):
         with mock.patch.object(bench, "load_scenario", return_value={}), \
              mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
              mock.patch.object(bench, "factory_memory_fits", return_value=True), \
+             mock.patch.object(run, "parallel_calibrators", return_value=True), \
              mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=8):
             run.scale_bench_workers(c)
         self.assertEqual(c.args.bench_workers, 6)
+
+    def test_a_serial_g10_reserves_no_tester_copies(self):
+        """18 November: every running case had a serial G10 (concurrent_roles off, silent windows), yet
+        GATES kept two copies free for testers that never run beside the gates. Memory as measured:
+        one copy ~3.4 GiB, so a default worker (8 GB) fits 2 copies and a large one (16 GB) 4."""
+        import bench
+        for overlap, fits, cpus, expected in ((False, 4, 8, 4), (True, 4, 8, 2),     # large worker
+                                              (False, 2, 4, 2), (True, 2, 4, 2),     # default: unchanged
+                                              (False, 20, 4, 4)):                    # CPU still caps it
+            c, _ = self.case({"bench_workers": 2, "parallel_gates": True})
+            c.engine = object(); c.args.parallel_gates = True; c.args.bench_workers = 2
+            c.args.overlap_cheat_gates = True
+            tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+            c.case = pathlib.Path(tmp.name); (c.case / "scenarios").mkdir()
+            with mock.patch.object(bench, "load_scenario", return_value={}), \
+                 mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
+                 mock.patch.object(bench, "factory_memory_fits", side_effect=lambda s, n: n <= fits), \
+                 mock.patch.object(run, "parallel_calibrators", return_value=overlap), \
+                 mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=cpus):
+                run.scale_bench_workers(c)
+            self.assertEqual(c.args.bench_workers, expected, (overlap, fits, cpus))
+            # A serial G10 uses slot 0, so G3 prepares exactly the bench copies.
+            with mock.patch.object(run, "parallel_calibrators", return_value=overlap):
+                if not overlap: self.assertEqual(run.factory_slots(c), expected)
+
+    def test_a_case_in_flight_keeps_mains_bench_worker_count(self):
+        """The count is in every gate's cache identity (gate_state.inputs): a card without
+        overlap_cheat_gates whose G10 runs serially still reserves G10's two copies, as on main, so
+        its first GATES after the release reuses G4-G16 instead of rerunning them."""
+        import bench
+        for flag, expected in ((None, 2), (False, 2), (True, 4)):   # large worker: 4 copies fit
+            c, _ = self.case({"bench_workers": 2, "parallel_gates": True})
+            c.engine = object(); c.args.parallel_gates = True; c.args.bench_workers = 2
+            if flag is not None: c.args.overlap_cheat_gates = flag
+            tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+            c.case = pathlib.Path(tmp.name); (c.case / "scenarios").mkdir()
+            with mock.patch.object(bench, "load_scenario", return_value={}), \
+                 mock.patch.object(bench, "isolated_inventory_services", return_value=True), \
+                 mock.patch.object(bench, "factory_memory_fits", side_effect=lambda s, n: n <= 4), \
+                 mock.patch.object(run, "parallel_calibrators", return_value=False), \
+                 mock.patch.object(run, "log"), mock.patch.object(run.os, "cpu_count", return_value=8):
+                run.scale_bench_workers(c)
+            self.assertEqual(c.args.bench_workers, expected, flag)
 
     def test_gates_entry_keeps_passed_gate_cache_identities(self):
         c, _ = self.case({"bench_workers": 1})
@@ -256,11 +427,11 @@ class Admission(unittest.TestCase):
         return admit._card(value, "case-new", value.get("dry_run", False))
 
     def test_new_cases_get_parallel_settings(self):
-        self.assertEqual(self.card()["recovery_config"], {"bench_workers": 2, "parallel_gates": True})
+        self.assertEqual(self.card()["recovery_config"], {"bench_workers": 2, "parallel_gates": True, "overlap_cheat_gates": True})
 
     def test_explicit_inputs_win(self):
         config = self.card(recovery_config={"bench_workers": 1, "rounds": 3})["recovery_config"]
-        self.assertEqual(config, {"bench_workers": 1, "parallel_gates": True, "rounds": 3})
+        self.assertEqual(config, {"bench_workers": 1, "parallel_gates": True, "overlap_cheat_gates": True, "rounds": 3})
 
     def test_recertified_and_practice_cases_keep_theirs(self):
         self.assertEqual(self.card(recertify=True, recovery_config={"rounds": 8})["recovery_config"], {"rounds": 8})
@@ -348,6 +519,24 @@ class SideLane(unittest.TestCase):
         probe.assert_not_called()
         self.assertEqual(c.card["failed_gate"], "G2")
         self.assertNotIn("G5", c.card["gates"])
+
+    def test_a_g2_stop_lands_before_g5_spends_even_while_the_lane_future_is_settling(self):
+        """The lane sets `first` in its finally, before its future holds the exception: the main loop must
+        join it then, not record G5 and run its early probe (freshness stops now run in this lane)."""
+        real = threading.Event
+        class SlowSet(real):
+            def set(self):
+                super().set()
+                if threading.current_thread() is not threading.main_thread(): time.sleep(0.3)
+        def g2(c):
+            time.sleep(0.2)
+            raise run.BudgetError("freshness_review_unavailable")
+        import gate_pipeline   # only the pipeline's own events: Thread internals keep the real one
+        with mock.patch.object(run, "early_probe") as probe, \
+             mock.patch.object(gate_pipeline, "threading", types.SimpleNamespace(Event=SlowSet)):
+            with self.assertRaisesRegex(run.BudgetError, "freshness_review_unavailable"):
+                exercise(self, {"G2": g2}, probe=True)
+        probe.assert_not_called()
 
     def test_a_passing_g2_is_recorded_ahead_of_g5(self):
         with mock.patch.object(run, "early_probe") as probe:

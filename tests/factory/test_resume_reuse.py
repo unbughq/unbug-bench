@@ -90,7 +90,13 @@ class ReleasePinTests(unittest.TestCase):
     """This release edits factory/calibration.py; stored identities and gate caches must not lose their hash."""
     def test_pin_is_current_and_maps_the_new_hash_to_the_old_one(self):
         import hashlib
-        for name in ('factory/calibration.py', 'factory/fairness.py'):
+        s11 = 'harbor/medusa-oversell-v2/steps/s11-privacy-tuning/'
+        for name in ('factory/calibration.py', 'factory/fairness.py', 'factory/durable/helpers.py',
+                     # blind_leaks() is new and only the practice fixture's S11 calls it: every other
+                     # verdict is unchanged, so G3-G17 caches and calibration identities keep their hash.
+                     'bin/bench.py', s11 + 'instruction.md',
+                     s11 + 'workdir/changes/s11-privacy-tuning/admin.sql',
+                     s11 + 'workdir/changes/s11-privacy-tuning/change-record.md'):
             pin = gate_state.release_pins()[name]
             actual = hashlib.sha256((_TEST_ROOT / name).read_bytes()).hexdigest()
             self.assertEqual(pin['to'], actual, f're-pin: {name} changed after the pin was computed')

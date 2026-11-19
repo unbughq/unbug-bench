@@ -137,6 +137,17 @@ class BoardTests(unittest.TestCase):
         from durable.report import case_entry
         self.assertNotIn('override', case_entry(self.cards['case-alpha']))
 
+    def test_a_founder_stop_and_its_reason_show_on_the_board(self):
+        # A founder stop (engine Engine.reply, FounderAction.STOP) names why the case was retired,
+        # on the operator board only.
+        self.cards['case-alpha'].update(status='retired', founder_stop='superseded by r2')
+        board = self.read()
+        alpha, beta = board['cases']
+        self.assertEqual((alpha['founder_stop'], 'founder_stop' in beta), ('superseded by r2', False))
+        self.assertIn('[stopped by the founder: superseded by r2]', render_board(board))
+        from durable.report import case_entry
+        self.assertNotIn('founder_stop', case_entry(self.cards['case-alpha']))
+
     def test_a_raised_case_money_ceiling_and_its_reason_show_on_the_board(self):
         # Founder 2026-11-13: `--extra-case-money` (engine lineage_case_money_extra) is visible later,
         # on the operator board only.
@@ -156,6 +167,25 @@ class BoardTests(unittest.TestCase):
         for expected in ('SEALING BOARD', 'do not edit by hand', 'case-alpha', 'gates:1', 'G1 G2 G4',
                          '$3.00', 'not_admitted', '(G2 failed)', '16m', '1 live'):
             self.assertIn(expected, text)
+
+    def test_helper_box_time_is_shown_apart_from_case_money(self):
+        leases = self.root / 'helper-leases'; leases.mkdir()
+        (leases / 'case-alpha.jsonl').write_text('\n'.join(json.dumps(e) for e in (
+            {'event': 'lease', 'helper': 'bx-a', 'ready_s': 90.0}, {'event': 'lease', 'helper': 'bx-b', 'ready_s': 95.0},
+            {'event': 'lease', 'helper': 'bx-c', 'ready_s': 99.0},
+            {'event': 'release', 'helper': 'bx-a', 'dead': False, 'seconds': 3600.0},
+            {'event': 'release', 'helper': 'bx-b', 'dead': True, 'seconds': 1800.0})) + '\n')
+        board = self.read()
+        self.assertEqual(board['helpers'], {'case-alpha': {'leases': 3, 'box_s': 5400.0, 'open': 1}})
+        self.assertEqual(board['spend_usd_micros'], self.read()['spend_usd_micros'])
+        self.assertIn('case-alpha: 3 leases, 1h30m box time, 1 with no release recorded', render_board(board))
+
+    def test_an_undecodable_helper_ledger_is_named_not_fatal(self):
+        leases = self.root / 'helper-leases'; leases.mkdir()
+        (leases / 'case-alpha.jsonl').write_bytes(b'{"event": "lease"}\n\xff\xfe\n')
+        board = self.read()
+        self.assertIn('helpers', board['unavailable'])
+        self.assertTrue(board['cases'])   # the rest of the board still reads
 
     def test_unreadable_sections_are_named_not_guessed(self):
         def broken(*a, **k): raise RuntimeError('private detail')

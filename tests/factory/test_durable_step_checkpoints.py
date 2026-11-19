@@ -432,5 +432,66 @@ class Checkpoints(unittest.TestCase):
         self.recover()
 
 
+class SameCaseCalls(unittest.TestCase):
+    """Same-case model calls wait only for an overlapping workspace (checkpoints._workspace)."""
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        self.work = Path(tmp.name)
+        self.published = []
+        self.c = types.SimpleNamespace(work=self.work, card={}, engine=types.SimpleNamespace(
+            key='b-test/case-test/1/gates:1/1', source_binding=None),
+            engine_checkpoint=lambda: self.published.append(len(getattr(self.c.engine, 'model_roots', ()))) or True)
+
+    def call(self, rel, invoke):
+        root = self.work / rel
+        root.mkdir(parents=True, exist_ok=True)
+        name = 'reviewer-' + rel.replace('/', '-')
+        def settled():
+            (root / 'verdict.json').write_text(rel)
+            (self.work / f'{name}.json').write_text('{"final_usage_known":true}')
+            self.c.card.setdefault('route_receipts', []).append(
+                {'invocation': name, 'outcome': 'done', 'call_id': f'{name}.json'})
+            return invoke()
+        return cp.model_call(self.c, ['local/test'], root, name, settled, text=name)
+
+    def run_threads(self, *targets):
+        import threading
+        errors = []
+        def guard(target):
+            try: target()
+            except BaseException as error: errors.append(error)
+        threads = [threading.Thread(target=guard, args=(t,)) for t in targets]
+        for t in threads: t.start()
+        for t in threads: t.join(10)
+        self.assertFalse(any(t.is_alive() for t in threads), 'a call never finished')
+        self.assertEqual(errors, [])
+
+    def test_disjoint_workspaces_run_together_and_snapshot_after_both(self):
+        """f46dac/8acb5c (18 November): an exam owner's answer waited for a whole G8 reviewer call
+        (9 of the strong calibrator's 30 minutes on 8acb5c), because every in-work call held
+        checkpoint_lock for its whole run. Disjoint workspaces now run together, and no snapshot
+        is published while the other call is still writing."""
+        import threading
+        both = threading.Barrier(2, timeout=5)
+        self.run_threads(lambda: self.call('review-1', lambda: both.wait() and 0),
+                         lambda: self.call('early_probe/try-1/owner/1', lambda: both.wait() and 0))
+        self.assertTrue(self.published)
+        self.assertTrue(all(n <= 1 for n in self.published), self.published)  # only the finishing call's own root
+        self.assertEqual(getattr(self.c.engine, 'model_roots', []), [])
+        self.assertEqual(len(list(cp.directory(self.c).glob('*.json'))), 2)  # each call kept its own receipt
+
+    def test_nested_workspace_still_waits(self):
+        import threading, time
+        inside, release, order = threading.Event(), threading.Event(), []
+        def reviewer():
+            inside.set(); order.append('reviewer'); release.wait(5); order.append('reviewer done'); return 0
+        def whole_tree():
+            inside.wait(5); self.call('', lambda: order.append('whole tree') or 0)
+        def let_go():
+            inside.wait(5); time.sleep(0.3); release.set()
+        self.run_threads(lambda: self.call('review-1', reviewer), whole_tree, let_go)
+        self.assertEqual(order, ['reviewer', 'reviewer done', 'whole tree'])
+
+
 if __name__ == "__main__":
     unittest.main()

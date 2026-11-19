@@ -1084,10 +1084,14 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         # on ERROR lines only, so a tool command echoing case text ("promotion usage limits") is not a limit.
         try: logs = list(Path(env.get('XDG_DATA_HOME') or Path.home() / '.local/share', 'opencode/log').glob('*.log'))
         except OSError: return  # an isolated tester's private log dir: silence alone decides, as before
+        # Only lines at or after the last output count: a call that printed after a limit line recovered from it.
+        since = max(started_utc, time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(time.time() - (time.monotonic() - last_output))))
         for log in logs:
-            try: lines = log.read_text(errors='replace').splitlines()[-2000:]
+            try:
+                with open(log, 'rb') as f:  # the tail only: this runs every 5 s of silence on long sessions
+                    f.seek(max(0, f.seek(0, 2) - 262144)); lines = f.read().decode(errors='replace').splitlines()
             except OSError: continue
-            if any('level=ERROR' in l and 'usage limit' in l.lower() and l[10:29] >= started_utc for l in lines if l.startswith('timestamp=')):
+            if any('level=ERROR' in l and 'usage limit' in l.lower() and l[10:29] >= since for l in lines if l.startswith('timestamp=')):
                 raise BudgetError('provider_limit:' + provider_model, provider_failure=classify_provider_failure('usage limit', provider_model))
 
     def check_limits():
@@ -1474,7 +1478,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                     book_live(feed)
                     check_limits()
                 now = time.monotonic()
-                if driver == 'opencode' and min(now - last_output, now - log_checked) >= min(60, progress_timeout / 2):
+                if driver == 'opencode' and min(now - last_output, now - log_checked) >= min(5, progress_timeout / 2):
                     log_checked = now; silent_limit()
                 if now - last_output >= progress_timeout:
                     # A long tool call (e.g. five strategy runs in one shell command) prints nothing until it

@@ -482,7 +482,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["candidate_attempts"], 3)
 
     def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None, writer="opencode-go/minimax-m3", link=False,
-                       repo="medusajs/medusa", lockfile=None, card_extra=None, meta=True, statement_inside=True):
+                       repo="medusajs/medusa", lockfile=None, card_extra=None, meta=True, statement_inside=True, extra=None):
         """A pre-durable checkpoint as run_artifacts.seal wrote it, rewrapped to the statement key:
         `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
         import worker_secrets
@@ -519,6 +519,9 @@ class AdmitTests(unittest.TestCase):
         (work / ".casekey").write_text("AGE-SECRET-KEY-OLD")
         if link:
             (work / "case/escape").symlink_to("../..")
+        for rel, data in (extra or {}).items():   # anything a person may have left beside the tree
+            (work / rel).parent.mkdir(parents=True, exist_ok=True)
+            (work / rel).write_bytes(data)
         tar = subprocess.run(["tar", "-C", str(work.parent), "-czf", "-", old], capture_output=True, check=True).stdout
         return subprocess.run(["age", "-r", recipient], input=tar, capture_output=True, check=True).stdout
 
@@ -715,6 +718,189 @@ class AdmitTests(unittest.TestCase):
         result, _ = self.run_admit(self.step(inputs, registry))
         self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_hand"))
         self.assertEqual(self.calls, [])
+
+    def prior_run(self, old, statement, keep=("G5", "G6", "G8"), gates=None):
+        """The factory's own last snapshot of `old`, a hand-repaired case that ran GATES on `statement`:
+        its card (last verdicts `gates`) and the gate records gate_state.save wrote under the real runner.
+        Records of gates not in `keep` are left out of the snapshot. Returns (context, snapshot bytes, bench root)."""
+        import gate_state, io, shutil, tarfile
+        archive = self.legacy_archive(old, statement)   # the earlier import's tree, unpacked as ADMIT did
+        opened = subprocess.run(["age", "-d", "-i", str(self.statement_key)], input=archive,
+                                capture_output=True, check=True).stdout
+        unpacked, work = pathlib.Path(tempfile.mkdtemp(dir=self.home)), pathlib.Path(tempfile.mkdtemp(dir=self.home)) / old
+        with tarfile.open(fileobj=io.BytesIO(opened), mode="r:gz") as tar:
+            tar.extractall(unpacked, members=[m for m in tar.getmembers() if m.name.startswith(f"{old}/case")
+                                                  and not pathlib.PurePosixPath(m.name).name.startswith("._")], filter="data")
+        shutil.copytree(unpacked / old / "case", work / "case")
+        roles = {"reviewer": {"model": "openrouter/xiaomi/mimo-v2.6-pro", "effort": "default"}}
+        (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 11, "dry_run": False, "source": "port",
+            "gates": gates or {"G5": "pass", "G6": "pass", "G8": "pass"}, "failed_gate": "G9", "models": self.real_inputs("x")["models"], "roles": roles,
+            "rotation_slot": 2, "recovery_config": {"bench_workers": 2, "parallel_gates": True}}))
+        step = StepInput(BATCH, old, 4, Step(StepKind.GATES, 1), 1, PLUMBING, BENCH_V, Ref("1" * 64, ArtifactKind.INPUTS),
+                         Ref("2" * 64, ArtifactKind.CASE_SNAPSHOT), 600.0, 10_000_000)
+        c = run.context_for_step(step, work)
+        (work / "scorecard.json").write_text(json.dumps(c.card))   # as the step's snapshot holds it
+        bench = self.home / "bench"
+        (bench / "results").mkdir(parents=True, exist_ok=True)
+        for gate in ("G5", "G6", "G8"):
+            g, before = gate.lower(), gate_state.digests(c, bench)
+            for rel in (f"bench-results/runs/{g}/checkpoint.json", f"gate-details/{gate}.json",
+                        f"gate-checkpoints/{g}/shard-1.json", f"helper-results/{g}-digest/checkpoint.json"):
+                (work / rel).parent.mkdir(parents=True, exist_ok=True)
+                (work / rel).write_text(json.dumps({"gate": gate, "file": rel}))
+            gate_state.note_receipt(c, f"{g}-shard", work / "gate-checkpoints" / g)
+            gate_state.note_receipt(c, f"{g}-helper", work / "helper-results" / f"{g}-digest")
+            self.assertTrue(gate_state.save(c, gate, {"gate": gate}, gate_state.fingerprint(c, gate, bench), before, bench))
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+            for path in sorted(work.rglob("*")):
+                rel = path.relative_to(work).as_posix()
+                if path.is_file() and not (rel.startswith("gate-cache/") and rel[len("gate-cache/"):-5] not in keep):
+                    tar.add(path, arcname=rel)
+        return c, buffer.getvalue(), bench
+
+    def hand_inputs(self, **more):
+        value = self.real_inputs("unused", **{"import_spent_usd_micros": 2_500_000, "import_mode": "hand_repaired", **more})
+        value.pop("candidate"); value.pop("models")
+        return self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps({k: v for k, v in value.items() if v is not None}).encode())
+
+    def envelope(self, old, archive, snapshot):
+        """runtime.start's import for INPUTS reuse_gates_of."""
+        header = json.dumps({"case": old, "archive_bytes": len(archive)}).encode()
+        return admit.PRIOR_MAGIC + header + b"\n" + archive + snapshot
+
+    def test_a_hand_repair_keeps_the_gate_records_its_wording_fix_leaves_valid(self):
+        """Founder 2026-11-18: a one-line wording fix reran every gate (10-12 hours). The records come from
+        the factory's own snapshot of the earlier case; one planted in the hand-made archive is ignored."""
+        import gate_state
+        old = "case-20261117T101500Z-hand-1"
+        before, after = "# Candidate\n\nOversell when two carts check out.", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.admitted_registry((old, before), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        prior, snapshot, bench = self.prior_run(old, before, keep=("G5", "G8"))
+        planted = {rel: (prior.work / rel).read_bytes() for rel in ("gate-cache/G6.json", "bench-results/runs/g6/checkpoint.json",
+                   "gate-details/G6.json", "gate-checkpoints/g6/shard-1.json", "helper-results/g6-digest/checkpoint.json")}
+        archive = self.legacy_archive(old, after, extra=planted)
+        step_input = self.import_step(self.hand_inputs(reuse_gates_of=old), registry, self.envelope(old, archive, snapshot))
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:imported_hand"))
+        self.assertIn("reviewer-idea-realism", self.calls)   # every screen still runs on the repaired tree
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual((work / "case/statement.md").read_text(), after)
+        self.assertEqual(c.card["imported_from"]["reused_records"], ["G5", "G8"])
+        for gate in ("g5", "g8"):
+            for rel in (f"gate-cache/{gate.upper()}.json", f"bench-results/runs/{gate}/checkpoint.json",
+                        f"gate-details/{gate.upper()}.json", f"gate-checkpoints/{gate}/shard-1.json",
+                        f"helper-results/{gate}-digest/checkpoint.json"):
+                data = (prior.work / rel).read_bytes()
+                if rel == "gate-cache/G5.json":   # a measured gate's record takes the new wording's digests
+                    data = admit._rebind_wording(data, work / "case")
+                self.assertEqual((work / rel).read_bytes(), data, rel)
+        for name in ("seed", "models", "roles", "rotation_slot", "recovery_config"):
+            self.assertEqual(c.card[name], prior.card[name], name)
+        self.assertEqual(gate_state.load(c, "G5", bench), {"gate": "G5"})
+        self.assertIsNone(gate_state.load(c, "G8", bench))   # the reviewers read the new wording
+        # The archive's own G6 record never reached the work tree, though its evidence would have held.
+        self.assertFalse((work / "gate-cache/G6.json").exists())
+        self.assertFalse((work / "bench-results/runs/g6").exists())
+        self.assertIsNone(gate_state.load(c, "G6", bench))
+        planted["gate-cache/G6.json"] = admit._rebind_wording(planted["gate-cache/G6.json"], work / "case")
+        for rel, data in planted.items():
+            (work / rel).parent.mkdir(parents=True, exist_ok=True); (work / rel).write_bytes(data)
+        self.assertEqual(gate_state.load(c, "G6", bench), {"gate": "G6"})
+
+    def test_a_hand_repair_never_adopts_a_pass_its_earlier_run_later_failed(self):
+        """A failing rerun leaves the gate's older pass record in the snapshot: only the gates that run's
+        card last passed keep their records."""
+        old, text = "case-20261117T101500Z-hand-1", "# Candidate\n\nOversell when two carts check out."
+        registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        _, snapshot, _ = self.prior_run(old, text, gates={"G5": "pass", "G6": "fail", "G8": "invalid-infra"})
+        step_input = self.import_step(self.hand_inputs(reuse_gates_of=old), registry,
+                                      self.envelope(old, self.legacy_archive(old, text), snapshot))
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:imported_hand"))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(c.card["imported_from"]["reused_records"], ["G5"])
+        self.assertFalse((work / "gate-cache/G6.json").exists())
+        self.assertFalse((work / "gate-cache/G8.json").exists())
+
+    def test_a_hand_repair_reuses_records_only_of_the_case_it_names(self):
+        import io, tarfile
+        old, text = "case-20261117T101500Z-hand-1", "# Candidate\n\nOversell when two carts check out."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        _, snapshot, _ = self.prior_run(old, text, keep=("G5",))
+        archive = self.legacy_archive(old, text)
+        def card_only(card):
+            buffer, data = io.BytesIO(), json.dumps(card).encode()
+            with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+                member = tarfile.TarInfo("scorecard.json"); member.size = len(data)
+                tar.addfile(member, io.BytesIO(data))
+            return buffer.getvalue()
+        refused = {
+            "no reuse_gates_of": (self.hand_inputs(), self.envelope(old, archive, snapshot)),
+            "no import_mode": (self.hand_inputs(import_mode=None), self.envelope(old, archive, snapshot)),
+            "another case named": (self.hand_inputs(reuse_gates_of="case-other-1"), self.envelope(old, archive, snapshot)),
+            "another case's tree": (self.hand_inputs(reuse_gates_of=old),
+                                    self.envelope(old, self.legacy_archive("case-elsewhere-1", text), snapshot)),
+            "another case's card": (self.hand_inputs(reuse_gates_of=old),
+                                    self.envelope(old, archive, card_only({"case": "case-other-1", "seed": 11}))),
+            "another seed": (self.hand_inputs(reuse_gates_of=old, seed=12), self.envelope(old, archive, snapshot)),
+            "no earlier snapshot": (self.hand_inputs(reuse_gates_of=old), archive),
+        }
+        for what, (inputs, imported) in refused.items():
+            with self.subTest(what):
+                self.calls.clear()
+                result, _ = self.run_admit(self.import_step(inputs, registry, imported))
+                self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_hand"))
+                self.assertEqual(self.calls, [])
+        value = self.real_inputs("unused", import_spent_usd_micros=1, import_mode="hand_repaired", reuse_gates_of=old)
+        value.pop("candidate")
+        admit._inputs(json.dumps({k: v for k, v in value.items() if k != "models"}).encode())
+        for bad in ({"import_mode": None}, {}, {"models": None, "roles": {}}, {"models": None, "rotation_slot": 2},
+                    {"models": None, "recovery_config": {}}, {"models": None, "reuse_gates_of": "../case-x"}):
+            with self.subTest(bad=bad), self.assertRaises(admit._Invalid):
+                admit._inputs(json.dumps({k: v for k, v in {**value, **bad}.items() if v is not None}).encode())
+
+    def test_only_whole_portable_records_and_the_evidence_they_list_are_adopted(self):
+        import io, tarfile
+        old = "case-20261117T101500Z-hand-1"
+        work = self.home / "adopt"
+        (work / "case").mkdir(parents=True)
+        (work / "case/statement.md").write_text("fixed by hand")
+        (work / "continuation-budget.json").write_text("{}")
+        members = {"scorecard.json": json.dumps({"case": old, "seed": 11, "models": {"builder": ["m"]}, "rotation_slot": 2,
+                                                 "gates": {f"G{i}": "pass" for i in range(1, 17)}}).encode()}
+        def record(gate, *evidence):
+            members[f"gate-cache/{gate}.json"] = json.dumps({"inputs": {"case": []}, "evidence": [
+                {"kind": kind, "path": path, "sha256": hashlib.sha256(b"evidence").hexdigest()} for kind, path in evidence]}).encode()
+            for kind, path in evidence:
+                members.setdefault(("bench-results/" if kind == "bench" else "") + path, b"evidence")
+        record("G4", ("work", "gate-details/G4.json"), ("bench", "runs/g4/checkpoint.json"))
+        record("G5", ("work", "/etc/passwd"))
+        record("G6", ("work", "../escape"))
+        record("G7", ("work", "agent-state/notes.json"))           # not something a snapshot carries
+        record("G8", ("work", "case/statement.md"))                # the hand-made tree
+        record("G9", ("work", "scorecard.json"))
+        record("G13", ("work", "gate-cache/G4.json"))
+        record("G14", ("work", "review-1/verdict.json"))          # a link below
+        record("G15", ("work", "continuation-budget.json"))        # ADMIT wrote it
+        record("G16", ("work", "gate-details/G16.json"))           # valid, never moved
+        record("G7x", ("work", "gate-details/G7x.json"))           # not a gate
+        members.pop("review-1/verdict.json")
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+            for name, data in members.items():
+                member = tarfile.TarInfo(name); member.size = len(data)
+                tar.addfile(member, io.BytesIO(data))
+            link = tarfile.TarInfo("review-1/verdict.json"); link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
+            tar.addfile(link)
+        card = {"rotation_slot": 1, "recovery_config": {"bench_workers": 2}}
+        self.assertEqual(admit._adopt_prior(card, work, old, buffer.getvalue(), {"seed": 11}), ["G4"])
+        self.assertEqual(card, {"models": {"builder": ["m"]}, "rotation_slot": 2})
+        self.assertEqual(sorted(p.relative_to(work).as_posix() for p in work.rglob("*") if p.is_file()),
+                         ["bench-results/runs/g4/checkpoint.json", "case/statement.md", "continuation-budget.json",
+                          "gate-cache/G4.json", "gate-details/G4.json"])
+        self.assertEqual((work / "case/statement.md").read_text(), "fixed by hand")
+        self.assertEqual((work / "continuation-budget.json").read_text(), "{}")
 
     def sealed_card(self, **changes):
         """A sealed October card as 18681d and 86b100 have it: G1-G15 passed, models and role efforts."""

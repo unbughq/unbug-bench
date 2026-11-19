@@ -84,6 +84,17 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(wire['provider']['order'],wire['provider']['only'])
         self.assertEqual(wire['provider']['max_price'],dict(prompt=.15,completion=.6,request=0,image=0))
 
+    def test_mimo_gmicloud_first_and_pin_unchanged(self):
+        # Founder 2026-11-18: GMICloud, then DeepInfra, then the xiaomi/fp8 pin; hold priced at the pin's list tariff.
+        route='openrouter/xiaomi/mimo-v2.6-pro'
+        wire=gate.openrouter_body(json.dumps({'model':'xiaomi/mimo-v2.6-pro','messages':[{'role':'user','content':'synthetic'}]}),route)
+        self.assertEqual(wire['provider']['only'],['gmicloud/bf16','deepinfra/fp8','xiaomi/fp8'])
+        self.assertEqual(wire['provider']['order'],wire['provider']['only'])
+        self.assertIs(wire['provider']['allow_fallbacks'],False)
+        self.assertEqual(wire['provider']['max_price'],dict(prompt=.435,completion=.87,request=0,image=0))
+        self.assertEqual(router.route_maximum(route)['price_source'],
+                         'token_prices:2026-10-30:openrouter:xiaomi/mimo-v2.6-pro:xiaomi/fp8:0.435,0.0036,0.87:joint-gate-v1')
+
     def test_claude_public_contract_and_exact_aliases(self):
         sources = fixture('router-item8-source-evidence.json.gz')
         self.assertEqual(sources[0]['facts']['context'], 200000)

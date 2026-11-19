@@ -5,6 +5,7 @@ import hashlib
 import shutil
 import uuid
 import datetime
+import types
 
 from admission import REFRESH, rerun_url, search_evidence_error, superseded
 from budget import BudgetError
@@ -112,6 +113,29 @@ def obtain(c, rows, directory, *, flagged):
     return retrieval.load(directory, rows)
 
 
+def keep_mixed_receipt(run, c):
+    """2b6c68: confirm_hits keeps freshness-verdict.json only when every flagged row resolved, so a public
+    match beside unresolved rows was labelled freshness_unrecorded. It is kept here, outside G2's hashed
+    source (gate_state.runner_inputs), with confirmed_rows: the rows G2's own rule counted. Labels only:
+    confirm_hits re-asks on unequal counts, so this receipt never stands in for a verdict."""
+    from admission import search_binding
+    rows = run.freshness_lines(c)
+    rows = [r for r, old in zip(rows, superseded(rows)) if not old]
+    flagged = [r for r in rows if r.get('hit') is True or r.get('ambiguous') is True]
+    answers = (run.jload(c.work / c.freshness_verdict_path, {}) or {}).get('hits')
+    confirmed = []
+    if isinstance(answers, list) and len(answers) == len(flagged) == len(c.freshness_retrieval):
+        for index, (row, answer, got) in enumerate(zip(flagged, answers, c.freshness_retrieval), 1):
+            one = types.SimpleNamespace(freshness_retrieval=[got], freshness_confirmed_hits=0,
+                                        freshness_transport_pending=False)
+            run.checked_freshness_verdict(one, [row], [answer])
+            if one.freshness_confirmed_hits: confirmed.append(index)
+    atomic_json(c.work / 'freshness-verdict.json', {
+        'binding': {**search_binding(c, flagged), 'confirmation_contract': 2}, 'hits': answers,
+        'verdict_path': c.freshness_verdict_path, 'review_summary': c.freshness_review_summary,
+        'confirmed_rows': confirmed, 'retrieval_sha256': retrieval.digest(c.freshness_retrieval)})
+
+
 def ensure(run, c):
     """Only completed bad metadata work spends the defect bound; expiry and failed retrieval are refresh."""
     c.card.pop('freshness_stalled', None)   # set only by the stop that raises with it
@@ -194,6 +218,7 @@ def ensure(run, c):
         if ok or info.get('outcome') == 'public_match' or not held:
             (c.work / STALLED).unlink(missing_ok=True)   # the hold count is of held cycles in a row
         if ok or info.get('outcome') == 'public_match':
+            if info.get('outcome') == 'public_match' and info.get('unresolved_hits'): keep_mixed_receipt(run, c)
             c.freshness_refetch_urls = set()
             (c.work / 'g2-source-blocked.json').unlink(missing_ok=True)   # the bot-wall count before 16 Nov
             return ok, info

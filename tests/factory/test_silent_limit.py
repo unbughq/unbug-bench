@@ -60,6 +60,31 @@ with tempfile.TemporaryDirectory() as d:
     finally: os.chmod(d / 'opencode', 0o700)
 print('PASS unreadable log dir is skipped (stall still detected)')
 
+# A real call's progress_timeout is 900 s; the log is read after 5 s of silence, not min(60, 450) (f46dac G10 owner,
+# 2026-11-18: two dead Go keys at 60 s each used up the owner's 120 s before the OpenRouter twin ran).
+with tempfile.TemporaryDirectory() as d:
+    d = pathlib.Path(d); log = d / 'opencode/log'; log.mkdir(parents=True)
+    cmd = ['sh', '-c', f'echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%S.000Z) level=ERROR usage limit exceeded" >> {log}/opencode.log; sleep 30']
+    t = time.monotonic()
+    try: run_budgeted(cmd, d, {**os.environ, 'XDG_DATA_HOME': str(d)}, d / 't', d / 'l.json', 60,
+                      containment=False, progress_timeout=900, configured_model='opencode-go/x'); stop = 'none'
+    except BudgetError as e: stop = str(e)
+    took = time.monotonic() - t
+    assert stop == 'provider_limit:opencode-go/x' and took < 10, (stop, took)
+print('PASS a silent Go quota stops within seconds on a 900 s progress timeout')
+
+# A call that logged a limit, then recovered and printed, then went quiet for 8 s is healthy: only lines at or after
+# the last output count, so the 5 s check does not kill it.
+with tempfile.TemporaryDirectory() as d:
+    d = pathlib.Path(d); log = d / 'opencode/log'; log.mkdir(parents=True)
+    cmd = ['sh', '-c', f'echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%S.000Z) level=ERROR usage limit exceeded" >> {log}/opencode.log; '
+                       'sleep 2; echo recovered; sleep 8; echo done']
+    try: run_budgeted(cmd, d, {**os.environ, 'XDG_DATA_HOME': str(d)}, d / 't', d / 'l.json', 60,
+                      containment=False, progress_timeout=900, configured_model='opencode-go/x'); stop = 'none'
+    except BudgetError as e: stop = str(e)
+    assert stop == 'missing_usage', stop  # ran to its end (the fake prints no usage); not provider_limit
+print('PASS a limit line before later output does not stop a recovered call')
+
 # Resume handshake (2026-10-20): clears a previous run's stop once, so a resumed run's first calls may be parallel.
 from budget import resume_ledger
 with tempfile.TemporaryDirectory() as d:

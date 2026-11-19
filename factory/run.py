@@ -235,6 +235,8 @@ def sh(c, cmd, *, capture=False, timeout=None, input=None, cwd=None, check=False
     """Run a command; its output goes to the sealed log (and is returned when capture=True)."""
     if env is None and hasattr(c, "factory_slot"):
         env = {**os.environ, "UNBUG_FACTORY_SLOT": str(c.factory_slot)}
+    turn = getattr(c, "bench_turn", None)   # an overlap lane that gave the case box up to wait on helpers
+    if turn is not None and not turn.held: turn.acquire()
     log(c, "$", " ".join(map(str, cmd))[:400])
     output_path = c.work / "logs/commands.log"
     with output_path.open("a") as out:
@@ -819,10 +821,15 @@ def statement_precheck(c):
             c.duplicate_feedback = {"duplicate_of": verdict["duplicate_of"], "reason": verdict["reason"]}
             c.precheck_problems = [f"duplicate of {verdict['duplicate_of']}"]
             c.card["admission"] = {"status": "rejected", "screen": "internal_duplicate"}; return False
-    ok, info = ensure_freshness(c)
-    if not ok:
-        c.precheck_problems = ["candidate public freshness screen failed"]
-        c.card["admission"] = {"status": "rejected", "screen": "public_freshness"}; return False
+    if (c.card.get("imported_from") or {}).get("mode") == "hand_repaired" and parallel_gates(c):
+        # No writer is paid on a hand repair, so the same screen runs once, as G2 in the lane beside the
+        # bench gates; side_early records its verdict before G5's after_gate and G16 spend model money.
+        c.card["freshness_deferred_to"] = "G2"
+    else:
+        ok, info = ensure_freshness(c)
+        if not ok:
+            c.precheck_problems = ["candidate public freshness screen failed"]
+            c.card["admission"] = {"status": "rejected", "screen": "public_freshness"}; return False
     # Founder 2026-11-09: a recertified case was built and passed G9 (realism of the built case);
     # the pre-build idea screen re-judges that question from the statement alone, so it is skipped.
     if c.card.get("recertify"):
@@ -1037,14 +1044,47 @@ def g10_money_headroom(c):
         raise BudgetError("budget_exhausted:grant_insufficient")
 
 
+# Run at once from G6 when overlap_cheat_gates is on (GatePipeline.overlap_run): G6's and G7's cheats on
+# helper machines, G13-G15 on the case box meanwhile; recorded in GATES order. The card keys each writes
+# are put back when a gate the serial loop would not have reached is discarded.
+OVERLAP_LANES = (("G6",), ("G7",), ("G13", "G14", "G15"))
+OVERLAP_CARD = {"G6": ("cheats_passed", "negative_probes_ok"), "G7": ("flakiness_rerun",),
+                "G13": ("strategy_reuse",), "G15": ("strategy_reuse",)}
+
+
+def overlap_cheat_gates(c):
+    """New launches with parallel gates and helper machines (admit.NEW_LAUNCH_SETTINGS); never a dry run."""
+    return (parallel_gates(c) and getattr(c.args, "overlap_cheat_gates", False) is True and not c.args.dry_run
+            and getattr(c.args, "helper_workers", 0) > 0 and getattr(c, "helper_pool", None) is not None)
+
+
+def evaluate_gate(c, gate):
+    """A gate's own function; only where its checkpoints run is decided here (not part of any gate's
+    fingerprint). G5 stays on the case box: its checkpoints take about a minute each there, against
+    about ten for a helper to boot. G6 and G7 stop at their first solving cheat (cheat_runs
+    stop_on_pass=True), so helpers may drop queued cheats behind one that solved
+    (helpers.checkpoint_shards)."""
+    pool, cut = c.__dict__.get("helper_pool"), c.__dict__.get("helper_cut_after_solving")
+    off = gate == "G5" and pool is not None
+    if off: c.helper_pool = None
+    c.helper_cut_after_solving = gate in ("G6", "G7")
+    try:
+        return globals()[gate.lower()](c)
+    finally:
+        if off: c.helper_pool = pool
+        if cut is None: c.__dict__.pop("helper_cut_after_solving", None)
+        else: c.helper_cut_after_solving = cut
+
+
 def _gate_pipeline():
     return GatePipeline(
-        bench=BENCH, evaluate=lambda c, gate: globals()[gate.lower()](c),
+        bench=BENCH, evaluate=evaluate_gate,
         case_hash=case_hash, log=log, publish=public_progress,
         budget_boundary=case_budget_boundary, after_gate=_gate_completed,
         overlap_reason=g10_overlap_reason, gates=tuple(GATES), money_headroom=g10_money_headroom,
         early_gates=tuple(EARLY_GATES), saved_cheat_check=early_cheat_check, dry_skip=DRY_SKIP,
-        side_gates=SIDE_GATES, side_lane=parallel_gates, side_early=('G2', 'G5'), early_lane=early_lane)
+        side_gates=SIDE_GATES, side_lane=parallel_gates, side_early=('G2', 'G5'), early_lane=early_lane,
+        overlap_lanes=OVERLAP_LANES, overlap=overlap_cheat_gates, overlap_card=OVERLAP_CARD)
 
 
 def checked_gate(c, gate):
@@ -2271,41 +2311,82 @@ def g7(c):
     """Flakiness: G4-G6 seeded runs again with a new seed; same verdicts. (Same day, same VM: see README.)"""
     seed = c.seed + 7919
     none, ref, s = plain_and_reference(c, seed, "g7")
+    broke, solved = sum(x["broken"] for x in none), sum(x["solved"] for x in ref)
+    c.card["flakiness_rerun"] = {"seed": seed, "plain_app_broke": f"{broke}/{len(none)}", "reference_fix": f"{solved}/{len(ref)}"}
+    if not (all(x["clean"] for x in none + ref) and broke >= 1 and solved == len(ref) and s.get("legit_completion", 0) >= 0.95):
+        # Already failing: like G6's generic probes, the cheat checkpoints (hours) cannot change the verdict.
+        c.card["flakiness_rerun"]["cheats_passed"] = "not run"
+        return False, c.card["flakiness_rerun"]
     failed = []
     passed, total = cheat_runs(c, seed, "g7", guards=reopened_first(c, "G7", cheats(c)), failures=failed, stop_on_pass=True)
     if passed: record_passing_cheats(c, "G7", failed)
-    broke, solved = sum(x["broken"] for x in none), sum(x["solved"] for x in ref)
-    c.card["flakiness_rerun"] = {"seed": seed, "plain_app_broke": f"{broke}/{len(none)}", "reference_fix": f"{solved}/{len(ref)}", "cheats_passed": f"{passed}/{total}"}
-    ok = all(x["clean"] for x in none + ref) and broke >= 1 and solved == len(ref) and s.get("legit_completion", 0) >= 0.95 and passed == 0
-    return ok, c.card["flakiness_rerun"]
+    c.card["flakiness_rerun"]["cheats_passed"] = f"{passed}/{total}"
+    return passed == 0, c.card["flakiness_rerun"]
 
 
 def review(c):
-    """One panel pass per reviewer model (cached for G8 and G9 while the case is unchanged)."""
+    """One panel pass per reviewer model (cached for G8 and G9 while the case is unchanged).
+    The reviewers run at once when the money left covers every reviewer's largest hold together."""
     if hasattr(c, "votes") and getattr(c, "votes_hash", None) == case_hash(c): return c.votes
     if len(c.models["reviewers"]) < 2:  # founder 2026-11-12: one reviewer is not a panel
         raise ValueError("G8/G9 need two independent reviewers")
     c.votes = []
+    panel = []
     for i, chain in enumerate(c.models["reviewers"], 1):
         d = c.work / f"review-{i}"
         if d.exists(): d.rename(c.work / f"review-superseded-{time.time_ns()}-{i}")  # an earlier review of a changed case
         shutil.copytree(c.case, d / "case")  # a copy: reviewers cannot change the case
+        panel.append((i, chain, d))
+    def vote(rc, i, chain, d):
         out = d / "verdict.json"
         text = prompt('reviewer', run_context(c, case_dir=str(d / 'case'), mode='case', verdict_path=str(out)))
         keys = (PROMPTS / 'reviewer-keys.md').read_text()
         text += "\n" + keys + engine_review_ruling(c)
-        if under_engine(c):
-            vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out,
+        if under_engine(rc):
+            return retained_answer(rc, chain, text, d, f'reviewer-{i}', out,
                 {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', ''), 'keys': keys},
                 'panel', '{fairness: {approve: boolean, findings: array}, realism: {approve: boolean, findings: array}}',
                 lambda v: isinstance(v, dict) and all(isinstance(v.get(k), dict) and
                     type(v[k].get('approve')) is bool for k in ('fairness', 'realism')))
-        else:
-            opencode(c, chain, text, d, f'reviewer-{i}')
-            vote = jload(out, {}) or {}
-        c.votes.append(vote)
+        opencode(rc, chain, text, d, f'reviewer-{i}')
+        return jload(out, {}) or {}
+    if holds_fit(c, [chain[0] for _, chain, _ in panel]):
+        if getattr(c.args, "resume", None) and not getattr(c, "budget_resumed", False):
+            from budget import resume_ledger  # once, before the reviewers start together (as g10)
+            resume_ledger(c.ledger); c.budget_resumed = True
+        c.card.setdefault("models_used", {})
+        children = [copy.copy(c) for _ in panel]
+        from durable.checkpoints import concurrent_section
+        try:
+            with concurrent_section(c), ThreadPoolExecutor(max_workers=len(panel)) as pool:
+                futures = [pool.submit(contextvars.copy_context().run, vote, child, *member)
+                           for child, member in zip(children, panel)]
+            for future in futures: c.votes.append(future.result())  # panel order: votes before the first failure stay, as serially
+        finally:
+            for child in children:   # as ordinary_retry hands a call's budget state and exclusions back
+                for key in ("budget_resumed", "force_budget_resume"):
+                    if hasattr(child, key): setattr(c, key, getattr(child, key))
+                c.router_excluded = tuple(set(getattr(c, "router_excluded", ())) | set(getattr(child, "router_excluded", ())))
+    else:
+        for member in panel: c.votes.append(vote(c, *member))
     c.votes_hash = case_hash(c)
     return c.votes
+
+
+def holds_fit(c, models):
+    """Under the engine: the money left covers every listed model's largest route maximum at once, so
+    calls started together are admitted as one after another would be. Otherwise False (run serially)."""
+    if not under_engine(c) or getattr(c.args, "dry_run", False): return False
+    from decimal import Decimal
+    from budget import invocation_headroom
+    accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
+    need = Decimal(0)
+    for model in models:
+        maxima = [Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)]
+        if not maxima: return False
+        need += max(maxima)
+    try: return invocation_headroom(c.ledger, c.engine) >= need
+    except BudgetError: return False   # usage unknown: the serial path meets it at its own reservation
 
 
 def review_approvals(c, part):
@@ -2800,6 +2881,55 @@ def g10(c):
     return easy['solved'] < easy['tries'], c.card['calibrators']
 
 
+def g10_side_by_side_reason(c):
+    """Why G10's two testers take turns in G10's own turn (None: side by side on slots 0 and 1, g10_turn).
+    parallel_calibrators' checks without its silent-window rule, which keeps a window from running beside
+    another slot's inventory copy (cae763): no window runs in G10's turn, and its end stops slot 1's copy.
+    Outside the sources gate_state.runner_inputs hashes: editing parallel_calibrators, g10_overlap_reason,
+    factory_slots or g10 would change every case's G3 and G10 identity."""
+    if getattr(c, "audit_keep_easy", False): return "a sealed audit keeps the easy tester's saved tries"
+    if under_engine(c) and not parallel_gates(c): return "the card has no parallel_gates"
+    if not getattr(c.args, "concurrent_roles", False): return "concurrent_roles is off on the card"
+    if getattr(c, "prepared_factory_slots", 1) < 2: return "G3 prepared one bench slot"
+    import bench
+    try:
+        scenarios = [bench.load_scenario(c.case / "base")]
+        if not bench.isolated_inventory_services(scenarios): return "base scenario endpoints are not isolated"
+        if not bench.factory_memory_fits(scenarios, 2): return "memory allowance for two tester copies"
+    except (OSError, ValueError): return "scenario isolation or memory could not be verified"
+    return None
+
+
+def stop_tester_services(c, slot):
+    """bin/bench.py's own inventory cleanup, run in one bench slot's environment."""
+    import factory_pool
+    subprocess.run([sys.executable, "-c", "import bench; bench.stop_inventory_services()"], cwd=BENCH / "bin",
+                   env=factory_pool.worker_env(slot), check=True, capture_output=True, timeout=600)
+
+
+def g10_turn(c, gate, invoke):
+    """G10 in its own turn (run_gates' around_gate; an overlap that set calibrator_slot_offset at G6 is left
+    alone): with no g10_side_by_side_reason, its strong and easy testers run side by side on slots 0 and 1
+    (g10's concurrent branch; strong keeps slot 0, the early probe's), the same tries, seeds and models as
+    one at a time. Nothing else runs then, and slot 1's inventory copy is stopped once both testers have
+    returned, on any outcome, so no later window sees two. A cleanup failure is recorded, not a verdict;
+    a fresh G3 stops the copy again."""
+    if gate != "G10" or hasattr(c, "calibrator_slot_offset"): return invoke()
+    reason = g10_side_by_side_reason(c)
+    if reason is not None:
+        log(c, "G10", "testers one at a time:", reason)
+        return invoke()
+    log(c, "G10", "testers side by side on slots 0 and 1")
+    c.calibrator_slot_offset = 0
+    try:
+        return invoke()
+    finally:
+        c.__dict__.pop("calibrator_slot_offset", None)
+        try: stop_tester_services(c, 1)
+        except Exception as error:
+            c.card.setdefault("cleanup_errors", []).append({"stage": "g10_tester_services", "error": type(error).__name__})
+
+
 def g11(c):
     """Fake pass: bin/fake-pass-check on every pilot pass, plus a fresh-seed re-run on the case's traffic.
     fake-pass-check's own re-runs use the base bench traffic, not the case's; its 'runs' findings are
@@ -2940,11 +3070,11 @@ def pause_on_term(signum, frame):
     raise PauseRequested()
 
 
-def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_only=False):
+def run_gates(c, *, replay_gate=None, serial=False, replay_only=False):
     pipeline = _gate_pipeline()
-    if serial: pipeline.overlap_reason = lambda c: 'serial gate evaluation'
+    if serial: pipeline.overlap_reason, pipeline.overlap = (lambda c: 'serial gate evaluation'), (lambda c: False)
     if replay_only: pipeline.budget_boundary = lambda c: None
-    return pipeline.run(c, replay_gate=replay_gate, around_gate=around_gate)
+    return pipeline.run(c, replay_gate=replay_gate, around_gate=g10_turn)
 
 
 def validate_and_repair(c):
@@ -2962,7 +3092,7 @@ ENGINE_COST_CAP = 1e9
 ENGINE_SETTINGS = ("rounds", "runs", "scenario_runs", "pilot_tries", "pilot_runs", "calibrator_minutes",
                    "max_role_calls", "max_total_calls", "no_progress_minutes", "max_zero_tokens",
                    "agent_timeout", "max_repairs", "bench_workers", "concurrent_roles", "no_early_probe",
-                   "parallel_gates")
+                   "parallel_gates", "overlap_cheat_gates")
 # The CASE_SNAPSHOT subset of c.work, exactly (top-level names and globs).
 SNAPSHOT_RETAINED = (
     "case", "scorecard.json", "continuation-budget.json", "usage-receipts",
@@ -3352,10 +3482,12 @@ MAX_GATE_BENCH_WORKERS = 8
 
 def scale_bench_workers(c):
     """At GATES entry: the cheat checks (G6/G7: ~20 guards x 10 stress runs, ~4.5 of 18681d's 8 hours on
-    11-12 November) spread over c.args.bench_workers copies. On a worker with room to spare (a Boat
-    "large" machine fits ~6 copies, "default" ~3), use as many as fit beside the two tester
-    instances G10 reserves, by memory and by CPU (one vCPU per copy), never fewer than the case's
-    own setting. Results do not depend on the copy count (fixed run numbers and seeds).
+    11-12 November) spread over c.args.bench_workers copies. On a worker with room to spare, use as
+    many as fit by memory and by CPU (one vCPU per copy), never fewer than the case's own setting,
+    beside the two tester instances G10 reserves when its testers can overlap (parallel_calibrators);
+    a serial G10 runs on slot 0 and needs none, but only a new launch (overlap_cheat_gates) drops them. One copy's caps are ~3.4 GiB (Medusa a+b 2x1280m,
+    postgres 768m, redis 128m, a service ~64m; 18 November), so a Boat "default" worker (8 GB) holds
+    2 copies and a "large" one (16 GB) about 4. Results do not depend on the copy count (fixed run numbers and seeds).
     Known cost: the gate cache identity and the early probe's slot include the count, so when it
     rises, GATES reruns the writer step's G4/G5/G15 (~45 min) and one strong-tester try instead of
     reusing them; the cheat checks save hours. Every GATES attempt on the same machine type
@@ -3366,9 +3498,12 @@ def scale_bench_workers(c):
         scenarios = [bench.load_scenario(c.case / "base")] + [bench.load_scenario(d) for d in sorted((c.case / "scenarios").iterdir()) if d.is_dir()]
         if not bench.isolated_inventory_services(scenarios): return False
         n = getattr(c.args, "bench_workers", 1)
-        cpus = os.cpu_count() or 1
-        while (n < MAX_GATE_BENCH_WORKERS and n + 1 + 2 <= cpus
-               and bench.factory_memory_fits(scenarios, n + 1 + 2)): n += 1
+        # Only new launches (overlap_cheat_gates) drop the testers' copies: the count is in every gate's
+        # cache identity, so a case in flight keeps main's count and its earned gates.
+        overlap = parallel_calibrators(c) or getattr(c.args, "overlap_cheat_gates", False) is not True
+        cpus, testers = os.cpu_count() or 1, 2 if overlap else 0
+        while (n < MAX_GATE_BENCH_WORKERS and n + 1 + testers <= cpus
+               and bench.factory_memory_fits(scenarios, n + 1 + testers)): n += 1
     except Exception: return False   # unsure: keep the case's setting
     if n == getattr(c.args, "bench_workers", 1): return False
     log(c, "bench workers", c.args.bench_workers, "->", n)
@@ -3718,6 +3853,9 @@ def argument_parser():
     p.add_argument("--parallel-gates", action=argparse.BooleanOptionalAction, default=False,
                    help="engine cases admitted with it: parallel calibrators and G10 overlap at quiescent checkpoints, "
                         "G2/G8/G9 beside the bench gates")
+    p.add_argument("--overlap-cheat-gates", action=argparse.BooleanOptionalAction, default=False,
+                   help="with parallel gates and helper machines: G6 and G7 on helpers while G13-G15 run here, "
+                        "recorded in gate order (new launches)")
     p.add_argument("--pilot-tries", type=int, default=3)
     p.add_argument("--no-early-probe", action="store_true", help="skip the one strong-tester try after G5")
     p.add_argument("--calibrator-minutes", type=float, default=30,  # founder may change; strong tries took ~20 min (2026-10-18)
