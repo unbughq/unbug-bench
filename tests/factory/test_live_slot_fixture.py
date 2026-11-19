@@ -141,6 +141,67 @@ print(json.dumps(sorted(str(p.relative_to(bench.ROOT / 'results')) for p in r.rg
             wiped = {p.relative_to(bench / "results").as_posix() for p in artifacts.results_since(c, include_state=True)}
             self.assertEqual(wiped, state - {"factory-slots/1/seed-ids.json", "factory-slots/1/.bench.lock"})
 
+    def test_gather_stops_inventory_services_before_moving_their_compose_files(self):
+        """1bb2ad-h9, 19 Nov: bin/checkpoint started an inventory service from the compose file it froze under
+        runs/, the gather moved that file into the case, and the next stop_inventory_services (G3's
+        prepare_factory_main, or any checkpoint's reset) failed on the missing file before it could clear
+        .inventory-services.json, so every later G3 on the box crashed. On slot 0 and on a factory slot."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bench = Path(tmp) / "bench"
+            for name in ("bin/bench.py", "bin/bench_judging.py", "bin/processes.py", "bin/refusal.py",
+                         "factory/case_permissions.py", "projects/medusa/compose.yaml"):
+                (bench / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, bench / name)
+            for name in ("scenarios/dev/S13-marketplace", "projects/marketplace"):
+                shutil.copytree(ROOT / name, bench / name)
+            # docker compose refuses a -f file that does not exist, as the real CLI does.
+            docker = Path(tmp) / "path/docker"
+            docker.parent.mkdir()
+            docker.write_text('#!/bin/sh\necho "$*" >> "$DOCKER_LOG"\nprev=\nfor a in "$@"; do\n'
+                              '  case "$a" in stop|rm|up) break;; esac\n'
+                              '  if [ "$prev" = -f ] && [ ! -f "$a" ]; then echo "open $a: no such file or directory" >&2; exit 1; fi\n'
+                              '  prev=$a\ndone\n')
+            docker.chmod(0o755)
+            env = {"PATH": f"{docker.parent}{os.pathsep}{os.environ['PATH']}", "DOCKER_LOG": str(Path(tmp) / "docker.log")}
+            def probe(slot, code):
+                return subprocess.run([sys.executable, "-B", "-c", "import bench, json, shutil\n" + code], cwd=bench / "bin",
+                                      env={**os.environ, **env, "UNBUG_FACTORY_SLOT": str(slot)}, capture_output=True, text=True)
+            c = types.SimpleNamespace(t0=time.time() - 1, work=Path(tmp) / "work", card={})
+            (c.work / "logs").mkdir(parents=True)
+            for slot in (0, 1):
+                # bin/checkpoint's freeze of a service scenario, then start_inventory_services' saved state.
+                p = probe(slot, """
+s = bench.load_scenario(bench.ROOT / 'scenarios/dev/S13-marketplace')
+stored = bench.RESULTS / 'runs/20261119T000000Z-g5/scenarios/01-S13-marketplace'
+shutil.copytree(s['dir'], stored)
+declared = bench.inventory_services([s])
+meta = json.loads((stored / 'scenario.json').read_text())
+meta['inventory_services'] = []
+for service in declared:
+    shutil.copytree(service['project'], stored / 'inventory_sources' / service['name'])
+    meta['inventory_services'].append({'name': service['name'], 'project': 'inventory_sources/' + service['name'],
+                                       'host_ports': service['host_ports']})
+(stored / 'scenario.json').write_text(json.dumps(meta))
+services = bench.inventory_services([bench.load_scenario(stored)])
+compose = bench.COMPOSE + [a for service in services for a in ('-f', str(service['compose']))]
+assert '/runs/' in compose[-1], compose
+bench.INVENTORY_STATE.write_text(json.dumps({'compose': compose, 'names': [s['name'] for s in services]}))""")
+                self.assertEqual(p.returncode, 0, p.stderr)
+            with mock.patch.object(run, "BENCH", bench), mock.patch.object(run, "HOME", Path(tmp)), \
+                 mock.patch.dict(os.environ, env):
+                run.gather_bench_results(c)
+            for root in ("", "factory-slots/1/"):
+                self.assertTrue((c.work / "bench-results" / root / "runs/20261119T000000Z-g5/scenarios/01-S13-marketplace"
+                                 / "inventory_sources/marketplace/compose.yaml").is_file())
+                self.assertFalse((bench / "results" / root / "runs").exists() and any((bench / "results" / root / "runs").rglob("*.yaml")))
+            for slot in (0, 1):
+                after = probe(slot, "bench.stop_inventory_services(); print(bench.INVENTORY_STATE.exists())")
+                self.assertEqual(after.returncode, 0, after.stderr)  # the next G3 or checkpoint reset
+                self.assertEqual(after.stdout.strip(), "False")
+            calls = (Path(tmp) / "docker.log").read_text().splitlines()
+            self.assertEqual(sum(" stop marketplace" in call for call in calls), 2, calls)
+            self.assertEqual(c.card, {})
+
     def test_rebuilt_slot_gets_a_fresh_infra_allowance(self):
         from run_validity import InfrastructureExhausted
         with tempfile.TemporaryDirectory() as tmp:
