@@ -288,7 +288,7 @@ def diagnosis_environment(env, driver, lease, home):
     clean.update(HOME=str(home), TMPDIR=str(home / '.cache'))
     key = ('CLAUDE_CODE_OAUTH_TOKEN' if driver == 'claude' else
            'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else
-           'NEURALWATT_API_KEY' if lease.account == 'neuralwatt-key' else
+           None if lease.account == 'neuralwatt-key' else   # diagnosis is walled: never an NW lane, never its key
            'OPENCODE_API_KEY' if driver == 'opencode' and lease.account else None)
     if key and key in env: clean[key] = env[key]
     return clean

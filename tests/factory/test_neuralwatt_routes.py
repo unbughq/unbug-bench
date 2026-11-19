@@ -3,7 +3,9 @@
 router-health-20261119.json holds the router's health rows (health table only, no keys) as read on the
 control VM on 2026-11-19, from factory.before-force-lift-20261119.sqlite3: OpenRouter credit-blocked at
 $4.38, both Go plans on weekly quota. The Go rows' backoff had lapsed (blocked_until 0), so each acquire
-first retries Go; the replay observes Go's quota answer as the router did that day.
+first retries Go; the replay observes Go's quota answer as the router did that day. Reproduce on the VM with
+  sqlite3 -json factory.before-force-lift-20261119.sqlite3 'SELECT pool, value FROM health'
+(each value parsed as JSON, keyed by pool).
 """
 import sys
 from pathlib import Path
@@ -112,6 +114,7 @@ class Maximum(unittest.TestCase):
             self.assertEqual(tuple(Decimal(listed[name][k]) for k in ('input', 'cached', 'output')), pin)
             pricing = models[name]['metadata']['pricing']
             self.assertEqual(tuple(Decimal(str(pricing[k])) for k in ('input_per_million', 'cached_input_per_million', 'output_per_million')), pin)
+            self.assertEqual(pricing['service_tier'], 'standard')   # list price, not a speed lane's
             self.assertEqual((models[name]['max_model_len'], models[name]['metadata']['limits']['max_context_length']), (1048560, 1048560))
 
 
