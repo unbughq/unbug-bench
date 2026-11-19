@@ -22,6 +22,7 @@ assert "Still fail the case if its promise covers such a product and no check in
 assert "every check the case itself calls required for a promise clause the contestant can already read must be graded at that checkpoint. Only an owner-only rule may wait for the step that raises it." in rules
 assert "Graded means listed in that checkpoint's `intent_checks`" in rules
 assert "only an owner-only rule may wait for the step that raises it" in flat("factory/prompts/builder.md")
+assert "def intent_failures" in (ROOT / "bin/claims.py").read_text()   # the scorer function the rule names
 # The rule describes the real bench code.
 bench = (ROOT / "bin/bench.py").read_text()
 assert "CREATE ROLE bench_checker LOGIN BYPASSRLS" in bench and "UNBUG_MONITOR_BLIND" in bench
