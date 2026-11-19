@@ -26,8 +26,8 @@ MINIMAX = 'openrouter/minimax/minimax-m3.1-flash'
 
 
 def admit(store, model=MINIMAX, identity=None, protocol=True, accounts=None):
-    # The paid protocol's own tests: without the Go accounts a chain starts at OpenRouter (founder 2026-11-09).
-    data = dict(id=identity or uuid.uuid4().hex, model=model, accounts=accounts or [a for a in router.ACCOUNTS if not a.startswith('opencode-go')],
+    # The paid protocol's own tests: without the Go and Neuralwatt accounts a chain starts at OpenRouter (founder 2026-11-09).
+    data = dict(id=identity or uuid.uuid4().hex, model=model, accounts=accounts or [a for a in router.ACCOUNTS if not a.startswith(('opencode-go', 'neuralwatt'))],
                 role='writer', deadline=store.clock() + 3600)
     if protocol: data['paid_protocol'] = 1
     value = store.rpc('acquire', data)
@@ -245,7 +245,7 @@ class PaidTests(unittest.TestCase):
         self.assertIsInstance(admit(self.store, 'opencode-go/mimo-v2.6-pro', accounts=go), router.Lease)
 
     def test_a_low_balance_block_never_wins_over_a_seat_wait_on_a_subscription_route(self):
-        model, everyone = 'opencode-go/mimo-v2.6-pro', list(router.ACCOUNTS)
+        model, everyone = 'opencode-go/mimo-v2.6-pro', [a for a in router.ACCOUNTS if a != 'neuralwatt-key']   # a box without the key
         seats = [admit(self.store, model, accounts=everyone) for _ in range(2)]
         self.assertEqual({l.pool for l in seats}, {'opencode-go-key', 'opencode-go-key-2'})
         self.credit = Decimal('.2')

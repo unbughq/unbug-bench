@@ -61,6 +61,14 @@ GO_TWINS = {'opencode-go/deepseek-v4.1-flash': 'openrouter/deepseek/deepseek-v4.
             'opencode-go/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash',
             'opencode-go/muse-spark-1.3-contributor': 'openrouter/meta/muse-spark-1.3-contributor'}
 GO_ROUTES = frozenset(GO_TWINS)
+# Neuralwatt routes (founder 2026-11-19, docs/designs/neuralwatt-routes.md): the same two models from a
+# second paid provider, tried between the Go plan and OpenRouter. Its listed prices equal the twins' pins
+# and it never bills above list (tests/factory/fixtures/neuralwatt-price-record-20261119.json.gz), so a
+# call has its twin's maximum and books real money at the twin's list price (unlike Go's $0).
+NW_TWINS = {'neuralwatt/mimo-v2.6-pro': 'openrouter/xiaomi/mimo-v2.6-pro',
+            'neuralwatt/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash'}
+NW_ROUTES = frozenset(NW_TWINS)
+TWINS = {**GO_TWINS, **NW_TWINS}
 
 
 def go_maximum(route):
@@ -69,8 +77,19 @@ def go_maximum(route):
     return dict(maximum, price_source='opencode-go:' + route.partition('/')[2] + ':twin=' + maximum['price_source'])
 
 
+def nw_maximum(route):
+    maximum = openrouter_gate_maximum(NW_TWINS[route]) if route in NW_TWINS else None
+    if maximum is None: return None
+    return dict(maximum, price_source='neuralwatt:' + route.partition('/')[2] + ':twin=' + maximum['price_source'])
+
+
+def nw_request_worst(route):
+    """One whole request of an NW route at its twin's list price: the most a step still in flight can bill."""
+    return _request_worst(GATED_OPENROUTER[NW_TWINS[route]])
+
+
 def go_step_cost(route, tokens):
-    """One OpenCode step on a Go plan route at its twin's list price. Reasoning is billed as output,
+    """One OpenCode step on a Go plan or Neuralwatt route at its twin's list price. Reasoning is billed as output,
     and a cache write at the full input rate (OpenRouter's twins quote no write price)."""
     prices = runtime_prices(route)
     return ((tokens['input'] + tokens['cache']['write']) * prices['input'] + (tokens['output'] + tokens['reasoning']) * prices['output']
@@ -81,12 +100,16 @@ def openrouter_gate_maximum(route):
     profile = GATED_OPENROUTER.get(route)
     if profile is None or Decimal(profile['cache_write']) != 0: return None
     incoming, cached, outgoing = map(Decimal, profile['prices'])
-    worst = (profile['context'] * incoming + profile['output'] * outgoing) / 1_000_000
-    maximum = (profile['windows'] * worst + Decimal('.000001')).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
+    maximum = (profile['windows'] * _request_worst(profile) + Decimal('.000001')).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
     return dict(max_usd=float(maximum), max_input_tokens=int(maximum * 1_000_000 / incoming),
                 max_output_tokens=int(maximum * 1_000_000 / outgoing),
                 price_source='token_prices:' + profile.get('source_date', '2026-10-30') + ':' + route.replace('/', ':', 1) + ':' + profile['endpoint'] + ':'
                              + ','.join(profile['prices']) + ':joint-gate-v1')
+
+
+def _request_worst(profile):
+    incoming, _, outgoing = map(Decimal, profile['prices'])
+    return (profile['context'] * incoming + profile['output'] * outgoing) / 1_000_000
 
 
 def openrouter_gate_cost(route, usage):
@@ -102,7 +125,7 @@ def openrouter_gate_cost(route, usage):
 
 
 def runtime_prices(route):
-    route = GO_TWINS.get(route, route)
+    route = TWINS.get(route, route)
     if route in GATED_OPENROUTER:
         incoming, cached, outgoing = map(float, GATED_OPENROUTER[route]['prices'])
         return dict(input=incoming, output=outgoing, cache_read=cached, cache_write=0)

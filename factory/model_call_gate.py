@@ -803,8 +803,9 @@ def free_environment(lease, env):
     keys = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
             'FACTORY_STRATEGY_DIAGNOSTIC', 'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
     clean = {k: env[k] for k in keys if k in env}
-    # Only a route that runs on an OpenCode account gets that account's key.
-    if lease.account and env.get('OPENCODE_API_KEY'): clean['OPENCODE_API_KEY'] = env['OPENCODE_API_KEY']
+    # Only a route that runs on an account gets that account's key: Neuralwatt's, or else the OpenCode one.
+    key = 'NEURALWATT_API_KEY' if name == 'neuralwatt' else 'OPENCODE_API_KEY'
+    if lease.account and env.get(key): clean[key] = env[key]
     clean.update(OPENCODE_CONFIG_CONTENT=json.dumps(cfg), OPENCODE_ENABLE_EXA='1', OPENCODE_PURE='1',
         OPENCODE_DISABLE_PROJECT_CONFIG='1', OPENCODE_DISABLE_AUTOUPDATE='1')
     return clean
@@ -813,7 +814,7 @@ def free_environment(lease, env):
 @contextmanager
 def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
-    from token_prices import FREE_ROUTES, GO_ROUTES
+    from token_prices import FREE_ROUTES, GO_ROUTES, NW_ROUTES
     if lease.route in FREE_ROUTES:
         # $0 maximum: any booked cost stops the call (budget.check_reservation), and so does a step
         # from any other provider or model (budget.py). A walled role can reach only a gate's port, so
@@ -827,16 +828,19 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
         env.clear(); env.update(clean)
         yield FreeCall(cancel)
         return
-    if lease.route in GO_ROUTES:
+    if lease.route in GO_ROUTES or lease.route in NW_ROUTES:
         # The founder's Go plan pays (Extra Usage off), so no gate: OpenCode books each step at the
         # OpenRouter twin's list price (model_runtime.opencode_config) and the reservation check stops
         # the call once it passes the lease maximum, as for Codex. A walled role reaches only a gate's
-        # port, so the runtime never leases it a Go route; refusing here is the backstop.
+        # port, so the runtime never leases it a Go route; refusing here is the backstop. Neuralwatt
+        # bills at most that twin price, so it runs the same way on its own account and key.
         if not model_router.valid_maximum(lease) or lease.max_usd <= 0: raise BudgetError('unbounded_route')
         if user is not None: raise BudgetError('route_feature_unsupported')
         if Path('/etc/opencode').exists() or any(not env.get(k) for k in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')):
             raise BudgetError('route_feature_unsupported')
-        if not lease.account or not env.get('OPENCODE_API_KEY'): raise BudgetError('credential_expiring')
+        if lease.route in NW_ROUTES:
+            if lease.account != 'neuralwatt-key' or not env.get('NEURALWATT_API_KEY'): raise BudgetError('credential_expiring')
+        elif not lease.account or not env.get('OPENCODE_API_KEY'): raise BudgetError('credential_expiring')
         clean = free_environment(lease, env)
         env.clear(); env.update(clean)
         try: yield FreeCall(cancel)

@@ -24,7 +24,7 @@ import time
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
 from token_prices import CODEX_PRICES, CODEX_USAGE_FIELDS, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
-from token_prices import GO_ROUTES, go_step_cost
+from token_prices import GO_ROUTES, NW_ROUTES, go_step_cost, nw_request_worst
 from durable import stop_registry
 
 
@@ -430,6 +430,12 @@ def _settle_leaf(ledger, receipt, wait_id=None):
         # is what filled cae763-2's and 22e434-3's $50 with no real spend, and 22e434-5's (three
         # Codex refusals and an expired Codex login at $12.50 each, 11-12 November).
         estimate = Decimal(0)
+    elif row.get('route') in NW_ROUTES and type(row.get('open_steps')) is int:
+        # Neuralwatt bills real money but never above its twin's list (design neuralwatt-routes item 6), so
+        # an NW tail is at most one whole request per step its process left open: a 402 before any step
+        # books $0. Without the stop's own count (a killed worker) the whole bound stays booked.
+        estimate = min(estimate, (row['open_steps'] * nw_request_worst(row['route'])).quantize(
+            Decimal('.000000001'), rounding=ROUND_CEILING))
     if row['state'] == 'estimated' and not receipt['final_usage_known']:
         # An estimate is already a ceiling (closed gate or maximum). Non-final
         # evidence never moves it, so it cannot grow between collections; only
@@ -803,8 +809,8 @@ def usage_coverage(ledger):
         keys = {'schema_version', 'invocation_id', 'operation_id', 'lease_id', 'route', 'account',
                 'billing', 'pool', 'family', 'call_name', 'parent_call_name', 'maximum_usd', 'state', 'event_ids'}
         for lease, row in rows.items():
-            if (not keys <= row.keys() or row.keys() - keys - {'estimated_gap_usd', 'launched'} or
-                    type(row.get('launched', True)) is not bool or
+            if (not keys <= row.keys() or row.keys() - keys - {'estimated_gap_usd', 'launched', 'open_steps'} or
+                    type(row.get('launched', True)) is not bool or type(row.get('open_steps', 0)) is not int or
                     type(row['schema_version']) is not int or row['schema_version'] != 1 or
                     not isinstance(lease, str) or not lease or not _uuid4(row['invocation_id']) or
                     not _uuid4(row['operation_id']) or row['state'] not in ('pending', 'estimated', 'settled') or
@@ -1104,6 +1110,12 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # whole-attempt re-test let other calls' late bookings stop a call within its own
             # (b5521c, 7 November: attempts 2 and 4 stopped mid-admission at real cents).
             check_reservation(ledger, lease_id)
+            if configured_model in NW_ROUTES:
+                # An NW step is real money booked only when it finishes, so stop while one more whole request
+                # still fits: past that, the next step could book (and Neuralwatt bill) above the reservation.
+                row = ledger['invocation_reservations'][lease_id]
+                if reservation_booked(ledger, lease_id, row) + nw_request_worst(configured_model) > usd(row['maximum_usd']):
+                    raise BudgetError('usage_reservation_exceeded')
         if call_cap_usd is not None and live['value'] > usd(call_cap_usd):
             raise BudgetError('usage_reservation_exceeded')
         if not reserved and ledger['calls'] >= max_total_calls:
@@ -1389,6 +1401,10 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # its reservation and an unreserved call to max_cost, and is reported as list price.
             plan_listed = max(float(part['cost']), go_step_cost(configured_model, tokens))
             part = dict(part, cost=0)
+        elif configured_model in NW_ROUTES:
+            # A Neuralwatt step is real case money, booked at its twin's list price: Neuralwatt never bills
+            # above it, so this is an upper bound until its usage API is reconciled (design item 6).
+            part = dict(part, cost=max(float(part['cost']), go_step_cost(configured_model, tokens)))
         seen.add(identity)
         finishes.add(key)
         count += 1
@@ -1420,6 +1436,20 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 and not str(configured_model).endswith((':free', '-free'))):
             raise BudgetError('unpriced_usage')
         check_limits()
+
+    def open_steps(error=None):
+        # An NW call's unseen tail is bounded by the steps it left open (_settle_leaf), so its stop records
+        # them on its own reservation row. A process whose stop failed may still send requests, and an
+        # unverified tail may hide steps: no count. A stop other than a classified refusal or OpenCode's own
+        # error event (both end the request: stall, timeout, cancel) counts at least one, since a request is
+        # in flight before its step-start part appears.
+        if reserved and configured_model in NW_ROUTES:
+            row = ledger['invocation_reservations'][lease_id]
+            if any(k.startswith(('cancellation-failed:', 'unverified-')) for k in starts): row.pop('open_steps', None)
+            else:
+                refused = ((getattr(error, 'provider_failure', None) or {}).get('reason') in ('credit', 'rate', 'quota')
+                           or str(error) == 'opencode_error')
+                row['open_steps'] = len(starts - finishes) if error is None or refused else max(len(starts - finishes), 1)
 
     def stop_process():
         nonlocal stopped
@@ -1523,6 +1553,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 raise BudgetError('missing_usage')
             if contained is not None: stop_process()
             with transaction():
+                open_steps()
                 shared_stop()
                 if concurrent: ledger['active'].remove(invocation)
                 ledger['terminal_stop'] = 'running' if ledger.get('active') else 'complete'
@@ -1633,6 +1664,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # marker would only make the whole case total unknown.
             if not reserved and driver in ('codex', 'claude') and (starts - finishes or (process is not None and not usages)):
                 ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model})
+            open_steps(error)
             if invocation in ledger.get('active', []): ledger['active'].remove(invocation)
             if not ledger.get('active'): ledger.pop('active', None)
             label = str(error) if isinstance(error, BudgetError) else type(error).__name__
@@ -1672,6 +1704,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 # A failed kill is itself a stop, on the success path or after an own cancel left none: an orphan
                 # process must block the next admission. Never return success.
                 if ledger.get('terminal_stop') in (None, 'running', 'complete'): ledger['terminal_stop'] = 'cancellation_failed'
+                starts.add('cancellation-failed:' + invocation); open_steps()
             if original is None: raise BudgetError('cancellation_failed') from cleanup_error
         finally:
             if process is not None: process.stdout.close()

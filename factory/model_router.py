@@ -27,8 +27,8 @@ from urllib.parse import urlsplit
 import uuid
 
 from budget import BudgetError
-from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, FREE_ROUTES, GO_ROUTES, claude_gate_maximum,
-                          codex_gate_maximum, free_maximum, go_maximum, openrouter_gate_maximum)
+from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, FREE_ROUTES, GO_ROUTES, NW_ROUTES, claude_gate_maximum,
+                          codex_gate_maximum, free_maximum, go_maximum, nw_maximum, openrouter_gate_maximum)
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 # Every seat of a lane leased is our own queue, not a provider limit: the call waits in its worker,
@@ -38,8 +38,10 @@ WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 # concurrent cases x concurrent model roles per case on that pool.
 CAPACITY_WAIT_SECONDS = 1800
 from worker_secrets import SECRETS
+# Appended only: ACCOUNTS[2:4] is positional. A caller offers neuralwatt-key only when its key file exists
+# (the case context's router_accounts), so a caller without it never sees an NW lane.
 ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
-            'opencode-go-key-2', 'codex-auth.json', 'openrouter-key')
+            'opencode-go-key-2', 'codex-auth.json', 'openrouter-key', 'neuralwatt-key')
 # Every request in a chain starts at the chain's head (founder 2026-11-09: OpenCode first, OpenRouter as
 # the fallback). The Go plan routes lead on both accounts; OpenRouter's paid route follows. The anonymous
 # free lanes hang (8 of 9 free DeepSeek calls, 2026-11-08), so they come after paid, as a last resort.
@@ -51,9 +53,11 @@ CHAINS = (
     # The OpenRouter :free variant has no maximum, so it is never leased.
     ('opencode-go/minimax-m3.1-flash', 'opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free',
      'openrouter/minimax/minimax-m3.1-flash'),
-    ('opencode-go/mimo-v2.6-pro', 'openrouter/xiaomi/mimo-v2.6-pro'),
+    # Neuralwatt between the Go plan and OpenRouter (founder 2026-11-19): a second paid provider at the
+    # same list price, so an OpenRouter balance run-out no longer parks every MiMo/GLM case.
+    ('opencode-go/mimo-v2.6-pro', 'neuralwatt/mimo-v2.6-pro', 'openrouter/xiaomi/mimo-v2.6-pro'),
     ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'),
-    ('opencode-go/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
+    ('opencode-go/glm-5.3-flash', 'neuralwatt/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
 )
 ACCOUNT_FREE_ROUTES = ('opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4.1-flash-free')
 # A contended pool serves the case furthest along first (the engine step kind, run.Ctx.engine.kind):
@@ -71,6 +75,7 @@ def route_maximum(route):
     # Only explicit profiles qualify; native CLI knobs alone grant no lease.
     if route in FREE_ROUTES: return free_maximum(route)
     if route in GO_ROUTES: return go_maximum(route)
+    if route in NW_ROUTES: return nw_maximum(route)
     if route in CODEX_PROFILES: return codex_gate_maximum(route)
     return claude_gate_maximum(route) if route in CLAUDE_PROFILES else openrouter_gate_maximum(route)
 
@@ -158,6 +163,7 @@ def routes(model, accounts=ACCOUNTS):
                    'free' if route.endswith(('-free', ':free')) else 'paid')
         labels = (('claude-factory-token-2', 'claude-token') if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
                   ('openrouter-key',) if route.startswith('openrouter/') else
+                  ('neuralwatt-key',) if route.startswith('neuralwatt/') else
                   ACCOUNTS[2:4] if route.startswith('opencode-go/') or route in ACCOUNT_FREE_ROUTES
                   or (route.startswith('opencode/') and billing == 'paid') else (None,))
         if labels != (None,):
@@ -176,10 +182,10 @@ WALLED_ROLES = ('strong_calibrator', 'easy_calibrator')
 
 
 def ungated_lanes(model, accounts):
-    """The lanes of model's chain that have no gate (free and Go plan routes), as admission's
+    """The lanes of model's chain that have no gate (free, Go plan and Neuralwatt routes), as admission's
     excluded_lanes spells them. A walled role reaches only a gate's port, so it never takes one."""
     return tuple(r['pool'] + '/' + r['route'] for r in routes(model, accounts)
-                 if r['route'] in FREE_ROUTES or r['route'] in GO_ROUTES)
+                 if r['route'] in FREE_ROUTES or r['route'] in GO_ROUTES or r['route'] in NW_ROUTES)
 
 
 @dataclass(frozen=True)

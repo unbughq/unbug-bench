@@ -23,7 +23,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
-from token_prices import FREE_ROUTES, GATED_OPENROUTER, GO_ROUTES
+from token_prices import FREE_ROUTES, GATED_OPENROUTER, GO_ROUTES, NW_ROUTES, NW_TWINS, OPENROUTER_OUTPUT
 import model_call_gate
 from model_router import family
 from registry import atomic_json
@@ -65,6 +65,14 @@ def call_window(role, model):
 def accounting_work(c):
     """Comparison keeps scientific scratch separate from the owning ledger receipts."""
     return getattr(c, 'accounting_work', c.work)
+
+
+def offered_accounts():
+    """The accounts a case offers the router, worked out once when its context is built (c.router_accounts).
+    Neuralwatt is offered only on a box that holds its key: an offered lane that can never be spent keeps
+    exhausted() false and a malformed-answer retry loops (cae763). Other missing keys keep failing as
+    credential_expiring, as before."""
+    return tuple(a for a in model_router.ACCOUNTS if a != 'neuralwatt-key' or (model_router.SECRETS / a).is_file())
 
 
 def invocation_maximum(c, lease):
@@ -186,9 +194,10 @@ def model_effort(model):
 
 def bounded_route(role, model, accounts=model_router.ACCOUNTS):
     """Whether `role` can be leased `model` on a route with a known maximum. A walled role is never
-    leased a free or Go plan route (ModelRuntime._call)."""
+    leased a free, Go plan or Neuralwatt route (ModelRuntime._call): none has a gate."""
     return any(model_router.route_maximum(row['route']) is not None
-               and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES))
+               and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES
+                                                               or row['route'] in NW_ROUTES))
                for row in model_router.routes(model, accounts))
 
 
@@ -248,6 +257,15 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     go["options"] = {"apiKey": "{env:OPENCODE_API_KEY}"}
     if base: go["options"]["baseURL"] = base.rstrip("/") + "/go/v1"
     cfg["provider"]["opencode-go"] = go
+    # Neuralwatt serves the same MiMo/GLM as their OpenRouter twins, billed at most at the twin's list price, so
+    # a step carries the twin's price, as Go does. includeUsage: without a gate nothing else asks the stream for
+    # usage, and every step would book $0. Context is Neuralwatt's max_model_len (below the twins' 1048576);
+    # output is the gated OpenRouter cap. Only an NW call gets the provider, so other configs stay as they were.
+    if model in NW_ROUTES:
+        cfg["provider"]["neuralwatt"] = {"npm": "@ai-sdk/openai-compatible",
+            "options": {"baseURL": "https://api.neuralwatt.com/v1", "apiKey": "{env:NEURALWATT_API_KEY}", "includeUsage": True},
+            "models": {route.partition("/")[2]: {"cost": price(NW_TWINS[route]), "limit": {"context": 1048560, "output": OPENROUTER_OUTPUT}}
+                       for route in sorted(NW_ROUTES)}}
     # Founder 2026-10-19: OpenCode v1.x answers Muse with "Invalid credential" unless the opencode provider points at Zen.
     cfg["provider"]["opencode"] = {"options": {"baseURL": "https://opencode.ai/zen/v1"}}
     if model in ("opencode/minimax-m3.1-flash-free", "opencode/deepseek-v4.1-flash-free"):
@@ -255,7 +273,7 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
         cfg["provider"]["opencode"] = provider_config(case, model)
         cfg["small_model"] = model
         path = path.with_name("factory-opencode-" + model.split("/", 1)[1] + ".json")
-    elif model and model.startswith(("openrouter/", "opencode-go/")):
+    elif model and model.startswith(("openrouter/", "opencode-go/", "neuralwatt/")):
         cfg["small_model"] = model  # compaction follows the same approved provider/model
         path = path.with_name("factory-" + model.replace("/", "-").replace(":", "-") + ".json")
     with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=path.name, delete=False) as staged:
@@ -270,6 +288,7 @@ def diagnosis_environment(env, driver, lease, home):
     clean.update(HOME=str(home), TMPDIR=str(home / '.cache'))
     key = ('CLAUDE_CODE_OAUTH_TOKEN' if driver == 'claude' else
            'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else
+           None if lease.account == 'neuralwatt-key' else   # diagnosis is walled: never an NW lane, never its key
            'OPENCODE_API_KEY' if driver == 'opencode' and lease.account else None)
     if key and key in env: clean[key] = env[key]
     return clean
@@ -385,8 +404,9 @@ def go_quota_moves_on(lease, reason):
     """A Go plan call's unseen tail books $0 (budget.py, "book Go at cost"), so a Go quota moves the call
     to the same model's next route (its OpenRouter twin, token_prices.GO_TWINS) inside the attempt instead
     of ending it (13 attempts, 12.9 h lost to Go quota, 6-11 November). Any other Go fault (a refusal, a
-    crash) would likely repeat on the paid twin, so it defers and ends the attempt as before."""
-    return lease.route in GO_ROUTES and reason == 'quota'
+    crash) would likely repeat on the paid twin, so it defers and ends the attempt as before. A Neuralwatt
+    call's tail is bounded by its steps in flight (budget.py), so its quota or spent credit moves on too."""
+    return (lease.route in GO_ROUTES and reason == 'quota') or (lease.route in NW_ROUTES and reason in ('quota', 'credit'))
 
 
 OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]
@@ -599,7 +619,8 @@ class ModelRuntime:
                             provider_failure={'reason': 'credential_expiring', 'scope': 'account', 'model': lease.route})
                     if lease.account and lease.account != 'codex-auth.json':
                         key = ('CLAUDE_CODE_OAUTH_TOKEN' if lease.account.startswith('claude') else
-                               'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else 'OPENCODE_API_KEY')
+                               'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else
+                               'NEURALWATT_API_KEY' if lease.account == 'neuralwatt-key' else 'OPENCODE_API_KEY')
                         context.model_env[key] = (model_router.SECRETS / lease.account).read_text().rstrip('\n')
                     limit = duration - active_seconds
                     if deadline is not None: limit = min(limit, deadline - time.monotonic())
@@ -770,7 +791,7 @@ class ModelRuntime:
         if len(models) != 1: raise ValueError("Only one model per role is permitted")
         model = models[0]
         lease = getattr(c, 'model_lease', None)
-        if (not model_router.valid_lease(lease, model)
+        if (not model_router.valid_lease(lease, model, getattr(c, 'router_accounts', model_router.ACCOUNTS))
                 or c.__dict__.pop('_model_launch_permit', None) != lease.lease_id):
             raise model_router.ProviderWait(invocation_role(name), model_router.Wait(
                 'unbounded_route', model_router.retry_at('unbounded_route'), route=model))

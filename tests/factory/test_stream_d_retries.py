@@ -229,6 +229,29 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(state['exhausted_attempts'][0]['spent_routes'], [glm])
         self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'completed'])
 
+    def test_a_spent_neuralwatt_route_survives_the_key_being_withdrawn(self):
+        # neuralwatt-routes rollback: a case spent the NW lane while its box held the key, then the key was
+        # withdrawn. Its snapshot keeps that route in spent_routes; the next attempt must not fail
+        # infra:ordinary_retry_state_invalid on every retry.
+        glm = 'openrouter/z-ai/glm-5.3-flash'
+        def setup():
+            self.c.models['easy_calibrator'] = [glm]
+            self.c.args.easy_calibrator = glm
+        setup()
+        self.cli(lambda c, text, name: len(self.calls) > 1 and
+                 self.answer_path(text).write_text('{"duplicate_of":null,"reason":"fresh judgment"}'))
+        for _ in range(2):
+            with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.board_dedup()
+        path = self.dedup_state(path=True)
+        state = json.loads(path.read_text())
+        state['spent_routes'].append('neuralwatt/glm-5.3-flash')
+        path.write_text(json.dumps(state))
+        self.fresh_context(); setup()
+        self.c.router_accounts = [a for a in model_router.ACCOUNTS if a != 'neuralwatt-key']   # key withdrawn
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0] + '/2'
+        self.assertIsNone(self.board_dedup()['duplicate_of'])
+        self.assertEqual([r for _, r, _ in self.calls], [glm, glm])
+
     def dedup_state(self, path=False):
         found = next(p for p in (self.work / 'ordinary-retries').glob('*/state.json')
                      if json.loads(p.read_text()).get('binding', {}).get('kind') == 'dedup')

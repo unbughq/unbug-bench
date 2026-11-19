@@ -164,6 +164,10 @@ class Ctx:  # one run's state
     def __init__(self):
         # Shared by shallow role contexts, never checkpointed on the public card.
         self.router_waits, self.router_interrupted_calls = [], []
+        # Once per case: every router caller reads this, so a box without the Neuralwatt key never offers its lane.
+        # A list, as JSON gives it back: a G10 try job carries it, and the helper's sealed job must equal the
+        # case's (helpers.open_sealed; helpers.py itself is release-pinned).
+        self.router_accounts = list(model_runtime.offered_accounts())
         install_publication_barrier(self)
 
 

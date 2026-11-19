@@ -1,0 +1,3 @@
+{"openrouter-key": {"reason": "credit", "blocked_until": 1795110508.2671602, "observed_at": 1795110508.2671602, "failures": 0, "credit": "unknown", "ready_at": 1795110176.129055},
+ "opencode-go-key": {"reason": "quota", "blocked_until": 0, "observed_at": 1795104318.3135493, "failures": 11, "refusals": 0, "credit": "unknown"},
+ "opencode-go-key-2": {"reason": "quota", "blocked_until": 0, "observed_at": 1795104329.8082752, "failures": 15, "refusals": 0, "credit": "unknown"}}

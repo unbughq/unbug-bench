@@ -33,7 +33,7 @@ from test_durable_policy import SPEC, GATES, DIAG
 
 ROUTE = 'claude/claude-opus-5-5'
 # These tests drive OpenRouter's gated paid route; without the Go accounts a chain starts there.
-NO_GO = tuple(a for a in model_router.ACCOUNTS if not a.startswith('opencode-go'))
+NO_GO = tuple(a for a in model_router.ACCOUNTS if not a.startswith(('opencode-go', 'neuralwatt')))   # chains start at OpenRouter
 
 
 class AttemptBudget(unittest.TestCase):
