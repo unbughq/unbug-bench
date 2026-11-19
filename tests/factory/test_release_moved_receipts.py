@@ -55,5 +55,16 @@ class RelabelTests(unittest.TestCase):
                 self.assertEqual(path.read_text(), before)
                 self.assertEqual(self.kept(path), [])
 
+    def test_a_try_moved_aside_by_a_probe_rerun_is_found_by_its_content(self):
+        path = self.receipt('strong_calibrator', OLD, SHA, quarantined=True)
+        ws = self.work / 'strong_calibrator' / 'try-1'
+        aside = ws.with_name('try-1-interrupted-9')
+        ws.rename(aside)
+        (ws / 'out').mkdir(parents=True); (ws / 'out' / 'note.txt').write_text('a later rerun')
+        (ws.with_name('try-1-interrupted-8') / 'out').mkdir(parents=True)   # a different tree is not taken
+        run.adopt_release_moved_receipts(self.c)
+        self.assertEqual(json.loads(path.read_text())[0]['workspace'], str(aside))
+        self.assertEqual(len(self.kept(path)), 1)
+
 
 if __name__ == '__main__': unittest.main()

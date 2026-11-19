@@ -1012,7 +1012,8 @@ def adopt_release_moved_receipts(c):
     path (calibration_identity), and that path names the release folder. A row recorded under an earlier
     release of the same file differs only in that folder, so completed_attempts quarantined it when a new
     release landed. Relabel such a key to this release's path when the file's sha256 is unchanged, and put
-    back the newest quarantined receipt when results.json is gone. Nothing else changes: completed_attempts
+    back the newest quarantined receipt when results.json is gone, and point a row whose workspace was moved
+    aside by a later rerun back at that byte-identical copy. Nothing else changes: completed_attempts
     still verifies every row's whole identity and workspace, and quarantines again on any other difference."""
     if getattr(c, "work", None) is None: return   # standalone gate checks have no receipts
     here = pathlib.Path(__file__).with_name("exam_responder.py")
@@ -1032,6 +1033,16 @@ def adopt_release_moved_receipts(c):
             if not isinstance(files, dict): continue
             for key in [k for k in files if k != mine and moved.fullmatch(k) and files[k] == sha and mine not in files]:
                 files[mine] = files.pop(key); changed = True
+            # A rerun of the early probe moved this try's untouched workspace aside (<ws>-interrupted-<ns>);
+            # point the row back at the copy whose content digest is the row's own.
+            ws = pathlib.Path(str(row.get("workspace")))
+            if ws.is_dir() and tree_digest(ws) == row.get("artifacts"): continue
+            for aside in sorted(ws.parent.glob(ws.name + "-interrupted-*")):
+                if aside.is_dir() and tree_digest(aside) == row.get("artifacts"):
+                    row["workspace"] = str(aside)
+                    if row.get("guard") == str(ws / "guard"): row["guard"] = str(aside / "guard")
+                    changed = True
+                    break
         if changed:
             atomic_results(path, rows)
             log(c, "G10", f"{name}: receipts recorded under an earlier release folder relabelled to this one")
