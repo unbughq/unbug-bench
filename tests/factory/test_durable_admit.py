@@ -719,7 +719,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_hand"))
         self.assertEqual(self.calls, [])
 
-    def prior_run(self, old, statement, keep=("G5", "G6", "G8"), gates=None):
+    def prior_run(self, old, statement, keep=("G5", "G6", "G8"), gates=None, imported_from=None):
         """The factory's own last snapshot of `old`, a hand-repaired case that ran GATES on `statement`:
         its card (last verdicts `gates`) and the gate records gate_state.save wrote under the real runner.
         Records of gates not in `keep` are left out of the snapshot. Returns (context, snapshot bytes, bench root)."""
@@ -735,7 +735,8 @@ class AdmitTests(unittest.TestCase):
         roles = {"reviewer": {"model": "openrouter/xiaomi/mimo-v2.6-pro", "effort": "default"}}
         (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 11, "dry_run": False, "source": "port",
             "gates": gates or {"G5": "pass", "G6": "pass", "G8": "pass"}, "failed_gate": "G9", "models": self.real_inputs("x")["models"], "roles": roles,
-            "rotation_slot": 2, "recovery_config": {"bench_workers": 2, "parallel_gates": True}}))
+            "rotation_slot": 2, "recovery_config": {"bench_workers": 2, "parallel_gates": True},
+            **({"imported_from": imported_from} if imported_from else {})}))
         step = StepInput(BATCH, old, 4, Step(StepKind.GATES, 1), 1, PLUMBING, BENCH_V, Ref("1" * 64, ArtifactKind.INPUTS),
                          Ref("2" * 64, ArtifactKind.CASE_SNAPSHOT), 600.0, 10_000_000)
         c = run.context_for_step(step, work)
@@ -768,6 +769,29 @@ class AdmitTests(unittest.TestCase):
         """runtime.start's import for INPUTS reuse_gates_of."""
         header = json.dumps({"case": old, "archive_bytes": len(archive)}).encode()
         return admit.PRIOR_MAGIC + header + b"\n" + archive + snapshot
+
+    def test_a_hand_repair_of_an_imported_case_is_not_a_duplicate_of_its_own_idea(self):
+        """2026-11-19: a reuse_gates_of archive is rooted at the earlier run (case-import-...), but the board
+        entry of the idea is the October case that run was imported from. The dedup screen counted that
+        entry as a duplicate of the case's own idea (f46dac-h5, admit:dedup_board_duplicate)."""
+        idea, earlier = "case-20261018T144333Z-hand-2", "case-import-hand-h2-1"
+        statement = "# Candidate\n\nOversell when two carts check out."
+        registry = self.admitted_registry((idea, statement), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        prior, snapshot, _ = self.prior_run(earlier, statement, keep=("G5",), imported_from={"case": idea, "mode": "hand_repaired"})
+        archive = self.legacy_archive(earlier, statement)
+        step_input = self.import_step(self.hand_inputs(reuse_gates_of=earlier), registry, self.envelope(earlier, archive, snapshot))
+        seen, original = [], admit._prior_statements
+        def spy(*args, **kwargs):
+            out = original(*args, **kwargs); seen.append(sorted(out[1])); return out
+        admit._prior_statements = spy
+        try:
+            result, outputs = self.run_admit(step_input)
+        finally:
+            admit._prior_statements = original
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:imported_hand"))
+        self.assertEqual(seen, [["case-prior"]])   # neither the earlier run nor its idea's own entry
+        _, c = self.restore(step_input, result, outputs)
+        self.assertEqual(c.card["imported_from"]["idea_case"], idea)
 
     def test_a_hand_repair_keeps_the_gate_records_its_wording_fix_leaves_valid(self):
         """Founder 2026-11-18: a one-line wording fix reran every gate (10-12 hours). The records come from
@@ -894,7 +918,7 @@ class AdmitTests(unittest.TestCase):
             link = tarfile.TarInfo("review-1/verdict.json"); link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
             tar.addfile(link)
         card = {"rotation_slot": 1, "recovery_config": {"bench_workers": 2}}
-        self.assertEqual(admit._adopt_prior(card, work, old, buffer.getvalue(), {"seed": 11}), ["G4"])
+        self.assertEqual(admit._adopt_prior(card, work, old, buffer.getvalue(), {"seed": 11}), (["G4"], None))
         self.assertEqual(card, {"models": {"builder": ["m"]}, "rotation_slot": 2})
         self.assertEqual(sorted(p.relative_to(work).as_posix() for p in work.rglob("*") if p.is_file()),
                          ["bench-results/runs/g4/checkpoint.json", "case/statement.md", "continuation-budget.json",

@@ -300,7 +300,8 @@ def _adopt_prior(card, work, case, snapshot, inputs):
     record moves whole, with exactly the evidence it lists, or not at all; a MEASURED gate's record
     is rebound to this tree's WORDING (_rebind_wording), and gate_state.load still decides at GATES
     whether it holds. G16 stays behind: its calibration identity hashes the whole tree. Returns the
-    gates copied."""
+    gates copied and the board entry the earlier run was itself imported from (its idea's own
+    entry, which the dedup screen must not count as a duplicate), or None."""
     import copy
     import fnmatch
     import io
@@ -353,7 +354,8 @@ def _adopt_prior(card, work, case, snapshot, inputs):
                 (work / name).write_bytes(data)
             tops |= heads
             reused.append(gate)
-    return reused
+    idea = (old.get("imported_from") or {}).get("case") if isinstance(old.get("imported_from"), dict) else None
+    return reused, idea if isinstance(idea, str) and _CASE.fullmatch(idea) else None
 
 
 def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None, prior=None):
@@ -492,7 +494,9 @@ def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None, prio
             fresh["rotation_slot"] = next((i for i, slot in enumerate(slots, 1) if slot.get("writer") == family(writer)),
                                           fresh["rotation_slot"])
     if prior is not None:
-        summary["reused_records"] = _adopt_prior(fresh, work, *prior, inputs)
+        summary["reused_records"], idea = _adopt_prior(fresh, work, *prior, inputs)
+        if idea is not None:
+            summary["idea_case"] = idea
     fresh["imported_from"] = summary
     atomic_json(work / "scorecard.json", fresh)
     return summary
@@ -722,14 +726,16 @@ def _board_statement(root, refs, sealer, batch_key, case):
     return raw
 
 
-def _prior_statements(root, refs, sealer, batch_key, case_id, work, imported=None):
+def _prior_statements(root, refs, sealer, batch_key, case_id, work, imported=()):
     state = json.loads((root / "registry.json").read_text())
     prior = {}
     directory = work / "statements"
     directory.mkdir(exist_ok=True)
     for case, entry in state["entries"].items():
-        # An import is its old case's own idea: that entry is not a duplicate of it.
-        if case in (case_id, imported) or entry["status"] == "released":
+        # An import is its old case's own idea: that entry is not a duplicate of it. A hand repair
+        # that reuses gate records names its earlier run (case-import-...), whose card names the idea's
+        # own entry (imported_from.idea_case): neither is a duplicate of it.
+        if case == case_id or case in imported or entry["status"] == "released":
             continue
         digest = entry["cipher_sha256"]
         ref = Ref(refs[digest], ArtifactKind.STATEMENT_REGISTRY)
@@ -747,8 +753,10 @@ def _screen(c, runner, registry, refs, sealer, batch_key, step_input):
     from admission import MAX_CANDIDATES
     from registry import atomic_json
     root = registry.root
-    imported = (c.card.get("imported_from") or {}).get("case")
-    revision, prior = _prior_statements(root, refs, sealer, batch_key, step_input.case_id, c.work, imported)
+    summary = c.card.get("imported_from") or {}
+    imported = summary.get("case")
+    own = tuple(x for x in (imported, summary.get("idea_case")) if isinstance(x, str))
+    revision, prior = _prior_statements(root, refs, sealer, batch_key, step_input.case_id, c.work, own)
     c.engine_prior_statements, c.engine_registry_revision = prior, revision
 
     def reserve():
