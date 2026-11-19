@@ -363,6 +363,49 @@ class InvalidRunsTests(unittest.TestCase):
             self.assertTrue(run.g11(self.c)[0])
         self.assertEqual(calls, ['deepseek/reviewer'])
 
+    def test_8acb5c_g11_flags_numbered_across_fixes_are_a_complete_review(self):
+        # 8acb5c, 19 Nov: 4 fixes x 3 forbidden flags; both reviewers numbered the flags straight
+        # through ([0,1,2], [3,4,5], ...). The clean verdict was discarded as inconclusive and G11 crashed.
+        real = next(iter(REAL['fake-pass-report']['files'].values()))
+        for name, content in REAL['suffix-case']['files'].items():
+            path = self.c.case / name; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(content) if name == 'case.json' else content)
+        passes = []
+        for i in range(4):
+            guard = self.work / 'passes' / str(i); shutil.copytree(self.c.case / 'guards/reference', guard)
+            passes.append(guard)
+        path = self.work / 'fake-pass.json'
+        def review(counts, numbering):
+            # The real scanner row, once per pass, its module-state finding replayed as `count` forbidden flags
+            # (a pass with none keeps the real finding at its own 'review' severity).
+            report = copy.deepcopy(real); report['guards'] = []
+            for guard, count in zip(passes, counts):
+                row = copy.deepcopy(real['guards'][0]); row['guard'] = str(guard)
+                if count:
+                    row['findings'] = [{**row['findings'][0], 'severity': 'forbidden', 'match': f'flag {n}'} for n in range(count)]
+                report['guards'].append(row)
+            path.write_text(json.dumps(report))
+            self.c.pilot_passes = passes[:len(counts)]
+            def reviewer(c, chain, text, cwd, name):
+                Path(text.split('Write the JSON verdict to ')[1].removesuffix('.')).write_text(json.dumps(
+                    {'fixes': [{'classification': 'checker_false_positive', 'findings_reviewed': n,
+                                'evidence': 'Every flag is the patch module state; case traffic passes.'} for n in numbering]}))
+                return 0
+            for old in self.work.glob('independent-g11-*'): shutil.rmtree(old)
+            with patch.object(run, 'sh', return_value=subprocess.CompletedProcess([], 0, 'Evidence: ' + str(path), '')), \
+                 patch.object(run, 'checkpoint', return_value=batch('g11-valid')), \
+                 patch.object(run, 'model_call', side_effect=reviewer):
+                return run.g11(self.c)
+        ok, info = review([3] * 4, [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]])   # the 8acb5c shape
+        self.assertTrue(ok); self.assertEqual(info['survived'], '4/4')
+        self.assertTrue(review([3] * 4, [[0, 1, 2]] * 4)[0])                          # per-fix, as before
+        self.assertTrue(review([3, 0, 2], [[0, 1, 2], [], [3, 4]])[0])               # a pass with no flag
+        for wrong in ([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]],                # one-based
+                      [[0, 1, 2], [3, 4, 5], [6, 7], [9, 10, 11]],                    # a flag missed
+                      [[0, 1, 2], [3, 4, 5], [9, 10, 11], [6, 7, 8]],                 # out of guard order
+                      [[0, 1, 2], [3, 4, 5], [0, 1, 2], [9, 10, 11]]):                # two numberings mixed
+            with self.assertRaises(InfrastructureExhausted): review([3] * 4, wrong)
+
     def attempt(self, folder='strong_calibrator'):
         (self.c.case / 'case.json').write_text(json.dumps(REAL['suffix-case']['files']['case.json']))
         workspace = self.work / folder / 'try-1'; workspace.mkdir(parents=True)
