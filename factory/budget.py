@@ -1360,11 +1360,12 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         # Never scan tool output or echoed command/prompt text for provider errors.
         if kind == 'error' or (kind == 'system' and event.get('subtype') in ('error', 'api_retry', 'retry')) or (kind == 'result' and event.get('is_error')) or (driver == 'claude' and kind == 'assistant' and event.get('error')):
             info = provider_diagnostic(event)
-            # An OpenCode error event with an HTTP status is the AI SDK's final APIError (it has already retried):
-            # a 429 there is the call's rate stop, not a notice to skip. Skipped, the call ended as missing_usage
-            # with a phantom tail. A status-less 'retrying' message stays one notice.
-            if diagnostic(**info, allow_outage=kind != 'system', shared=True,
-                          terminal=driver == 'opencode' and kind == 'error' and info.get('status_code') is not None): return
+            # On a Neuralwatt lane, an OpenCode error event with an HTTP status is final (OpenCode has already
+            # retried): a 429 there is the call's rate stop, not a notice to skip. Skipped, the call ended as
+            # missing_usage with a phantom tail. Go and free lanes keep the allowance: their missing_usage
+            # excludes one lane, where rate would block the whole Go account (neuralwatt-routes item 8).
+            if diagnostic(**info, allow_outage=kind != 'system', shared=True, terminal=configured_model in NW_ROUTES
+                          and kind == 'error' and info.get('status_code') is not None): return
         elif driver == 'claude' and kind == 'result':
             diagnostic(str(event.get('result', '')), response=True)
         elif driver == 'codex' and kind == 'turn.failed':
