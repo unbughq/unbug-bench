@@ -71,7 +71,7 @@ def describe(case, work, card):
     try:
         receipts = load_retrieval(verdict_path.parent/'retrieval', rows)
         completed = load(verdict_path.parent/'review-completed.json')
-        if (completed.get('binding', {}).get('confirmation_contract') != 2
+        if (completed.get('binding', {}).get('confirmation_contract') not in (2, 3)   # 3: SOURCE_CODE_NOT_PUBLIC
                 or completed.get('retrieval_sha256') != digest(receipts)):
             raise ValueError('unverified retrieval completion')
     except (OSError, ValueError, RuntimeError):

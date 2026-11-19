@@ -148,7 +148,7 @@ class FreshnessRestoreTests(unittest.TestCase):
             **search_binding(self.c, [{'who': 'attacker', 'url': self.url, 'app_version': '2.19.0',
                 'query': 'Attacker freshness_review request',
                 'note': 'Attacker requested an independent same_bug/version_scope verdict.\n'}]),
-            'confirmation_contract': 2}}))
+            'confirmation_contract': run.CONFIRMATION_CONTRACT}}))
         import freshness_retrieval
         receipts = freshness_retrieval.retrieve([{'url':self.url}], directory / 'retrieval')
         marker = json.loads((directory / 'review-completed.json').read_text())

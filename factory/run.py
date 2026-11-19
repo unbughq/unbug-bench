@@ -1959,6 +1959,18 @@ def confirm_timeout(c, flagged_count):
                getattr(getattr(c, 'args', None), 'agent_timeout', 1800))
 
 
+# Founder 2026-11-19 (1bb2ad-h8 failed G2 on the pinned app's own source files): every case's bug sits in
+# public code, so reading the code is not a public mention.
+SOURCE_CODE_NOT_PUBLIC = (
+    "The app's own source code (any view of the code, e.g. a file, tree or blame view, or a commit that introduces "
+    "or merely shows it) is not the same bug just because the defect can be seen by reading it, since every case's "
+    "bug is in public code; it is the same bug only if the page itself reports or fixes it, for example a comment, "
+    "TODO or linked issue naming this defect, or a commit, PR or later version of the code that fixes it.")
+# Verdicts carry the contract they were reviewed under: 3 since SOURCE_CODE_NOT_PUBLIC, so a verdict made under
+# the old wording is never reused (confirm_hits) and is reviewed again.
+CONFIRMATION_CONTRACT = 3
+
+
 def confirm_hits(c, flagged, *, retained_path=None):
     """Founder 2026-10-20: a searcher's own `hit` fails G2 only once the reviewer (another family) confirms it is this
     bug, in this app, at a version that still applies. The provenance pattern, other apps or unrelated pages do not
@@ -1973,7 +1985,7 @@ def confirm_hits(c, flagged, *, retained_path=None):
         return flagged
     from admission import search_binding, search_evidence
     from registry import atomic_json
-    binding = {**search_binding(c, flagged), 'confirmation_contract': 2}
+    binding = {**search_binding(c, flagged), 'confirmation_contract': CONFIRMATION_CONTRACT}
     receipt_path = c.work / 'freshness-verdict.json'
     receipt = jload(receipt_path, {})
     if (isinstance(receipt, dict) and receipt.get('binding') == binding
@@ -2047,7 +2059,7 @@ def confirm_hits(c, flagged, *, retained_path=None):
             f"Open each URL. A result is the same bug only if it describes this bug (or its fix or a workaround) in this "
             f"app, for a version where it still applies, so a contestant could find the answer there. The real-world "
             f"pattern the case was ported from (its provenance), the same pattern in another app, and unrelated pages are "
-            f"not the same bug. Set retrieved_from live for a retrieved live page. "
+            f"not the same bug. {SOURCE_CODE_NOT_PUBLIC} Set retrieved_from live for a retrieved live page. "
             f"Founder 2026-10-28 archive ruling: if the live URL is dead (HTTP 404/410, DNS failure or confirmed deleted), "
             f"also check the Wayback Machine availability API at https://archive.org/wayback/available?url=<encoded URL> "
             f"and any returned web.archive.org snapshot. Record archive_checked true only after a successful archive lookup, "
