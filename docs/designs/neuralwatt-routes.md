@@ -132,20 +132,31 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
      `PUBLISHED_REASONS` derive from `_LIMIT_FAMILY`.
    - A Neuralwatt 402 then reads as that provider's limit with its short backoff. It is not
      `router:credit`, which parks for an OpenRouter top-up.
-8. **`budget.classify_provider_failure`: no change, pinned on real bodies** (Rollout step 1).
+8. **Neuralwatt errors, pinned on real bodies** (Rollout step 1).
    - Every Neuralwatt 402 is type and code `payment_required`; the message never says "insufficient
-     credits". The status code alone makes it `credit`, scope `wallet`.
+     credits". The status code alone makes it `credit`, scope `wallet`: no classifier change.
    - Every 429 (`concurrent_budget_exceeded`, `tpm_uncached_exceeded`, `tpm_uncached_request_too_large`)
-     is `rate`; 503 `model_overloaded` and 404 `model_not_found` are `outage`; 401 is unclassified.
-   - `tpm_uncached_request_too_large` is not retryable, yet `rate` waits rather than moving on. It fires
-     only when one request's uncached prompt exceeds the level's per-minute window: 75,000 tokens on
-     Trial, which ordinary factory steps exceed, and 1,000,000 from Paid up. Hence step 6's
-     precondition: the account is at Paid level or higher. Known cost, recorded: on Paid, a cold
-     request between 1,000,000 tokens and the 1,048,560 context would wait on `rate` instead of
-     moving on, until its deadline. MiMo steps have run to about 500k (the 2026-10-17 compaction
-     note in `model_runtime.opencode_config`), so no code for it.
+     is `rate`; 503 `model_overloaded` and 404 `model_not_found` are `outage`; 401 is unclassified
+     and ends the call as `opencode_error` (a revoked key is not reported to the router).
+   - **Fix in `budget._run_budgeted`.** The first `rate` error is let through as a notice, for CLIs that
+     keep going. OpenCode's error event with an HTTP status is the AI SDK's final `APIError` (it has
+     already retried), so nothing follows it: a Neuralwatt or Go 429 ended the call as `missing_usage`,
+     never told the router, and booked one whole request ($0.57) as a phantom tail. Such an event is now
+     terminal and stops the call as `provider_limit` with `rate`. A status-less "retrying" message
+     stays one notice (`test_budget.test_rate_limit_must_persist_and_tool_text_is_not_a_provider_error`).
+   - **What `rate` then does.** `go_quota_moves_on` is false for `rate`, so the attempt defers. The
+     router blocks the whole `neuralwatt-key` pool for 900 s, rising to 3600 s (no reset time is passed
+     on: `retry_strategy` and `Retry-After` are not read), and the next lease goes to the OpenRouter twin.
+   - `tpm_uncached_request_too_large` is not retryable. It fires when one request's uncached prompt
+     exceeds the level's per-minute window: 75,000 tokens on Trial, which ordinary factory steps
+     exceed, and 1,000,000 from Paid up. Hence step 6's precondition: the account is at Paid level or
+     higher (an operator check; responses carry `x-subscription-plan`). Known cost, recorded: on Paid, a
+     cold request between 1,000,000 tokens and the 1,048,560 context blocks Neuralwatt for every case
+     for 15-60 minutes. MiMo steps have run to about 500k (the 2026-10-17 compaction note in
+     `model_runtime.opencode_config`), so no code for it.
    - Tests: `tests/factory/test_neuralwatt_budget.py` runs OpenCode's real event streams for both
-     models and every body in `tests/factory/fixtures/neuralwatt-smoke-20261119.json`.
+     models, and every body in `tests/factory/fixtures/neuralwatt-smoke-20261119.json` inside
+     OpenCode's real `APIError` event (captured with a bad key).
 9. **`bin/setup-secrets neuralwatt`**
    - It prompts for the key without echo and checks that the key starts with `sk-`.
    - It writes `$tmp/neuralwatt-key`, the same as the `opencode-2` branch, and re-encrypts the bundle.
