@@ -16,7 +16,15 @@ import model_runtime
 import model_router
 from budget import classify_provider_failure
 from router_test_support import offline_router
-_ROUTING = offline_router()
+
+
+def setUpModule():
+    # Per module, not at import: a module-level patch outlived this file and broke later modules in one process.
+    global _ROUTING
+    _ROUTING = offline_router()
+
+
+def tearDownModule(): _ROUTING[0].close()
 
 
 class ProviderRoutesTest(TestCase):

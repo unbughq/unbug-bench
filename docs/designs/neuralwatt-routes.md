@@ -108,6 +108,9 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
        `plan_list_cost_usd`.
      - `event_bound_charge` is `cost + plan_list_cost_usd`, so keeping both would count each step
        twice.
+     - `check_limits` stops a reserved NW call once `booked + nw_request_worst > maximum`. A step
+       books only when it finishes, so without this the next step could book, and be billed, above
+       the reservation by up to one request.
    - **Unseen tail.**
      - `_run_budgeted` writes `invocation_reservations[lease_id]['open_steps']` inside its exit
        transaction, for a reserved call. The value is the number of OpenCode
@@ -115,7 +118,8 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
      - `_settle_leaf`, for `NW_ROUTES`, books `min(bound − booked, n × nw_request_worst(route))`.
        This applies only when the field is present, no `cancellation-failed:` or `unverified-*`
        key is open, and `cleanup_errors` did not grow. Otherwise it keeps today's `bound − booked`.
-     - `n` is `open_steps` for a classified credit, rate or quota refusal. It is
+     - `n` is `open_steps` for a classified credit, rate or quota refusal, or OpenCode's own `error`
+       event (`opencode_error`), since each ends the request. It is
        `max(open_steps, 1)` for any other stop (stall, timeout, cancel), because a request can be
        in flight before its step-start part appears.
      - A credit refusal with no step open books $0.
@@ -129,7 +133,10 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
    - A Neuralwatt 402 then reads as that provider's limit with its short backoff. It is not
      `router:credit`, which parks for an OpenRouter top-up.
 8. **`budget.classify_provider_failure`**: Neuralwatt's out-of-credit and rate-limit bodies, as
-   captured on the trial (see Rollout step 5), map to `credit` and `rate`.
+   captured on the trial (Rollout step 1), map to `credit` and `rate`. Until then the generic check
+   holds: any 402 or "insufficient credits" is `credit`, any 429 or "rate limit" is `rate`. Item 8 is
+   the follow-up commit that lands with the captured fixtures; the lane stays off until it does
+   (Rollout step 7).
 9. **`bin/setup-secrets neuralwatt`**
    - It prompts for the key without echo and checks that the key starts with `sk-`.
    - It writes `$tmp/neuralwatt-key`, the same as the `opencode-2` branch, and re-encrypts the bundle.
@@ -147,16 +154,33 @@ Strictly in this order. No release reaches any batch until step 3 is done.
      - tokens per second;
      - the real out-of-credit and rate-limit bodies, provoked with a request too large for a tiny
        remaining balance if possible, or else taken from Neuralwatt's error docs and marked as such.
-   - The bodies are committed as fixtures, and item 8 lands in this branch.
+   - Also one OpenCode run on the VM with the factory's `opencode_config` for each model, recording
+     the `step_finish` part (non-zero `tokens`) and the outgoing request's `max_tokens` (≤ 32768,
+     which `nw_request_worst` relies on).
+   - The bodies, step part and request are committed as fixtures in a follow-up commit with item 8,
+     the move-on test through `ModelRuntime.call`, and the budget tests swapped to them. That commit
+     goes through its own diff review. This branch may merge before it, because the lane ships
+     switched off (step 3).
 2. **Merge and install**, after the diff review.
    - Run `unbug install` for the release. Nothing uses it yet: a batch's plumbing is fixed in its
      start spec (`contract.py:357`), and only `plumbing_release <batch>` or a new start spec moves
      a case.
-3. **Router: config, then a drained restart.**
-   - Add `neuralwatt-key` to the router config `accounts`, set `capacities['neuralwatt-key'] = 8`,
-     then restart the router while no model calls are in flight. That is the only time config
-     changes take effect (`model_router.py:1153-1156`), including `disabled_routes`, the off switch.
-   - Harmless on its own, because no caller offers the account yet.
+3. **Router: new code, config, then a drained restart.**
+   - The router runs from its own checkout (`control/unbug-model-router.service`:
+     `/home/user/unbug-bench/factory/model_router.py`), which neither `unbug install` nor
+     `source-current` moves. Fast-forward that checkout to the release commit first, then check
+     `python3 -c "import sys; sys.path.insert(0,'factory'); import model_router; assert 'neuralwatt-key' in model_router.ACCOUNTS"`
+     in it. Old router code refuses `neuralwatt-key` in its config (`Store.__init__`: `unapproved
+     account`), so it would not start, and every acquire on every batch would fail
+     `router_unavailable`.
+   - Add `neuralwatt-key` to the router config `accounts`, set `capacities['neuralwatt-key'] = 8`
+     and `disabled_routes: ["neuralwatt/"]`, then restart the router while no model calls are in
+     flight. That is the only time config changes take effect (`model_router.py:1153-1156`).
+   - Harmless on its own, because no caller offers the account yet, and the lane is off.
+   - Rollback: drain, remove `neuralwatt-key` from the router config, restart, and only then move
+     the checkout back. An old router that still sees a request offering `neuralwatt-key` fails
+     every acquire for about `LEASE_SECONDS` (its queue scan, `model_router.py:552`), so no caller
+     on this release may still be running when the router goes back.
 4. **Controller on new code.**
    - Point `source-current` at the release source, then run
      `sudo -n /usr/bin/systemctl restart unbug-durable-case-campaign.service`.
@@ -172,11 +196,15 @@ Strictly in this order. No release reaches any batch until step 3 is done.
    - Rollback: restore both backups, then restart. Remove `neuralwatt-key` from
      `worker_credentials.accounts` before any controller downgrade, or the controller refuses to
      start (`invalid_worker_accounts`).
+   - A case that ran an NW call is never moved below this release: its ledger's reservation rows
+     carry `open_steps`, which older `usage_coverage` reads as unknown coverage.
 6. **Which cases get it.**
    - Send `plumbing_release <batch>` to each batch that should use it: new launches, and running
      cases not yet past G10. Never cases past G10 (standing rule).
    - A case picks it up at its next checkpoint, which reruns its changed gates. That cost is
      accepted per batch, by operator choice.
+7. **Lane on.** Only after the step 1 follow-up commit is reviewed, installed and live on the
+   controller: drain the router, remove `neuralwatt/` from `disabled_routes`, restart.
 
 ## What it deletes
 
@@ -195,7 +223,8 @@ Nothing. Go and NW share one twin map, not two copies.
 ## Tests
 
 - **Routes, on real router state.**
-  - Load the real 11-19 health rows (`openrouter-key` credit block, Go quota blocks) from
+  - Load the real 11-19 health rows (`openrouter-key` credit block, Go quota rows whose backoff
+    had lapsed, so the replay observes Go's quota answer) from
     `factory.before-force-lift-20261119.sqlite3`; health rows only, no keys. Saved as
     `tests/factory/fixtures/router-health-20261119.json`, with the source query in the test
     docstring.
@@ -208,18 +237,21 @@ Nothing. Go and NW share one twin map, not two copies.
   accepts a funded NW lease. The price record has `service_tier == "standard"`, and its listed prices
   equal the pins.
 - **Budget.**
-  - Using the real captured NW step part, the step books the twin list cost.
+  - Using the real captured NW step part (step 1 follow-up; a Go-shaped stand-in until then), the
+    step books the twin list cost.
   - The same step on Go books $0.
   - An NW event has no `plan_list_cost_usd`, and `event_bound_charge == cost`.
   - A credit refusal with no step open books a $0 tail.
   - One open step books `min(bound − booked, nw_request_worst)`.
   - A stall with no step-start books one `nw_request_worst`.
-  - With a `cancellation-failed:` key open, the tail falls back to `bound − booked`.
+  - With a `cancellation-failed:` key open, the tail falls back to `bound − booked`. (`unverified-*`
+    keys are set only for Codex and Claude streams, so no NW call reaches them.)
+  - A step within one `nw_request_worst` of the maximum stops the call; the next step never books.
 - **Gate.** In the `enforce` NW branch:
   - no key → `credential_expiring`;
   - walled user → `route_feature_unsupported`;
   - the environment carries `NEURALWATT_API_KEY` and no other provider key.
-- **Move-on.** The real captured 402 body classifies as `credit` and moves to the OpenRouter twin,
+- **Move-on** (step 1 follow-up commit). The real captured 402 body classifies as `credit` and moves to the OpenRouter twin,
   with case money unchanged by the tail.
 - **Classify.** A Neuralwatt 402 wait maps to `router:neuralwatt_limit`, not `router:credit`.
 - **Config.** `opencode_config` contains the exact Neuralwatt provider block above.
@@ -233,4 +265,4 @@ lands.
 - New row `new-neuralwatt-1`: "single paid provider: OpenRouter balance exhaustion parks every case
   on the MiMo/GLM fallback" (seen 2026-11-19; seven cases parked).
   - It is closed by the real-router-state routes test plus the move-on test on the captured 402.
-  - The move-on fixture exists only after rollout step 5, so the row closes in that follow-up commit.
+  - The move-on fixture exists only after rollout step 1's capture, so the row closes in that follow-up commit.

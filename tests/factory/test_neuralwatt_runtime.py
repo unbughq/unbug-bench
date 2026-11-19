@@ -91,10 +91,18 @@ class NeuralwattRuntime(unittest.TestCase):
             # Its gated OpenRouter twin still bounds the walled role.
             self.assertTrue(model_runtime.bounded_route('easy_calibrator', route, ('neuralwatt-key', 'openrouter-key')))
 
-    def test_diagnosis_carries_the_neuralwatt_key_only(self):
+    def test_diagnosis_never_carries_a_key_for_a_neuralwatt_lease(self):
+        # Walled diagnosis never leases an NW lane (bounded_route); if that regressed, no key crosses the wall.
         env = {'PATH': '/bin', 'NEURALWATT_API_KEY': 'n', 'OPENCODE_API_KEY': 'k', 'OPENROUTER_API_KEY': 'r'}
         clean = model_runtime.diagnosis_environment(env, 'opencode', lease(), Path('/h'))
-        self.assertEqual({k for k in clean if k.endswith('_KEY')}, {'NEURALWATT_API_KEY'})
+        self.assertEqual({k for k in clean if k.endswith('_KEY')}, set())
+
+    def test_a_case_context_offers_accounts_as_a_list_without_a_missing_neuralwatt_key(self):
+        import run
+        with tempfile.TemporaryDirectory() as tmp, patch.object(model_router, 'SECRETS', Path(tmp)):
+            accounts = run.Ctx().router_accounts
+        self.assertIs(type(accounts), list)   # a helper's sealed job comes back from JSON as a list
+        self.assertEqual(accounts, list(model_router.ACCOUNTS[:-1]))
 
     def test_neuralwatt_quota_or_credit_moves_on_and_other_faults_do_not(self):
         moves = model_runtime.go_quota_moves_on

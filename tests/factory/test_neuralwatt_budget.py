@@ -15,6 +15,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 import uuid
+from unittest.mock import patch
 
 os.environ.setdefault('BENCH', str(ROOT))
 import budget
@@ -72,12 +73,14 @@ class NeuralwattBudget(unittest.TestCase):
 
     def test_an_nw_step_books_its_twin_list_price_as_case_money(self):
         lease, row = self.reserve(NW)
-        self.call(lease, row, [start(0), finish(0), start(1), finish(1, 1e-9)])
+        self.call(lease, row, [start(0), finish(0), start(1), finish(1, 1e-9), start(2), finish(2, 2 * STEP)])
         data = json.loads(self.ledger.read_text())
         self.assertEqual(data['terminal_stop'], 'complete')
-        self.assertEqual([e['cost'] for e in data['events']], [STEP, STEP])
+        # The larger of OpenCode's cost and the twin's list: below list books list, above list books OpenCode's.
+        self.assertEqual([e['cost'] for e in data['events']], [STEP, STEP, 2 * STEP])
+        self.assertEqual([budget.event_bound_charge(e) for e in data['events']], [Decimal(str(e['cost'])) for e in data['events']])
         self.assertNotIn('plan_list_cost_usd', data)   # real money, not a plan's list value: never counted twice
-        self.assertAlmostEqual(budget.case_spending(data)['total_spent_usd'], 2 * STEP)
+        self.assertAlmostEqual(budget.case_spending(data)['total_spent_usd'], 4 * STEP)
         self.assertEqual(data['invocation_reservations'][lease.lease_id]['open_steps'], 0)
         self.assertIsNotNone(budget.usage_coverage(data))
 
@@ -103,7 +106,9 @@ class NeuralwattBudget(unittest.TestCase):
     def test_one_open_step_books_at_most_one_whole_request(self):
         worst = nw_request_worst(NW).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
         self.assertEqual(round(worst, 3), Decimal('0.570'))
-        for maximum in ('5', '0.3'):
+        # A reservation below one whole request stops before its first step books (check_limits): its tail
+        # is then that whole small bound.
+        for maximum, booked in (('5', Decimal(str(STEP))), ('0.3', 0)):
             with self.subTest(maximum=maximum):
                 self.ledger.unlink(missing_ok=True)
                 lease, row = self.reserve(NW, maximum)
@@ -111,7 +116,6 @@ class NeuralwattBudget(unittest.TestCase):
                     self.call(lease, row, [start(0), finish(0), start(1), CREDIT_402])
                 data, gap = self.settle_unknown(lease)
                 self.assertEqual(data['invocation_reservations'][lease.lease_id]['open_steps'], 1)
-                booked = Decimal(str(STEP))
                 self.assertEqual(gap, min(Decimal(maximum) - booked, worst).quantize(
                     Decimal('.000000001'), rounding=ROUND_CEILING))
 
@@ -124,6 +128,39 @@ class NeuralwattBudget(unittest.TestCase):
         data, gap = self.settle_unknown(lease)
         self.assertEqual(data['invocation_reservations'][lease.lease_id]['open_steps'], 1)
         self.assertEqual(gap, nw_request_worst(NW).quantize(Decimal('.000000001'), rounding=ROUND_CEILING))
+
+    def test_an_nw_call_stops_while_one_more_request_still_fits_its_reservation(self):
+        # Steps book when they finish, so without this stop the step after the last one that fits could book
+        # (and Neuralwatt bill) past the maximum by up to one whole request.
+        worst = nw_request_worst(NW)
+        maximum = str(worst + Decimal('0.001'))
+        lease, row = self.reserve(NW, maximum)
+        with self.assertRaises(budget.BudgetError) as stop:
+            self.call(lease, row, [start(0), finish(0), start(1), finish(1)])
+        self.assertEqual(str(stop.exception), 'usage_reservation_exceeded')
+        data, gap = self.settle_unknown(lease)
+        self.assertEqual([e['cost'] for e in data['events']], [STEP])   # the second step never booked
+        self.assertLessEqual(Decimal(str(STEP)) + gap, Decimal(maximum) + Decimal('.000000001'))   # the tail's own rounding
+
+    def test_an_opencode_error_event_books_no_phantom_tail(self):
+        # OpenCode's error event ends the request: no request is left open, unlike a stall.
+        lease, row = self.reserve(NW)
+        with self.assertRaises(budget.BudgetError) as stop:
+            self.call(lease, row, [start(0), finish(0), dict(type='error', error=dict(name='UnknownError'))])
+        self.assertEqual(str(stop.exception), 'opencode_error')
+        data, gap = self.settle_unknown(lease)
+        self.assertEqual((data['invocation_reservations'][lease.lease_id]['open_steps'], gap), (0, 0))
+
+    def test_a_failed_kill_keeps_the_whole_remaining_bound_booked(self):
+        # The process may outlive its stop and keep sending paid requests: no per-step bound holds.
+        lease, row = self.reserve(NW)
+        with patch.object(budget.os, 'killpg', side_effect=OSError('kill failed')):
+            with self.assertRaises(budget.BudgetError):
+                self.call(lease, row, [start(0), finish(0), start(1)])
+        data, gap = self.settle_unknown(lease)
+        self.assertEqual(data['terminal_stop'], 'cancellation_failed')
+        self.assertNotIn('open_steps', data['invocation_reservations'][lease.lease_id])
+        self.assertEqual(gap, (5 - Decimal(str(STEP))).quantize(Decimal('.000000001'), rounding=ROUND_CEILING))
 
     def test_without_the_stops_count_the_whole_bound_stays_booked(self):
         # A killed worker never records open_steps: its reservation's remainder is booked, as before.

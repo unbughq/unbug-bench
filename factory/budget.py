@@ -1110,6 +1110,12 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # whole-attempt re-test let other calls' late bookings stop a call within its own
             # (b5521c, 7 November: attempts 2 and 4 stopped mid-admission at real cents).
             check_reservation(ledger, lease_id)
+            if configured_model in NW_ROUTES:
+                # An NW step is real money booked only when it finishes, so stop while one more whole request
+                # still fits: past that, the next step could book (and Neuralwatt bill) above the reservation.
+                row = ledger['invocation_reservations'][lease_id]
+                if reservation_booked(ledger, lease_id, row) + nw_request_worst(configured_model) > usd(row['maximum_usd']):
+                    raise BudgetError('usage_reservation_exceeded')
         if call_cap_usd is not None and live['value'] > usd(call_cap_usd):
             raise BudgetError('usage_reservation_exceeded')
         if not reserved and ledger['calls'] >= max_total_calls:
@@ -1434,13 +1440,15 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     def open_steps(error=None):
         # An NW call's unseen tail is bounded by the steps it left open (_settle_leaf), so its stop records
         # them on its own reservation row. A process whose stop failed may still send requests, and an
-        # unverified tail may hide steps: no count. A stop other than a classified refusal (stall, timeout,
-        # cancel) counts at least one, since a request is in flight before its step-start part appears.
+        # unverified tail may hide steps: no count. A stop other than a classified refusal or OpenCode's own
+        # error event (both end the request: stall, timeout, cancel) counts at least one, since a request is
+        # in flight before its step-start part appears.
         if reserved and configured_model in NW_ROUTES:
             row = ledger['invocation_reservations'][lease_id]
             if any(k.startswith(('cancellation-failed:', 'unverified-')) for k in starts): row.pop('open_steps', None)
             else:
-                refused = (getattr(error, 'provider_failure', None) or {}).get('reason') in ('credit', 'rate', 'quota')
+                refused = ((getattr(error, 'provider_failure', None) or {}).get('reason') in ('credit', 'rate', 'quota')
+                           or str(error) == 'opencode_error')
                 row['open_steps'] = len(starts - finishes) if error is None or refused else max(len(starts - finishes), 1)
 
     def stop_process():
