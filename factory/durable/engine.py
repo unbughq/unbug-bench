@@ -473,6 +473,10 @@ OVERRIDE_MAX = 2
 # the free MiniMax route failing (router:opencode_error); builders run on paid MiniMax since 15:04 UTC.
 # Case id -> extra overrides.
 OVERRIDE_EXTRA = {"case-import-f46dac-5-1": 1, "case-import-cae763-2-1": 2}
+# Founder 2026-11-19 ("Yes to the exception"): a retired hand-repaired import is never resumed (below),
+# except these, and only by an operator override. 8acb5c-h2-1 passed every gate; SEAL crashed because a
+# mid-case release moved its exam receipts (fixed for it by the ed3c526d hotfix), not for a repair request.
+HAND_RESUME_EXCEPTIONS = {"case-import-8acb5c-h2-1"}
 
 
 def _override_refusal(kind: Optional[str], r) -> Optional[str]:
@@ -704,9 +708,11 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
         raise ContractError("resume:founder_stopped")   # a founder's decision, as an escalation's RETIRE is
     # A retired hand-repaired import is never resumed, whatever retired it: it is repaired by hand
     # and imported again. A resume of a gate's repair request would hand its feedback to a writer.
-    if stopped == "retired" and any(
-            isinstance(r, dict) and r.get("reason") == "admit:imported_hand"
-            for r in (result_of(w) for w in attempts.values() if w.workflow_id.split("/")[2] == StepKind.ADMIT.value)):
+    # HAND_RESUME_EXCEPTIONS waives this for an override, but never for a gate's repair request (below).
+    hand_repaired = stopped == "retired" and any(
+        isinstance(r, dict) and r.get("reason") == "admit:imported_hand"
+        for r in (result_of(w) for w in attempts.values() if w.workflow_id.split("/")[2] == StepKind.ADMIT.value))
+    if hand_repaired and not (override is not None and case_id in HAND_RESUME_EXCEPTIONS):
         raise ContractError("resume:hand_repaired")
 
     earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
@@ -811,6 +817,8 @@ def _resume_point(case_id: str, override: Optional[str] = None) -> tuple:
                     and last_w.workflow_id.split("/")[2].split(":")[0] == StepKind.GATES.value
                     and result.get("outcome") == Outcome.GATE_FAILED.value and result.get("repairable") is True
                     and result.get("feedback") is not None)
+    if gates_repair and hand_repaired:
+        raise ContractError("resume:hand_repaired")
     if gates_repair:
         # Founder 2026-11-10: a recertified case retired only because a gate asked for a repair
         # (recertify never rewrites) continues as an ordinary case: the GATES seq replays, its
