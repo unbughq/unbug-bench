@@ -15,6 +15,11 @@ before you approve fairness, for every scenario and checkpoint:
   is scored by outcome (below).
 - Cross-check the key against the case's `judge.py` files and against each other: no two sources
   may disagree about the same checkpoint.
+- Founder ruling 2026-11-20: every check the case itself calls required for a promise clause the
+  contestant can already read must be graded at that checkpoint. Only an owner-only rule may wait for
+  the step that raises it. Graded means listed in that checkpoint's `intent_checks`, because the
+  scorer grades no other judge check. A check the case calls required (for example in `case.json`
+  `promise_checks` or a key's `why`) that `intent_checks` leaves out is a case defect.
 
 ## Bench scoring rules (shared by every case; not case defects)
 

@@ -217,6 +217,9 @@ single-chokepoint fix. Both must be valid guard submissions. G14 runs each wrong
 against its named intent check and the correct reference, and drives one-place on the
 second writer's judge path. Every ingredient scenario must appear in the Harbor step order.
 The base scenario may be named establish. Put intent_checks in each relevant key.json.
+Every check the case calls required for a promise clause the contestant can already read must be in
+that checkpoint's intent_checks, from the first step it applies; only an owner-only rule may wait for
+the step that raises it.
 Use a judge check named monitor_blind (or key.json blind_check naming an equivalent check)
 that proves all monitor logins are blinded. Also provide `monitor_blind.<second_writer.service>`:
 it must show that the authenticated second-writer monitor hides live orders while the
