@@ -103,7 +103,8 @@ class ProviderRoutesTest(TestCase):
 
     def test_fallback_is_shared_and_billing_is_explicit(self):
         self.addCleanup(offline_router()[0].close)
-        c = SimpleNamespace(work=self.work, card={})
+        old = model_router.ACCOUNTS[:-1]   # a box without the Neuralwatt key: Go, then OpenRouter
+        c = SimpleNamespace(work=self.work, card={}, router_accounts=old)
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
             tried.append(models[0])
@@ -111,12 +112,12 @@ class ProviderRoutesTest(TestCase):
                 raise model_runtime.BudgetError('opencode_error', provider_failure=
                     classify_provider_failure('model removed', models[0], status_code=404))
             return 0
-        go, paid, free = model_router.CHAINS[-1]
+        go, _, paid, free = model_router.CHAINS[-1]
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
             runtime.call(c, [free], 't', '.', 'reviewer-fixture')
             self.assertEqual(tried, [go, go, paid])   # both Go accounts, then OpenRouter; never the free lane
-            other = SimpleNamespace(card={})
+            other = SimpleNamespace(card={}, router_accounts=old)
             tried.clear()
             runtime.call(other, [free], 't', '.', 'reviewer-fixture')
             self.assertEqual(tried, [paid])
