@@ -269,7 +269,18 @@ must preserve still-applicable monitoring conditions from the prior step, rather
 than relabeling an accepted report solely because a silent boundary passed.
 Safety, completion, claim truth and human-minute prices remain the usual rules.
 
-Keep earlier business intent checks in an unannounced checkpoint. A private
+Some files live in more than one place; change every copy in the same edit.
+`steps/*/workdir/` copies of `contestant.md`, `promise.md` and a step's scenario `admin.sql`,
+`app.patch` and `change-record.md` are byte-identical to the source. `answer-key.json` entries
+and the window.json `key` repeat the scenario key.json fields they carry with the same values.
+window.json `traffic_hooks` copy their scenario's `hooks.mjs` unless the window carries its own
+live recipe (say so in BUILD-NOTES.md).
+
+Keep earlier business intent checks in an unannounced checkpoint: the window.json `key`
+`intent_checks` must include every intent check in the key.json of every scenario in that
+step's `UNBUG_SCENARIOS` (base and earlier steps included), or G1 fails with "unannounced key
+drops earlier intent checks". Adding an intent check to an earlier key means adding it to the
+window key and to `judge_source` too. A private
 `judge_source` can define `async def judge(result, reader)` returning named boolean
 `checks` and optional `facts`, using the same read-only transports as service
 readers. It runs on the host after traffic; missing intent checks fail closed.
