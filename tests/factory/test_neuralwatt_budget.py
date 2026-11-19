@@ -1,8 +1,10 @@
-"""Neuralwatt lane money (docs/designs/neuralwatt-routes.md items 6 and 7) through the real monitor and settler.
+"""Neuralwatt lane money (docs/designs/neuralwatt-routes.md items 6-8) through the real monitor and settler.
 
-Stand-in: the OpenCode step parts below are the Go step shape the existing Go budget tests use
-(test_durable_call_budget.run_go). No real Neuralwatt step part or 402 body exists until rollout
-step 1 captures them on the trial; replace these with those fixtures then.
+neuralwatt-smoke-20261119.json holds rollout step 1's capture on the trial key: OpenCode 1.19.0's own event
+streams for both models under the factory's opencode_config, the request bodies OpenCode sent, and the error
+bodies (401/404 real; 402/429/503 from Neuralwatt's docs, marked source=docs: not provokable without spending
+the trial). The control-flow tests keep the Go step shape for exact arithmetic; the last three run the real
+streams and bodies.
 """
 import sys
 from pathlib import Path
@@ -19,7 +21,7 @@ from unittest.mock import patch
 
 os.environ.setdefault('BENCH', str(ROOT))
 import budget
-from token_prices import nw_request_worst
+from token_prices import OPENROUTER_OUTPUT, go_step_cost, nw_request_worst
 from durable import stop_registry
 from durable.classify import PUBLISHED_REASONS, classify
 from durable.contract import Outcome, StepKind
@@ -28,8 +30,12 @@ NW, GO = 'neuralwatt/mimo-v2.6-pro', 'opencode-go/mimo-v2.6-pro'
 TOKENS = dict(input=1000, output=2000, reasoning=500, cache=dict(read=4000, write=0))
 # MiMo's OpenRouter twin pins $0.435/M input, $0.87/M output and reasoning, $0.0036/M cache read.
 STEP = (1000 * .435 + 2500 * .87 + 4000 * .0036) / 1_000_000
-# OpenCode's error event for a provider 402 (shape of test_budget's OpenRouter 402 case).
-CREDIT_402 = dict(type='error', error=dict(name='APIError', data=dict(statusCode=402, message='Insufficient credits')))
+SMOKE = json.loads((Path(__file__).with_name('fixtures') / 'neuralwatt-smoke-20261119.json').read_text())
+# OpenCode's error event for a provider 402 (test_budget's OpenRouter 402 shape) carrying Neuralwatt's own 402 body:
+# its message never says "insufficient credits", so the status code alone must make it credit.
+_ALLOWANCE = SMOKE['errors']['key_allowance']
+CREDIT_402 = dict(type='error', error=dict(name='APIError', data=dict(statusCode=_ALLOWANCE['status'],
+    message=_ALLOWANCE['body']['error']['message'], responseBody=json.dumps(_ALLOWANCE['body']))))
 
 
 def finish(i, cost=0):
@@ -167,6 +173,41 @@ class NeuralwattBudget(unittest.TestCase):
         lease, _ = self.reserve(NW)
         _, gap = self.settle_unknown(lease)
         self.assertEqual(gap, 5)
+
+    # Rollout step 1's real capture (SMOKE).
+    def test_real_opencode_streams_book_the_twin_list_price(self):
+        for model, events in SMOKE['events'].items():
+            with self.subTest(model=model):
+                self.ledger.unlink(missing_ok=True)
+                route = 'neuralwatt/' + model
+                lease, row = self.reserve(route)
+                self.call(lease, row, events)
+                data = json.loads(self.ledger.read_text())
+                parts = [e['part'] for e in events if e['type'] == 'step_finish']
+                self.assertTrue(parts and all(p['tokens']['input'] + p['tokens']['cache']['read'] > 0 for p in parts))
+                # OpenCode prices the step at the twin (opencode_config's cost); the booking is never below it.
+                for event, part in zip(data['events'], parts):
+                    self.assertAlmostEqual(part['cost'], go_step_cost(route, part['tokens']), places=12)
+                    self.assertEqual(event['cost'], max(part['cost'], go_step_cost(route, part['tokens'])))
+                self.assertEqual((data['terminal_stop'], data['invocation_reservations'][lease.lease_id]['open_steps']), ('complete', 0))
+                self.assertNotIn('plan_list_cost_usd', data)
+
+    def test_opencode_asks_for_usage_and_stays_under_the_output_cap(self):
+        # nw_request_worst holds only while OpenCode caps max_tokens at limit.output: Neuralwatt itself
+        # accepted max_tokens 5,000,000 on the trial.
+        self.assertEqual(SMOKE['huge_max_tokens_accepted']['status'], 200)
+        self.assertEqual(len(SMOKE['requests']), 6)
+        for request in SMOKE['requests']:
+            self.assertEqual(request['stream_options'], {'include_usage': True})
+            self.assertLessEqual(request['max_tokens'], OPENROUTER_OUTPUT)
+
+    def test_every_neuralwatt_error_body_classifies(self):
+        want = {402: 'credit', 429: 'rate', 503: 'outage', 404: 'outage', 401: None}
+        for name, error in SMOKE['errors'].items():
+            with self.subTest(error=name):
+                found = budget.classify_provider_failure(json.dumps(error['body']), NW, status_code=error['status'])
+                self.assertEqual(found and found['reason'], want[error['status']])
+                if error['status'] == 402: self.assertEqual(found['scope'], 'wallet')
 
 
 class NeuralwattClassify(unittest.TestCase):

@@ -1,0 +1,510 @@
+{
+ "captured": "2026-11-19 on the control VM with the $5 trial key (rollout step 1); generic prompts, no case content",
+ "opencode": {
+  "version": "1.19.0",
+  "config": "model_runtime.opencode_config(route), baseURL pointed at a local relay that logged request bodies (never headers)"
+ },
+ "events": {
+  "mimo-v2.6-pro": [
+   {
+    "type": "step_start",
+    "timestamp": 1795119477120,
+    "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+    "part": {
+     "id": "prt_1f5757174001X8zPF1g2Qv33FU",
+     "messageID": "msg_1f575652b001lSpsoVq3sQtZy3",
+     "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+     "type": "step-start"
+    }
+   },
+   {
+    "type": "tool_use",
+    "timestamp": 1795119478796,
+    "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+    "part": {
+     "type": "tool",
+     "tool": "bash",
+     "callID": "call_30f9f60b0555c517d90fd07e",
+     "state": {
+      "status": "completed",
+      "input": {
+       "command": "date -u"
+      },
+      "output": "Thu Nov 19 08:17:58 PM UTC 2026\n",
+      "metadata": {
+       "output": "Thu Nov 19 08:17:58 PM UTC 2026\n",
+       "exit": 0,
+       "truncated": false
+      },
+      "title": "date -u",
+      "time": {
+       "start": 1795119478211,
+       "end": 1795119478577
+      }
+     },
+     "id": "prt_1f575756a001Iv9HccXoyRnBCs",
+     "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+     "messageID": "msg_1f575652b001lSpsoVq3sQtZy3"
+    }
+   },
+   {
+    "type": "step_finish",
+    "timestamp": 1795119478796,
+    "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+    "part": {
+     "id": "prt_1f57577b0001kWCnu6s91pfhhF",
+     "reason": "tool-calls",
+     "messageID": "msg_1f575652b001lSpsoVq3sQtZy3",
+     "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+     "type": "step-finish",
+     "tokens": {
+      "total": 6350,
+      "input": 6307,
+      "output": 22,
+      "reasoning": 21,
+      "cache": {
+       "write": 0,
+       "read": 0
+      }
+     },
+     "cost": 0.002780955
+    }
+   },
+   {
+    "type": "step_start",
+    "timestamp": 1795119482078,
+    "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+    "part": {
+     "id": "prt_1f57584b700132ZisV0YABwKCA",
+     "messageID": "msg_1f57577bd001Too00E2iFugNuT",
+     "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+     "type": "step-start"
+    }
+   },
+   {
+    "type": "text",
+    "timestamp": 1795119483150,
+    "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+    "part": {
+     "id": "prt_1f57585d8001SLmHv0uTpDTY7j",
+     "messageID": "msg_1f57577bd001Too00E2iFugNuT",
+     "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+     "type": "text",
+     "text": "The time is 20:17:58 UTC on Nov 19, 2026.",
+     "time": {
+      "start": 1795119482328,
+      "end": 1795119483125
+     }
+    }
+   },
+   {
+    "type": "step_finish",
+    "timestamp": 1795119483150,
+    "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+    "part": {
+     "id": "prt_1f57588fa001OQS9vwYLPeK21U",
+     "reason": "stop",
+     "messageID": "msg_1f57577bd001Too00E2iFugNuT",
+     "sessionID": "ses_e0a8aa15bffe3qd1BaCXJngt8N",
+     "type": "step-finish",
+     "tokens": {
+      "total": 6432,
+      "input": 91,
+      "output": 28,
+      "reasoning": 25,
+      "cache": {
+       "write": 0,
+       "read": 6288
+      }
+     },
+     "cost": 0.0001083318
+    }
+   }
+  ],
+  "glm-5.3-flash": [
+   {
+    "type": "step_start",
+    "timestamp": 1795119490601,
+    "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+    "part": {
+     "id": "prt_1f575a6060019cwvGL5VSFgfH8",
+     "messageID": "msg_1f5759b33001sf0gAk0Pcqf4fH",
+     "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+     "type": "step-start"
+    }
+   },
+   {
+    "type": "tool_use",
+    "timestamp": 1795119491324,
+    "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+    "part": {
+     "type": "tool",
+     "tool": "bash",
+     "callID": "call_e3ac92e3850f624f83075493",
+     "state": {
+      "status": "completed",
+      "input": {
+       "command": "date -u"
+      },
+      "output": "Thu Nov 19 08:18:10 PM UTC 2026\n",
+      "metadata": {
+       "output": "Thu Nov 19 08:18:10 PM UTC 2026\n",
+       "exit": 0,
+       "truncated": false
+      },
+      "title": "date -u",
+      "time": {
+       "start": 1795119490755,
+       "end": 1795119491095
+      }
+     },
+     "id": "prt_1f575a6b5001P76IZv3X6T2IOq",
+     "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+     "messageID": "msg_1f5759b33001sf0gAk0Pcqf4fH"
+    }
+   },
+   {
+    "type": "step_finish",
+    "timestamp": 1795119491324,
+    "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+    "part": {
+     "id": "prt_1f575a8400015yVOZgmvjjO3vL",
+     "reason": "tool-calls",
+     "messageID": "msg_1f5759b33001sf0gAk0Pcqf4fH",
+     "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+     "type": "step-finish",
+     "tokens": {
+      "total": 6258,
+      "input": 6220,
+      "output": 13,
+      "reasoning": 25,
+      "cache": {
+       "write": 0,
+       "read": 0
+      }
+     },
+     "cost": 0.000952
+    }
+   },
+   {
+    "type": "step_start",
+    "timestamp": 1795119493464,
+    "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+    "part": {
+     "id": "prt_1f575b0e2001eCjbRw5fuCpvVZ",
+     "messageID": "msg_1f575a8a40016m5dDf0Vacgu7J",
+     "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+     "type": "step-start"
+    }
+   },
+   {
+    "type": "text",
+    "timestamp": 1795119494745,
+    "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+    "part": {
+     "id": "prt_1f575b1e4001Xsl0aj2v40Yk4n",
+     "messageID": "msg_1f575a8a40016m5dDf0Vacgu7J",
+     "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+     "type": "text",
+     "text": "It is currently 8:18 PM UTC on November 19, 2026.",
+     "time": {
+      "start": 1795119493604,
+      "end": 1795119494699
+     }
+    }
+   },
+   {
+    "type": "step_finish",
+    "timestamp": 1795119494745,
+    "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+    "part": {
+     "id": "prt_1f575b6300019ZWbnzVgqKlYnG",
+     "reason": "stop",
+     "messageID": "msg_1f575a8a40016m5dDf0Vacgu7J",
+     "sessionID": "ses_e0a8a6afbffePTP8YAoL7HnEWU",
+     "type": "step-finish",
+     "tokens": {
+      "total": 6322,
+      "input": 134,
+      "output": 20,
+      "reasoning": 24,
+      "cache": {
+       "write": 0,
+       "read": 6144
+      }
+     },
+     "cost": 0.00022642
+    }
+   }
+  ]
+ },
+ "requests": [
+  {
+   "model": "mimo-v2.6-pro",
+   "max_tokens": 32000,
+   "temperature": 0.5,
+   "reasoning_effort": "none",
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "n_messages": 3,
+   "tools": 0
+  },
+  {
+   "model": "mimo-v2.6-pro",
+   "max_tokens": 32000,
+   "tools": 9,
+   "tool_choice": "auto",
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "n_messages": 2
+  },
+  {
+   "model": "mimo-v2.6-pro",
+   "max_tokens": 32000,
+   "tools": 9,
+   "tool_choice": "auto",
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "n_messages": 4
+  },
+  {
+   "model": "glm-5.3-flash",
+   "max_tokens": 32000,
+   "temperature": 0.5,
+   "reasoning_effort": "low",
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "n_messages": 3,
+   "tools": 0
+  },
+  {
+   "model": "glm-5.3-flash",
+   "max_tokens": 32000,
+   "tools": 9,
+   "tool_choice": "auto",
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "n_messages": 2
+  },
+  {
+   "model": "glm-5.3-flash",
+   "max_tokens": 32000,
+   "tools": 9,
+   "tool_choice": "auto",
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "n_messages": 4
+  }
+ ],
+ "direct": {
+  "mimo-v2.6-pro": {
+   "usage": {
+    "prompt_tokens": 18,
+    "total_tokens": 189,
+    "completion_tokens": 171,
+    "prompt_tokens_details": {
+     "cached_tokens": 0,
+     "created_cache_tokens": 0
+    },
+    "completion_tokens_details": {
+     "reasoning_tokens": 13
+    }
+   },
+   "ttft_s": 3.62,
+   "total_s": 20.8,
+   "tok_per_s": 10.0,
+   "headers": {
+    "x-nw-service-tier": "standard",
+    "x-request-id": "692f6de9-f71d-41b7-9286-708ec2a34c78",
+    "x-subscription-plan": "none"
+   }
+  },
+  "glm-5.3-flash": {
+   "usage": {
+    "prompt_tokens": 23,
+    "total_tokens": 423,
+    "completion_tokens": 400,
+    "prompt_tokens_details": {
+     "cached_tokens": 0,
+     "created_cache_tokens": 0
+    },
+    "completion_tokens_details": {
+     "reasoning_tokens": 400
+    }
+   },
+   "ttft_s": 2.75,
+   "total_s": 7.19,
+   "tok_per_s": 90.1,
+   "headers": {
+    "x-nw-service-tier": "standard",
+    "x-request-id": "60f6d8d6-04b7-4612-9ac6-fa62aeb2e729",
+    "x-subscription-plan": "none"
+   }
+  }
+ },
+ "direct_cost_block": {
+  "request_cost_usd": 6.8e-05,
+  "cache_savings_usd": 0.0,
+  "allowance_remaining_usd": 4.999797
+ },
+ "huge_max_tokens_accepted": {
+  "max_tokens": 5000000,
+  "status": 200
+ },
+ "errors": {
+  "invalid_key": {
+   "source": "trial",
+   "status": 401,
+   "body": {
+    "error": {
+     "message": "Invalid API key",
+     "type": "authentication_error",
+     "code": "invalid_api_key"
+    }
+   }
+  },
+  "unknown_model": {
+   "source": "trial",
+   "status": 404,
+   "body": {
+    "error": {
+     "message": "Model 'no-such-model' not found. Use GET /v1/models to see available models.",
+     "type": "invalid_request_error",
+     "code": "model_not_found"
+    }
+   }
+  },
+  "key_allowance": {
+   "source": "docs",
+   "status": 402,
+   "body": {
+    "error": {
+     "type": "payment_required",
+     "code": "payment_required",
+     "message": "API key allowance reached. Increase the limit in your dashboard or use a different key."
+    }
+   }
+  },
+  "request_allowance": {
+   "source": "docs",
+   "status": 402,
+   "body": {
+    "error": {
+     "type": "payment_required",
+     "code": "payment_required",
+     "message": "Estimated request cost $0.0345 exceeds request allowance $0.0200."
+    }
+   }
+  },
+  "concurrent": {
+   "source": "docs",
+   "status": 429,
+   "body": {
+    "error": {
+     "type": "rate_limit_error",
+     "code": "concurrent_budget_exceeded",
+     "message": "Concurrent limit reached for qwen3.6-35b: 5/5 slots in use. Wait for a request to complete and retry.",
+     "retry_strategy": {
+      "type": "concurrent_drain",
+      "suggested_initial_delay_s": 1,
+      "max_delay_s": 30,
+      "backoff": "exponential",
+      "jitter": true
+     },
+     "retryable": true,
+     "context": {
+      "model": "qwen3.6-35b",
+      "limit_type": "concurrent"
+     }
+    }
+   }
+  },
+  "uncached_window": {
+   "source": "docs",
+   "status": 429,
+   "body": {
+    "error": {
+     "type": "rate_limit_error",
+     "code": "tpm_uncached_exceeded",
+     "retryable": true
+    }
+   }
+  },
+  "uncached_too_large": {
+   "source": "docs",
+   "status": 429,
+   "body": {
+    "error": {
+     "type": "rate_limit_error",
+     "code": "tpm_uncached_request_too_large",
+     "retry_strategy": {
+      "type": "none"
+     },
+     "retryable": false
+    }
+   },
+   "headers": {
+    "x-should-retry": "false"
+   }
+  },
+  "overloaded": {
+   "source": "docs",
+   "status": 503,
+   "body": {
+    "error": {
+     "type": "server_error",
+     "code": "model_overloaded",
+     "retryable": true
+    }
+   }
+  }
+ },
+ "account_levels": {
+  "source": "docs billing/account-levels, 2026-11-19",
+  "concurrent_floor_burst_uncached_tpm": {
+   "trial": [
+    2,
+    2,
+    75000
+   ],
+   "paid": [
+    3,
+    6,
+    1000000
+   ],
+   "basic": [
+    3,
+    6,
+    1000000
+   ],
+   "standard": [
+    5,
+    10,
+    1000000
+   ],
+   "pro": [
+    10,
+    14,
+    1000000
+   ],
+   "max": [
+    15,
+    20,
+    1000000
+   ]
+  },
+  "rule": "any payment: paid; $50 total spend: standard; $500: pro"
+ }
+}
