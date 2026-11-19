@@ -21,7 +21,8 @@ before you approve fairness, for every scenario and checkpoint:
   check outside `intent_checks` never makes a checkpoint unsafe (`intent_failures` in `bin/claims.py`).
   A check the case calls required for a promise clause (for example in `case.json` `promise_checks` or
   an answer-key `why`) that a checkpoint where its clause is already readable leaves out of
-  `intent_checks` is a case defect, unless it is an owner-only rule.
+  `intent_checks` is a case defect, unless it is an owner-only rule (one the contestant can learn only
+  by asking the owner, such as an `ingredients.unstated_rules` entry).
 
 ## Bench scoring rules (shared by every case; not case defects)
 
