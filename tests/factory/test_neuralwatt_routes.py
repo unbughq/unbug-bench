@@ -69,6 +69,13 @@ class RealStateRoutes(unittest.TestCase):
             self.assertEqual((result['kind'], result['route'] if result['kind'] == 'lease' else None,
                               result['account'], result.get('reason')), old)
 
+    def test_the_off_switch_keeps_an_offered_key_on_the_openrouter_twin(self):
+        # Rollout step 3 ships the lane off (disabled_routes); the key offered changes nothing until step 6.
+        self.store.disabled_routes = ('neuralwatt/',)
+        self.spend_go()
+        wait = self.acquire(MIMO)
+        self.assertEqual((wait['kind'], wait['account'], wait['reason']), ('wait', 'openrouter-key', 'credit'))
+
     def test_walled_roles_never_take_the_neuralwatt_lane(self):
         self.spend_go()
         excluded = router.ungated_lanes(GLM, router.ACCOUNTS)

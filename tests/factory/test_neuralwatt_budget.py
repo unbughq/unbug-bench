@@ -2,7 +2,7 @@
 
 Stand-in: the OpenCode step parts below are the Go step shape the existing Go budget tests use
 (test_durable_call_budget.run_go). No real Neuralwatt step part or 402 body exists until rollout
-step 5 captures them on the trial; replace these with those fixtures then.
+step 1 captures them on the trial; replace these with those fixtures then.
 """
 import sys
 from pathlib import Path
