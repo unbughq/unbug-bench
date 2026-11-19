@@ -2942,6 +2942,64 @@ def g10_turn(c, gate, invoke):
             c.card.setdefault("cleanup_errors", []).append({"stage": "g10_tester_services", "error": type(error).__name__})
 
 
+def fake_pass_report(c, guards, seed, *, workers=1, env=None):
+    """bin/fake-pass-check's report on `guards` (on the bench slot `env` names, else the case's own)."""
+    from run_validity import InvalidInfra
+    command = [BENCH / "bin/fake-pass-check", *guards, "--runs", "5", "--seed", seed, "--scenario", c.case / "base"]
+    if workers > 1: command += ["--factory-workers", workers]
+    p = sh(c, command, capture=True, timeout=7200, env=env)
+    found = re.findall(r"^Evidence: (.+)$", p.stdout, re.M)
+    report = jload(found[-1], {}) if len(found) == 1 else {}
+    rows = report.get("guards")
+    if p.returncode or not isinstance(rows, list) or len(rows) != len(guards):
+        raise InvalidInfra("fake-pass report missing or incomplete")
+    return report
+
+
+def g11_slots(c):
+    """Bench slots G11's per-guard work may use side by side: the most of G3's prepared slots (G10 is
+    joined before G11, so its tester slots are idle) whose copies the box's memory fits, under G5's
+    isolation rule. 1 keeps the serial path. Not verdict code: it only decides where runs execute."""
+    n = max(getattr(c, "prepared_factory_slots", 1), getattr(c.args, "bench_workers", 1))
+    if n < 2: return 1
+    import bench
+    try:
+        scenarios = [bench.load_scenario(c.case / "base")]
+        if not bench.isolated_inventory_services(scenarios): return 1
+        while n > 1 and not bench.factory_memory_fits(scenarios, n): n -= 1
+        return n
+    except Exception: return 1  # unsure: run serially
+
+
+def g11_side_by_side(c, guards, seed, slots):
+    """G11's per-guard jobs (a one-guard fake-pass-check, then the case re-run), each whole on its own
+    bench slot (G5's key pattern: own ports, database, results and lock), with the same guards, seeds and
+    run counts as the serial path. Every job finishes before anything is read; results and errors are then
+    taken in the serial order, so the first failure in guard order is the one raised. Returns the merged
+    report and rerun(index) -> (summary, records)."""
+    import queue, factory_pool
+    from durable.checkpoints import concurrent_section
+    free = queue.Queue()
+    for slot in range(slots): free.put(slot)
+    def job(kind, index):
+        slot = free.get()
+        try:
+            if kind == "scan": return fake_pass_report(c, [guards[index]], seed, env=factory_pool.worker_env(slot))
+            return checkpoint(c, [c.case / 'base'], guards[index], 5, seed, 'g11-rerun', slot=slot)
+        finally: free.put(slot)
+    log(c, "G11", f"{len(guards)} guard(s) side by side on {slots} bench slots")
+    # Scans (8 runs each) queue before re-runs (5). ponytail: a failed job does not cancel the others;
+    # the gate waits for them, as only the serial order may decide which failure is raised.
+    with concurrent_section(c), ThreadPoolExecutor(max_workers=slots) as pool:
+        futures = {(kind, index): pool.submit(contextvars.copy_context().run, job, kind, index)
+                   for kind in ("scan", "rerun") for index in range(len(guards))}
+    reports = [futures["scan", index].result() for index in range(len(guards))]
+    report = {**reports[0], "guards": [row for r in reports for row in r["guards"]]}
+    tables = [r.get("tables_changed_by_traffic") for r in reports]
+    if any(t != tables[0] for t in tables): report["tables_changed_by_traffic"] = tables  # per slot, guard order
+    return report, lambda index: futures["rerun", index].result()
+
+
 def g11(c):
     """Fake pass: bin/fake-pass-check on every pilot pass, plus a fresh-seed re-run on the case's traffic.
     fake-pass-check's own re-runs use the base bench traffic, not the case's; its 'runs' findings are
@@ -2954,17 +3012,16 @@ def g11(c):
         if c.card.get("difficulty") == "hard": return True, {"why": "hard case: no tester pass to check"}
         return False, {"why": "no pilot pass to check"}
     seed = c.seed + 104729
-    command = [BENCH / "bin/fake-pass-check", *guards, "--runs", "5", "--seed", seed, "--scenario", c.case / "base"]
-    if getattr(c.args, "bench_workers", 1) > 1: command += ["--factory-workers", c.args.bench_workers]
     from run_validity import InvalidInfra, require_valid
-    p = sh(c, command, capture=True, timeout=7200)
-    found = re.findall(r"^Evidence: (.+)$", p.stdout, re.M)
-    report = jload(found[-1], {}) if len(found) == 1 else {}
-    rows = report.get("guards")
-    if p.returncode or not isinstance(rows, list) or len(rows) != len(guards):
-        raise InvalidInfra("fake-pass report missing or incomplete")
+    slots = g11_slots(c)
+    if slots > 1:
+        report, rerun = g11_side_by_side(c, guards, seed, slots)
+    else:
+        report = fake_pass_report(c, guards, seed, workers=getattr(c.args, "bench_workers", 1))
+        rerun = lambda index: checkpoint(c, [c.case / 'base'], guards[index], 5, seed, 'g11-rerun')
+    rows = report["guards"]
     rerun_solved, flags = [], []
-    for guard, row in zip(guards, rows):
+    for index, (guard, row) in enumerate(zip(guards, rows)):
         if pathlib.Path(row.get('guard', '')).resolve() != guard.resolve() or not isinstance(row.get('findings'), list):
             raise InvalidInfra("fake-pass report guard mismatch")
         runs = row.get('runs')
@@ -2974,7 +3031,7 @@ def g11(c):
         if any(f.get('where') == 'install' or f.get('reason') == 'data diff failed' for f in row['findings']):
             raise InvalidInfra("fake-pass diagnostic execution failed")
         flags.append([f for f in row['findings'] if f.get('severity') == 'forbidden' and f.get('where') != 'runs'])
-        _, records = checkpoint(c, [c.case / 'base'], guard, 5, seed, 'g11-rerun')
+        _, records = rerun(index)
         rerun_solved.append(all(v['solved'] for v in verdicts(c, records)))
     approved = [not items for items in flags]
     if any(flags) and all(rerun_solved):

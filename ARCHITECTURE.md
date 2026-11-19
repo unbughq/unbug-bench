@@ -177,6 +177,7 @@ can still be lost. Completion receipts reuse work only under matching instructio
 inputs and release bindings. Same-case mutable model calls serialize for coherent
 snapshots, and isolated calibrator snapshots wait until their workspaces join.
 Each finished G4-G7 `bin/checkpoint` batch is also saved under `gate-checkpoints/` (identity: case, guard and scenario trees, runs, seed, label; not worker count), snapshotted at most every 5 minutes, and a retried gate re-reads it (0 invalid runs) instead of rerunning; G10 tries and `g11-rerun` are never reused this way. A gate's cached-pass evidence lists every receipt its checkpoints used (reused or fresh), and G5's parallel key checks run in a concurrent section so the snapshot waits for them.
+G11 (`run.g11_side_by_side`) likewise runs each tester pass's one-guard `fake-pass-check` and its `g11-rerun` as separate jobs, each whole on one bench slot, over as many of G3's prepared slots as `bench.factory_memory_fits` allows (`run.g11_slots`; isolated inventory services only, else serial); every job joins before results and errors are read in guard order, so the gate record and the failure raised are the serial path's.
 Cases admitted since 10 November carry `bench_workers: 2` and `parallel_gates: true` in their
 `recovery_config` (`durable/steps/admit.py` `NEW_CASE_SETTINGS`; recertified imports keep their
 own settings while no writer round runs). A case admitted earlier, a recertified case sent to a
