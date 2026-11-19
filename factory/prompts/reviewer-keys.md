@@ -70,9 +70,11 @@ These are the same in every case. Do not fail fairness for them:
 
 Also a known bench limitation (founder ruling 2026-11-19), the same in every case: live exposure
 seconds in a quiet window (`bin/live_shop.py` probes, paths from `bin/bench_judging.py`) count only
-oversells of the bench's seeded kits. An oversell the checker reports for any other product
-(`oversold_other_items`, e.g. a case's own bundle) adds no unsafe seconds; the case's own intent checks
-still grade it at the checkpoint. Do not fail fairness for the missing exposure seconds.
+units of the bench's seeded kits. An oversell the checker reports for any other product
+(`oversold_other_items`, e.g. a case's own bundle) adds no unsafe seconds and marks no path violated,
+in the window or at the checkpoint; only the case's own intent checks can grade it. Do not fail
+fairness for the missing exposure seconds. Still fail the case if its promise covers such a product and
+no check in that checkpoint's `intent_checks` fails when the product oversells.
 
 Still fail a blind step if a monitoring route the case or bench hands the contestant still shows live
 orders while previous protection fails: a monitoring login (such as `arm_monitor`), a service's

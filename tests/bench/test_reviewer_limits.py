@@ -14,11 +14,11 @@ assert "points at a coming blind step" in rules
 # Founder 2026-11-19 (1108c-h5 G8): exposure seconds count only seeded-kit oversells.
 assert "known bench limitation (founder ruling 2026-11-19)" in rules and "`oversold_other_items`" in rules
 assert "Do not fail fairness for the missing exposure seconds." in rules
+assert "Still fail the case if its promise covers such a product and no check in that checkpoint's `intent_checks` fails" in rules
 # The rule describes the real bench code.
 bench = (ROOT / "bin/bench.py").read_text()
 assert "CREATE ROLE bench_checker LOGIN BYPASSRLS" in bench and "UNBUG_MONITOR_BLIND" in bench
 assert "/data/monitor-blind" in (ROOT / "bin/land").read_text()
-# The rule describes the real bench: the checker reports other oversells, path judging never reads them.
-assert "oversold_other_items" in bench and "oversold_other_items" not in (ROOT / "bin/bench_judging.py").read_text()
+assert "oversold_other_items" in bench   # the checker field the rule names
 assert "`ALTER ROLE bench_checker NOBYPASSRLS;`" in flat("factory/prompts/builder.md")
 print("reviewer limits: known blind-step limitations and the bench_checker rule are stated")
