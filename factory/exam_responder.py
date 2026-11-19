@@ -115,6 +115,10 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
                 raise r.BudgetError("owner_invalid_answer")
             return value, {"model": c.models["reviewers"][0][0]}
         except BaseException as error:
+            if isinstance(error, r.BudgetError) and str(error) in ("timeout", "call_limit"):
+                # _author_try scores these labels as the tester's own cap; the owner's leave a question unanswered.
+                cause, error = error, r.BudgetError("owner_invalid_answer")
+                error.__cause__ = cause
             failure.append(error)
             cancel.set()
             if getattr(c, "role_cancel", None) is not None:

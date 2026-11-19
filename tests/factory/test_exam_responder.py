@@ -160,6 +160,21 @@ class OwnerTests(unittest.TestCase):
         self.assertEqual(str(stopped.exception.__context__), "cancelled")
         result, _ = classify_wait(stopped.exception, step=StepKind.GATES, now=time.time())
         self.assertEqual(result.reason, "router:credit")
+        # The owner's own 120 s window or call cap must not surface as "timeout"/"call_limit":
+        # _author_try would score that as a capped tester try.
+        for label in ("timeout", "call_limit"):
+            def capped(*a, **k): raise run.BudgetError(label)
+            runner.model_call, c.role_cancel = capped, threading.Event()
+            with tempfile.TemporaryDirectory() as tmp, self.assertRaises(run.BudgetError) as stopped:
+                (pathlib.Path(tmp) / "fact-sheet.md").write_text("authored owner facts")
+                c.case = pathlib.Path(tmp)
+                with owner_server(c, runner, pathlib.Path(tmp)) as url:
+                    with self.assertRaises(urllib.error.HTTPError) as refused:
+                        urllib.request.urlopen(urllib.request.Request(url, data=b'{"question":"authored"}'), timeout=5)
+                    refused.exception.close()
+                    self.assertTrue(c.role_cancel.is_set())
+                    raise run.BudgetError("cancelled")
+            self.assertEqual((str(stopped.exception), str(stopped.exception.__cause__)), ("owner_invalid_answer", label))
 
     def test_private_facts_client_protocol_and_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
