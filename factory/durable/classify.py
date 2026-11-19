@@ -43,7 +43,7 @@ _STEP_STAGE = {StepKind.ADMIT: "admit", StepKind.WRITER: "writer", StepKind.STRE
 
 _LIMIT_FAMILY = (("claude/", "router:claude_limit"), ("codex/", "router:codex_limit"),
                  ("opencode-go/", "router:opencode_limit"), ("opencode/", "router:opencode_limit"),
-                 ("openrouter/", "router:openrouter_limit"))
+                 ("openrouter/", "router:openrouter_limit"), ("neuralwatt/", "router:neuralwatt_limit"))
 
 _P, _I, _E = Outcome.PROVIDER_LIMIT, Outcome.INFRA_ERROR, Outcome.EXHAUSTED
 # capacity: every router seat of the lane stayed leased to our own calls past the worker's wait
