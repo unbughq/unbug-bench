@@ -1569,14 +1569,41 @@ class Resume(unittest.TestCase):
         self.addCleanup(r.close)
         self.assertEqual(out['result']['cases'], {C1: 'retired'})
         self.assertEqual(self.resume(r), {"refused": "resume:hand_repaired"})
-        # Founder 2026-11-19: a listed case resumes past this rule, and only by an operator override.
+        # Founder 2026-11-19: not even a listed case with an override, when a gate's repair request
+        # retired it: that resume would hand the gate's feedback to a writer.
         listed = {"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1, "script": {},
-                  "hand_resume_exceptions": [C1]}
+                  "hand_resume_exceptions": [C1], "override": "founder exception"}
         self.assertEqual(self.engine_run(listed, workdir=r.work).run(), {"refused": "resume:hand_repaired"})
-        scenario = {**listed, "override": "founder exception"}
-        out = self.engine_run(scenario, workdir=r.work).run()
-        self.assertNotEqual(out.get("refused"), "resume:hand_repaired")
-        self.assertIn(C1 + "@b-u", out["result"]["cases"])
+
+    # 8acb5c-h2-1 on 19 November: every gate passed, SEAL crashed on a factory bug, and the diagnosis
+    # after it retired the case. Founder 2026-11-19: a listed case resumes at its SEAL, by an override.
+    def test_a_listed_hand_repaired_import_retired_after_a_seal_crash_resumes_at_its_seal(self):
+        crash = {'outcome': 'infra_error', 'reason': 'infra:step_crashed', 'diagnostic': True}
+        r, out = self.manual_run({'import_snapshot': True,
+                                  'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2,
+                                           'max_factory_bug_resumes': 0},   # its factory_bug verdict retires
+                                  'script': {'1/admit/1': {'reason': 'admit:imported_hand'}, '1/seal/*': crash,
+                                             '1/diagnosis/*': {'verdict': 'factory_bug'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ['admit', 'gates:1', 'seal', 'seal', 'seal', 'diagnosis'])
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        resume = {"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1, "script": {}}
+        listed, override = {"hand_resume_exceptions": [C1]}, {"override": "founder exception"}
+        for scenario in (resume, {**resume, **override}, {**resume, **listed}):   # unlisted, or no override
+            self.assertEqual(self.engine_run(scenario, workdir=r.work).run(), {"refused": "resume:hand_repaired"})
+        before = len(r.starts(1))
+        out = self.engine_run({**resume, **listed, **override}, workdir=r.work).run()
+        self.assertEqual(r.keys(1)[before:], [('3', 'seal', '4')])   # its SEAL again, never a writer round
+        self.assertEqual(out['result']['cases'], {C1 + '@b-u': 'sealed'})
+        # A diagnosis that judged the case (not_converging) is a scientific stop no override reruns.
+        r, out = self.manual_run({'import_snapshot': True,
+                                  'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2},
+                                  'script': {'1/admit/1': {'reason': 'admit:imported_hand'}, '1/seal/*': crash,
+                                             '1/diagnosis/*': {'verdict': 'not_converging'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        out = self.engine_run({**resume, **listed, **override}, workdir=r.work).run()
+        self.assertEqual(out, {"refused": "resume:scientific_stop"})
 
     # 86b100 on 10 November: its recertify G16 asked for a repair, which retires a recertified case.
     def test_a_recertified_case_retired_at_a_repairable_gate_resumes_into_a_writer_repair(self):
