@@ -2292,31 +2292,68 @@ def g7(c):
 
 
 def review(c):
-    """One panel pass per reviewer model (cached for G8 and G9 while the case is unchanged)."""
+    """One panel pass per reviewer model (cached for G8 and G9 while the case is unchanged).
+    The reviewers run at once when the money left covers every reviewer's largest hold together."""
     if hasattr(c, "votes") and getattr(c, "votes_hash", None) == case_hash(c): return c.votes
     if len(c.models["reviewers"]) < 2:  # founder 2026-11-12: one reviewer is not a panel
         raise ValueError("G8/G9 need two independent reviewers")
     c.votes = []
+    panel = []
     for i, chain in enumerate(c.models["reviewers"], 1):
         d = c.work / f"review-{i}"
         if d.exists(): d.rename(c.work / f"review-superseded-{time.time_ns()}-{i}")  # an earlier review of a changed case
         shutil.copytree(c.case, d / "case")  # a copy: reviewers cannot change the case
+        panel.append((i, chain, d))
+    def vote(rc, i, chain, d):
         out = d / "verdict.json"
         text = prompt('reviewer', run_context(c, case_dir=str(d / 'case'), mode='case', verdict_path=str(out)))
         keys = (PROMPTS / 'reviewer-keys.md').read_text()
         text += "\n" + keys + engine_review_ruling(c)
-        if under_engine(c):
-            vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out,
+        if under_engine(rc):
+            return retained_answer(rc, chain, text, d, f'reviewer-{i}', out,
                 {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', ''), 'keys': keys},
                 'panel', '{fairness: {approve: boolean, findings: array}, realism: {approve: boolean, findings: array}}',
                 lambda v: isinstance(v, dict) and all(isinstance(v.get(k), dict) and
                     type(v[k].get('approve')) is bool for k in ('fairness', 'realism')))
-        else:
-            opencode(c, chain, text, d, f'reviewer-{i}')
-            vote = jload(out, {}) or {}
-        c.votes.append(vote)
+        opencode(rc, chain, text, d, f'reviewer-{i}')
+        return jload(out, {}) or {}
+    if holds_fit(c, [chain[0] for _, chain, _ in panel]):
+        if getattr(c.args, "resume", None) and not getattr(c, "budget_resumed", False):
+            from budget import resume_ledger  # once, before the reviewers start together (as g10)
+            resume_ledger(c.ledger); c.budget_resumed = True
+        c.card.setdefault("models_used", {})
+        children = [copy.copy(c) for _ in panel]
+        from durable.checkpoints import concurrent_section
+        try:
+            with concurrent_section(c), ThreadPoolExecutor(max_workers=len(panel)) as pool:
+                futures = [pool.submit(contextvars.copy_context().run, vote, child, *member)
+                           for child, member in zip(children, panel)]
+            for future in futures: c.votes.append(future.result())  # panel order: votes before the first failure stay, as serially
+        finally:
+            for child in children:   # as ordinary_retry hands a call's budget state and exclusions back
+                for key in ("budget_resumed", "force_budget_resume"):
+                    if hasattr(child, key): setattr(c, key, getattr(child, key))
+                c.router_excluded = tuple(set(getattr(c, "router_excluded", ())) | set(getattr(child, "router_excluded", ())))
+    else:
+        for member in panel: c.votes.append(vote(c, *member))
     c.votes_hash = case_hash(c)
     return c.votes
+
+
+def holds_fit(c, models):
+    """Under the engine: the money left covers every listed model's largest route maximum at once, so
+    calls started together are admitted as one after another would be. Otherwise False (run serially)."""
+    if not under_engine(c) or getattr(c.args, "dry_run", False): return False
+    from decimal import Decimal
+    from budget import invocation_headroom
+    accounts = getattr(c, "router_accounts", model_router.ACCOUNTS)
+    need = Decimal(0)
+    for model in models:
+        maxima = [Decimal(str(r["max_usd"])) for r in model_router._bounded_routes(model, accounts)]
+        if not maxima: return False
+        need += max(maxima)
+    try: return invocation_headroom(c.ledger, c.engine) >= need
+    except BudgetError: return False   # usage unknown: the serial path meets it at its own reservation
 
 
 def review_approvals(c, part):
