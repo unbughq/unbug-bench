@@ -21,7 +21,9 @@ GATED_OPENROUTER = {
     'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='minimax', cheaper=('gmicloud/fp8', 'streamlake/fp8'),
         prices=('0.15', '0.015', '0.6'), context=1048576, output=524288, windows=3,
         cache_write='0', source_date='2026-11-06'),
-    'openrouter/xiaomi/mimo-v2.6-pro': dict(endpoint='xiaomi/fp8', cheaper=('deepinfra/fp8',),
+    # GMICloud first (founder 2026-11-18: better prompt-cache hits than DeepInfra). Its list price equals the
+    # xiaomi/fp8 pin (0.435/0.87; a 25% promo now), so the pin's price_source and hold are unchanged.
+    'openrouter/xiaomi/mimo-v2.6-pro': dict(endpoint='xiaomi/fp8', cheaper=('gmicloud/bf16', 'deepinfra/fp8'),
         prices=('0.435', '0.0036', '0.87'), context=1048576, output=131072, windows=3, cache_write='0'),
     'openrouter/deepseek/deepseek-v4.1-flash': dict(endpoint='deepinfra/fp8', cheaper=('morph/fp8',),
         prices=('0.14', '0.0042', '0.42'), context=1048576, output=1048576, windows=2, cache_write='0'),
