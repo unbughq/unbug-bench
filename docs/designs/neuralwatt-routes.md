@@ -68,7 +68,7 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
    - `route_maximum` returns `nw_maximum`.
    - `ungated_lanes` includes `NW_ROUTES`.
    - `lasting()` is unchanged, so a credit or quota block on `neuralwatt-key` expires on its backoff.
-   - Router config: `capacities['neuralwatt-key'] = 8`. The off switch is
+   - Router config: `capacities['neuralwatt-key'] = 3`, the Paid level's concurrent floor (Rollout step 1). The off switch is
      `disabled_routes: ["neuralwatt/"]`.
 3. **Offered accounts** (`run.Ctx.__init__`, `factory/run.py:163-167`; all three construction sites go through it, and the `helper_link.py:213` override stays)
    - `c.router_accounts` is computed once, when the case context is built:
@@ -132,11 +132,20 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
      `PUBLISHED_REASONS` derive from `_LIMIT_FAMILY`.
    - A Neuralwatt 402 then reads as that provider's limit with its short backoff. It is not
      `router:credit`, which parks for an OpenRouter top-up.
-8. **`budget.classify_provider_failure`**: Neuralwatt's out-of-credit and rate-limit bodies, as
-   captured on the trial (Rollout step 1), map to `credit` and `rate`. Until then the generic check
-   holds: any 402 or "insufficient credits" is `credit`, any 429 or "rate limit" is `rate`. Item 8 is
-   the follow-up commit that lands with the captured fixtures; the lane stays off until it does
-   (Rollout step 6).
+8. **`budget.classify_provider_failure`: no change, pinned on real bodies** (Rollout step 1).
+   - Every Neuralwatt 402 is type and code `payment_required`; the message never says "insufficient
+     credits". The status code alone makes it `credit`, scope `wallet`.
+   - Every 429 (`concurrent_budget_exceeded`, `tpm_uncached_exceeded`, `tpm_uncached_request_too_large`)
+     is `rate`; 503 `model_overloaded` and 404 `model_not_found` are `outage`; 401 is unclassified.
+   - `tpm_uncached_request_too_large` is not retryable, yet `rate` waits rather than moving on. It fires
+     only when one request's uncached prompt exceeds the level's per-minute window: 75,000 tokens on
+     Trial, which ordinary factory steps exceed, and 1,000,000 from Paid up. Hence step 6's
+     precondition: the account is at Paid level or higher. Known cost, recorded: on Paid, a cold
+     request between 1,000,000 tokens and the 1,048,560 context would wait on `rate` instead of
+     moving on, until its deadline. MiMo steps have run to about 500k (the 2026-10-17 compaction
+     note in `model_runtime.opencode_config`), so no code for it.
+   - Tests: `tests/factory/test_neuralwatt_budget.py` runs OpenCode's real event streams for both
+     models and every body in `tests/factory/fixtures/neuralwatt-smoke-20261119.json`.
 9. **`bin/setup-secrets neuralwatt`**
    - It prompts for the key without echo and checks that the key starts with `sk-`.
    - It writes `$tmp/neuralwatt-key`, the same as the `opencode-2` branch, and re-encrypts the bundle.
@@ -145,22 +154,21 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
 
 Strictly in this order. No release reaches any batch until step 3 is done.
 
-1. **Key on the VM, before merge.**
-   - The founder puts the trial key in `/home/user/.neuralwatt-trial-key` (mode 600). It is not in
-     the worker bundle yet.
-   - A one-off direct API call from the VM reads that file and never prints it. It runs a
-     non-case prompt on both model ids and records:
-     - non-zero usage;
-     - tokens per second;
-     - the real out-of-credit and rate-limit bodies, provoked with a request too large for a tiny
-       remaining balance if possible, or else taken from Neuralwatt's error docs and marked as such.
-   - Also one OpenCode run on the VM with the factory's `opencode_config` for each model, recording
-     the `step_finish` part (non-zero `tokens`) and the outgoing request's `max_tokens` (≤ 32768,
-     which `nw_request_worst` relies on).
-   - The bodies, step part and request are committed as fixtures in a follow-up commit with item 8,
-     the move-on test through `ModelRuntime.call`, and the budget tests swapped to them. That commit
-     goes through its own diff review. This branch may merge before it, because the lane ships
-     switched off (step 3).
+1. **Key on the VM, smoke on the trial. Done 2026-11-19** (`tests/factory/fixtures/neuralwatt-smoke-20261119.json`).
+   - The founder put the trial key in `/home/user/.neuralwatt-trial-key` (mode 600). A one-off script
+     read it without printing it and ran generic prompts on both model ids, directly and through
+     OpenCode 1.19.0 with the factory's `opencode_config`, behind a relay that logged request bodies.
+   - Usage is streamed (`include_usage`) and every OpenCode step part carries non-zero tokens, priced
+     at the twin. Prompt caching works (6,288 of 6,432 tokens read from cache on a second step).
+   - OpenCode sends `max_tokens` 32000 (≤ 32768). Neuralwatt itself accepted `max_tokens` 5,000,000,
+     so the cap is OpenCode's alone.
+   - Billed: $0.00085 for all of it (energy pricing); the OpenCode steps alone were $0.0041 at list.
+   - Speed, one sample each: GLM-5.3 Flash ~90 tokens/s; MiMo-V2.6-Pro ~10 tokens/s, 3.6 s to first token.
+     Recheck MiMo on a paid level before relying on it for long writer steps.
+   - 401 and 404 bodies are real. 402, 429 and 503 bodies come from Neuralwatt's docs (marked
+     `source: docs`); provoking them would spend the trial.
+   - Limits per account level (docs): Trial 2 concurrent / 75k uncached tokens a minute; Paid (any
+     payment) 3 floor, 6 burst / 1M; Standard ($50 total spend) 5/10; Pro ($500) 10/14.
 2. **Merge and install**, after the diff review.
    - Run `unbug install` for the release. Nothing uses it yet: a batch's plumbing is fixed in its
      start spec (`contract.py:357`), and only `plumbing_release <batch>` or a new start spec moves
@@ -175,7 +183,7 @@ Strictly in this order. No release reaches any batch until step 3 is done.
      `router_unavailable`.
    - Record `git -C /home/user/unbug-bench rev-parse HEAD` first (the rollback target), and check
      whether `unbug-durable.service` is active: it runs `factory/durable/cli.py` from the same checkout.
-   - Add `neuralwatt-key` to the router config `accounts`, set `capacities['neuralwatt-key'] = 8`,
+   - Add `neuralwatt-key` to the router config `accounts`, set `capacities['neuralwatt-key'] = 3`,
      and add `"neuralwatt/"` to `disabled_routes`, keeping any existing entries, then restart the router while no model calls are in
      flight. That is the only time config changes take effect (`model_router.py:1153-1156`).
    - Harmless on its own: no caller offers the account until step 6, and the lane is off.
@@ -194,8 +202,8 @@ Strictly in this order. No release reaches any batch until step 3 is done.
      accepted per batch, by operator choice.
    - Safe before step 6: no box carries `neuralwatt-key` yet, so `offered_accounts()` never offers
      it. No client counts a lane it can't spend, so there is no cae763-style retry loop.
-6. **Lane on.** Only after the step 1 follow-up commit is reviewed, installed and live on the
-   controller: steps 2, 4 and 5 again for the follow-up release (and step 3 if it touches
+6. **Lane on.** Only on an account at Paid level or higher (item 8), and only after the step 1
+   follow-up commit is reviewed, installed and live on the controller: steps 2, 4 and 5 again for the follow-up release (and step 3 if it touches
    `model_router.py`), because item 8 runs on the worker. Key and switch go together, never the key alone:
    1. Back up `bundle_file` and the controller config.
    2. The founder runs `bin/setup-secrets neuralwatt`, starting from a Mac bundle that holds every
