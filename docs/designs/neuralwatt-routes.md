@@ -138,15 +138,20 @@ The lane is an OpenCode provider lane with no gate, the same shape as the Go lan
    - Every 429 (`concurrent_budget_exceeded`, `tpm_uncached_exceeded`, `tpm_uncached_request_too_large`)
      is `rate`; 503 `model_overloaded` and 404 `model_not_found` are `outage`; 401 is unclassified
      and ends the call as `opencode_error` (a revoked key is not reported to the router).
-   - **Fix in `budget._run_budgeted`.** The first `rate` error is let through as a notice, for CLIs that
-     keep going. OpenCode's error event with an HTTP status is the AI SDK's final `APIError` (it has
-     already retried), so nothing follows it: a Neuralwatt or Go 429 ended the call as `missing_usage`,
-     never told the router, and booked one whole request ($0.57) as a phantom tail. Such an event is now
-     terminal and stops the call as `provider_limit` with `rate`. A status-less "retrying" message
-     stays one notice (`test_budget.test_rate_limit_must_persist_and_tool_text_is_not_a_provider_error`).
-   - **What `rate` then does.** `go_quota_moves_on` is false for `rate`, so the attempt defers. The
+   - **Fix in `budget._run_budgeted`, Neuralwatt lanes only.** The first `rate` error is let through as
+     a notice, for CLIs that keep going. OpenCode's error event with an HTTP status comes after
+     OpenCode's own retries, so nothing follows it: a Neuralwatt 429 ended the call as `missing_usage`,
+     never told the router, and booked one whole request ($0.57) as a phantom tail. On an NW lane such
+     an event is now terminal and stops the call as `provider_limit` with `rate`. A status-less
+     "retrying" message stays one notice
+     (`test_budget.test_rate_limit_must_persist_and_tool_text_is_not_a_provider_error`).
+   - Go and free lanes are unchanged on purpose. Their status-coded 429 still ends as `missing_usage`,
+     which excludes that one lane; `rate` is keyed on the pool (`model_router.observe`) and would block
+     the whole Go account, plan routes included, for 900-3600 s.
+   - **What `rate` then does on NW.** `go_quota_moves_on` is false for `rate`, so the attempt defers. The
      router blocks the whole `neuralwatt-key` pool for 900 s, rising to 3600 s (no reset time is passed
-     on: `retry_strategy` and `Retry-After` are not read), and the next lease goes to the OpenRouter twin.
+     on: `retry_strategy` and `Retry-After` are not read). The next lease takes the chain's next open
+     lane: Go if its plan has quota, else the OpenRouter twin.
    - `tpm_uncached_request_too_large` is not retryable. It fires when one request's uncached prompt
      exceeds the level's per-minute window: 75,000 tokens on Trial, which ordinary factory steps
      exceed, and 1,000,000 from Paid up. Hence step 6's precondition: the account is at Paid level or

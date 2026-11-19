@@ -227,6 +227,13 @@ class NeuralwattBudget(unittest.TestCase):
                     self.assertEqual(gap, (nw_request_worst(NW).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
                                            if before else 0))   # one open step: its request may have been sent
 
+    def test_a_go_429_keeps_its_one_lane_exclusion(self):
+        # Only NW lanes treat the event as terminal: on Go, rate would block the whole Go account.
+        lease, row = self.reserve(GO)
+        with self.assertRaises(budget.BudgetError) as stop:
+            self.call(lease, row, [opencode_error('concurrent')])
+        self.assertEqual((str(stop.exception), stop.exception.provider_failure), ('missing_usage', None))
+
     def test_every_neuralwatt_error_body_classifies(self):
         want = {402: 'credit', 429: 'rate', 503: 'outage', 404: 'outage', 401: None}
         for name, error in SMOKE['errors'].items():
