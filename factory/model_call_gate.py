@@ -23,7 +23,7 @@ import time
 from budget import BudgetError
 from token_prices import (GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, CLAUDE_CONTEXT, CLAUDE_OUTPUT, claude_profile,
                           CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage,
-                          GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_gate_cost, runtime_prices)
+                          GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_cached_tokens, openrouter_gate_cost, runtime_prices)
 
 ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
@@ -219,7 +219,12 @@ class Allowance:
             if cost is None: return None
             return cost, sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens']
         cost = openrouter_gate_cost(self.lease.route, usage)
-        return None if cost is None else (cost, usage['prompt_tokens'], usage['completion_tokens'])
+        if cost is None: return None
+        # The input cap is max_usd / input price, so a cached token counts at its price's share of a full one,
+        # as in the cost: whole cached tokens cut 412ba567 at 27.6M of a 28.7M cap (new-cached-window-1).
+        incoming, cache_read, _ = map(Decimal, GATED_OPENROUTER[self.lease.route]['prices'])
+        cached = openrouter_cached_tokens(usage)
+        return cost, usage['prompt_tokens'] - cached + math.ceil(cached * cache_read / incoming), usage['completion_tokens']
 
     def reserve(self, output):
         allowance = self.amount(worst_request(self.lease.route, output))
@@ -541,8 +546,8 @@ class OpenRouterUsage:
                     or type(usage.get('total_tokens')) is not int
                     or usage['total_tokens'] != usage['prompt_tokens'] + usage['completion_tokens']):
                 self.invalid = True; return
-            for field, key, maximum in (('prompt_tokens_details', 'cached_tokens', usage['prompt_tokens']),
-                                        ('completion_tokens_details', 'reasoning_tokens', usage['completion_tokens'])):
+            # openrouter_gate_cost has checked prompt_tokens_details.cached_tokens (openrouter_cached_tokens).
+            for field, key, maximum in (('completion_tokens_details', 'reasoning_tokens', usage['completion_tokens']),):
                 if field in usage:
                     details = usage[field]
                     if not isinstance(details, dict): self.invalid = True; return
