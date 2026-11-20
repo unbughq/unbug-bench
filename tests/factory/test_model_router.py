@@ -182,18 +182,19 @@ class RouterTests(unittest.TestCase):
         self.assertAlmostEqual(caught.exception.wait.retry_after, reset, delta=1)
 
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
-        go, target, source = router.CHAINS[0]
+        go, nw, target, source = router.CHAINS[0]
         choices = router.routes(source)
-        # The Go plan on both accounts first, then paid, then free on the same accounts (12 Nov: the
-        # account-backed free lane hung every 1110a admission writer call).
+        # The Go plan on both accounts first, then paid (Neuralwatt, then OpenRouter), then free on the same
+        # accounts (12 Nov: the account-backed free lane hung every 1110a admission writer call).
         self.assertEqual([(r['route'], r['account'], r['billing']) for r in choices],
                          [(go, 'opencode-go-key', 'subscription'), (go, 'opencode-go-key-2', 'subscription'),
-                          (target, 'openrouter-key', 'paid'),
+                          (nw, 'neuralwatt-key', 'paid'), (target, 'openrouter-key', 'paid'),
                           (source, 'opencode-go-key', 'free'), (source, 'opencode-go-key-2', 'free')])
         for account in ('opencode-go-key', 'opencode-go-key-2'):
             lease = self.acquire(source)
             self.assertEqual((lease['route'], lease['account']), (go, account))
             self.observe(lease, 'quota'); self.finish(lease, 'interrupted')
+        # acquire() sends no chain, as a 3dfdde3c caller: it never gets the Neuralwatt DeepSeek lane (LATE_ROUTES).
         selected = self.acquire(source)
         self.assertEqual((selected['route'], selected['account'], selected['family']), (target, 'openrouter-key', 'deepseek'))
         for card in PAID:

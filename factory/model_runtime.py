@@ -23,7 +23,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
-from token_prices import FREE_ROUTES, GATED_OPENROUTER, GO_ROUTES, NW_ROUTES, NW_TWINS, OPENROUTER_OUTPUT
+from token_prices import FREE_ROUTES, GATED_OPENROUTER, GO_ROUTES, NW_ROUTES, OPENROUTER_OUTPUT
 import model_call_gate
 from model_router import family
 from registry import atomic_json
@@ -257,14 +257,14 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     go["options"] = {"apiKey": "{env:OPENCODE_API_KEY}"}
     if base: go["options"]["baseURL"] = base.rstrip("/") + "/go/v1"
     cfg["provider"]["opencode-go"] = go
-    # Neuralwatt serves the same MiMo/GLM as their OpenRouter twins, billed at most at the twin's list price, so
-    # a step carries the twin's price, as Go does. includeUsage: without a gate nothing else asks the stream for
+    # Neuralwatt serves the same MiMo/GLM/DeepSeek as their OpenRouter twins, billed at most at its own list price
+    # (the twin's, or NW_OWN_PRICES where Neuralwatt lists higher), so a step carries that price, as Go does. includeUsage: without a gate nothing else asks the stream for
     # usage, and every step would book $0. Context is Neuralwatt's max_model_len (below the twins' 1048576);
     # output is the gated OpenRouter cap. Only an NW call gets the provider, so other configs stay as they were.
     if model in NW_ROUTES:
         cfg["provider"]["neuralwatt"] = {"npm": "@ai-sdk/openai-compatible",
             "options": {"baseURL": "https://api.neuralwatt.com/v1", "apiKey": "{env:NEURALWATT_API_KEY}", "includeUsage": True},
-            "models": {route.partition("/")[2]: {"cost": price(NW_TWINS[route]), "limit": {"context": 1048560, "output": OPENROUTER_OUTPUT}}
+            "models": {route.partition("/")[2]: {"cost": price(route), "limit": {"context": 1048560, "output": OPENROUTER_OUTPUT}}
                        for route in sorted(NW_ROUTES)}}
     # Founder 2026-10-19: OpenCode v1.x answers Muse with "Invalid credential" unless the opencode provider points at Zen.
     cfg["provider"]["opencode"] = {"options": {"baseURL": "https://opencode.ai/zen/v1"}}

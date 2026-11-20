@@ -49,7 +49,9 @@ CHAINS = (
     # Paid OpenRouter before free DeepSeek, as for every other free lane. The account-backed free lane
     # answered in 3-4 s on 10 November, but on 11-12 November it hung every writer call of 1110a's
     # admission (11 attempts, each killed `stalled` after ~45 min). Paid DeepSeek Flash costs cents.
-    ('opencode-go/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free'),
+    # Neuralwatt after Go (founder 2026-11-20: no OpenRouter top-up, Neuralwatt first), at its own list price.
+    ('opencode-go/deepseek-v4.1-flash', 'neuralwatt/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash',
+     'opencode/deepseek-v4.1-flash-free'),
     # The OpenRouter :free variant has no maximum, so it is never leased.
     ('opencode-go/minimax-m3.1-flash', 'opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free',
      'openrouter/minimax/minimax-m3.1-flash'),
@@ -60,6 +62,19 @@ CHAINS = (
     ('opencode-go/glm-5.3-flash', 'neuralwatt/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
 )
 ACCOUNT_FREE_ROUTES = ('opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4.1-flash-free')
+# A caller sends its own chain (acquire's `chain`) and the router leases only lanes in it. A caller that sends
+# none (release 3dfdde3c and older) knows no lane added to CHAINS since: it would reject such a lease as an
+# invalid response and replay it, holding the seat each time. Every lane added after 3dfdde3c goes here.
+LATE_ROUTES = frozenset({'neuralwatt/deepseek-v4.1-flash'})
+
+
+def chain(model):
+    return next((list(c) for c in CHAINS if model in c), [model])
+
+
+def knows(request, route):
+    """Whether the caller of an acquire request can take a lane on this route."""
+    return route in request['chain'] if 'chain' in request else route not in LATE_ROUTES
 # A contended pool serves the case furthest along first (the engine step kind, run.Ctx.engine.kind):
 # a call of a higher priority is not queued behind older calls of a lower one. Within a priority the
 # order stays first come, first served. ponytail: no aging, so a steady stream of GATES calls can
@@ -156,9 +171,8 @@ def routes(model, accounts=ACCOUNTS):
     if not isinstance(model, str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,200}', model) or '/' not in model:
         raise ValueError('invalid requested model')
     if any(a not in ACCOUNTS for a in accounts): raise ValueError('unapproved account')
-    chain = next((list(c) for c in CHAINS if model in c), [model])
     result = []
-    for route in chain:
+    for route in chain(model):
         billing = ('subscription' if route.startswith(('claude/', 'codex/', 'opencode-go/')) else
                    'free' if route.endswith(('-free', ':free')) else 'paid')
         labels = (('claude-factory-token-2', 'claude-token') if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
@@ -511,7 +525,9 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd', 'capacity_protocol', 'priority'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd', 'capacity_protocol', 'priority', 'chain'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if 'chain' in data and (not isinstance(data['chain'], list) or len(data['chain']) > 16
+                        or any(not isinstance(r, str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,200}', r) for r in data['chain'])): raise ValueError('invalid chain')
                 if 'funding_usd' in data and _nano(data['funding_usd'], ROUND_FLOOR) <= 0: raise ValueError('empty invocation funding')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
@@ -521,7 +537,7 @@ class Store:
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
                 choices = [r for r in self._routes(data['model'], [a for a in data['accounts'] if a in self.accounts], data.get('funding_usd'))
                            if (r['route'] not in GATED_OPENROUTER or type(data.get('paid_protocol')) is int and data['paid_protocol'] == 1)
-                           and eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
+                           and eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', []) and knows(data, r['route'])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
                 previous = db.execute('SELECT payload FROM requests WHERE id=?', (identity,)).fetchone()
                 if previous and previous[0] != payload: raise ValueError('attempt id changed')
@@ -548,7 +564,7 @@ class Store:
                     for route in choices:
                         if not free(route) or unfunded(route): continue
                         # An older request queued only for routes the ceiling cannot fund is not ahead of this one.
-                        if any(any(eligible(r) and not unfunded(r) and r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
+                        if any(any(eligible(r) and not unfunded(r) and r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', []) and knows(p, r['route'])
                                    for r in self._routes(p['model'], p['accounts'])) for p in older): continue
                         expires = min(now + LEASE_SECONDS, data['deadline'])
                         db.execute('INSERT INTO leases VALUES (?,?,?,NULL,NULL)', (identity, json.dumps(route), expires))
@@ -870,7 +886,7 @@ def _account_order(case):
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
     data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1,
-                capacity_protocol=1)
+                capacity_protocol=1, chain=chain(model))
     funding = getattr(case, 'router_funding_usd', None)
     if funding is not None: data['funding_usd'] = funding
     priority = STAGE_PRIORITY.get(getattr(getattr(case, 'engine', None), 'kind', None))
