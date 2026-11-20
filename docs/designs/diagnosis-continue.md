@@ -107,9 +107,11 @@ In `tests/factory/test_opencode_continue_linux.py` (review diff-1's blocking fin
 
 - **Stub model only.** Resumption is proven on the pinned binary against a stub provider. Whether
   MiMo, given the continuation prompt, then writes its result is shown only by a live diagnosis.
-- **`--continue` takes the most recent session.** It does not name one. Within one invocation there
-  is only one root session in the pilot's home, because `task` is denied. `--session <id>` from the
-  first run's events would be exact, but it is not needed today.
+- **`--continue` takes the most recent session.** It does not name one.
+  - `task` is denied, so a run makes no child sessions.
+  - A provider retry inside `ModelRuntime._call` reruns the first turn as a new root session.
+    `--continue` then picks that newer session, which is the right one.
+  - `--session <id>` from the first run's events would be exact, but it is not needed today.
 - **`reset` still runs before each continuation.** It wipes `output/`, the session's working folder.
   This is intended: every model run starts from a checked, empty output, and collect has just said
   the result is missing.
