@@ -434,6 +434,11 @@ def openrouter_body(raw, route, bound_reasoning=False):
         reasoning['max_tokens'] = min(reasoning['max_tokens'], room)
     elif bound_reasoning and not nw and not ('effort' in reasoning or 'reasoning_effort' in body or reasoning.get('enabled') is False):
         body['reasoning'] = reasoning | {'max_tokens': room}
+    if bound_reasoning and nw:
+        # Neuralwatt's vLLM takes its own bound, thinking_token_budget, beside any reasoning_effort (not a token
+        # bound there). Real GLM, MiMo and DeepSeek answers stop reasoning at it, then answer
+        # (tests/factory/fixtures/neuralwatt-thinking-budget-20261120.json). Only the gate adds it.
+        body['thinking_token_budget'] = room
     for key in ('temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p'):
         if key in body and (type(body[key]) not in (int, float) or not math.isfinite(body[key])):
             raise ValueError('invalid sampling')
