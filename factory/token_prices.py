@@ -61,14 +61,37 @@ GO_TWINS = {'opencode-go/deepseek-v4.1-flash': 'openrouter/deepseek/deepseek-v4.
             'opencode-go/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash',
             'opencode-go/muse-spark-1.3-contributor': 'openrouter/meta/muse-spark-1.3-contributor'}
 GO_ROUTES = frozenset(GO_TWINS)
-# Neuralwatt routes (founder 2026-11-19, docs/designs/neuralwatt-routes.md): the same two models from a
-# second paid provider, tried between the Go plan and OpenRouter. Its listed prices equal the twins' pins
-# and it never bills above list (tests/factory/fixtures/neuralwatt-price-record-20261119.json.gz), so a
-# call has its twin's maximum and books real money at the twin's list price (unlike Go's $0).
+# Neuralwatt routes (founder 2026-11-19 and 11-20, docs/designs/neuralwatt-routes.md): the same models from a
+# second paid provider, tried between the Go plan and OpenRouter. It never bills above its list
+# (tests/factory/fixtures/neuralwatt-price-record-2026112*.json.gz). Where that list equals the twin's pin (MiMo,
+# GLM) a call has its twin's maximum; where it is higher (NW_OWN_PRICES) its own. Either way it books real money
+# at that list price (unlike Go's $0).
 NW_TWINS = {'neuralwatt/mimo-v2.6-pro': 'openrouter/xiaomi/mimo-v2.6-pro',
-            'neuralwatt/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash'}
+            'neuralwatt/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash',
+            'neuralwatt/deepseek-v4.1-flash': 'openrouter/deepseek/deepseek-v4.1-flash'}
 NW_ROUTES = frozenset(NW_TWINS)
 TWINS = {**GO_TWINS, **NW_TWINS}
+# Neuralwatt's own list where it is above the twin's pin (founder 2026-11-20: Neuralwatt first anyway). Such a
+# route is bounded and booked at this list, never the twin's: Neuralwatt bills at most its own list on the
+# standard tier (tests/factory/fixtures/neuralwatt-price-record-20261120.json.gz). Context, output and
+# windows stay the twin's.
+NW_OWN_PRICES = {'neuralwatt/deepseek-v4.1-flash': ('0.15', '0.015', '0.6')}
+
+
+def _nw_profile(route):
+    profile = GATED_OPENROUTER[NW_TWINS[route]]
+    if route not in NW_OWN_PRICES: return profile
+    return dict(profile, prices=NW_OWN_PRICES[route], endpoint='standard', source_date='2026-11-20')
+
+
+def gate_profile(route):
+    """The pinned profile a worker gate holds and prices one request of this route at: OpenRouter's pin, or a
+    Neuralwatt route's (its twin's context and output, Neuralwatt's list). None for any other route."""
+    return _nw_profile(route) if route in NW_TWINS else GATED_OPENROUTER.get(route)
+
+
+# Neuralwatt's max_model_len for every NW model (price records), below the twins' 1048576: OpenCode's context limit.
+NW_CONTEXT = 1048560
 
 
 def go_maximum(route):
@@ -78,18 +101,19 @@ def go_maximum(route):
 
 
 def nw_maximum(route):
-    maximum = openrouter_gate_maximum(NW_TWINS[route]) if route in NW_TWINS else None
-    if maximum is None: return None
-    return dict(maximum, price_source='neuralwatt:' + route.partition('/')[2] + ':twin=' + maximum['price_source'])
+    if route not in NW_TWINS: return None
+    own = route in NW_OWN_PRICES
+    maximum = _gate_maximum(route, _nw_profile(route)) if own else openrouter_gate_maximum(NW_TWINS[route])
+    return dict(maximum, price_source='neuralwatt:' + route.partition('/')[2] + (':own=' if own else ':twin=') + maximum['price_source'])
 
 
 def nw_request_worst(route):
-    """One whole request of an NW route at its twin's list price: the most a step still in flight can bill."""
-    return _request_worst(GATED_OPENROUTER[NW_TWINS[route]])
+    """One whole request of an NW route at its list price: the most a step still in flight can bill."""
+    return _request_worst(_nw_profile(route))
 
 
 def go_step_cost(route, tokens):
-    """One OpenCode step on a Go plan or Neuralwatt route at its twin's list price. Reasoning is billed as output,
+    """One OpenCode step on a Go plan or Neuralwatt route at its list price (runtime_prices). Reasoning is billed as output,
     and a cache write at the full input rate (OpenRouter's twins quote no write price)."""
     prices = runtime_prices(route)
     return ((tokens['input'] + tokens['cache']['write']) * prices['input'] + (tokens['output'] + tokens['reasoning']) * prices['output']
@@ -97,7 +121,10 @@ def go_step_cost(route, tokens):
 
 
 def openrouter_gate_maximum(route):
-    profile = GATED_OPENROUTER.get(route)
+    return _gate_maximum(route, GATED_OPENROUTER.get(route))
+
+
+def _gate_maximum(route, profile):
     if profile is None or Decimal(profile['cache_write']) != 0: return None
     incoming, cached, outgoing = map(Decimal, profile['prices'])
     maximum = (profile['windows'] * _request_worst(profile) + Decimal('.000001')).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
@@ -113,8 +140,9 @@ def _request_worst(profile):
 
 
 def openrouter_gate_cost(route, usage):
-    if route not in GATED_OPENROUTER or not isinstance(usage, dict): return None
-    incoming, _, outgoing = map(Decimal, GATED_OPENROUTER[route]['prices'])
+    profile = gate_profile(route)
+    if profile is None or not isinstance(usage, dict): return None
+    incoming, _, outgoing = map(Decimal, profile['prices'])
     values = [usage.get(k) for k in ('prompt_tokens', 'completion_tokens')]
     if any(type(v) is not int or v < 0 for v in values): return None
     amount = (values[0] * incoming + values[1] * outgoing) / 1_000_000
@@ -125,11 +153,10 @@ def openrouter_gate_cost(route, usage):
 
 
 def runtime_prices(route):
-    route = TWINS.get(route, route)
-    if route in GATED_OPENROUTER:
-        incoming, cached, outgoing = map(float, GATED_OPENROUTER[route]['prices'])
-        return dict(input=incoming, output=outgoing, cache_read=cached, cache_write=0)
-    raise KeyError(route)
+    profile = _nw_profile(route) if route in NW_TWINS else GATED_OPENROUTER.get(TWINS.get(route, route))
+    if profile is None: raise KeyError(route)
+    incoming, cached, outgoing = map(float, profile['prices'])
+    return dict(input=incoming, output=outgoing, cache_read=cached, cache_write=0)
 
 
 def invocation_maximum(model, bounds):

@@ -23,7 +23,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
-from token_prices import FREE_ROUTES, GATED_OPENROUTER, GO_ROUTES, NW_ROUTES, NW_TWINS, OPENROUTER_OUTPUT
+from token_prices import FREE_ROUTES, GATED_OPENROUTER, GO_ROUTES, NW_ROUTES, OPENROUTER_OUTPUT
 import model_call_gate
 from model_router import family
 from registry import atomic_json
@@ -194,10 +194,9 @@ def model_effort(model):
 
 def bounded_route(role, model, accounts=model_router.ACCOUNTS):
     """Whether `role` can be leased `model` on a route with a known maximum. A walled role is never
-    leased a free, Go plan or Neuralwatt route (ModelRuntime._call): none has a gate."""
+    leased a free or Go plan route (ModelRuntime._call): neither has a gate. Neuralwatt has one for it."""
     return any(model_router.route_maximum(row['route']) is not None
-               and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES
-                                                               or row['route'] in NW_ROUTES))
+               and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES))
                for row in model_router.routes(model, accounts))
 
 
@@ -241,7 +240,7 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     MCP off (about 28k prompt tokens a call, unneeded). In /tmp so the pilot user can read it; no secret."""
     path = pathlib.Path(tempfile.gettempdir()) / ("factory-" + model.replace("/", "-").replace(":", "-") + ".json" if model else "factory-opencode.json")
     base = None if diagnosis else os.environ.get("OPENCODE_API_KEY_BASE_URL")
-    from token_prices import runtime_prices as price
+    from token_prices import NW_CONTEXT, runtime_prices as price
     cfg = {"mcp": {"computer": {"enabled": False}},
            "compaction": {"auto": True}, "permission": {"task": "deny"},  # on since 2026-10-17: off, MiMo re-read ~500k tokens a step
            "provider": {"openrouter": {"models": {
@@ -257,14 +256,14 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     go["options"] = {"apiKey": "{env:OPENCODE_API_KEY}"}
     if base: go["options"]["baseURL"] = base.rstrip("/") + "/go/v1"
     cfg["provider"]["opencode-go"] = go
-    # Neuralwatt serves the same MiMo/GLM as their OpenRouter twins, billed at most at the twin's list price, so
-    # a step carries the twin's price, as Go does. includeUsage: without a gate nothing else asks the stream for
-    # usage, and every step would book $0. Context is Neuralwatt's max_model_len (below the twins' 1048576);
-    # output is the gated OpenRouter cap. Only an NW call gets the provider, so other configs stay as they were.
+    # Neuralwatt serves the same MiMo/GLM/DeepSeek as their OpenRouter twins, billed at most at its own list price
+    # (the twin's, or NW_OWN_PRICES where Neuralwatt lists higher), so a step carries that price, as Go does.
+    # includeUsage: without a gate nothing else asks the stream for usage, and every step would book $0.
+    # Context is Neuralwatt's max_model_len (below the twins' 1048576); output is the gated OpenRouter cap. Only an NW call gets the provider, so other configs stay as they were.
     if model in NW_ROUTES:
         cfg["provider"]["neuralwatt"] = {"npm": "@ai-sdk/openai-compatible",
             "options": {"baseURL": "https://api.neuralwatt.com/v1", "apiKey": "{env:NEURALWATT_API_KEY}", "includeUsage": True},
-            "models": {route.partition("/")[2]: {"cost": price(NW_TWINS[route]), "limit": {"context": 1048560, "output": OPENROUTER_OUTPUT}}
+            "models": {route.partition("/")[2]: {"cost": price(route), "limit": {"context": NW_CONTEXT, "output": OPENROUTER_OUTPUT}}
                        for route in sorted(NW_ROUTES)}}
     # Founder 2026-10-19: OpenCode v1.x answers Muse with "Invalid credential" unless the opencode provider points at Zen.
     cfg["provider"]["opencode"] = {"options": {"baseURL": "https://opencode.ai/zen/v1"}}
@@ -288,7 +287,8 @@ def diagnosis_environment(env, driver, lease, home):
     clean.update(HOME=str(home), TMPDIR=str(home / '.cache'))
     key = ('CLAUDE_CODE_OAUTH_TOKEN' if driver == 'claude' else
            'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else
-           None if lease.account == 'neuralwatt-key' else   # diagnosis is walled: never an NW lane, never its key
+           # Only the gate reads it: model_call_gate.enforce replaces the walled env (openrouter_environment).
+           'NEURALWATT_API_KEY' if lease.account == 'neuralwatt-key' else
            'OPENCODE_API_KEY' if driver == 'opencode' and lease.account else None)
     if key and key in env: clean[key] = env[key]
     return clean
@@ -536,9 +536,10 @@ class ModelRuntime:
         if user is not None or role in model_router.WALLED_ROLES:
             # A walled role reaches only a gate's port, and a free or Go plan route has no gate: it takes
             # the family's gated or subscription route instead (model_call_gate.enforce refuses it too).
-            # Calibrator preflights run unwalled but are excluded the same way, so they test the real route.
+            # Calibrator preflights run unwalled but are excluded the same way, so they take the same lanes.
             accounts = getattr(c, 'router_accounts', model_router.ACCOUNTS)
-            context.router_excluded = (*getattr(context, 'router_excluded', ()), *model_router.ungated_lanes(requested, accounts))
+            excluded = model_router.ungated_lanes(requested, accounts)
+            context.router_excluded = (*getattr(context, 'router_excluded', ()), *excluded)
             if not [r for r in model_router._bounded_routes(requested, accounts)
                     if r['pool'] + '/' + r['route'] not in context.router_excluded]:
                 raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',
@@ -919,7 +920,7 @@ class ModelRuntime:
             with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None), user=user) as gate:
                 if diagnosis and driver == 'opencode':
                     env.pop('OPENCODE_ENABLE_EXA', None)
-                    if model in GATED_OPENROUTER:
+                    if model in GATED_OPENROUTER or model in NW_ROUTES:   # both walled through the gate
                         gate.bound_reasoning = True
                         try:
                             cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])

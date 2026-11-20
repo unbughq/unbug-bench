@@ -44,9 +44,10 @@ class RouterTests(unittest.TestCase):
         self.now = [1792510000.0]
         self.store = router.Store(self.root / 'router.sqlite', clock=lambda: self.now[0])
 
-    def acquire(self, model, *, identity=None, accounts=router.ACCOUNTS):
+    def acquire(self, model, *, identity=None, accounts=router.ACCOUNTS, chain=True):
+        # chain=True sends the caller's chain, as this release's _admit does; False is a 3dfdde3c caller.
         return self.store.rpc('acquire', dict(paid_protocol=1,id=identity or uuid.uuid4().hex, model=model,
-            accounts=list(accounts), role='writer', deadline=self.now[0] + 86400))
+            accounts=list(accounts), role='writer', deadline=self.now[0] + 86400, **({'chain': router.chain(model)} if chain else {})))
 
     def finish(self, lease, outcome='done'):
         return self.store.rpc('finish', dict(lease_id=lease['lease_id'], outcome=outcome, receipt=None))
@@ -182,19 +183,20 @@ class RouterTests(unittest.TestCase):
         self.assertAlmostEqual(caught.exception.wait.retry_after, reset, delta=1)
 
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
-        go, target, source = router.CHAINS[0]
+        go, nw, target, source = router.CHAINS[0]
         choices = router.routes(source)
-        # The Go plan on both accounts first, then paid, then free on the same accounts (12 Nov: the
-        # account-backed free lane hung every 1110a admission writer call).
+        # The Go plan on both accounts first, then paid (Neuralwatt, then OpenRouter), then free on the same
+        # accounts (12 Nov: the account-backed free lane hung every 1110a admission writer call).
         self.assertEqual([(r['route'], r['account'], r['billing']) for r in choices],
                          [(go, 'opencode-go-key', 'subscription'), (go, 'opencode-go-key-2', 'subscription'),
-                          (target, 'openrouter-key', 'paid'),
+                          (nw, 'neuralwatt-key', 'paid'), (target, 'openrouter-key', 'paid'),
                           (source, 'opencode-go-key', 'free'), (source, 'opencode-go-key-2', 'free')])
         for account in ('opencode-go-key', 'opencode-go-key-2'):
             lease = self.acquire(source)
             self.assertEqual((lease['route'], lease['account']), (go, account))
             self.observe(lease, 'quota'); self.finish(lease, 'interrupted')
-        selected = self.acquire(source)
+        # A 3dfdde3c caller (no chain) never gets the Neuralwatt DeepSeek lane (LATE_ROUTES).
+        selected = self.acquire(source, chain=False)
         self.assertEqual((selected['route'], selected['account'], selected['family']), (target, 'openrouter-key', 'deepseek'))
         for card in PAID:
             ledger = copy.deepcopy(card['continuation_budget']); before = json.dumps(ledger, sort_keys=True)

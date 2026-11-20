@@ -17,7 +17,7 @@ import model_runtime
 from budget import BudgetError
 from token_prices import NW_TWINS, OPENROUTER_OUTPUT, runtime_prices
 
-MIMO, GLM = 'neuralwatt/mimo-v2.6-pro', 'neuralwatt/glm-5.3-flash'
+MIMO, GLM, DEEPSEEK = 'neuralwatt/mimo-v2.6-pro', 'neuralwatt/glm-5.3-flash', 'neuralwatt/deepseek-v4.1-flash'
 
 
 def lease(route=MIMO, account='neuralwatt-key', **maximum):
@@ -35,14 +35,17 @@ class NeuralwattRuntime(unittest.TestCase):
             self.assertEqual(model_runtime.offered_accounts(), model_router.ACCOUNTS)
 
     def test_config_carries_the_exact_neuralwatt_provider_only_for_a_neuralwatt_call(self):
-        for route in (MIMO, GLM):
+        for route in (MIMO, GLM, DEEPSEEK):
             cfg = json.loads(model_runtime.opencode_config(route).read_text())
             self.assertEqual(cfg['small_model'], route)
             self.assertEqual(cfg['provider']['neuralwatt'], {
                 'npm': '@ai-sdk/openai-compatible',
                 'options': {'baseURL': 'https://api.neuralwatt.com/v1', 'apiKey': '{env:NEURALWATT_API_KEY}', 'includeUsage': True},
                 'models': {'mimo-v2.6-pro': {'cost': runtime_prices(NW_TWINS[MIMO]), 'limit': {'context': 1048560, 'output': 32768}},
-                           'glm-5.3-flash': {'cost': runtime_prices(NW_TWINS[GLM]), 'limit': {'context': 1048560, 'output': 32768}}}})
+                           'glm-5.3-flash': {'cost': runtime_prices(NW_TWINS[GLM]), 'limit': {'context': 1048560, 'output': 32768}},
+                           # Neuralwatt lists DeepSeek above its OpenRouter twin: its own list, never the twin's.
+                           'deepseek-v4.1-flash': {'cost': dict(input=0.15, output=0.6, cache_read=0.015, cache_write=0),
+                                                   'limit': {'context': 1048560, 'output': 32768}}}})
         self.assertEqual(OPENROUTER_OUTPUT, 32768)
         # Every other call's config is as it was: no Neuralwatt provider.
         for model in ('opencode-go/mimo-v2.6-pro', 'opencode/glm-5.3-flash-free', None):
@@ -66,13 +69,12 @@ class NeuralwattRuntime(unittest.TestCase):
             with self.assertRaisesRegex(BudgetError, '^model_call_cap$'):
                 with model_call_gate.enforce(lease(), dict(full), cap, 5, None):
                     raise BudgetError('usage_reservation_exceeded')
-            # No key, or a lease on another account: credential_expiring. Behind the wall: refused.
+            # No key, or a lease on another account: credential_expiring. Behind the wall it takes the gate
+            # (test_neuralwatt_walled_gate.py).
             for bad_env, bad_lease in ((dict(full, NEURALWATT_API_KEY=''), lease()),
                                        (dict(full, OPENCODE_API_KEY='k'), lease(account='opencode-go-key'))):
                 with self.assertRaisesRegex(BudgetError, '^credential_expiring$'):
                     with model_call_gate.enforce(bad_lease, dict(bad_env), cap, 5, None): pass
-            with self.assertRaisesRegex(BudgetError, '^route_feature_unsupported$'):
-                with model_call_gate.enforce(lease(), dict(full), cap, 5, None, user='pilot'): pass
         with self.assertRaisesRegex(BudgetError, '^unbounded_route$'):
             with model_call_gate.enforce(lease(max_usd=0.0), {}, cap, 5, None): pass
 
@@ -82,20 +84,21 @@ class NeuralwattRuntime(unittest.TestCase):
         clean = model_call_gate.free_environment(SimpleNamespace(route=go, account='opencode-go-key'), env)
         self.assertEqual((clean.get('OPENCODE_API_KEY'), clean.get('NEURALWATT_API_KEY')), ('k', None))
 
-    def test_a_walled_role_is_never_bounded_on_a_neuralwatt_lane(self):
-        nw_only = ('neuralwatt-key',)
-        for route in (MIMO, GLM):
-            self.assertTrue(model_runtime.bounded_route('writer', route, nw_only))
-            self.assertFalse(model_runtime.bounded_route('strong_calibrator', route, nw_only))
-            self.assertFalse(model_runtime.bounded_route('easy_calibrator', route, nw_only))
-            # Its gated OpenRouter twin still bounds the walled role.
-            self.assertTrue(model_runtime.bounded_route('easy_calibrator', route, ('neuralwatt-key', 'openrouter-key')))
+    def test_a_walled_role_is_bounded_on_a_neuralwatt_lane_but_never_on_go_alone(self):
+        # Founder 2026-11-20: Neuralwatt has a gate for a walled role. The Go plan still has none.
+        nw_only, go_only = ('neuralwatt-key',), model_router.ACCOUNTS[2:4]
+        for route in (MIMO, GLM, DEEPSEEK):
+            for role in ('writer', 'strong_calibrator', 'easy_calibrator'):
+                self.assertTrue(model_runtime.bounded_route(role, route, nw_only))
+            self.assertTrue(model_runtime.bounded_route('writer', route, go_only))
+            self.assertFalse(model_runtime.bounded_route('easy_calibrator', route, go_only))
 
-    def test_diagnosis_never_carries_a_key_for_a_neuralwatt_lease(self):
-        # Walled diagnosis never leases an NW lane (bounded_route); if that regressed, no key crosses the wall.
+    def test_diagnosis_hands_only_its_leases_neuralwatt_key_to_the_gate(self):
+        # A walled diagnosis may lease the NW lane (founder 2026-11-20): only that key reaches the gate, which
+        # replaces the walled env (test_diagnosis_neuralwatt checks that the process never sees it).
         env = {'PATH': '/bin', 'NEURALWATT_API_KEY': 'n', 'OPENCODE_API_KEY': 'k', 'OPENROUTER_API_KEY': 'r'}
         clean = model_runtime.diagnosis_environment(env, 'opencode', lease(), Path('/h'))
-        self.assertEqual({k for k in clean if k.endswith('_KEY')}, set())
+        self.assertEqual({k: v for k, v in clean.items() if k.endswith('_KEY')}, {'NEURALWATT_API_KEY': 'n'})
 
     def test_a_case_context_offers_accounts_as_a_list_without_a_missing_neuralwatt_key(self):
         import run
