@@ -84,5 +84,37 @@ class ConcurrentFreshness(unittest.TestCase):
         self.assertEqual(len(run.freshness_lines(self.c)), len(self.rows) + 1)
 
 
+    def test_an_expired_flagged_row_is_told_to_keep_its_url_and_amending_it_clears_the_error(self):
+        """1108c (20 Nov): an expired ambiguous attacker row on a GitHub API search URL (shape of its row 135,
+        query made generic) is never superseded. Told only "never a search-results page", the attacker swapped
+        the url three times; finish_freshness_repair restored the expired row each time and G2 stalled."""
+        self.addCleanup(offline_router()[0].close)
+        url = 'https://api.github.com/search/issues?q=repo:medusajs/medusa+%22stock%22+query&sort=created&order=desc&per_page=30'
+        self.rows = [{**r, 'retrieved': True} for r in self.rows]
+        self.rows.append(evidence('attacker', 'github', 77, url=url, ambiguous=True, at='2026-11-19T09:56:52.064135+00:00'))
+        self.rows.append(evidence('attacker', 'web', 78, at='2026-11-19T09:56:52+00:00'))   # unflagged: superseded by a re-run
+        self.save()
+        texts = {}
+
+        def model(ctx, models, text, cwd, name, **kwargs):
+            texts[name.split('-')[0]] = text
+            rows = self.read(cwd)
+            now = run.datetime.datetime.now(run.datetime.timezone.utc).isoformat()
+            rows = [{**r, 'at': now} if r.get('url') == url else r for r in rows]   # amended in place, url kept
+            (pathlib.Path(cwd) / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+            return 0
+
+        with patch.object(run, 'opencode', model):
+            run.freshness_topup(self.c)
+        n = len(self.rows)
+        self.assertIn(f'{{"row": {n - 1}, "reason": "evidence_expired: a flagged row: ', texts['attacker'])
+        self.assertIn('keep its url exactly as it is, even a GitHub search URL', texts['attacker'])
+        self.assertIn(f'{{"row": {n}, "reason": "evidence_expired"}}', texts['attacker'])   # unflagged rows unchanged
+        from admission import search_evidence_error
+        kept = [r for r in run.freshness_lines(self.c) if r.get('url') == url]
+        self.assertEqual(len(kept), 1)
+        self.assertIsNone(search_evidence_error(kept[0]))
+
+
 if __name__ == '__main__':
     unittest.main()
