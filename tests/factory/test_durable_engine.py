@@ -2371,6 +2371,29 @@ class CreditPark(unittest.TestCase):
         self.assertGreater(start(r, self.RETRY)["t"], topped_up["t"])
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
+    def test_a_parked_case_wakes_without_a_top_up_and_a_refused_retry_parks_again_uncounted(self):
+        # 11-20: 1108c sat parked 80+ minutes on router:credit with Neuralwatt first in its chain. The real router's
+        # block stays (no top-up, balance $0.20), yet once it has seen no fresh refusal for CREDIT_RECHECK_S the
+        # case retries; a retry still refused parks again. Neither counts as infra or reaches a diagnosis.
+        # CREDIT_RECHECK_S 0 stands for "30 quiet minutes have passed"; 1800 for "the block was just observed".
+        second = f"{C1}/4/gates:1/2"
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 0},
+                      "timing": {"wake_poll_s": 0.2}, "inputs": {"dry_run": False}, "router_credit": "0.2",
+                      "script": {"1/gates:1/1": self.CREDIT, "1/gates:1/2": dict(self.CREDIT, dur=1.0)},
+                      "actions": [{"when": self.PARKED, "delay_s": 1.0, "credit_recheck_s": 0},
+                                  {"when": {"started": second}, "credit_recheck_s": 1800},
+                                  {"when": {"ran": second, **self.PARKED}, "delay_s": 1.0, "credit_recheck_s": 0}]})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "gates:1", "gates:1", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 0)   # both stops are the case's spend
+        first_wake, _, second_wake = r.actions()
+        self.assertEqual((first_wake["status"], second_wake["status"]), ("waiting_for_credit",) * 2)   # parked twice
+        self.assertGreater(start(r, second)["t"], first_wake["t"])
+        self.assertGreater(start(r, f"{C1}/4/gates:1/3")["t"], second_wake["t"])
+        released = [x for x in r.pool_log() if x["op"] == "release"]
+        self.assertGreaterEqual(len(released), 3)   # each park gave up its worker, then the seal
+
     def test_a_refusal_with_no_credit_block_keeps_its_worker_and_its_short_sleep(self):
         # The router's ceiling or an unreadable balance refuses without a block: as before, a short
         # sleep on the same worker, not a park.

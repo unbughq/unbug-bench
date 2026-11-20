@@ -1185,16 +1185,26 @@ def credit_stuck(db):
     return value.get('reason') == 'credit' and value.get('refusals', 0) >= CREDIT_LIFT_CAP
 
 
-def credit_ready(path):
+# A case parked on router:credit retries once the paid pool's credit block has had no fresh refusal for this
+# long, top-up or not: most calls now have a Neuralwatt lane first, so the call may find a lane where the
+# OpenRouter credit is not needed (1108c sat 80+ minutes, 11-20). A retry still refused parks again, uncounted
+# and not waste; the block itself still lifts only on a top-up (lift_credit). ponytail: one cadence for every
+# parked case (a parked case's worker is released, so each retry may create one); per-chain readiness if it bites.
+CREDIT_RECHECK_S = 1800
+
+
+def credit_ready(path, now=None):
     """Read-only, for a case stopped on router:credit (engine wait_for_credit): whether the paid pool
-    has no credit block. Only the block: lift_credit lifts it after a top-up, and a woken case the
-    balance still cannot fund is refused once and parks again. Unreadable books are no block (the
-    case keeps its worker and its short sleep, as before the park)."""
+    has no credit block, or its block was last observed (a 402 or a short balance) CREDIT_RECHECK_S ago.
+    A woken case the router still cannot serve is refused once and parks again. Unreadable books are no
+    block (the case keeps its worker and its short sleep, as before the park)."""
+    now = time.time() if now is None else now
     try:
         with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as db:
             row = db.execute('SELECT value FROM health WHERE pool=?', (PAID_POOL,)).fetchone()
-            return not (row and json.loads(row[0]).get('reason') == 'credit')
-    except (sqlite3.Error, ValueError):
+            value = json.loads(row[0]) if row else {}
+            return value.get('reason') != 'credit' or now - value.get('observed_at', 0) >= CREDIT_RECHECK_S
+    except (sqlite3.Error, ValueError, TypeError):
         return True
 
 
