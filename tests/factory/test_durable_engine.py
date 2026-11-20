@@ -3,6 +3,7 @@
 docs/designs/durable-execution-wp1.md, "Tests". Each test runs the engine program in a child
 process on a fresh database, then reads the fake worker's log, the ledger and the cards.
 """
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -1258,7 +1259,7 @@ class QueuePolling(unittest.TestCase):
             if p.poll() is None:
                 p.kill()
                 p.wait()
-        with sqlite3.connect(r.work / "sys.sqlite") as db:
+        with contextlib.closing(sqlite3.connect(r.work / "sys.sqlite")) as db, db:
             rows = {name for (name,) in db.execute("SELECT name FROM queues")}
             # b-u's launch already deleted the finished batch's rows.
             self.assertEqual({n for n in rows if n.endswith("-b-t")}, set(), rows)
@@ -1292,7 +1293,8 @@ class QueuePolling(unittest.TestCase):
             return Row(name=name, queue_name=queue, input={"args": [job], "kwargs": {}})
         spec = lambda b, n=2: to_record(make_spec(batch_id=b, max_concurrency=n))
         names = ["admit-b-live", "steps-b-live", "admit-b-done", "steps-b-done", "decision-b-done",
-                 "admit-b-case", "steps-b-case", "admit-b-orphan", "_dbos_internal_queue", "nightly", "steps-x"]
+                 "admit-b-case", "steps-b-case", "admit-b-orphan", "admit-b-x", "_dbos_internal_queue", "nightly",
+                 "steps-x"]
         live = [wf("batch_workflow", {"spec": spec("b-live", 3), "queue_v2": False}),
                 # a case whose batch workflow has ended, waiting on its steps queue after a restart
                 wf("case_workflow", {"spec": spec("b-case", 4), "case_id": "case-case-1"}),
@@ -1300,14 +1302,16 @@ class QueuePolling(unittest.TestCase):
                 # an orphan attempt ENQUEUED on its admit queue; its case and batch have ended
                 wf("attempt_workflow", {"input": {"batch_id": "b-orphan"}}, "admit-b-orphan"),
                 wf("attempt_workflow", {"input": {"batch_id": "b-orphan"}}, "steps-b-orphan"),
+                # an attempt whose input cannot be read still keeps the queue it sits on
+                wf("attempt_workflow", "undecodable", "admit-b-x"),
                 wf("founder_stop_workflow", {"case": "case-done-1", "reason": "r"})]
         specs, waiting, retire = queue_plan(names, live)
         self.assertEqual({b: (s["max_concurrency"], v2) for b, (s, v2) in specs.items()},
                          {"b-live": (3, False), "b-case": (4, False)})
-        self.assertEqual(waiting, {"steps-b-case": 4, "admit-b-orphan": 1, "steps-b-orphan": 1})
+        self.assertEqual(waiting, {"steps-b-case": 4, "admit-b-orphan": 1, "steps-b-orphan": 1, "admit-b-x": 1})
         self.assertEqual(retire, ["admit-b-done", "decision-b-done", "steps-b-done"])
         # A workflow that enqueues with an unreadable batch: nothing is deleted.
-        for bad in ("undecodable", {"spec": None}, {}):
+        for bad in ("undecodable", {"spec": None}, {}, {"spec": {"batch_id": ["b-done"]}}):
             self.assertEqual(queue_plan(names, live + [wf("case_workflow", bad)])[2], [])
         # One that never enqueues does not stop the deletes.
         self.assertEqual(queue_plan(names, live + [wf("raise_bound_workflow", "undecodable")])[2], retire)

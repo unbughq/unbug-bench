@@ -61,7 +61,10 @@ Only the batch's own workflows, and only while they run:
      missing (`batch_queue` below; steps at its live batch's `spec.max_concurrency`, otherwise 1, for an
      orphan whose batch and case have ended; 1 never exceeds a batch's limit). DBOS recovery re-enqueues
      a PENDING queued workflow onto its own queue, and a missing row would leave it waiting forever with
-     no error, so this is checked, not just argued. A failure here fails launch, as the old loop did.
+     no error, so launch checks it rather than relying on the keep rules alone. (For a live batch,
+     `register_queues` already covers it; the extra pass matters only for an orphan, which cannot arise
+     today because a case blocks on its attempt's result. It is proved by the `queue_plan` test, not end
+     to end.) A failure here fails launch, as the old loop did.
    - **Then delete** (`DBOS.delete_queue`) every row named `admit-b-`, `steps-b-` or `decision-b-`
      that is not kept. Other rows (DBOS's own, batch ids that do not start `b-`, anything else) are
      never touched. If a live `batch_workflow`, `case_workflow` or `slot_workflow` (the enqueuers) has
@@ -135,6 +138,8 @@ In `tests/factory/test_durable_engine.py`, class `QueuePolling` (real DBOS 3.4.0
   its queue and a missing row of it is registered at concurrency 1, a live case keeps its batch's rows
   when the batch workflow has ended, an unreadable enqueuer deletes nothing, and other rows are
   untouched.
+- Not exercised: the V2 decision queue and the admit enqueue site on a missing row. V2 is off in
+  production; `batch_queue` is the same call at all three sites.
 - Every existing engine test now runs through `settle_queues` at each launch, including the
   kill-and-restart ones (`Restart.test_queues_are_registered_before_recovered_admits_run` checks ADMITs
   stay serial after a restart).

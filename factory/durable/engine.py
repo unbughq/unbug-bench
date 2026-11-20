@@ -174,6 +174,8 @@ def queue_plan(names: list, live: list) -> tuple:
         try:
             job = w.input["args"][0]
             batch = (job.get("spec") or job["input"])["batch_id"]   # batch, case; slot, attempts, probe
+            if not isinstance(batch, str):
+                raise TypeError(batch)
         except (AttributeError, IndexError, KeyError, TypeError):
             unreadable = unreadable or w.name in enqueuers   # raise_bound and founder_stop never enqueue
             continue
@@ -2542,7 +2544,7 @@ class Engine:
                 continue
         for name, concurrency in waiting.items():   # recovered work must be dequeued: its row must exist
             batch_queue(name, concurrency)
-        try:   # waste, never a reason to stop the controller
+        try:   # waste, never a reason to stop the controller; a failure leaves the rest to the next launch
             for name in retire:
                 DBOS.delete_queue(name)
         except Exception:
