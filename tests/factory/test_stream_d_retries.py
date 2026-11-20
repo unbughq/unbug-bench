@@ -203,54 +203,51 @@ class RetryTests(unittest.TestCase):
             '{duplicate_of: case ID or null, reason: nonempty string}',
             lambda v: isinstance(v, dict) and 'duplicate_of' in v and bool(v.get('reason')))
 
-    def test_cae763_walled_role_exhausts_its_one_gated_route_and_resets_next_attempt(self):
-        # cae763-h3 (2026-11-18): the easy calibrator may lease only the gated OpenRouter lane of GLM's
-        # chain (never Go or free). One empty answer spent that lane; spent_routes was compared with the
-        # whole chain, so it never counted as exhausted, never reset on a new attempt, and every retry
-        # failed at once as router:unbounded_route with no call.
-        glm = 'openrouter/z-ai/glm-5.3-flash'
+    def test_cae763_walled_role_exhausts_its_gated_routes_and_resets_next_attempt(self):
+        # cae763-h3 (2026-11-18): the easy calibrator may lease only the gated lanes of GLM's chain (never
+        # Go or free): Neuralwatt's, then the OpenRouter twin (neuralwatt-walled-gate). Empty answers spent
+        # them; spent_routes was compared with the whole chain, so it never counted as exhausted, never
+        # reset on a new attempt, and every retry failed at once as router:unbounded_route with no call.
+        glm, nw = 'openrouter/z-ai/glm-5.3-flash', 'neuralwatt/glm-5.3-flash'
         self.assertTrue(any(r['route'].startswith('opencode') for r in model_router.routes(glm)))
         def setup():
             self.c.models['easy_calibrator'] = [glm]
             self.c.args.easy_calibrator = glm
         setup()
         def emit(c, text, name):
-            if len(self.calls) > 1:
+            if len(self.calls) > 2:
                 self.answer_path(text).write_text('{"duplicate_of":null,"reason":"fresh judgment"}')
         self.cli(emit)
         for _ in range(2):
             with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.board_dedup()
-        self.assertEqual([(n, r) for n, r, _ in self.calls], [('easy-calibrator-dedup', glm)])
+        self.assertEqual([(n, r) for n, r, _ in self.calls], [('easy-calibrator-dedup', nw), ('easy-calibrator-dedup', glm)])
         self.fresh_context(); setup()
         self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0] + '/2'
         self.assertIsNone(self.board_dedup()['duplicate_of'])
-        self.assertEqual([r for _, r, _ in self.calls], [glm, glm])
+        self.assertEqual([r for _, r, _ in self.calls], [nw, glm, nw])
         state = self.dedup_state()
-        self.assertEqual(state['exhausted_attempts'][0]['spent_routes'], [glm])
-        self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'completed'])
+        self.assertEqual(state['exhausted_attempts'][0]['spent_routes'], [nw, glm])
+        self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'invalid', 'completed'])
 
     def test_a_spent_neuralwatt_route_survives_the_key_being_withdrawn(self):
         # neuralwatt-routes rollback: a case spent the NW lane while its box held the key, then the key was
         # withdrawn. Its snapshot keeps that route in spent_routes; the next attempt must not fail
         # infra:ordinary_retry_state_invalid on every retry.
-        glm = 'openrouter/z-ai/glm-5.3-flash'
+        glm, nw = 'openrouter/z-ai/glm-5.3-flash', 'neuralwatt/glm-5.3-flash'
         def setup():
             self.c.models['easy_calibrator'] = [glm]
             self.c.args.easy_calibrator = glm
         setup()
-        self.cli(lambda c, text, name: len(self.calls) > 1 and
+        self.cli(lambda c, text, name: len(self.calls) > 2 and
                  self.answer_path(text).write_text('{"duplicate_of":null,"reason":"fresh judgment"}'))
         for _ in range(2):
             with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.board_dedup()
-        path = self.dedup_state(path=True)
-        state = json.loads(path.read_text())
-        state['spent_routes'].append('neuralwatt/glm-5.3-flash')
-        path.write_text(json.dumps(state))
+        self.assertEqual(self.dedup_state()['spent_routes'], [nw, glm])
         self.fresh_context(); setup()
         self.c.router_accounts = [a for a in model_router.ACCOUNTS if a != 'neuralwatt-key']   # key withdrawn
         self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0] + '/2'
         self.assertIsNone(self.board_dedup()['duplicate_of'])
-        self.assertEqual([r for _, r, _ in self.calls], [glm, glm])
+        self.assertEqual([r for _, r, _ in self.calls], [nw, glm, glm])
 
     def dedup_state(self, path=False):
         found = next(p for p in (self.work / 'ordinary-retries').glob('*/state.json')
@@ -260,13 +257,13 @@ class RetryTests(unittest.TestCase):
     def test_cae763_saved_stuck_pending_judgment_resets_on_the_next_attempt(self):
         # The exact shape cae763-h3 saved before the fix: its gated lane spent, then a pending judgment
         # queued whose call found no lane. The next engine attempt must reset it and call once.
-        glm = 'openrouter/z-ai/glm-5.3-flash'
+        glm, nw = 'openrouter/z-ai/glm-5.3-flash', 'neuralwatt/glm-5.3-flash'
         def setup():
             self.c.models['easy_calibrator'] = [glm]
             self.c.args.easy_calibrator = glm
         setup()
         def emit(c, text, name):
-            if len(self.calls) > 1:
+            if len(self.calls) > 2:
                 self.answer_path(text).write_text('{"duplicate_of":null,"reason":"fresh judgment"}')
         self.cli(emit)
         with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.board_dedup()
@@ -277,9 +274,9 @@ class RetryTests(unittest.TestCase):
         self.fresh_context(); setup()
         self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0] + '/2'
         self.assertIsNone(self.board_dedup()['duplicate_of'])
-        self.assertEqual([r for _, r, _ in self.calls], [glm, glm])
+        self.assertEqual([r for _, r, _ in self.calls], [nw, glm, nw])
         state = self.dedup_state()
-        self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'completed'])
+        self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'invalid', 'completed'])
         self.assertEqual(len(state['exhausted_attempts']), 1)
 
     def test_pending_answer_adopts_new_attempt_before_it_exhausts(self):
