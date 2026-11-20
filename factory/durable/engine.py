@@ -142,6 +142,53 @@ def decision_queue(batch_id: str) -> str:
     return f"decision-{batch_id}"
 
 
+def batch_queue(name: str, concurrency: int):
+    """A batch queue to enqueue onto. Launch deletes the rows of finished batches (Engine.settle_queues);
+    a missing row is registered again, as register_queues would, rather than the enqueue failing on it."""
+    return DBOS.retrieve_queue(name) or DBOS.register_queue(
+        name, global_concurrency=concurrency, polling_interval_sec=_RT.timing.queue_poll_s, on_conflict="never_update")
+
+
+ACTIVE = ["PENDING", "ENQUEUED", "DELAYED"]   # DBOS's active statuses (dbos._sys_db.workflow_is_active)
+
+
+def queue_batch(name: Optional[str]) -> Optional[str]:
+    """The batch of an admit/steps/decision queue name; None for any other queue."""
+    kind, _, batch = (name or "").partition("-")
+    return batch if kind in ("admit", "steps", "decision") and batch.startswith("b-") else None
+
+
+def queue_plan(names: list, live: list) -> tuple:
+    """Launch's queue rows, from this application's queue names and its active workflows (live, rows of
+    DBOS.list_workflows). DBOS 3.4 polls every row once a second on its own thread, forever, so a row is
+    kept only while live work can use it: the queue a live workflow sits on (recovery re-enqueues a
+    PENDING one onto it), and the rows of every batch with a live workflow (only those enqueue onto
+    them). Returns (specs, waiting, retire): {batch_id: (spec record, decision)} of live batches to
+    register, {queue name: concurrency} of the batch queues live workflows sit on, each to exist (steps
+    at its live batch's max_concurrency, else 1), and the rows to delete; none when a workflow that
+    enqueues has an unreadable batch."""
+    enqueuers = (batch_workflow.__qualname__, case_workflow.__qualname__, slot_workflow.__qualname__)
+    specs, keep, unreadable = {}, set(), False
+    for w in live:
+        keep.add(w.queue_name)
+        try:
+            job = w.input["args"][0]
+            batch = (job.get("spec") or job["input"])["batch_id"]   # batch, case; slot, attempts, probe
+        except (AttributeError, IndexError, KeyError, TypeError):
+            unreadable = unreadable or w.name in enqueuers   # raise_bound and founder_stop never enqueue
+            continue
+        keep.update((admit_queue(batch), steps_queue(batch), decision_queue(batch)))
+        if "spec" in job:
+            specs[batch] = (job["spec"], job.get("queue_v2") is True or specs.get(batch, (None, False))[1])
+    waiting = {}
+    for name in sorted(w.queue_name for w in live if queue_batch(w.queue_name)):
+        spec = specs.get(queue_batch(name), (None,))[0]
+        steps = name.startswith("steps-") and isinstance(spec, dict) and type(spec.get("max_concurrency")) is int
+        waiting[name] = spec["max_concurrency"] if steps else 1
+    retire = [] if unreadable else sorted(n for n in names if queue_batch(n) and n not in keep)
+    return specs, waiting, retire
+
+
 def case_id_for(batch_id: str, n: int) -> str:
     return f"case-{batch_id[2:]}-{n}"
 
@@ -1048,7 +1095,7 @@ def slot_workflow(job: dict) -> dict:
     """Every attempt holds a global slot; ADMIT additionally holds the serial queue."""
     si = step_input_from_record(job["input"])
     if si.step.kind is StepKind.ADMIT:
-        queue = DBOS.retrieve_queue(admit_queue(si.batch_id))
+        queue = batch_queue(admit_queue(si.batch_id), 1)
         with SetWorkflowID(f"{si.idempotency_key}/admit"):
             return queue.enqueue(attempt_workflow, job).get_result()
     return attempt_workflow(job)
@@ -1403,7 +1450,7 @@ class _Case:
             restoring = restored[0] <= attempt <= restored[1]
             if (self.replaying or restoring) and not recorded_step(si.idempotency_key):
                 raise ContractError("resume:diverged")   # never start new work inside the replayed history
-            queue = DBOS.retrieve_queue(steps_queue(self.batch_id))
+            queue = batch_queue(steps_queue(self.batch_id), self.spec.max_concurrency)
             with SetWorkflowID(si.idempotency_key):
                 out = queue.enqueue(slot_workflow, job).get_result()
             if restoring and not out["started"]:
@@ -2280,7 +2327,7 @@ class _BatchV2(_Batch):
                "request": request_usd_micros(step, Counters(), self.spec),
                "case_limit": self.spec.case_money_usd_micros, "deadline": self.spec.deadline_epoch}
         with SetWorkflowID(operation):
-            DBOS.retrieve_queue(decision_queue(self.spec.batch_id)).enqueue(admission_probe_workflow, job)
+            batch_queue(decision_queue(self.spec.batch_id), 1).enqueue(admission_probe_workflow, job)
 
     def _reply_probe(self, operation: str, phase: str, **fields) -> None:
         key = _message_key(self.spec.batch_id, operation, "batch", "probe", phase, operation)
@@ -2476,15 +2523,31 @@ class Engine:
         _RT.credit_ready = self.credit_ready
         _RT.draining.clear()
         DBOS.launch()
-        # Rule 6: register the queues of every unfinished batch before anything is started or
-        # attached. Their rows persist from the first launch, so a case recovered by launch()
-        # that enqueues first still lands on its concurrency-1 queue.
-        for w in DBOS.list_workflows(name=batch_workflow.__qualname__, status=["PENDING", "ENQUEUED"]):
+        self.settle_queues()
+
+    def settle_queues(self) -> None:
+        """Rule 6: register the queues of every unfinished batch before anything is started or attached,
+        so a case recovered by launch() that enqueues first still lands on its concurrency-1 queue. Then
+        delete the rows of finished batches (queue_plan), so DBOS stops polling them: 370 rows polled
+        each second took about 0.9 of the control VM's 2 cores on 2026-11-19. Only launch calls this:
+        no start_batch can register a new batch's rows meanwhile (the operator socket opens after it).
+        ponytail: rows of batches that finish while the controller runs are polled until its next
+        restart (at least daily); call this periodically if that ever matters."""
+        live = DBOS.list_workflows(status=ACTIVE, load_output=False)
+        specs, waiting, retire = queue_plan([q.name for q in DBOS.list_queues()], live)
+        for record, decision in specs.values():
             try:
-                job = w.input["args"][0]
-                self.register_queues(batch_spec_from_record(job["spec"]), decision=job.get("queue_v2") is True)
-            except (ContractError, AttributeError, IndexError, KeyError, TypeError):
+                self.register_queues(batch_spec_from_record(record), decision=decision)
+            except (ContractError, AttributeError, KeyError, TypeError):
                 continue
+        for name, concurrency in waiting.items():   # recovered work must be dequeued: its row must exist
+            batch_queue(name, concurrency)
+        try:   # waste, never a reason to stop the controller
+            for name in retire:
+                DBOS.delete_queue(name)
+        except Exception:
+            LOG.warning("deleting finished batch queues failed", exc_info=True)
+        LOG.info("batch queues: %d live batches, %d finished batch queues deleted", len(specs), len(retire))
 
     def register_queues(self, spec: BatchSpec, *, decision: bool = False) -> None:
         DBOS.register_queue(admit_queue(spec.batch_id), global_concurrency=1,
