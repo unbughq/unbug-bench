@@ -551,6 +551,14 @@ def freshness_topup(c, *, completed_roles=(), role_completed=None):
     counts_before = freshness_counts(c)
     # Busy searching is not a stall. The attempt's deadline, call limits and grant bound it.
     deadline = c.engine.deadline_monotonic
+    def flagged_expiry(row):
+        # 1108c (20 Nov): a flagged row is never superseded, so its re-run must amend it in place. Told only
+        # "never a search-results page", the attacker swapped an expired row's api.github.com search URL for
+        # an issue page three times; the changed url is restored with the old `at`, so G2 stalled for good.
+        reason = search_evidence_error(row)
+        if reason != 'evidence_expired' or not (row.get('hit') is True or row.get('ambiguous') is True): return reason
+        return ('evidence_expired: a flagged row: rerun its query and amend THIS row in place (at, note, version_scope, '
+                'retrieved); keep its url exactly as it is, even a GitHub search URL. Log other result pages as NEW rows')
     def role_state(who):
         n = freshness_counts(c)
         rows = freshness_lines(c)
@@ -558,7 +566,7 @@ def freshness_topup(c, *, completed_roles=(), role_completed=None):
                   if not old and (row.get("who") == who or who == "builder" and row.get("who") not in ("builder", "attacker"))
                   and (reason := ('runner_retrieval_unavailable: append an alternative result as a NEW row'
                                   if row.get('url') in getattr(c, 'freshness_unfetched', set())
-                                  else search_evidence_error(row))) is not None]
+                                  else flagged_expiry(row))) is not None]
         short = bool(errors) or (n["builder_web"] < 3 or n["builder_github"] < 3 if who == "builder" else n["attacker"] < 2)
         return n, errors, short
 
