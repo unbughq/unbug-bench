@@ -48,8 +48,15 @@ every Neuralwatt route (GLM, MiMo, DeepSeek) is opened to them; all three have r
      terminal choice, then one usage frame with `choices: []`, then `: energy` and `: cost` SSE comments, then
      `data: [DONE]`. Comments are not `data:` lines and are ignored. Neuralwatt's usage has no `cost`, so a cached
      prompt token is held at the full input price (never below the bill).
-   - ponytail: that ceiling makes a long cache-heavy walled session reach its $12.50 window sooner than its
-     bill would; read the `: cost` comment as the provider's charge if a calibrator ever stops `model_call_cap`.
+   - ponytail: that ceiling counts a cache-heavy request above its bill (a 100k prompt, 97k cached, 500 out:
+     $0.0153 counted, $0.0036 billed, 4.2×). cb5e26's real G10 windows were $1.26 and its call 1d921598 billed
+     $0.05, so about $0.22 counted plus one $0.17 hold in flight still fits; each 429 (below) takes $0.17 more, so
+     about five 429s end the call `model_call_cap`. Upgrade if a calibrator stops on that: take the stream's
+     `: cost {"request_cost_usd": …}` comment as the charge floor, as cached-window does with OpenRouter's
+     `usage.cost`, after capturing one real cached request (no fixture request has `cached_tokens > 0`).
+   - Side effect on unwalled calls: `request_hold` now answers for every Neuralwatt route, so `_call`'s funding
+     floor and the unwalled receipt's `max_request_output_tokens` see a Neuralwatt hold. Benign: budget.py's
+     `nw_request_worst` stop is stricter, and no reader uses that receipt field.
    - Decision (review 1, N4): a Neuralwatt 4xx keeps its hold, as OpenRouter's does. Only Claude's JSON error is
      refunded (`Usage.rejected`). Case money is still bounded by `open_steps` (a refused request leaves none), so
      a 429 costs only window room ($0.17 each).
@@ -81,6 +88,10 @@ The change touches `model_call_gate.py`, `model_router.py` (`ungated_lanes` only
 calibration.py, gate_state.py, bin/**, harbor/** and top-level *.md are not edited. Proof:
 `myident.py` on `git archive` trees of base and head must print identical JSON, for origin/main and for the
 hotfix `hotfix/cb5e26-nw-gate` (cb5e26's source d038ab59 + the Neuralwatt lane commits it lacks + these commits).
+`myident.py` (a scratch script, 17 lines) prints, with `factory/` on the path: `gate_state.model_science()`,
+`sealed_audit.delivery_contract()`, `runner_inputs` and `dependency_files(..., include_pool=True)` for every gate
+in `STAGE_DEPENDENCIES` (plus `factory/case_contract.py`), `source_inputs` of the calibration and stress judges,
+the sha256 of every `factory/prompts/*` file, and `release_pins()`.
 
 **Model verdict code.** `durable.checkpoints.verdict_code(model=True)` digests ten files: `BENCH_VERDICT_CODE`
 plus `model_call_gate.py`, `model_router.py`, `model_runtime.py` and `ordinary_retry.py`. It scopes the
@@ -90,7 +101,8 @@ G10 calibrator calls. This change changes no saved verdict or model effect (it o
 lease next), so each branch repins `verdict_code_pins.model` (`factory/invalid-runs-compat.json`): `from` = the
 digest the predecessor release answers, `to` = this tree's raw digest. On main, `from` = 77f25170's `802bfc8f…`;
 on the cb5e26 hotfix, `from` = d038ab59's answer, and the pin also vouches for the backported Neuralwatt lane
-commits (listed by SHA in the hotfix's review). The pin must be recomputed after any merge that touches any of
+commits. That reverses neuralwatt-first's choice to leave them unpinned (`neuralwatt-first-design-3.md`), so the
+hotfix's review argues each backported SHA by name. The pin must be recomputed after any merge that touches any of
 the ten files. Not covered: 1108c's source 3dfdde3c answers `60be464f…`, not main's `802bfc8f…`, so 1108c moved
 onto main loses its in-flight G10 receipts whatever this change does (REUSABLE passes G4-G9, G13-G16 live in the
 gate cache and are kept).
@@ -102,7 +114,18 @@ Nothing. The "Neuralwatt is ungated" special case in `ungated_lanes`/`bounded_ro
 ## Cost and time
 
 - Money spent building it: about $0.00004 of Neuralwatt trial credit (seven tiny real calls). Nothing else.
-- Running cost: a walled GLM call bills Neuralwatt's list, the same as its OpenRouter twin's pin.
+- Running cost, per million tokens (input / cache read / output) and hold per request:
+
+  | Route | Neuralwatt | OpenRouter twin |
+  |---|---|---|
+  | GLM 5.3 Flash | 0.15 / 0.03 / 0.50, $0.1737 | same |
+  | MiMo v2.6 Pro | 0.435 / 0.0036 / 0.87, $0.4846 | same |
+  | DeepSeek v4.1 Flash | 0.15 / 0.015 / 0.60, $0.1769 | 0.14 / 0.0042 / 0.42, $0.1606 |
+
+- Expected walled spend: the GLM easy calibrator cost about $0.47 a day on OpenRouter (parent design, 7 days);
+  the same on Neuralwatt's list. A DeepSeek calibrator bills up to about 1.4× its twin on output.
+- Precision: GLM is fp8 on Neuralwatt (founder accepted). MiMo's and DeepSeek's serving precision on Neuralwatt
+  is not published in anything we hold; the founder's ruling names roles, so it covers them as served.
 - Half a day of work; deploy is a worker-only plumbing release.
 
 ## Tests
@@ -135,6 +158,9 @@ Nothing. The "Neuralwatt is ungated" special case in `ungated_lanes`/`bounded_ro
   is exactly the chain's Go and free lanes, so no walled acquire is leased one (an unwalled one still is).
 - **Runtime**: `bounded_route` flipped (`test_neuralwatt_runtime.py`); `_call`'s exclusions for the easy
   calibrator, its preflight and a diagnosis (`test_free_routes.py`): the diagnosis still excludes Neuralwatt.
+- **Ordinary retry** (`test_stream_d_retries.py`, the cae763 tests): a walled GLM calibrator's empty answers
+  spend Neuralwatt, then the twin, then count as exhausted and reset on the next engine attempt; with the key
+  withdrawn, the spent Neuralwatt route is still accepted and only the twin is called.
 - Every changed line above was mutated once; a test failed each time.
 - Identity proofs (above) and the full factory suite.
 
@@ -155,8 +181,14 @@ The register is the untracked local `docs/murphy-register.md`; the parent append
 - cb5e26: `plumbing_release` of `hotfix/cb5e26-nw-gate`; 1108c: main (coordinator's call, see the verdict-code
   note). The gate identity is unchanged, so no gate-cache pass reruns.
 - `neuralwatt-key` must reach every machine that runs a walled try: the case's worker credentials bundle and
-  its G10 helper machines (`helper_link`, review 1, N8). A helper without the key fails `credential_expiring`
-  account-wide and blocks the Neuralwatt pool. The router already has it.
+  its G10 helper machines (`helper_link`, review 1, N8). Helpers are workers of the same pool and get the same
+  `credential_bundle`, so the key reaches them once the bundle's accounts include it. But a helper leases with
+  the case worker's `router_accounts` (`helper_link.py:213`), not its own `offered_accounts()`, so a keyless
+  helper is not kept off the lane: it fails `credential_expiring` account-wide and blocks the Neuralwatt pool.
+  The router already has the key.
+- `hotfix/cb5e26-nw-gate` is a per-case release branch, the existing practice (`hotfix/cb5e26-diag`), which
+  ENGINEERING §4 ("Do not add per-case bundles, rescue branches") leans against; it is the coordinator's call
+  and carries only code that is on main or in this change.
 - First check: a G10 easy calibrator receipt (worker and helper try) shows `neuralwatt/glm-5.3-flash`,
   `cap_used.validated_requests > 0` and a booked step. Watch `capacity` waits on `neuralwatt-key`: walled G10
   tries now share its 3 seats (review 1, N10).
