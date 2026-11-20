@@ -287,7 +287,8 @@ def diagnosis_environment(env, driver, lease, home):
     clean.update(HOME=str(home), TMPDIR=str(home / '.cache'))
     key = ('CLAUDE_CODE_OAUTH_TOKEN' if driver == 'claude' else
            'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else
-           None if lease.account == 'neuralwatt-key' else   # diagnosis is walled: never an NW lane, never its key
+           # Only the gate reads it: model_call_gate.enforce replaces the walled env (openrouter_environment).
+           'NEURALWATT_API_KEY' if lease.account == 'neuralwatt-key' else
            'OPENCODE_API_KEY' if driver == 'opencode' and lease.account else None)
     if key and key in env: clean[key] = env[key]
     return clean
@@ -538,11 +539,6 @@ class ModelRuntime:
             # Calibrator preflights run unwalled but are excluded the same way, so they take the same lanes.
             accounts = getattr(c, 'router_accounts', model_router.ACCOUNTS)
             excluded = model_router.ungated_lanes(requested, accounts)
-            if role not in model_router.WALLED_ROLES:
-                # Neuralwatt's gate is for the calibrators (founder 2026-11-20). A diagnosis is walled too, but its
-                # OpenRouter-only handling (bound_reasoning, the webfetch deny) has no Neuralwatt form: no NW lane.
-                excluded += tuple(r['pool'] + '/' + r['route'] for r in model_router.routes(requested, accounts)
-                                  if r['route'] in NW_ROUTES)
             context.router_excluded = (*getattr(context, 'router_excluded', ()), *excluded)
             if not [r for r in model_router._bounded_routes(requested, accounts)
                     if r['pool'] + '/' + r['route'] not in context.router_excluded]:
@@ -927,7 +923,7 @@ class ModelRuntime:
             with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None), user=user) as gate:
                 if diagnosis and driver == 'opencode':
                     env.pop('OPENCODE_ENABLE_EXA', None)
-                    if model in GATED_OPENROUTER:
+                    if model in GATED_OPENROUTER or model in NW_ROUTES:   # both walled through the gate
                         gate.bound_reasoning = True
                         try:
                             cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])
