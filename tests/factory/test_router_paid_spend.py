@@ -956,6 +956,22 @@ class PaidWireTests(unittest.TestCase):
             self.assertLessEqual(len(asked), ended + 1)   # at most the try already in flight, not 30 s more
             self.assertEqual(self.seen, [])
 
+    def test_a_retry_cut_short_by_a_peers_credit_refusal_keeps_that_stop(self):
+        import test_model_call_maxima as core
+        from budget import BudgetError
+        actual = core.lease(MINIMAX)
+        with authority(actual) as store, patch.object(gate.sys, 'platform', 'linux'):
+            def rpc(op, data):
+                if op != 'paid_reserve': return store.rpc(op, data)
+                with active.state.condition: active.state.paid_failure = 'credit'   # a concurrent request's refusal
+                raise router.RouterUnavailable('router response unavailable')
+            with patch.object(router, '_rpc', rpc), patch.object(gate, 'PAID_RESERVE_PAUSE_SECONDS', .05), \
+                    self.assertRaises(BudgetError) as stopped:
+                with gate.enforce(actual, self.env(), {}, 3) as active:
+                    self.assertEqual(self.post(active)[0], 503)
+            self.assertEqual(stopped.exception.provider_failure['reason'], 'credit')   # not router_unavailable
+            self.assertEqual(self.seen, [])
+
     def test_a_router_reply_slowed_by_its_write_lock_is_retried_over_real_http(self):
         """The real router and client: a write lock held 6 s (the 19 November CPU-bound VM) makes the first reply
         miss the client's 5 s; the retry with the same request id is granted and the call goes on."""
