@@ -80,6 +80,7 @@ class Timing:
 # Rechecks (seconds of waiting) of a router or credential wait while the case keeps its worker: at 2, 4 and 8 minutes.
 OPERATIONAL_RECHECK_S = (120.0, 120.0, 240.0)
 CREDIT_REASON = "router:credit"   # parks until a top-up (_Case.wait_for_credit), under the credit_park patch
+BUSY_REASON = "infra:attempt_busy"   # the worker refused a start: an earlier attempt of the case still runs on it
 
 
 class _Runtime:
@@ -1499,8 +1500,12 @@ class _Case:
             # A worker create outage waits like a pause and spends no allowance, up to a total ceiling
             # measured with recorded clock reads: Boat never proves that a failed create left no
             # sandbox, so the pool settles it by time (workers.py).
-            pool_wait = (result.outcome is Outcome.INFRA_ERROR and result.reason in WORKER_POOL_REASONS
-                         and DBOS.patch("worker_pool_retry_wait"))
+            # A start refused as busy proves the worker alive with an earlier attempt of this case still running
+            # there (worker_step.busy). Wait for it like a pool outage, on the same worker: never counted,
+            # diagnosed or released under it (cb5e26 and 1108c, 11-20: the hold deleted the box under a live G10).
+            pool_wait = (result.outcome is Outcome.INFRA_ERROR
+                         and (result.reason in WORKER_POOL_REASONS and DBOS.patch("worker_pool_retry_wait")
+                              or result.reason == BUSY_REASON and DBOS.patch("attempt_busy_waits")))
             if pool_wait:
                 pool_now = now_step()
                 pool_since = pool_now if pool_since is None else pool_since
@@ -1575,7 +1580,8 @@ class _Case:
                     self.worker_id = None
                     continue
                 if (not self.keeps_worker_for(_RT.timing.pause_retry_s) if DBOS.patch('keep_worker_through_waits')
-                        else _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s) and self.worker_id is not None:
+                        else _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s) and self.worker_id is not None \
+                        and result.reason != BUSY_REASON:   # a busy worker is never released under its live attempt
                     release_step(self.case_id, self.worker_id)
                     self.worker_id = None
                 self.nap(_RT.timing.pause_retry_s)

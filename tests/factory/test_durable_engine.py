@@ -269,6 +269,27 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(len(reserves), 5)
         self.assertTrue(all(b - a >= 0.3 for a, b in zip(reserves, reserves[1:])), reserves)
 
+    def test_a_busy_worker_is_waited_for_on_the_same_box_never_counted_diagnosed_or_released(self):
+        # cb5e26 (11-19, 11-20 08:50) and 1108c (11-20 01:52): after a wrongly lost G10, each retry was refused
+        # infra:attempt_busy by the box still running it; counted, they reached a diagnosis, which was refused
+        # too, and its infra hold deleted the box under the live G10 (engine diagnosis_infra_holds).
+        busy = {"outcome": "infra_error", "reason": "infra:attempt_busy", "paid": 0}
+        script = {f"1/gates:1/{n}": busy for n in (1, 2, 3, 4)}
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.2}, "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", *["gates:1"] * 5, "seal"])
+        gates = [x["worker"] for x in r.starts() if "/gates:1/" in x["key"]]
+        self.assertEqual(len(set(gates)), 1)                      # every retry on the box that was busy
+        self.assertEqual([x for x in r.pool_log() if x["op"] == "release"][:-1], [])   # released only at the end
+        # Workflows recorded before the patch keep counting it: the allowance ends in a diagnosis.
+        r, out = run(manual_holds({"disabled_patches": ["attempt_busy_waits"],
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.2}, "script": {**script, "1/diagnosis/*": {"verdict": "factory_bug"}}}))
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "gates:1", "diagnosis"])
+
     def test_credential_delivery_recovers_without_spending_the_infra_allowance(self):
         r, out = run({"pool_failures": 4, "pool_reason": "infra:credentials_unavailable",
                       "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},

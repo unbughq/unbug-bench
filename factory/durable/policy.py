@@ -64,6 +64,12 @@ UNCONFIRMED_WORKER_LIMIT_S = 9000.0
 # without waiting out the deadline and UNCONFIRMED_WORKER_LIMIT_S (hours). Renewal still running means the
 # worker's host is alive: a control-side outage must never kill it.
 SILENT_WORKER_LIMIT_S = 1800.0
+# A worker counts as gone only after this many inventory misses in a row, spanning at least LOST_WINDOW_S, with no
+# poll answered since the first (executor._Presence). One `boat list` that missed a live box cost cb5e26 its
+# in-flight G10 twice (11-19, 11-20 08:50) and 1108c once (11-20 01:52); the next lookup found the box each time.
+# At the 30 s poll a dead box is called gone in about 2-2.5 minutes.
+LOST_MISSES = 3
+LOST_WINDOW_S = 120.0
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
 LOST_REASONS = frozenset({"infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})
