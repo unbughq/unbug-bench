@@ -1,0 +1,174 @@
+{
+ "_source": "Read in memory, 2026-11-20 ~10:40 UTC, from each held case's latest CASE_SNAPSHOT on the control VM (nothing written there): the flagged row (query and note left out), the runner's current receipt for that URL (response bodies left out) and the reviewer's retained G2 answer for that row (ordinary-retries). Verbatim except the 18681d answer's two free-text fields (answer_redacted), which name the case's bug.",
+ "cases": [
+  {
+   "answer": {
+    "app_version": "2.19.0",
+    "archive_available": false,
+    "archive_checked": true,
+    "archive_snapshot_url": null,
+    "live_failure": "http_202",
+    "resolved": false,
+    "retrieved": false,
+    "retrieved_from": "none",
+    "same_bug": null,
+    "url": "https://imgfg46729.lithium.com/t5/Online-Store/With-stock-tracking-disabled-does-it-effect-the-inventory-count/m-p/757099",
+    "version_scope": "Public page of a different commerce platform, not the pinned app; it is not part of medusajs 2.19.0 and neither reports nor fixes this defect.",
+    "why": "Live access failed with a bot-challenge response (HTTP 202, empty body) and the Wayback availability API reports no snapshot, so the page cannot be read and the row stays unresolved; the lead snippet alone (a Square thread about non-tracked variants) is another platform's thread in any case."
+   },
+   "answer_file": "ordinary-retries/9012fac8684a7ecb07a3eb1487d71ba7e7774dc4b57b4dfc8bdff95f4169a781/answer-0.json",
+   "case": "case-import-cae763-h5-1",
+   "flagged_index": 277,
+   "flagged_rows": 361,
+   "receipt": {
+    "archive_available": false,
+    "archive_snapshot_url": null,
+    "at": "2026-11-20T01:59:11.833924+00:00",
+    "live_failure": "http_202",
+    "responses": [
+     {
+      "final_url": "https://imgfg46729.lithium.com/t5/Online-Store/With-stock-tracking-disabled-does-it-effect-the-inventory-count/m-p/757099",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": 202,
+      "url": "https://imgfg46729.lithium.com/t5/Online-Store/With-stock-tracking-disabled-does-it-effect-the-inventory-count/m-p/757099"
+     },
+     {
+      "final_url": "https://archive.org/wayback/available?url=https%3A%2F%2Fimgfg46729.lithium.com%2Ft5%2FOnline-Store%2FWith-stock-tracking-disabled-does-it-effect-the-inventory-count%2Fm-p%2F757099",
+      "sha256": "6f352b048482f05f56713430f4a7c6d48c0271954225083ce23bbd3629999e0e",
+      "status": 200,
+      "url": "https://archive.org/wayback/available?url=https%3A%2F%2Fimgfg46729.lithium.com%2Ft5%2FOnline-Store%2FWith-stock-tracking-disabled-does-it-effect-the-inventory-count%2Fm-p%2F757099"
+     }
+    ],
+    "retrieved_from": "none",
+    "url": "https://imgfg46729.lithium.com/t5/Online-Store/With-stock-tracking-disabled-does-it-effect-the-inventory-count/m-p/757099"
+   },
+   "row": {
+    "ambiguous": true,
+    "app_version": "2.19.0",
+    "hit": false,
+    "kind": "web",
+    "retrieved": true,
+    "url": "https://imgfg46729.lithium.com/t5/Online-Store/With-stock-tracking-disabled-does-it-effect-the-inventory-count/m-p/757099",
+    "who": "builder"
+   },
+   "snapshot": "980494337995",
+   "statement_sha256": "ff9ceb4af3b236f0ffdb239c7d00e87526f3467b41dc2c9b00b68c5f25c780f5"
+  },
+  {
+   "answer": {
+    "app_version": "2.19.0",
+    "archive_available": false,
+    "archive_checked": true,
+    "archive_snapshot_url": null,
+    "live_failure": "http_429",
+    "resolved": false,
+    "retrieved": false,
+    "retrieved_from": "none",
+    "same_bug": null,
+    "url": "https://www.answeroverflow.com/m/1273391376289239134",
+    "version_scope": "<redacted: names the case bug> applicability unconfirmed",
+    "why": "<redacted: names the case bug> Live fetch returned HTTP 429 and no Wayback snapshot exists, so the row stays unresolved."
+   },
+   "answer_file": "ordinary-retries/87d25fd732825f73e9c37e9fa887fe9493175d8dbb1e97cfadd6de28754e3787/answer-0.json",
+   "answer_redacted": [
+    "version_scope",
+    "why"
+   ],
+   "case": "case-import-18681d-h5-1",
+   "flagged_index": 4,
+   "flagged_rows": 5,
+   "receipt": {
+    "archive_available": false,
+    "archive_snapshot_url": null,
+    "at": "2026-11-20T01:51:31.392705+00:00",
+    "live_failure": "http_429",
+    "responses": [
+     {
+      "final_url": "https://www.answeroverflow.com/m/1273391376289239134",
+      "sha256": "d7e01dd2c2b76364d6f3dbd94b7c9c8b72191cde5436eaeeb5e5f4a5c297c158",
+      "status": 429,
+      "url": "https://www.answeroverflow.com/m/1273391376289239134"
+     },
+     {
+      "final_url": "https://archive.org/wayback/available?url=https%3A%2F%2Fwww.answeroverflow.com%2Fm%2F1273391376289239134",
+      "sha256": "3a335b1b29b5e830a5deec6f3b96320043d64c4696c20ef31ea8770b9c1a6b4c",
+      "status": 200,
+      "url": "https://archive.org/wayback/available?url=https%3A%2F%2Fwww.answeroverflow.com%2Fm%2F1273391376289239134"
+     }
+    ],
+    "retrieved_from": "none",
+    "url": "https://www.answeroverflow.com/m/1273391376289239134"
+   },
+   "row": {
+    "ambiguous": true,
+    "app_version": "2.19.0",
+    "hit": false,
+    "kind": "web",
+    "retrieved": false,
+    "url": "https://www.answeroverflow.com/m/1273391376289239134",
+    "who": "builder"
+   },
+   "snapshot": "31d78771a530",
+   "statement_sha256": "50f568b817bc374ddbcb3d6b927127db90fc368b1c2cb14b1477a9e7b30df5d5"
+  },
+  {
+   "answer": {
+    "app_version": "2.19.0",
+    "archive_available": true,
+    "archive_checked": true,
+    "archive_snapshot_url": "http://web.archive.org/web/20250717192859/https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order",
+    "live_failure": "http_403",
+    "resolved": false,
+    "retrieved": true,
+    "retrieved_from": "archive",
+    "same_bug": null,
+    "url": "https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order",
+    "version_scope": "Live fetch failed with HTTP 403 (an access failure, not a dead page) and the retrieved Wayback snapshot (2025-07-17) is a SHOPLINE Help Center article on product purchase and return orders in SHOPLINE Admin/POS \u2014 a different app with no mention of Medusa \u2014 so applicability to 2.19.0 cannot be established, and a non-matching archived comparison cannot clear the row while live access fails.",
+    "why": "Live fetch returned HTTP 403 and the archived snapshot is an unrelated SHOPLINE help article about a different app, but per the access-failure rule an archived comparison that does not match cannot clear the row, so it remains unresolved."
+   },
+   "answer_file": "ordinary-retries/e2e756fa9416d80b13d356cd3e30b5270eaa63fd303dcfd409f8161a51f90a8c/answer-0.json",
+   "case": "case-import-2a7b2a-h1-1",
+   "flagged_index": 16,
+   "flagged_rows": 16,
+   "receipt": {
+    "archive_available": true,
+    "archive_snapshot_url": "http://web.archive.org/web/20250717192859/https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order",
+    "at": "2026-11-20T04:02:41.518503+00:00",
+    "live_failure": "http_403",
+    "responses": [
+     {
+      "final_url": "https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order",
+      "sha256": "d3a0213c4bae80a9cfa172ab4b4458823503ac9822d2acfc7968b2e06b91aa1a",
+      "status": 403,
+      "url": "https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order"
+     },
+     {
+      "final_url": "https://archive.org/wayback/available?url=https%3A%2F%2Fsupport.shoplineapp.com%2Fhc%2Fen-us%2Farticles%2F4403895189401-Product-Purchase-Order-and-Return-Order",
+      "sha256": "0b0d82e6c18f312d68533525e07c856eb036e880734950a7760394a8d3e68ed5",
+      "status": 200,
+      "url": "https://archive.org/wayback/available?url=https%3A%2F%2Fsupport.shoplineapp.com%2Fhc%2Fen-us%2Farticles%2F4403895189401-Product-Purchase-Order-and-Return-Order"
+     },
+     {
+      "final_url": "http://web.archive.org/web/20250717192859id_/https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order",
+      "sha256": "8adea1470ce211cf97585376687bc0442696010ffc297b1c84a46dd2b7e2f0e5",
+      "status": 200,
+      "url": "http://web.archive.org/web/20250717192859id_/https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order"
+     }
+    ],
+    "retrieved_from": "archive",
+    "url": "https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order"
+   },
+   "row": {
+    "ambiguous": true,
+    "app_version": "2.19.0",
+    "hit": false,
+    "kind": "web",
+    "retrieved": true,
+    "url": "https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order",
+    "who": "builder"
+   },
+   "snapshot": "42c9dadb913a",
+   "statement_sha256": "bf5345fbd5b1a8fa696e8811f88a86be8389423c45358549553876c5b61c50de"
+  }
+ ]
+}
