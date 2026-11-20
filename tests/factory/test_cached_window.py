@@ -50,6 +50,23 @@ class CachedWindowTests(unittest.TestCase):
                 if cached and usage['cost'] < float(full_rate(route, usage)):
                     self.assertLess(price, full_rate(route, usage))
 
+    def test_a_bill_above_the_pinned_cache_rate_is_the_price(self):
+        # A serving endpoint whose cache read costs more than the pin: its charge, not the pin, is booked.
+        record = next(r for r in LEASES.values() if r['lease']['route'] == 'openrouter/xiaomi/mimo-v2.6-pro')
+        route = record['lease']['route']
+        usage = max((r['usage'] for r in record['requests']), key=lambda u: u['prompt_tokens_details']['cached_tokens'])
+        full = full_rate(route, usage)
+        for cost, booked in ((float(full) * 0.99, Decimal(str(float(full) * 0.99))), (float(full) * 1.01, None)):
+            charged = dict(usage, cost=cost)
+            self.assertEqual(openrouter_gate_cost(route, charged), booked)
+            lease = SimpleNamespace(**{k: record['lease'][k] for k in ('route', 'max_usd', 'max_input_tokens', 'max_output_tokens')})
+            state = gate.Allowance(lease)
+            self.assertEqual(state.finish(state.reserve(gate.OPENROUTER_OUTPUT), charged), booked is not None)
+            snapshot = state.snapshot()
+            # Above the full rate the usage is not trusted: the request keeps its whole hold.
+            self.assertEqual(Decimal(snapshot['settled_usd'] if booked else snapshot['held_usd']),
+                             booked or gate.request_hold(route))
+
     def test_cb5e26_diagnosis_fits_its_window_at_its_real_cost(self):
         record = next(r for r in LEASES.values() if r['lease']['route'] == 'openrouter/xiaomi/mimo-v2.6-pro')
         self.assertEqual((record['lease']['max_usd'], record['lease']['max_input_tokens']), (12.5, 28735629))
@@ -76,10 +93,12 @@ class CachedWindowTests(unittest.TestCase):
         hold = gate.request_hold(route)
         self.assertGreater(sum(full_rate(route, u) for u in usages) + hold, Decimal('12.5'))
 
-    def test_glm_reviewer2_window_no_longer_cut(self):
-        # 98% cached: $2.06 of a $2.09 window at the full rate for $0.99 billed (15 November).
-        record = next(r for k, r in LEASES.items() if k.startswith('a14a21d1'))
-        self.assertIsNotNone(replay(record).reserve(gate.OPENROUTER_OUTPUT))
+    def test_glm_windows_no_longer_cut(self):
+        # a14a21d1, reviewer2, 98% cached: $2.06 of a $2.09 window at the full rate for $0.99 billed (15 November).
+        # 1d921598, cb5e26's first G10 easy calibrator: $1.09 of $1.26 for $0.05 billed (19 November).
+        for prefix in ('a14a21d1', '1d921598'):
+            record = next(r for k, r in LEASES.items() if k.startswith(prefix))
+            self.assertIsNotNone(replay(record).reserve(gate.OPENROUTER_OUTPUT))
 
     def test_unknown_request_holds_still_bound_the_easy_calibrator(self):
         # Not this row: cb5e26's G10 easy calibrator (e11c7bb2) left 6 requests without usage, each holding

@@ -543,8 +543,8 @@ class OpenRouterUsage:
                     or type(usage.get('total_tokens')) is not int
                     or usage['total_tokens'] != usage['prompt_tokens'] + usage['completion_tokens']):
                 self.invalid = True; return
-            for field, key, maximum in (('prompt_tokens_details', 'cached_tokens', usage['prompt_tokens']),
-                                        ('completion_tokens_details', 'reasoning_tokens', usage['completion_tokens'])):
+            # openrouter_gate_cost has checked prompt_tokens_details.cached_tokens (openrouter_cached_tokens).
+            for field, key, maximum in (('completion_tokens_details', 'reasoning_tokens', usage['completion_tokens']),):
                 if field in usage:
                     details = usage[field]
                     if not isinstance(details, dict): self.invalid = True; return

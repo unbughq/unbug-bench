@@ -57,8 +57,9 @@ input rate, so a long cached session hits `model_call_cap` far below its real co
 - A serving endpoint whose cache read costs more than the pin (the `cheaper` endpoints were checked on
   input and output price only) is covered by the charge floor, which is why no discount is given
   without `cost`.
-- The input cap stays redundant with the money cap: counted inputs times the input price never exceed
-  the counted cost.
+- The input cap stays redundant with the money cap: counted inputs times the input price exceed the
+  counted cost by less than one input token's price (the rounding up), so it never binds materially
+  before the money cap.
 
 ## Gate identity
 
