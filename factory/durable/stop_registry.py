@@ -57,7 +57,7 @@ REGISTRY = {
     "router:quota": WAIT, "router:rate": WAIT, "router:capacity": WAIT, "router:credit": WAIT,
     "router:provider_wait": WAIT, "router:provider_limit": WAIT, "router:claude_limit": WAIT,
     "router:codex_limit": WAIT, "router:opencode_limit": WAIT, "router:openrouter_limit": WAIT,
-    "router:neuralwatt_limit": WAIT,
+    "router:neuralwatt_limit": WAIT, "router:no_route": WAIT,
     "router:outage": WAIT, "router:credential_expiring": WAIT, "infra:credentials_unavailable": WAIT,
     "infra:worker_slots_full": WAIT, "infra:worker_start_rate": WAIT, "infra:paused": WAIT,
     "infra:campaign_deadline": WAIT,

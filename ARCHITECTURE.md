@@ -674,7 +674,14 @@ their hold so nested owner questions remain funded. This changes no case/batch b
 The router's operator configuration may set `paid_ceiling_usd`, an absolute shared
 wallet spending limit including all retained charges. Restart applies an explicit
 limit transactionally without resetting settled or uncertain spending; live wallet
-credit is checked separately on every paid request (a refused request still records the balance it saw).
+credit is checked separately on every paid request (a refused request still records the balance it saw)
+against the balance the reconcile loop reads every 60 s (`Store.refresh_credit`; read live only when that is
+over `CREDIT_FRESH_SECONDS`, 120 s, old), counting every hold granted since that read, so no provider round trip
+sits on the request path. The gate asks a `paid_reserve` with no definite answer (a lost reply, the router's
+4 s self-refusal) again with the same request id for up to 30 s; only a `credit` refusal ends the call at once.
+A lease renewal whose reply is lost is retried every 10 s until 30 s before the lease would expire; a router
+refusal still ends the call. A request with no eligible lane at all waits as `router:no_route`, a
+provider-limit sleep to the router's retry time.
 A balance too short for a request's hold, or a provider 402, blocks the paid pool (`openrouter-key`) for
 `credit` until lifted (a 429 on a call in flight only lengthens it); a credit block on any other pool has
 no balance to read and expires on its backoff, and its stop is that provider's limit, not `router:credit`.

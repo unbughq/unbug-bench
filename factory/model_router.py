@@ -31,6 +31,9 @@ from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX
                           codex_gate_maximum, free_maximum, go_maximum, nw_maximum, openrouter_gate_maximum)
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
+# A renewal whose reply is lost is retried this often while the lease has more than RENEW_GRACE_SECONDS left
+# (the 5 s reply timeout plus clock skew between worker and router), so one slow reply never ends a call.
+RENEW_RETRY_SECONDS, RENEW_GRACE_SECONDS = 10, 30
 # Every seat of a lane leased is our own queue, not a provider limit: the call waits in its worker,
 # polling in FIFO order, for up to this long before the attempt ends as `capacity` (8 November:
 # 74 attempts ended as `rate` while OpenRouter's 1-4 seats served 8 batches, each retry recreating
@@ -65,7 +68,10 @@ ACCOUNT_FREE_ROUTES = ('opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4
 # order stays first come, first served. ponytail: no aging, so a steady stream of GATES calls can
 # starve a writer; add aging if a writer ever waits past its deadline for that reason.
 STAGE_PRIORITY = {'seal': 3, 'diagnosis': 3, 'gates': 3, 'stress': 2, 'writer': 1, 'admit': 0}
-REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route', 'capacity'}
+# no_route: the request has no eligible lane at all (every lane excluded, disabled or closed by configuration).
+# Nothing is down; it waits out retry_after (classify: PROVIDER_LIMIT) instead of an outage's short rechecks.
+REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route', 'capacity',
+           'no_route'}
 # A lost lease (running()): never published to the router. worker_stalled is a worker-only wait reason, not in REASONS.
 LEASE_LOST = ('router_unavailable', 'worker_stalled')
 MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
@@ -397,14 +403,20 @@ def _hold(route):
     return _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
 
 
+# A balance the background pass (reconcile_forever) read at most this long ago serves paid_reserve without a
+# provider round trip; an older or missing one is read live, as before the cache.
+CREDIT_FRESH_SECONDS = 120
+
+
 class Store:
-    """One short SQLite transaction per RPC; no process-local availability cache."""
+    """One short SQLite transaction per RPC. The only process-local state is the provider balance that
+    refresh_credit reads off the request path (`balance`: nano-dollars and the time read began)."""
     def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None,
                  paid_ceiling_usd=None, disabled_routes=()):
         approved_ceiling = None if paid_ceiling_usd is None else _nano(paid_ceiling_usd, ROUND_FLOOR)
         if approved_ceiling is not None and approved_ceiling > 2**63 - 1:
             raise ValueError('invalid paid ceiling')
-        self.credit_reader = credit_reader
+        self.credit_reader, self.balance = credit_reader, None
         self.path, self.clock = str(path), clock
         self.capacities, self.accounts = capacities or {}, tuple(accounts)
         if any(a not in ACCOUNTS for a in self.accounts): raise ValueError('unapproved account')
@@ -445,15 +457,30 @@ class Store:
         return [r for r in _bounded_routes(model, accounts, funding)
                 if not r['route'].startswith(self.disabled_routes) and self.capacities.get(r['pool'], 1) != 0]
 
+    def refresh_credit(self):
+        """Read the provider balance off the request path (reconcile_forever). A failed read keeps the
+        last one, which ages past CREDIT_FRESH_SECONDS into paid_reserve's live read."""
+        at = self.clock()
+        try: observed = self.credit_reader() if self.credit_reader else None
+        except Exception: return   # no provider diagnostics
+        if observed is not None: self.balance = (_nano(observed, ROUND_FLOOR), at)
+
     def rpc(self, operation, data, *, handling_started=None):
         started = time.monotonic() if handling_started is None else handling_started
         credit, fetched_at = None, self.clock()
         if operation in ('paid_reserve', 'paid_settle'): _paid_envelope(operation, data)
         if operation == 'paid_reserve':
-            try:
-                observed = self.credit_reader() if self.credit_reader else None
-                if observed is not None: credit = _nano(observed, ROUND_FLOOR)
-            except Exception: pass  # Unknown credit refuses; no provider diagnostics.
+            # The cached balance is checked against every hold granted since it was read (fetched_at is the
+            # read's start), so its age never lets the ledger's spend pass it. A live /credits read here held
+            # each paid request past the 4 s rule on a loaded control VM (19 November, 16 calls lost).
+            cached = self.balance
+            if cached is not None and fetched_at - cached[1] <= CREDIT_FRESH_SECONDS:
+                credit, fetched_at = cached
+            else:
+                try:
+                    observed = self.credit_reader() if self.credit_reader else None
+                    if observed is not None: credit = _nano(observed, ROUND_FLOOR)
+                except Exception: pass  # Unknown credit refuses; no provider diagnostics.
         now = self.clock()
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute('PRAGMA synchronous=FULL')
@@ -571,7 +598,7 @@ class Store:
                             alternatives = [a for a in alternatives if a[1] != 'credit']
                         bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
                         ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
-                            now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'outage') if bounded
+                            now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'no_route') if bounded
                             else 'unbounded_route', dict(route=data['model'], account=None))
                         result = dict(kind='wait', reason=reason, retry_after=ready, route=route['route'], account=route['account'])
             elif operation in ('renew', 'finish', 'start'):
@@ -623,7 +650,7 @@ class Store:
                         row = db.execute('SELECT route FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
                         if not row: raise ValueError('unknown observation lease')
                         route = json.loads(row[0]); reason = data['reason']
-                        if reason not in REASONS - {'unbounded_route', 'capacity'}: raise ValueError('invalid provider reason')
+                        if reason not in REASONS - {'unbounded_route', 'capacity', 'no_route'}: raise ValueError('invalid provider reason')
                         key = route['pool'] + ('/' + route['route'] if reason == 'outage' else '')
                         old = health.get(key, {}); failures = old.get('failures', 0) + 1
                         # 402s count apart from 429s, once per block (calls refused together are one run-out).
@@ -1057,9 +1084,15 @@ def running(lease, cancel):
         renewed[0] = sent
     renew_once()
     def renew():
-        while not stopped.wait(RENEW_SECONDS):
-            try: renew_once()
+        pause = RENEW_SECONDS
+        while not stopped.wait(pause):
+            try: renew_once(); pause = RENEW_SECONDS
             except (RouterUnavailable, ValueError) as error:
+                # A reply that never came is retried while the lease has room (19 November: a loaded control VM
+                # answered late). The router's own refusal is its answer and ends the call at once.
+                if (not isinstance(error, RouterRejected)
+                        and time.time() - renewed[0] < LEASE_SECONDS - RENEW_GRACE_SECONDS):
+                    pause = RENEW_RETRY_SECONDS; continue
                 # The router refusing a lease our renewals let lapse is a worker stall (cae763, 15 November), not an outage.
                 # ponytail: wall clock, like the router's expiry; a clock jump over LEASE_SECONDS can swap the label
                 # (only the label). Compare the router's returned expires_at if that ever matters.
@@ -1075,6 +1108,9 @@ def running(lease, cancel):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+    # socketserver's default of 5 dropped SYNs under load (ListenOverflows=276 by 19 November): each costs a
+    # client at least a 1 s retransmit of its 5 s budget.
+    request_queue_size = 128
     def __init__(self, address, store, token):
         if not token: raise ValueError('router token required')
         self.store, self.token = store, token
@@ -1142,6 +1178,7 @@ RECONCILE_SECONDS = 60
 def reconcile_forever(store, stopped=None, interval=RECONCILE_SECONDS):
     stopped = stopped or threading.Event()
     while not stopped.wait(interval):
+        store.refresh_credit()   # first, so a slow reconcile never ages the balance paid_reserve reads
         try: store.reconcile(cost_reader=generation_cost, usage_reader=account_usage)
         except Exception: pass  # The next pass tries again; unknown rows keep their holds meanwhile.
         try: store.lift_credit()
@@ -1168,6 +1205,7 @@ def main():
     token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
     server = Server(('0.0.0.0', 8765), store, token)
     server.enable_tls(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
+    store.refresh_credit()
     threading.Thread(target=reconcile_forever, args=(store,), daemon=True).start()
     server.serve_forever()
 

@@ -19,7 +19,7 @@ from durable.stop_registry import STOPS   # fixed labels only, never content
 
 # model_router.REASONS plus its worker-only LEASE_LOST reason worker_stalled.
 REASONS = {'quota', 'rate', 'credit', 'outage', 'credential_expiring', 'unbounded_route', 'router_unavailable', 'capacity',
-           'worker_stalled'}
+           'no_route', 'worker_stalled'}
 HINTS = {'authentication': r'authentication|invalid api key|oauth token.*expired|unauthorized',
          'rate_limit': r'rate.limit|usage limit|hit your limit|too many requests',
          'model_unavailable': r'model.not.found|unknown model|model.*not available',

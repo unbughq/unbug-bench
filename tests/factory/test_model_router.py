@@ -498,6 +498,7 @@ class RouterTests(unittest.TestCase):
             self.assertEqual(sent[-1].get('priority'), expected)
 
     def test_renewal_failure_cancels_and_defers_without_fallback(self):
+        # Lost replies until the lease nears its expiry: the call ends then, never past the lease (grace scaled to .3 s).
         c, secrets, _ = self.context(); renewals = [0]
         def rpc(operation,data):
             if operation == 'renew':
@@ -510,13 +511,43 @@ class RouterTests(unittest.TestCase):
         runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}), patch.object(router,'_rpc',side_effect=rpc), \
              patch.object(router,'SECRETS',secrets), patch.object(router,'RENEW_SECONDS',.01), patch.object(router,'WAIT_SECONDS',0), \
+             patch.object(router,'RENEW_RETRY_SECONDS',.01), patch.object(router,'RENEW_GRACE_SECONDS',router.LEASE_SECONDS-.3), \
              patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute) as called:
             with self.assertRaises(router.ProviderWait) as stopped:
                 runtime.call(c,[router.CHAINS[0][0]],'',c.case,'attacker-1')
         self.assertEqual(called.call_count,1)
+        self.assertGreater(renewals[0], 3)   # retried, not one strike
         self.assertEqual(stopped.exception.wait.reason,'router_unavailable')
         receipt=json.loads((c.work/stopped.exception.wait.call_id).read_text())
         self.assertFalse(receipt['final_usage_known'])
+
+    def test_a_lost_renewal_reply_is_retried_and_the_call_finishes(self):
+        """18681d-h4 gates:1/6, 19 November (lease 2893a7e5): one renewal ~60 s after the last got no reply from a
+        CPU-bound control VM and ended a running mimo call. Two lost replies inside the lease no longer end anything."""
+        c, secrets, _ = self.context(); renewals = [0]
+        def rpc(operation, data):
+            if operation == 'renew':
+                renewals[0] += 1
+                if renewals[0] in (2, 3): raise router.RouterUnavailable('router response unavailable')
+            return self.store.rpc(operation, data)
+        def execute(context, *args, **kwargs):
+            deadline = time.monotonic() + 5
+            while renewals[0] < 6 and time.monotonic() < deadline: time.sleep(.01)
+            self.assertFalse(context.role_cancel.is_set())
+            return 0
+        runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), patch.object(router, '_rpc', side_effect=rpc), \
+             patch.object(router, 'SECRETS', secrets), patch.object(router, 'RENEW_SECONDS', .01), \
+             patch.object(router, 'RENEW_RETRY_SECONDS', .01), patch.object(router, 'WAIT_SECONDS', 0), \
+             patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=execute):
+            self.assertEqual(runtime.call(c, [router.CHAINS[0][0]], '', c.case, 'attacker-1'), 0)
+        self.assertGreaterEqual(renewals[0], 6)
+        self.assertEqual(self.store.rpc('status', {})['leases'], [])   # finished, not lost
+
+    def test_the_router_listens_with_a_deep_backlog(self):
+        server = router.Server(('127.0.0.1', 0), self.store, 'synthetic-token')
+        self.addCleanup(server.server_close)
+        self.assertEqual(server.request_queue_size, 128)
 
     def stalled_call(self, router_down=False, refused_healthy=False):
         """cae763 gates:8/1-1, 15 November: the worker froze from its last renewal (02:17:58) until
