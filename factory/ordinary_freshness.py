@@ -27,6 +27,12 @@ WALLS = ('http_202', 'http_401', 'http_403', 'http_451')   # 202: a WAF challeng
 STALLED_SECONDS = 30 * 60
 
 
+def ruled(c):
+    """URLs a founder ruling settled in the last G2 verdict (run.g2_source_ruling, founder 2026-11-20): never a
+    wall to wait on and, being unread, never search evidence (as run.freshness_counts already treats them)."""
+    return {r['url'] for r in (getattr(c, 'freshness_review_summary', None) or {}).get('ruled_rows') or ()}
+
+
 def stalled(run, c, info):
     """Track the held cycle's evidence and result; stop when the same hold has lasted SOURCE_BLOCKED_CYCLES
     cycles behind a wall with no archive copy, or STALLED_SECONDS otherwise. Anything new starts again."""
@@ -41,7 +47,7 @@ def stalled(run, c, info):
     state = {'signature': signature, 'cycles': before['cycles'] + 1, 'since': before['since']}
     atomic_json(c.work / STALLED, state)
     held = [{'url': r['url'], 'failure': r['live_failure'], 'archive': r['archive_available']}
-            for r in receipts if retrieval.access_failure(r)]
+            for r in receipts if retrieval.access_failure(r) and r['url'] not in ruled(c)]
     walled = any(h['failure'] in WALLS and h['archive'] is False for h in held)
     minutes = (time.time() - state['since']) / 60
     if walled and state['cycles'] < SOURCE_BLOCKED_CYCLES or not walled and minutes < STALLED_SECONDS / 60: return
@@ -170,7 +176,9 @@ def ensure(run, c):
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         rows = [{**r, 'at': now, 'retrieved': True, 'note': r.get('note') or 'x', 'version_scope': r.get('version_scope') or 'x',
                  'url': rerun_url(r)} if e in REFRESH else r for r, e in zip(rows, errors)]
-        found = {v for r in rows if (v := run.own_search(c, r)) is not None}
+        # A ruled row that was not read is no search evidence, as in _g2 (one read from an archive copy is).
+        unread = ruled(c) & set(getattr(c, 'freshness_unfetched', ()))
+        found = {v for r in rows if r.get('url') not in unread and (v := run.own_search(c, r)) is not None}
         enough = (sum(w == 'builder' and k == 'web' for w,k,q in found) >= 3 and
                   sum(w == 'builder' and k == 'github' for w,k,q in found) >= 3 and
                   sum(w == 'attacker' for w,k,q in found) >= 2)
