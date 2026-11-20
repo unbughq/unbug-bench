@@ -78,7 +78,13 @@ class RulingTests(unittest.TestCase):
             self.assertEqual(c.freshness_review_summary['ruled_rows'], ruled)
 
     def test_a_hand_check_settles_18681d_either_way(self):
-        held = HELD[D18681]
+        # The shipped founder hand check (2026-11-20): the page does not report this bug, so the row clears.
+        held, ruling = HELD[D18681], shipped(D18681)
+        self.assertEqual((ruling['kind'], ruling['url'], ruling['statement_sha256'], ruling['hand_check']['reports_this_bug']),
+                         ('hand_checked', held['row']['url'], held['statement_sha256'], False))
+        c, blocked = self.verdict(held, run.G2_SOURCE_RULINGS)
+        self.assertEqual((blocked, c.freshness_confirmed_hits, c.freshness_transport_pending), ([], 0, False))
+        self.assertEqual(c.card['freshness_confirmation']['ruled_rows'], [{'row': 1, **ruling, 'statement_sha256': AUTHORED}])
         c, blocked = self.verdict(held, (hand_check(held, False),))
         self.assertEqual((blocked, c.freshness_confirmed_hits, c.freshness_transport_pending), ([], 0, False))
         self.assertEqual(c.card['freshness_confirmation']['ruled_rows'][0]['hand_check']['reports_this_bug'], False)
@@ -239,7 +245,7 @@ class EndToEndTests(unittest.TestCase):
         held = HELD[D18681]
         url, cycles = f.bot_wall(99, status=429, url=held['row']['url'], hit=False, ambiguous=True, retrieved=False)
         statement = (f.case / 'statement.md').read_bytes()
-        ruling = {**hand_check(held, False), 'statement_sha256': hashlib.sha256(statement).hexdigest()}
+        ruling = {**shipped(D18681), 'statement_sha256': hashlib.sha256(statement).hexdigest()}
         (f.work / 'freshness-repair.json').write_text(json.dumps({
             'version': 2, 'statement_sha256': hashlib.sha256(statement).hexdigest(), 'completed_defects': 0,
             'pending': None, 'last_topup': ordinary_freshness.digest(run.freshness_lines(f.c))}))
