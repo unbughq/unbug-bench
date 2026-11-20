@@ -3170,7 +3170,7 @@ def g11(c):
         'case_rerun_solved': rerun_solved}
 
 
-# ---------------------------------------------------------------- seal (G12) and wipe
+# ---------------------------------------------------------------- seal (G12)
 
 def _retain_delivery(c):
     from sealed_audit import retain_delivery
@@ -3179,15 +3179,12 @@ def _retain_delivery(c):
 
 def _run_artifacts():
     return RunArtifacts(HOME, BENCH, SEALED, STATEMENTS_RECIPIENT, tuple(AGENT_STATE),
-                        pilot_homes, pilot_wall, factory_slots, _retain_delivery, shred_tree)
+                        pilot_homes, _retain_delivery, shred_tree)
 
 
 def seal(c, *, checkpoint=False):
+    gather_bench_results(c)
     return _run_artifacts().seal(c, checkpoint=checkpoint)
-
-
-def wipe(c):
-    return _run_artifacts().wipe(c)
 
 
 # ---------------------------------------------------------------- scorecard
@@ -3982,7 +3979,7 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
 
 def gather_bench_results(c):
     """Move this step's bench results into c.work/bench-results, where gate_state.load and the seal look.
-    First stops each slot's inventory services whose compose file is about to move (1bb2ad-h9, 19 Nov: bench's
+    The one place bench results move (engine snapshots, engine_seal and seal). First stops each slot's inventory services whose compose file is about to move (1bb2ad-h9, 19 Nov: bench's
     later stop_inventory_services failed on the moved file and every G3 on the box crashed). A failed stop
     is logged; the gather still runs, so the snapshot is never lost."""
     files = _run_artifacts().results_since(c)
