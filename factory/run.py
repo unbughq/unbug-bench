@@ -2053,6 +2053,17 @@ G2_SOURCE_RULINGS = (
      "statement_sha256": "bf5345fbd5b1a8fa696e8811f88a86be8389423c45358549553876c5b61c50de",
      "url": "https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order",
      "ruling": "Not needed: a Shopline help page cannot be a public report of a Medusa bug."},
+    {"gate": "G2", "kind": "hand_checked", "by": "founder", "at": "2026-11-20", "case": "case-import-18681d-h5-1",
+     "statement_sha256": "50f568b817bc374ddbcb3d6b927127db90fc368b1c2cb14b1477a9e7b30df5d5",
+     "url": "https://www.answeroverflow.com/m/1273391376289239134",
+     "ruling": "Hand checked: Claude opened the page at the founder's direction and the founder confirmed the reading "
+               "(\"Yes, record it\"); the page does not report this case's bug.",
+     "hand_check": {"checked_at": "2026-11-20", "checked_by": "Claude at the founder's direction; founder confirmed",
+                    "page_says": "A Medusa Community Discord thread from August 2024 (Medusa v1), titled \"draft order "
+                                 "won't reduce product quantity\": one admin question, that marking a draft order as paid "
+                                 "(which turns it into a regular order) does not reduce the variant's inventory quantity, "
+                                 "and how to solve it. No replies, no cause and no fix; it does not report this case's bug.",
+                    "reports_this_bug": False}},
 )
 
 
