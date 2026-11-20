@@ -159,7 +159,7 @@ with tempfile.TemporaryDirectory(prefix="inventory-port-test-") as temporary:
         assert run.g3(c)[0]
     assert c.args.bench_workers == c.card['bench_workers_effective'] == 2
     assert prepared == [1], 'oversized worker request prepared extra idle databases'
-    # A later repair can lower the count, but the old slot is parked and remains in wipe's scope.
+    # A later repair can lower the count, but the old slot is parked and stays in G3's cleanup scope.
     large = copy.deepcopy(memory_config); large['services']['channel']['mem_limit'] = 4*1024*mib
     prepared.clear()
     with mock.patch.object(bench, 'load_scenario', return_value=scenario), \
