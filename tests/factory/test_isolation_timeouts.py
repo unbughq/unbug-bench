@@ -201,39 +201,6 @@ except subprocess.TimeoutExpired: print('owner survived')
                 os.environ['UNBUG_PROCESS_DEADLINE'] = str(clock[0] + 60)
                 with self.assertRaises(subprocess.TimeoutExpired): bench.command(command)
 
-    def test_parallel_wipe_executes_real_child_and_removes_slot_guard(self):
-        from run_artifacts import RunArtifacts
-        bench = self.home / 'bench'
-        for name in ('bin/bench.py', 'bin/bench_judging.py', 'bin/processes.py',
-                     'factory/case_permissions.py', 'projects/medusa/compose.yaml'):
-            target = bench / name; target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / name, target)
-        tools = self.home / 'tools'; tools.mkdir()
-        calls = self.home / 'docker.jsonl'
-        docker = tools / 'docker'
-        docker.write_text('''#!/usr/bin/env python3
-import json,os,sys
-with open(os.environ['TEST_DOCKER_CALLS'],'a') as f:
- f.write(json.dumps({'slot':os.environ.get('UNBUG_FACTORY_SLOT'),'args':sys.argv[1:]})+'\\n')
-''')
-        docker.chmod(0o755)
-        home = self.home / 'runner'; home.mkdir()
-        c = types.SimpleNamespace(work=home / 'work' / LOAD('scorecard.json')['case'],
-                                  card=LOAD('scorecard.json'), t0=time.time() - 1)
-        c.work.mkdir(parents=True)
-        def cleanup(path, **kwargs):
-            if path.is_dir(): shutil.rmtree(path)
-            else: path.unlink(missing_ok=True)
-        artifacts = RunArtifacts(home, bench, home / 'sealed', ROOT / 'factory/statements-recipient.txt',
-            (), lambda: [], lambda *a, **k: None, lambda c: int(option('--bench-workers')),
-            lambda c: None, cleanup)
-        with patch.dict(os.environ, {'PATH':str(tools)+os.pathsep+os.environ['PATH'],
-                                     'TEST_DOCKER_CALLS':str(calls)}):
-            artifacts.wipe(c)  # execute the actual python -c snippet, not a process mock
-        self.assertTrue(c.card['wipe']['factory_cleanup_ok'])
-        events = [json.loads(line) for line in calls.read_text().splitlines()]
-        self.assertIn({'slot':'1','args':['image','rm','-f','unbug-bench-medusa:guard-1']}, events)
-
     def test_gate_deadline_is_operational_and_does_not_send_writer_feedback(self):
         c = types.SimpleNamespace(args=run.argument_parser().parse_args(worker_args()),
                                   work=self.home, case=self.home / 'case', card=LOAD('scorecard.json'), audit_gates=['G13'])

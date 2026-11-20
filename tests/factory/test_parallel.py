@@ -175,7 +175,7 @@ assert all(cmd[1] == 'iptables' for cmd in accepts), 'IPv6 must not open peer en
 assert any(cmd[-3:] == ['LOCAL', '-j', 'REJECT'] for cmd in commands)
 print('PASS pilot UID wall includes own service ports and rejects other local APIs')
 
-# Every new home is archived and wiped, including when the flag changes on resume.
+# Every new home is archived, including when the flag changes on resume.
 import shlex
 import shutil
 with tempfile.TemporaryDirectory() as tmp:
@@ -183,39 +183,22 @@ with tempfile.TemporaryDirectory() as tmp:
     c = run.Ctx(); c.work = root / 'work'; c.work.mkdir()
     c.case = c.work / 'case'; c.card = {}; c.case_id = 'synthetic'
     c.args = argparse.Namespace(bench_workers=1, dry_run=False, concurrent_roles=False)
-    c.prepared_factory_slots = 3  # a repair lowered its active count after preparing these slots
     c.recipient = 'synthetic-public-recipient'; c.t0 = 0
     homes = [(user, root / user) for user in ('pilot', 'pilot-strong', 'pilot-easy')]
     for _, home in homes:
         home.mkdir(); (home / 'fixture').write_text('synthetic session')
-    cleaned = []
     def command(argv, **kwargs):
-        if kwargs.get('env', {}).get('UNBUG_FACTORY_SLOT'):
-            cleaned.append(int(kwargs['env']['UNBUG_FACTORY_SLOT']))
         if isinstance(argv, str):
             pathlib.Path(shlex.split(argv)[-1]).write_bytes(b'synthetic ciphertext')
         elif argv[:3] == ['sudo', 'cp', '-a']:
             shutil.copytree(argv[3], argv[4])
         return subprocess.CompletedProcess(argv, 0, stdout='')
-    walls = []
-    def wall(c, user, slot, remove=False):
-        assert c.work.exists(), 'firewall removal must happen before shredding the command logs'
-        walls.append((user, remove))
-    def shred(path, sudo=False):
-        if path.is_dir(): shutil.rmtree(path)
     with mock.patch.object(run, 'pilot_homes', return_value=homes), \
          mock.patch.object(run, 'SEALED', root / 'sealed'), mock.patch.object(run, 'AGENT_STATE', []), \
          mock.patch.object(run, 'HOME', root / 'runner'), \
          mock.patch.object(run.RunArtifacts, 'results_since', return_value=[]), \
-         mock.patch.object(run.RunArtifacts, 'result_dirs_since', return_value=[]), \
          mock.patch('run_artifacts.processes.run', command):
         run.seal(c)
         for user, _ in homes:
             assert (c.work / f'agent-state/{user}-home/fixture').is_file()
-        with mock.patch.object(run, 'pilot_wall', wall), mock.patch.object(run, 'shred_tree', shred):
-            run.wipe(c)
-    assert walls == [(user, True) for user, _ in homes]
-    assert not any(home.exists() for _, home in homes)
-    assert c.card['wipe']['plaintext_files_left'] == 0
-    assert cleaned == [1, 2] and c.card['wipe']['factory_cleanup_ok'], 'wipe lost previously prepared slot data'
-print('PASS seal/wipe covers every pilot home and removes firewall rules before logs')
+print('PASS seal archives every pilot home')

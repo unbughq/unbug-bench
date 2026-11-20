@@ -6,7 +6,7 @@ sits directly in it, never deeper, so nothing below runs/ or windows/ ever match
 bench.py's own literals (tests/factory/test_live_slot_fixture.py reads them from its source, so a
 rename there fails the test). They live here, in factory code, so changing the list never changes
 the bench version. Anything else in results (runs/, windows/, refusal evidence, an interrupted
-checkpoint.json.tmp, factory_pool's .factory-runs-* records) is evidence: gathered, sealed, wiped.
+checkpoint.json.tmp, factory_pool's .factory-runs-* records) is evidence: gathered and sealed.
 """
 import re
 from pathlib import PurePosixPath
@@ -44,8 +44,3 @@ def is_state(relative):
         return name in FILES or name.startswith(PROGRESS_PREFIX) or (slot and name == SEED_IDS)
     return len(parts) > 1 and parts[0] in DIRECTORIES
 
-
-def always_kept(relative):
-    """The lock and a slot's seed IDs: left in place even by the wipe."""
-    parts, slot = _in_root(relative)
-    return parts == (LOCK,) or (slot and parts == (SEED_IDS,))
