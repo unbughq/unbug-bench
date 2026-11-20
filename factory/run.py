@@ -2038,6 +2038,48 @@ SOURCE_CODE_NOT_PUBLIC = (
 # the old wording is never reused (confirm_hits) and is reviewed again.
 CONFIRMATION_CONTRACT = 3
 
+# Founder 2026-11-20 (cae763-h5, 18681d-h5 and 2a7b2a-h1 held on flagged pages that block every fetch): a founder
+# ruling for one URL of one case settles that flagged row once the runner's receipt shows an access failure.
+# not_needed: the claim does not need the page (cleared); hand_checked: a person opened it, and
+# hand_check.reports_this_bug decides it (true is a public match). Matched by the sha256 of the case's
+# statement.md and the exact URL; a reviewer's same_bug true always stands. An explicit founder exception to
+# "no one-off rulings" (docs/designs/g2-blocked-source.md).
+G2_SOURCE_RULINGS = (
+    {"gate": "G2", "kind": "not_needed", "by": "founder", "at": "2026-11-20", "case": "case-import-cae763-h5-1",
+     "statement_sha256": "ff9ceb4af3b236f0ffdb239c7d00e87526f3467b41dc2c9b00b68c5f25c780f5",
+     "url": "https://imgfg46729.lithium.com/t5/Online-Store/With-stock-tracking-disabled-does-it-effect-the-inventory-count/m-p/757099",
+     "ruling": "Not needed: a Square Community thread cannot be a public report of a Medusa bug."},
+    {"gate": "G2", "kind": "not_needed", "by": "founder", "at": "2026-11-20", "case": "case-import-2a7b2a-h1-1",
+     "statement_sha256": "bf5345fbd5b1a8fa696e8811f88a86be8389423c45358549553876c5b61c50de",
+     "url": "https://support.shoplineapp.com/hc/en-us/articles/4403895189401-Product-Purchase-Order-and-Return-Order",
+     "ruling": "Not needed: a Shopline help page cannot be a public report of a Medusa bug."},
+)
+
+
+def g2_source_ruling(c, row, answer, receipt):
+    """The one valid founder ruling (G2_SOURCE_RULINGS) for this flagged row, or None: only for a row the runner
+    could not read and the reviewer did not confirm. Malformed or duplicate entries settle nothing."""
+    from freshness_retrieval import access_failure
+    statement = c.case / 'statement.md' if getattr(c, 'case', None) is not None else None
+    if (statement is None or not statement.is_file() or not access_failure(receipt)
+            or isinstance(answer, dict) and answer.get('same_bug') is True):
+        return None
+    sha = hashlib.sha256(statement.read_bytes()).hexdigest()
+    found = [r for r in G2_SOURCE_RULINGS if r.get('statement_sha256') == sha and r.get('url') == row.get('url')]
+    if len(found) != 1: return None
+    r, check = found[0], found[0].get('hand_check')
+    date = lambda v: isinstance(v, str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', v) is not None
+    text = lambda v: isinstance(v, str) and bool(v.strip())
+    valid = (r.get('gate') == 'G2' and r.get('by') == 'founder' and date(r.get('at')) and text(r.get('case'))
+             and text(r.get('ruling')) and set(r) <= {'gate', 'kind', 'by', 'at', 'case', 'statement_sha256', 'url',
+                                                      'ruling', 'hand_check'}
+             and (r.get('kind') == 'not_needed' and 'hand_check' not in r or
+                  r.get('kind') == 'hand_checked' and isinstance(check, dict)
+                  and set(check) == {'checked_at', 'checked_by', 'page_says', 'reports_this_bug'} and date(check.get('checked_at'))
+                  and text(check.get('checked_by')) and text(check.get('page_says'))
+                  and type(check.get('reports_this_bug')) is bool))
+    return r if valid else None
+
 
 def confirm_hits(c, flagged, *, retained_path=None):
     """Founder 2026-10-20: a searcher's own `hit` fails G2 only once the reviewer (another family) confirms it is this
@@ -2224,6 +2266,13 @@ def checked_freshness_verdict(c, flagged, verdict):
     for index, (row, answer) in enumerate(zip(flagged, verdict), 1):
         from freshness_retrieval import agrees
         retrieval = getattr(c, 'freshness_retrieval', [])
+        ruling = g2_source_ruling(c, row, answer, retrieval[index - 1]) if len(retrieval) == len(flagged) else None
+        if ruling is not None:
+            summary.setdefault('ruled_rows', []).append({'row': index, **ruling})
+            if ruling['kind'] == 'hand_checked' and ruling['hand_check']['reports_this_bug']:
+                blocked.append(row)
+                c.freshness_confirmed_hits += 1
+            continue
         valid = (len(retrieval) == len(flagged) and isinstance(answer, dict)
                  and agrees(answer, retrieval[index - 1]) and answer.get('resolved') is True and
                  answer.get('url') == row.get('url') and
@@ -2263,7 +2312,9 @@ def checked_freshness_verdict(c, flagged, verdict):
         blocked.append(row)
         if valid and answer['same_bug'] is True: c.freshness_confirmed_hits += 1
     if hasattr(c, 'card'):
-        c.card.setdefault('freshness_confirmation', {}).update(summary)
+        confirmation = c.card.setdefault('freshness_confirmation', {})
+        confirmation.pop('ruled_rows', None)   # only this verdict's rulings
+        confirmation.update(summary)
     return blocked
 
 
