@@ -61,7 +61,7 @@ No gate reruns.
 
 ## Tests
 
-All in `tests/factory/test_durable_diagnosis_invocation.py`.
+In `tests/factory/test_durable_diagnosis_invocation.py`:
 
 - **`test_a_session_that_stops_before_its_result_is_continued`**
   - Collect says missing, missing, then ok: there are three sessions, the second and third are
@@ -82,14 +82,31 @@ All in `tests/factory/test_durable_diagnosis_invocation.py`.
 
 Red check: on the unfixed code the two new behaviour tests fail and every other test passes.
 
-These tests prove the loop and the command. They do not prove that the pinned OpenCode resumes the
-session (see Limits and the Murphy row).
+In `tests/factory/test_opencode_continue_linux.py` (review diff-1's blocking finding):
+- **`test_a_stopped_session_is_resumed_and_writes_its_result`**
+  - **Setup.** The test runs the installed OpenCode twice, the way `_invoke` runs a diagnosis:
+    - as a throwaway UID with a tmpfs home;
+    - with HOME, TMPDIR and the data home in that home;
+    - with fresh config and cache dirs per run;
+    - with the gate's openrouter provider shape;
+    - with the prompt on stdin, under `sudo -H -u` and `sh -c cd`.
+    The provider is a local stub, so the test costs nothing and uses no case content.
+  - **What it checks.**
+    - The first session replies with no tool call and ends with no result, cb5e26's stop.
+    - The `--continue` run carries the same `sessionID`.
+    - Its first request holds the first run's prompt and reply.
+    - It writes the result file.
+  - **Where it runs.** Only on Linux with passwordless sudo and `FACTORY_LIVE_OPENCODE=1`, since it
+    creates and deletes a user.
+  - **Result.** It passed on worker box bx_zgwcjuqa with OpenCode 1.19.0, the pinned version, on
+    2026-11-20.
+  - **Red check.** It fails there with the old per-run data home (`scratch/data`): `--continue`
+    then starts a new session.
 
 ## Limits
 
-- **Resumption is not proven on the pinned binary.** The tests prove the command and the shared data
-  home, not that OpenCode 1.19.0 under `sudo -H -u pilot` finds and resumes the first run's session.
-  The first live continuation shows whether it does.
+- **Stub model only.** Resumption is proven on the pinned binary against a stub provider. Whether
+  MiMo, given the continuation prompt, then writes its result is shown only by a live diagnosis.
 - **`--continue` takes the most recent session.** It does not name one. Within one invocation there
   is only one root session in the pilot's home, because `task` is denied. `--session <id>` from the
   first run's events would be exact, but it is not needed today.
@@ -122,12 +139,11 @@ lands.
 - **New row `new-diagnosis-early-stop-1`:** "a diagnosis model replies without a tool call before
   writing its result; OpenCode ends the run and every fresh retry repeats it" (seen 2026-11-19 on
   cb5e26-h5, diagnoses 2-1, 3-1 and 4-1).
-  - Status: mitigated, open (review diff-1).
-    - `tests/factory/test_durable_diagnosis_invocation.py` proves the continuation loop, and the
-      `ContinuedSession` test uses the real 4-1 lease.
-    - Neither shows OpenCode 1.19.0 resuming a real session.
-    - The row closes when a live diagnosis records a continuation that writes its result, or when
-      a Linux pilot test runs the pinned binary twice and sees the same `sessionID`.
+  - Status: closed by `tests/factory/test_opencode_continue_linux.py`.
+    - That test runs the pinned OpenCode 1.19.0 and reproduces the stop, a reply with no tool
+      call. It shows `--continue` resuming the same session and writing the result.
+    - `tests/factory/test_durable_diagnosis_invocation.py` proves the loop and the runtime command,
+      on the real 4-1 lease.
 - **New row `new-cached-window-1`:** "the model-call gate prices cached prompt tokens at the full
   input rate, so a long cached session hits `model_call_cap` far below its real cost" (open).
   - **Seen** 2026-11-19 on cb5e26-h5:
