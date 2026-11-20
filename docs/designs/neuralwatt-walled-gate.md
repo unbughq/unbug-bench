@@ -157,7 +157,8 @@ Nothing. The "Neuralwatt is ungated" special case in `ungated_lanes`/`bounded_ro
   Neuralwatt lane first; after a Neuralwatt `credit` observation it waits on the OpenRouter twin. `ungated_lanes`
   is exactly the chain's Go and free lanes, so no walled acquire is leased one (an unwalled one still is).
 - **Runtime**: `bounded_route` flipped (`test_neuralwatt_runtime.py`); `_call`'s exclusions for the easy
-  calibrator, its preflight and a diagnosis (`test_free_routes.py`): the diagnosis still excludes Neuralwatt.
+  calibrator, its preflight and a diagnosis (`test_free_routes.py`): the diagnosis still excludes Neuralwatt
+  (superseded 11-20 by `diagnosis-neuralwatt-gate.md`).
 - **Ordinary retry** (`test_stream_d_retries.py`, the cae763 tests): a walled GLM calibrator's empty answers
   spend Neuralwatt, then the twin, then count as exhausted and reset on the next engine attempt; with the key
   withdrawn, the spent Neuralwatt route is still accepted and only the twin is called.

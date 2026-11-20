@@ -28,9 +28,10 @@ to the diagnosis.
    route: `gate.bound_reasoning = True` and `webfetch`/`websearch` denied in the inline config.
 4. `model_call_gate.openrouter_body`: a Neuralwatt form of `bound_reasoning`. It sets
    `thinking_token_budget = max_tokens * 3 // 4`, the same room as OpenRouter's `reasoning.max_tokens`.
-   - `thinking_token_budget` is vLLM's per-request reasoning bound. Neuralwatt serves vLLM 0.30.1.
-   - Six real calls on 11-20 (fixture below) show that GLM, MiMo and DeepSeek each stop reasoning at exactly the
-     budget and then answer. Without it, GLM and MiMo reason past it on the same prompt.
+   - `thinking_token_budget` is vLLM's per-request reasoning bound. Neuralwatt serves vLLM (0.30.1 for GLM and MiMo, 0.34.0 for DeepSeek).
+   - Six real calls on 11-20 (fixture below) show that GLM, MiMo and DeepSeek each accept the budget, reason
+     exactly 64 tokens under it, and then answer. Without it, GLM and MiMo reason past it on the same prompt (223
+     and 147). DeepSeek reasoned only 61 without it, so for DeepSeek the fixture shows acceptance, not a cut.
    - It is sent beside any `reasoning_effort`, because on vLLM effort is a chat-template hint, not a token bound.
      On OpenRouter, effort and `max_tokens` exclude each other, so that form is unchanged.
    - A caller can never send the field: it is not in the allowlist. Only the gate adds it, and only for a
@@ -91,3 +92,9 @@ The diagnosis-only Neuralwatt exclusion in `_call`, and the "never its key" bran
 - `neuralwatt-key` must be in each case's worker bundle, as for the calibrator.
 - Live check: a diagnosis receipt shows `neuralwatt/<model>` and `cap_used.validated_requests > 0`.
 - Walled diagnoses now share the 3 `neuralwatt-key` seats with G10.
+- Neuralwatt credit or quota exhaustion puts walled diagnoses back on `no_route` while the OpenRouter twin
+  prefixes stay disabled. Watch the Neuralwatt balance alongside G10.
+- When the twin prefixes are re-enabled, a diagnosis continuation (`--continue` on the same OpenCode session) may
+  run on the other provider than its first turn. The two gate allowlists differ (`reasoning_content` against
+  `reasoning`/`reasoning_details`), so capture a real cross-provider continuation first, or pin continuations to
+  the first turn's provider.
