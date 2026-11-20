@@ -189,6 +189,26 @@ class Overlap(unittest.TestCase):
         self.assertFalse(worker.is_alive(), "the case worker hung waiting for G13's result")
         self.assertIsInstance(out["c"].raised, OSError)
 
+    def test_a_crash_puts_an_absent_card_key_back_as_absent(self):
+        """2a7b2a (20 November): G6 crashed (InfrastructureExhausted) while G13 ran; G13, never recorded,
+        is put back. strategy_reuse was not on the card before G13, so the put-back deletes it; a copied
+        sentinel left in its place made the checkpoint's scorecard.json unserialisable."""
+        import run_validity
+        g13_started = threading.Event()
+        def g6(c):
+            dispatch(c, [], "g6-cheat")   # gives the case box up, as while its helpers work
+            self.assertTrue(g13_started.wait(5))
+            raise run_validity.InfrastructureExhausted("helpers exhausted")
+        def g13(c):
+            c.card["strategy_reuse"] = {"G13": "new"}
+            g13_started.set(); c.role_cancel.wait(5)
+            return True, {}
+        c = exercise(self, {"G6": g6, "G13": g13}, Pool())
+        self.assertEqual(c.card["gates"].get("G6"), "invalid-infra")
+        self.assertNotIn("G13", c.card["gates"])
+        self.assertNotIn("strategy_reuse", c.card)
+        json.dumps(c.card)
+
     def test_discarded_gates_are_put_back_before_the_section_publishes(self):
         """The section's exit publishes the deferred engine snapshot: it must not carry a discarded G7."""
         at_exit = {}

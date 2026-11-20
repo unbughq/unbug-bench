@@ -378,7 +378,7 @@ class GatePipeline:
                         with lock:
                             if pos[gate] > stop_at[0]: return
                             running[i] = pos[gate]
-                        snapshots[gate] = {k: copy.deepcopy(c.card.get(k, _MISSING)) for k in keys.get(gate, ())}
+                        snapshots[gate] = {k: copy.deepcopy(c.card[k]) if k in c.card else _MISSING for k in keys.get(gate, ())}
                         if pos[gate]: self.budget_boundary(lane)   # the serial loop's boundary before each later gate
                         outcome = run_gate(gate, lane)
                     finally:
