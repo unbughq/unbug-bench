@@ -54,3 +54,12 @@ implementation_readiness lenses directly, because `tools/egm` is not in the repo
   - Transcripts stay longer in the pilot's home.
   - The Codex/Claude test reads the requested model's prefix.
 - **Re-review:** a fresh goldfish should confirm before merge. This was not done in this stream.
+
+## Follow-up
+
+- The coordinator then asked for the first option.
+- `tests/factory/test_opencode_continue_linux.py` runs OpenCode 1.19.0 twice on worker box
+  bx_zgwcjuqa:
+  - it passes;
+  - it fails with the old per-run data home.
+- The row is now closed by that test; see diff-2.
