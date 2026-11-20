@@ -20,6 +20,7 @@ import run
 
 HELD = {d['case']: d for d in json.loads((Path(__file__).with_name('fixtures') / 'g2-blocked-source.json').read_text())['cases']}
 CAE763, D18681, A2A7B2 = 'case-import-cae763-h5-1', 'case-import-18681d-h5-1', 'case-import-2a7b2a-h1-1'
+SHELLS = ('case-import-5813be-h3-1', 'case-import-5813be-h1-1')   # live HTTP 200 JS loading shells, left unresolved
 STATEMENT = b'authored statement: the real ones stay sealed in the snapshots\n'
 AUTHORED = hashlib.sha256(STATEMENT).hexdigest()
 
@@ -56,11 +57,12 @@ class RulingTests(unittest.TestCase):
         return c, blocked
 
     def test_each_held_row_stays_blocked_without_a_ruling(self):
-        # Today's behaviour on the real rows: an access failure left unresolved holds G2 as transport.
+        # Today's behaviour on the real rows: an access failure left unresolved holds G2 as transport; a page
+        # read but left unresolved (5813be's shells) holds it as review_unresolved.
         for case, held in HELD.items():
             c, blocked = self.verdict(held, ())
             self.assertEqual(blocked, [held['row']], case)
-            self.assertTrue(c.freshness_transport_pending, case)
+            self.assertEqual(c.freshness_transport_pending, case not in SHELLS, case)
             self.assertNotIn('ruled_rows', c.card['freshness_confirmation'], case)
             self.assertEqual(set(c.freshness_review_summary), {'unreachable_hits', 'archived_hits', 'unreachable_rows'})
 
@@ -90,6 +92,46 @@ class RulingTests(unittest.TestCase):
         self.assertEqual(c.card['freshness_confirmation']['ruled_rows'][0]['hand_check']['reports_this_bug'], False)
         c, blocked = self.verdict(held, (hand_check(held, True),))
         self.assertEqual((blocked, c.freshness_confirmed_hits, c.freshness_transport_pending), ([held['row']], 1, False))
+
+    def test_a_hand_check_settles_5813be_unreadable_shells_never_a_confirmed_row(self):
+        # Founder 2026-11-20 ~17:00: a hand_checked ruling also settles a fetched page the reviewer left
+        # unresolved (5813be's two Medusa docs pages, saved as JS loading shells). Fails before that change.
+        for case in SHELLS:
+            held, ruling = HELD[case], shipped(case)
+            self.assertEqual((held['receipt']['live_failure'], held['receipt']['retrieved_from'], held['answer']['resolved']),
+                             (None, 'live', False), case)
+            self.assertEqual((ruling['kind'], ruling['url'], ruling['statement_sha256'], ruling['hand_check']['reports_this_bug']),
+                             ('hand_checked', held['row']['url'], held['statement_sha256'], False), case)
+            c, blocked = self.verdict(held, run.G2_SOURCE_RULINGS)
+            self.assertEqual((blocked, c.freshness_confirmed_hits, c.freshness_transport_pending), ([], 0, False), case)
+            self.assertEqual(c.card['freshness_confirmation']['ruled_rows'], [{'row': 1, **ruling, 'statement_sha256': AUTHORED}])
+            c, blocked = self.verdict(held, (hand_check(held, True),))
+            self.assertEqual((blocked, c.freshness_confirmed_hits), ([held['row']], 1), case)
+            confirmed = {**held['answer'], 'resolved': True, 'same_bug': True, 'why': 'authored', 'version_scope': 'authored'}
+            read = {**held['answer'], 'resolved': True, 'same_bug': False, 'why': 'authored', 'version_scope': 'authored'}
+            for name, rulings, answer, receipt in (
+                    ('not_needed', ({**ruling, 'kind': 'not_needed', 'hand_check': None},), None, None),
+                    ('not_needed without hand_check', ({k: v for k, v in ruling.items() if k != 'hand_check'} | {'kind': 'not_needed'},), None, None),
+                    ('reviewer confirmed', (ruling,), confirmed, None),
+                    ('reviewer confirmed, left unresolved', (ruling,), {**held['answer'], 'same_bug': True}, None),
+                    ('same_bug not a bool', (ruling,), {**held['answer'], 'same_bug': 'true'}, None),
+                    ('same_bug zero', (ruling,), {**held['answer'], 'same_bug': 0}, None),
+                    ('reviewer read it', (ruling,), read, None),
+                    ('answer for another url', (ruling,), {**held['answer'], 'url': ruling['url'] + '?x'}, None),
+                    ('answer disagrees with the receipt', (ruling,), {**held['answer'], 'retrieved_from': 'archive'}, None),
+                    ('no answer', (ruling,), 'missing', None),
+                    ('dead page, no copy', (ruling,), {**held['answer'], 'live_failure': 'http_404', 'retrieved_from': 'none',
+                                                       'archive_checked': True, 'archive_available': False},
+                     {**held['receipt'], 'live_failure': 'http_404', 'retrieved_from': 'none', 'archive_available': False}),
+                    ('dead page, archive copy', (ruling,), {**held['answer'], 'live_failure': 'http_404', 'retrieved_from': 'archive',
+                                                            'archive_checked': True, 'archive_available': True,
+                                                            'archive_snapshot_url': 'https://web.archive.org/web/20261101000000/x'},
+                     {**held['receipt'], 'live_failure': 'http_404', 'retrieved_from': 'archive', 'archive_available': True,
+                      'archive_snapshot_url': 'https://web.archive.org/web/20261101000000/x'})):
+                c, blocked = self.verdict(held, rulings, answer, receipt)
+                self.assertNotIn('ruled_rows', c.card['freshness_confirmation'], (case, name))
+                if name != 'reviewer read it':
+                    self.assertEqual(blocked, [held['row']], (case, name))
 
     def test_every_shipped_ruling_is_valid_and_keyed_to_a_held_case(self):
         # A malformed entry would apply nothing at runtime and cost a held case a resume: fail here instead.

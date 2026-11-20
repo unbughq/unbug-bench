@@ -2048,6 +2048,8 @@ CONFIRMATION_CONTRACT = 3
 
 # Founder 2026-11-20 (cae763-h5, 18681d-h5 and 2a7b2a-h1 held on flagged pages that block every fetch): a founder
 # ruling for one URL of one case settles that flagged row once the runner's receipt shows an access failure.
+# Founder 2026-11-20 ~17:00 (5813be): a hand_checked ruling also settles a fetched page the reviewer left
+# unresolved (resolved false), e.g. a JS "Loading" shell; never a row the reviewer confirmed.
 # not_needed: the claim does not need the page (cleared); hand_checked: a person opened it, and
 # hand_check.reports_this_bug decides it (true is a public match). Matched by the sha256 of the case's
 # statement.md and the exact URL; a reviewer's same_bug true always stands. An explicit founder exception to
@@ -2072,15 +2074,48 @@ G2_SOURCE_RULINGS = (
                                  "(which turns it into a regular order) does not reduce the variant's inventory quantity, "
                                  "and how to solve it. No replies, no cause and no fix; it does not report this case's bug.",
                     "reports_this_bug": False}},
+    # Founder 2026-11-20 ~17:00 ("Yes, do it"): Medusa's own reference pages, saved by the runner as JS "Loading"
+    # shells (HTTP 200) the reviewer could not read; read by Claude in a browser and from their sources.
+    {"gate": "G2", "kind": "hand_checked", "by": "founder", "at": "2026-11-20", "case": "case-import-5813be-h3-1",
+     "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf",
+     "url": "https://docs.medusajs.com/resources/references/medusa-workflows/createOrderFulfillmentWorkflow",
+     "ruling": "Hand checked: the runner's copy is a JS loading shell; Claude read the rendered page and its Markdown "
+               "at the founder's direction (\"treat 5813be now\"); it documents the workflow and does not report "
+               "this case's bug.",
+     "hand_check": {"checked_at": "2026-11-20", "checked_by": "Claude at the founder's direction",
+                    "page_says": "Medusa's reference page for createOrderFulfillmentWorkflow (docs v2.22.7): its steps, "
+                                 "an example, its input and output schema and its events. It documents intended "
+                                 "behaviour only: no defect, issue, fix or workaround is reported; it does not report "
+                                 "this case's bug.",
+                    "reports_this_bug": False}},
+    {"gate": "G2", "kind": "hand_checked", "by": "founder", "at": "2026-11-20", "case": "case-import-5813be-h1-1",
+     "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf",
+     "url": "https://docs.medusajs.com/api/admin/orders/create-fulfillment",
+     "ruling": "Hand checked: the runner's copy is a JS loading shell and the endpoint section never renders; Claude "
+               "read its source, Medusa's OpenAPI spec, at the founder's direction (\"treat 5813be now\"); it "
+               "documents the endpoint and does not report this case's bug.",
+     "hand_check": {"checked_at": "2026-11-20", "checked_by": "Claude at the founder's direction",
+                    "page_says": "Medusa's Admin API reference for POST /admin/orders/{id}/fulfillments, read from its "
+                                 "source in medusajs/medusa (www/apps/api-reference/specs/admin/paths/"
+                                 "admin_orders_{id}_fulfillments.yaml, the same at v2.19.0 and develop): the request "
+                                 "fields and their defaults, the emitted events, the error responses and the workflow it "
+                                 "runs. It documents intended behaviour only: no defect, issue, fix or workaround is "
+                                 "reported; it does not report this case's bug.",
+                    "reports_this_bug": False}},
 )
 
 
 def g2_source_ruling(c, row, answer, receipt):
     """The one valid founder ruling (G2_SOURCE_RULINGS) for this flagged row, or None: only for a row the runner
-    could not read and the reviewer did not confirm. Malformed or duplicate entries settle nothing."""
-    from freshness_retrieval import access_failure
+    could not read, or (hand_checked only, founder 2026-11-20 for 5813be's JS loading shells) a fetched page the
+    reviewer left unresolved, and never one the reviewer confirmed. Malformed or duplicate entries settle nothing."""
+    from freshness_retrieval import access_failure, agrees
     statement = c.case / 'statement.md' if getattr(c, 'case', None) is not None else None
-    if (statement is None or not statement.is_file() or not access_failure(receipt)
+    blocked = access_failure(receipt)
+    unreadable = (not blocked and receipt.get('retrieved_from') == 'live' and isinstance(answer, dict)
+                  and answer.get('resolved') is False and (answer.get('same_bug') is None or answer.get('same_bug') is False)
+                  and answer.get('url') == row.get('url') and agrees(answer, receipt))
+    if (statement is None or not statement.is_file() or not (blocked or unreadable)
             or isinstance(answer, dict) and answer.get('same_bug') is True):
         return None
     sha = hashlib.sha256(statement.read_bytes()).hexdigest()
@@ -2096,7 +2131,8 @@ def g2_source_ruling(c, row, answer, receipt):
                   r.get('kind') == 'hand_checked' and isinstance(check, dict)
                   and set(check) == {'checked_at', 'checked_by', 'page_says', 'reports_this_bug'} and date(check.get('checked_at'))
                   and text(check.get('checked_by')) and text(check.get('page_says'))
-                  and type(check.get('reports_this_bug')) is bool))
+                  and type(check.get('reports_this_bug')) is bool)
+             and (blocked or r.get('kind') == 'hand_checked'))
     return r if valid else None
 
 
