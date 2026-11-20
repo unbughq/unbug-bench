@@ -184,8 +184,8 @@ class ModelRuntimeTests(unittest.TestCase):
             roles = {'stress_tester': {'model': source, 'effort': 'default', 'family': 'deepseek'}}
             c = types.SimpleNamespace(work=root, case=root / 'case', case_id='synthetic',
                 card={'roles': roles}, ledger=root / 'ledger.json',
-                # The free-to-paid move under test; with the Go accounts the chain would start on the Go plan.
-                router_accounts=tuple(a for a in model_router.ACCOUNTS if not a.startswith('opencode-go')),
+                # The free-to-paid move under test; with the Go or Neuralwatt accounts the chain would start there.
+                router_accounts=tuple(a for a in model_router.ACCOUNTS if not a.startswith(('opencode-go', 'neuralwatt'))),
                 model_env={'FACTORY_ROUTER_TOKEN':'public-case-router-sentinel'},
                 args=argparse.Namespace(agent_timeout=3, max_cost=5, max_role_calls=10,
                     max_total_calls=20, no_progress_minutes=1, max_zero_tokens=3, resume=None))

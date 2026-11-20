@@ -190,6 +190,8 @@ Strictly in this order. No release reaches any batch until step 3 is done.
      start spec (`contract.py:357`), and only `plumbing_release <batch>` or a new start spec moves
      a case.
 3. **Router: new code, config, then a drained restart.**
+   - *Superseded for the VM (2026-11-20):* the router runs from `source-current` through a systemd
+     drop-in. See "Neuralwatt first", Deploy step 3.
    - The router runs from its own checkout (`control/unbug-model-router.service`:
      `/home/user/unbug-bench/factory/model_router.py`), which neither `unbug install` nor
      `source-current` moves. Fast-forward that checkout to the release commit first, then check
@@ -439,8 +441,9 @@ callers on several releases at once.
   `systemctl cat unbug-model-router.service`: the last `ExecStart`, in the drop-in
   `zzz-approved-ceiling.conf`, is
   `…/durable-first-case-20261106/source-current/factory/model_router.py --config …/router-approved-config.json`.
-  It overrides the checked-in unit's `/home/user/unbug-bench` path, which the 11-19 runbook (step 3)
-  still names.
+  It overrides the checked-in unit's `/home/user/unbug-bench` path. The 11-19 runbook (its step 3)
+  and `control/unbug-model-router.service` still name that path; the deploy steps below supersede both
+  for the VM.
 - **The controller** (`unbug-durable-case-campaign.service`) also runs from `source-current`.
 
 **Who is exposed.** Workers on 3dfdde3c already offer `neuralwatt-key`, but their `CHAINS` know only
@@ -643,35 +646,54 @@ lands.
 **The router goes first.** An old router refuses the new `chain` field, so no worker may run this
 release before the router does.
 
-1. On the merged tree (this change plus the router-retry change), run
-   `BENCH="$PWD" python3 -B tests/factory/test_neuralwatt_routes.py`.
-   - It fails if the merge dropped `chain` from the acquire's allowed fields.
-   - Then run `unbug install` for the release. From here until step 3, launch nothing new and send no
-     `plumbing_release`.
-2. **Confirm which code the router runs.** `systemctl cat unbug-model-router.service`: the last
-   `ExecStart` must be `…/durable-first-case-20261106/source-current/factory/model_router.py --config
-   …/router-approved-config.json` (the `zzz-approved-ceiling.conf` drop-in). If it is not, the router's
-   checkout is whatever that line names, and steps 2 and 5 apply to that checkout instead.
-   - Point `source-current` at the release.
-   - In `~/durable-first-case-20261106/source-current`, check
-     `python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0] and 'neuralwatt-key' in m.ACCOUNTS and hasattr(m, 'knows')"`.
-   - Then do one drained router restart, and restart the controller with
-     `sudo -n /usr/bin/systemctl restart unbug-durable-case-campaign.service`. The controller also runs from
-     `source-current` and imports `model_router` lazily, so it must not run on the old code while that
-     code's files have been replaced.
-   - The config is unchanged: `neuralwatt-key` stays at 3 seats, and no `disabled_routes` entry is
-     added.
-3. Launches and `plumbing_release` may resume.
-   - Running batches keep their own release and run as before.
-   - The 3dfdde3c batches keep their Neuralwatt MiMo and GLM lanes and never see DeepSeek's.
-   - A batch gets DeepSeek on Neuralwatt once it runs this release. New launches get it at once.
+1. **Check the merged tree.** On the tree that merges this change and the router-retry change, run
+   `BENCH="$PWD" python3 -B tests/factory/test_neuralwatt_routes.py`. It fails if the merge dropped
+   `chain` from the acquire's allowed fields.
+2. **Stage, but switch nothing.** Run `control/release.py build-plumbing <release>`.
+   - It archives the tree to `~/.unbug-release/plumbing-<short>/source` and builds its bundle. The 11-19
+     hand form (`nw-deploy.sh`: `source-<short>` plus `workers.py release`) is equivalent; below, "the
+     release tree" is whichever was built.
+   - Check that tree with the router's own interpreter:
+     `cd <release tree>; /usr/bin/python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0] and 'neuralwatt-key' in m.ACCOUNTS and hasattr(m, 'knows')"`.
+   - Do not install or launch anything, and do not touch `source-current`.
+3. **Confirm the loaded router unit.** `systemctl show -p ExecStart --value unbug-model-router.service`
+   (the loaded unit, not just the files on disk) must run
+   `…/durable-first-case-20261106/source-current/factory/model_router.py --config …/router-approved-config.json`.
+   If it names another checkout:
+   - move that checkout to the release in step 4, as well as `source-current`, which the controller
+     still needs;
+   - name both checkouts in the rollback.
+4. **Drain, then switch both services back to back.** Run
+   `control/release.py switch --config <controller config.json> --plumbing <release> --source-current ~/durable-first-case-20261106/source-current --router-db ~/.unbug-control/router/factory.sqlite3 --unit unbug-model-router.service --unit unbug-durable-case-campaign.service`.
+   - It refuses unless `control/check-drained.py` exits 0: no attempt holds a worker without a recorded
+     step, and no router lease is unexpired. Rerun it until it passes. Also wait until the router has
+     no pending paid request.
+   - It then prints `ln -sfn <release tree> source-current` and both restarts. Run them at once, in
+     that order.
+   - The symlink moves only after both services are drained, and the controller (which imports
+     `model_router` lazily) restarts right behind the router, so no old process runs on new files.
+   - The router config is unchanged: `neuralwatt-key` stays at 3 seats, and no `disabled_routes`
+     entry is added.
+   - Verify before going on:
+     - `readlink -f source-current` is the release tree;
+     - `/proc/$(systemctl show -p MainPID --value unbug-model-router.service)/cmdline` names `source-current`;
+     - the router answers `status`, and `unbug status` is clean.
+5. **Release to workers, router first, as 11-19 did.**
+   - Run `unbug install` for the bundle.
+   - Set `current_source*` and `current_plumbing` in `campaign-request.json`.
+   - Set `PLUMBING` in `resume_case.py`.
+   - Launches and `plumbing_release` may resume now, and not before step 4 is verified.
+   - What each batch gets:
+     - running batches keep their own release and run as before;
+     - the 3dfdde3c batches keep their Neuralwatt MiMo and GLM lanes and never see DeepSeek's;
+     - a batch gets DeepSeek on Neuralwatt once it runs this release, and new launches get it at once.
    - **Cost of `plumbing_release` (review 3, N3).** Moving a running batch reruns its model-stage
      gates, because the model `verdict_code` digest changes (`model_runtime.py` and `model_router.py`
      changed). That is the operator's choice per batch, as on 11-19.
-4. First hour: check one DeepSeek Neuralwatt step in a case ledger.
+6. First hour: check one DeepSeek Neuralwatt step in a case ledger.
    - It books non-zero tokens at 0.15 / 0.015 / 0.6.
    - Neuralwatt's usage for that hour is at or below the booked amount.
-5. **Rollback (review 2, B1).**
+7. **Rollback (review 2, B1).**
    - **Never move a batch that ran this release back to 3dfdde3c.**
      - A DeepSeek Neuralwatt route in its `ordinary-retries/*/state.json` `spent_routes` fails
        3dfdde3c's check against its own `CHAINS`, raising `ordinary_retry_state_invalid`.
@@ -679,7 +701,7 @@ release before the router does.
      - This is the existing rule: "a case that ran an NW call is never moved below this release".
    - **Never downgrade the router** below this release while any worker on this release is live. An
      old router refuses `chain`.
-     - The router's code is the checkout named in step 2: `source-current` on the VM today.
+     - The router's code is the checkout named in step 3: `source-current` on the VM today.
      - Re-pointing `source-current` back moves the router at its next restart, and moves the
        controller too.
    - **Loop-free rollback of every Neuralwatt lane:** withdraw the key, using "Rollout runbook" step 6,
