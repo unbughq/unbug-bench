@@ -276,8 +276,10 @@ class Outcomes(unittest.TestCase):
         busy = {"outcome": "infra_error", "reason": "infra:attempt_busy", "paid": 0}
         script = {f"1/gates:1/{n}": busy for n in (1, 2, 3, 4)}
         # A pool ceiling far below the busy run: the orphan ends by its own attempt deadline (12 h for GATES,
-        # past the 6 h pool ceiling), so the busy wait is bounded by that, never by the pool ceiling.
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+        # past the 6 h pool ceiling), so the busy wait is bounded by that, never by the pool ceiling. A batch
+        # that releases workers after 0.1 s of sleep still keeps the busy one.
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1,
+                               "release_worker_after_sleep_s": 0.1},
                       "timing": {"pause_retry_s": 0.2, "pool_wait_ceiling_s": 0.1}, "script": script})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
