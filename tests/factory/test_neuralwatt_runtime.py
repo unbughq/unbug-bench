@@ -17,7 +17,7 @@ import model_runtime
 from budget import BudgetError
 from token_prices import NW_TWINS, OPENROUTER_OUTPUT, runtime_prices
 
-MIMO, GLM = 'neuralwatt/mimo-v2.6-pro', 'neuralwatt/glm-5.3-flash'
+MIMO, GLM, DEEPSEEK = 'neuralwatt/mimo-v2.6-pro', 'neuralwatt/glm-5.3-flash', 'neuralwatt/deepseek-v4.1-flash'
 
 
 def lease(route=MIMO, account='neuralwatt-key', **maximum):
@@ -35,14 +35,17 @@ class NeuralwattRuntime(unittest.TestCase):
             self.assertEqual(model_runtime.offered_accounts(), model_router.ACCOUNTS)
 
     def test_config_carries_the_exact_neuralwatt_provider_only_for_a_neuralwatt_call(self):
-        for route in (MIMO, GLM):
+        for route in (MIMO, GLM, DEEPSEEK):
             cfg = json.loads(model_runtime.opencode_config(route).read_text())
             self.assertEqual(cfg['small_model'], route)
             self.assertEqual(cfg['provider']['neuralwatt'], {
                 'npm': '@ai-sdk/openai-compatible',
                 'options': {'baseURL': 'https://api.neuralwatt.com/v1', 'apiKey': '{env:NEURALWATT_API_KEY}', 'includeUsage': True},
                 'models': {'mimo-v2.6-pro': {'cost': runtime_prices(NW_TWINS[MIMO]), 'limit': {'context': 1048560, 'output': 32768}},
-                           'glm-5.3-flash': {'cost': runtime_prices(NW_TWINS[GLM]), 'limit': {'context': 1048560, 'output': 32768}}}})
+                           'glm-5.3-flash': {'cost': runtime_prices(NW_TWINS[GLM]), 'limit': {'context': 1048560, 'output': 32768}},
+                           # Neuralwatt lists DeepSeek above its OpenRouter twin: its own list, never the twin's.
+                           'deepseek-v4.1-flash': {'cost': dict(input=0.15, output=0.6, cache_read=0.015, cache_write=0),
+                                                   'limit': {'context': 1048560, 'output': 32768}}}})
         self.assertEqual(OPENROUTER_OUTPUT, 32768)
         # Every other call's config is as it was: no Neuralwatt provider.
         for model in ('opencode-go/mimo-v2.6-pro', 'opencode/glm-5.3-flash-free', None):
@@ -84,7 +87,7 @@ class NeuralwattRuntime(unittest.TestCase):
 
     def test_a_walled_role_is_never_bounded_on_a_neuralwatt_lane(self):
         nw_only = ('neuralwatt-key',)
-        for route in (MIMO, GLM):
+        for route in (MIMO, GLM, DEEPSEEK):
             self.assertTrue(model_runtime.bounded_route('writer', route, nw_only))
             self.assertFalse(model_runtime.bounded_route('strong_calibrator', route, nw_only))
             self.assertFalse(model_runtime.bounded_route('easy_calibrator', route, nw_only))
