@@ -61,10 +61,11 @@ GO_TWINS = {'opencode-go/deepseek-v4.1-flash': 'openrouter/deepseek/deepseek-v4.
             'opencode-go/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash',
             'opencode-go/muse-spark-1.3-contributor': 'openrouter/meta/muse-spark-1.3-contributor'}
 GO_ROUTES = frozenset(GO_TWINS)
-# Neuralwatt routes (founder 2026-11-19, docs/designs/neuralwatt-routes.md): the same two models from a
-# second paid provider, tried between the Go plan and OpenRouter. Its listed prices equal the twins' pins
-# and it never bills above list (tests/factory/fixtures/neuralwatt-price-record-20261119.json.gz), so a
-# call has its twin's maximum and books real money at the twin's list price (unlike Go's $0).
+# Neuralwatt routes (founder 2026-11-19 and 11-20, docs/designs/neuralwatt-routes.md): the same models from a
+# second paid provider, tried between the Go plan and OpenRouter. It never bills above its list
+# (tests/factory/fixtures/neuralwatt-price-record-2026112*.json.gz). Where that list equals the twin's pin (MiMo,
+# GLM) a call has its twin's maximum; where it is higher (NW_OWN_PRICES) its own. Either way it books real money
+# at that list price (unlike Go's $0).
 NW_TWINS = {'neuralwatt/mimo-v2.6-pro': 'openrouter/xiaomi/mimo-v2.6-pro',
             'neuralwatt/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash',
             'neuralwatt/deepseek-v4.1-flash': 'openrouter/deepseek/deepseek-v4.1-flash'}
@@ -102,7 +103,7 @@ def nw_request_worst(route):
 
 
 def go_step_cost(route, tokens):
-    """One OpenCode step on a Go plan or Neuralwatt route at its twin's list price. Reasoning is billed as output,
+    """One OpenCode step on a Go plan or Neuralwatt route at its list price (runtime_prices). Reasoning is billed as output,
     and a cache write at the full input rate (OpenRouter's twins quote no write price)."""
     prices = runtime_prices(route)
     return ((tokens['input'] + tokens['cache']['write']) * prices['input'] + (tokens['output'] + tokens['reasoning']) * prices['output']

@@ -833,7 +833,7 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
         # OpenRouter twin's list price (model_runtime.opencode_config) and the reservation check stops
         # the call once it passes the lease maximum, as for Codex. A walled role reaches only a gate's
         # port, so the runtime never leases it a Go route; refusing here is the backstop. Neuralwatt
-        # bills at most that twin price, so it runs the same way on its own account and key.
+        # bills at most its list (the twin's, or NW_OWN_PRICES), so it runs the same way on its own account and key.
         if not model_router.valid_maximum(lease) or lease.max_usd <= 0: raise BudgetError('unbounded_route')
         if user is not None: raise BudgetError('route_feature_unsupported')
         if Path('/etc/opencode').exists() or any(not env.get(k) for k in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')):
