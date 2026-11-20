@@ -196,10 +196,11 @@ WALLED_ROLES = ('strong_calibrator', 'easy_calibrator')
 
 
 def ungated_lanes(model, accounts):
-    """The lanes of model's chain that have no gate (free, Go plan and Neuralwatt routes), as admission's
-    excluded_lanes spells them. A walled role reaches only a gate's port, so it never takes one."""
+    """The lanes of model's chain that a walled role cannot take (free and Go plan routes: no gate), as
+    admission's excluded_lanes spells them. A walled role reaches only a gate's port. Neuralwatt has a gate for
+    it (model_call_gate.enforce, founder 2026-11-20), so it comes first, then the OpenRouter twin."""
     return tuple(r['pool'] + '/' + r['route'] for r in routes(model, accounts)
-                 if r['route'] in FREE_ROUTES or r['route'] in GO_ROUTES or r['route'] in NW_ROUTES)
+                 if r['route'] in FREE_ROUTES or r['route'] in GO_ROUTES)
 
 
 @dataclass(frozen=True)

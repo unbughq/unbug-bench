@@ -194,10 +194,9 @@ def model_effort(model):
 
 def bounded_route(role, model, accounts=model_router.ACCOUNTS):
     """Whether `role` can be leased `model` on a route with a known maximum. A walled role is never
-    leased a free, Go plan or Neuralwatt route (ModelRuntime._call): none has a gate."""
+    leased a free or Go plan route (ModelRuntime._call): neither has a gate. Neuralwatt has one for it."""
     return any(model_router.route_maximum(row['route']) is not None
-               and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES
-                                                               or row['route'] in NW_ROUTES))
+               and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES))
                for row in model_router.routes(model, accounts))
 
 
@@ -241,7 +240,7 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     MCP off (about 28k prompt tokens a call, unneeded). In /tmp so the pilot user can read it; no secret."""
     path = pathlib.Path(tempfile.gettempdir()) / ("factory-" + model.replace("/", "-").replace(":", "-") + ".json" if model else "factory-opencode.json")
     base = None if diagnosis else os.environ.get("OPENCODE_API_KEY_BASE_URL")
-    from token_prices import runtime_prices as price
+    from token_prices import NW_CONTEXT, runtime_prices as price
     cfg = {"mcp": {"computer": {"enabled": False}},
            "compaction": {"auto": True}, "permission": {"task": "deny"},  # on since 2026-10-17: off, MiMo re-read ~500k tokens a step
            "provider": {"openrouter": {"models": {
@@ -264,7 +263,7 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     if model in NW_ROUTES:
         cfg["provider"]["neuralwatt"] = {"npm": "@ai-sdk/openai-compatible",
             "options": {"baseURL": "https://api.neuralwatt.com/v1", "apiKey": "{env:NEURALWATT_API_KEY}", "includeUsage": True},
-            "models": {route.partition("/")[2]: {"cost": price(route), "limit": {"context": 1048560, "output": OPENROUTER_OUTPUT}}
+            "models": {route.partition("/")[2]: {"cost": price(route), "limit": {"context": NW_CONTEXT, "output": OPENROUTER_OUTPUT}}
                        for route in sorted(NW_ROUTES)}}
     # Founder 2026-10-19: OpenCode v1.x answers Muse with "Invalid credential" unless the opencode provider points at Zen.
     cfg["provider"]["opencode"] = {"options": {"baseURL": "https://opencode.ai/zen/v1"}}
@@ -536,9 +535,15 @@ class ModelRuntime:
         if user is not None or role in model_router.WALLED_ROLES:
             # A walled role reaches only a gate's port, and a free or Go plan route has no gate: it takes
             # the family's gated or subscription route instead (model_call_gate.enforce refuses it too).
-            # Calibrator preflights run unwalled but are excluded the same way, so they test the real route.
+            # Calibrator preflights run unwalled but are excluded the same way, so they take the same lanes.
             accounts = getattr(c, 'router_accounts', model_router.ACCOUNTS)
-            context.router_excluded = (*getattr(context, 'router_excluded', ()), *model_router.ungated_lanes(requested, accounts))
+            excluded = model_router.ungated_lanes(requested, accounts)
+            if role not in model_router.WALLED_ROLES:
+                # Neuralwatt's gate is for the calibrators (founder 2026-11-20). A diagnosis is walled too, but its
+                # OpenRouter-only handling (bound_reasoning, the webfetch deny) has no Neuralwatt form: no NW lane.
+                excluded += tuple(r['pool'] + '/' + r['route'] for r in model_router.routes(requested, accounts)
+                                  if r['route'] in NW_ROUTES)
+            context.router_excluded = (*getattr(context, 'router_excluded', ()), *excluded)
             if not [r for r in model_router._bounded_routes(requested, accounts)
                     if r['pool'] + '/' + r['route'] not in context.router_excluded]:
                 raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',

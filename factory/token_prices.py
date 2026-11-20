@@ -84,6 +84,16 @@ def _nw_profile(route):
     return dict(profile, prices=NW_OWN_PRICES[route], endpoint='standard', source_date='2026-11-20')
 
 
+def gate_profile(route):
+    """The pinned profile a worker gate holds and prices one request of this route at: OpenRouter's pin, or a
+    Neuralwatt route's (its twin's context and output, Neuralwatt's list). None for any other route."""
+    return _nw_profile(route) if route in NW_TWINS else GATED_OPENROUTER.get(route)
+
+
+# Neuralwatt's max_model_len for every NW model (price records), below the twins' 1048576: OpenCode's context limit.
+NW_CONTEXT = 1048560
+
+
 def go_maximum(route):
     maximum = openrouter_gate_maximum(GO_TWINS[route]) if route in GO_TWINS else None
     if maximum is None: return None
@@ -130,8 +140,9 @@ def _request_worst(profile):
 
 
 def openrouter_gate_cost(route, usage):
-    if route not in GATED_OPENROUTER or not isinstance(usage, dict): return None
-    incoming, _, outgoing = map(Decimal, GATED_OPENROUTER[route]['prices'])
+    profile = gate_profile(route)
+    if profile is None or not isinstance(usage, dict): return None
+    incoming, _, outgoing = map(Decimal, profile['prices'])
     values = [usage.get(k) for k in ('prompt_tokens', 'completion_tokens')]
     if any(type(v) is not int or v < 0 for v in values): return None
     amount = (values[0] * incoming + values[1] * outgoing) / 1_000_000
