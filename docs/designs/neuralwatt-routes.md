@@ -364,8 +364,10 @@ Neuralwatt's catalog is `/v1/models`, read 2026-11-19 23:51Z and saved as
     - On 11-19, with OpenRouter credit-blocked and both Go plans on quota, DeepSeek parked on credit.
       Its free lane runs on the Go account pools, so it was blocked too (the routes test shows this).
       It now runs and books list.
-    - The founder's "Neuralwatt anyway" is taken to cover this over-count of case money. Reconciliation
-      with Neuralwatt's usage API stays out of scope, as before.
+    - **For the founder to confirm (review 3, N4).** This change assumes that "Neuralwatt anyway"
+      covers booking case money at Neuralwatt's list: 1.8× OpenRouter's pin on the 7-day DeepSeek
+      mix. That is the author's reading, not a ruling yet. Reconciliation with Neuralwatt's usage API
+      stays out of scope, as before.
 - **Lanes not used:**
   - `-speed` lanes, which are billed above list;
   - `-flex` lanes, which are a different service tier and are held during peaks.
@@ -431,8 +433,15 @@ Neuralwatt's catalog is `/v1/models`, read 2026-11-19 23:51Z and saved as
 
 ### Cross-version hazard: an old worker handed a lane it does not know
 
-**How the versions mix.** The router runs from `source-current` (`router-approved-config.json`).
-Each worker runs its batch's plumbing release.
+**How the versions mix.** Each worker runs its batch's plumbing release, so the shared router serves
+callers on several releases at once.
+- **Where the router runs.** On the control VM it runs from `source-current`. Checked 2026-11-20 with
+  `systemctl cat unbug-model-router.service`: the last `ExecStart`, in the drop-in
+  `zzz-approved-ceiling.conf`, is
+  `…/durable-first-case-20261106/source-current/factory/model_router.py --config …/router-approved-config.json`.
+  It overrides the checked-in unit's `/home/user/unbug-bench` path, which the 11-19 runbook (step 3)
+  still names.
+- **The controller** (`unbug-durable-case-campaign.service`) also runs from `source-current`.
 
 **Who is exposed.** Workers on 3dfdde3c already offer `neuralwatt-key`, but their `CHAINS` know only
 MiMo and GLM on Neuralwatt.
@@ -454,7 +463,10 @@ A waiting 3dfdde3c DeepSeek request does further harm. The router computes its l
 `CHAINS`, so the request queues ahead of every newer request for the `neuralwatt-key` pool, MiMo and
 GLM included, on a lane it can never take.
 
-**Who is safe.** Workers older than 3dfdde3c never offer the key.
+**Who is safe.**
+- Releases without `neuralwatt-key` in `ACCOUNTS` never offer the key.
+- 6ed7c545 (PR #197) offers the key and has the same `CHAINS` as 3dfdde3c, so it is covered the same
+  way. No `source-6ed7c545` is installed on the VM, so no batch runs it.
 
 **Why the off switch is not enough (review 1, B1).** Putting the lane in `disabled_routes` protects the
 3dfdde3c workers, but it loops the new ones instead:
@@ -470,8 +482,8 @@ This is diff-3's B1 shape.
 - **New callers.** A new caller sends its chain, so it gets every lane it counts.
 - **No switch.** Nothing is disabled and no second router restart is needed. Every future chain
   change is guarded too, because a new caller is offered only what it sent.
-- **Removing `LATE_ROUTES`.** It can be deleted once no 3dfdde3c batch is live or held. Older callers
-  never offer the key.
+- **Removing `LATE_ROUTES`.** It can be deleted once no batch on a key-offering release that sends no
+  chain (6ed7c545 or 3dfdde3c) is live or held.
 - **Deploy order.** The router must restart on this code before any worker runs it. An old router
   refuses the unknown `chain` field (`invalid admission fields`). That is the deploy order below,
   which the router-retry restart already needs.
@@ -615,6 +627,10 @@ forbids, so `test_walled_roles_never_take_the_neuralwatt_lane` is correct and st
 
 ### Murphy rows
 
+`docs/murphy-register.md` is still not on `main` (review 3, N5). So, as with `new-neuralwatt-1`, these
+rows are recorded here, together with their closing tests, and go into the register when that file
+lands.
+
 - **`new-neuralwatt-2`:** "no OpenRouter credit (founder: no top-up), so every DeepSeek paid fallback
   parks". The DeepSeek real-state routes test closes it.
 - **`new-neuralwatt-3`:** "a router whose chains name a route that an older worker does not know hands
@@ -632,15 +648,26 @@ release before the router does.
    - It fails if the merge dropped `chain` from the acquire's allowed fields.
    - Then run `unbug install` for the release. From here until step 3, launch nothing new and send no
      `plumbing_release`.
-2. Point `source-current` at the release and check:
-   `python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0] and 'neuralwatt-key' in m.ACCOUNTS and hasattr(m, 'knows')"`.
-   Then do one drained router restart.
-   - Config is unchanged: `neuralwatt-key` stays at 3 seats and no `disabled_routes` entry is added.
-   - No controller restart is needed for this change: it adds no account and no controller-side code.
+2. **Confirm which code the router runs.** `systemctl cat unbug-model-router.service`: the last
+   `ExecStart` must be `…/durable-first-case-20261106/source-current/factory/model_router.py --config
+   …/router-approved-config.json` (the `zzz-approved-ceiling.conf` drop-in). If it is not, the router's
+   checkout is whatever that line names, and steps 2 and 5 apply to that checkout instead.
+   - Point `source-current` at the release.
+   - In `~/durable-first-case-20261106/source-current`, check
+     `python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0] and 'neuralwatt-key' in m.ACCOUNTS and hasattr(m, 'knows')"`.
+   - Then do one drained router restart, and restart the controller with
+     `sudo -n /usr/bin/systemctl restart unbug-durable-case-campaign.service`. The controller also runs from
+     `source-current` and imports `model_router` lazily, so it must not run on the old code while that
+     code's files have been replaced.
+   - The config is unchanged: `neuralwatt-key` stays at 3 seats, and no `disabled_routes` entry is
+     added.
 3. Launches and `plumbing_release` may resume.
-   - Running batches keep their own release and work unchanged.
+   - Running batches keep their own release and run as before.
    - The 3dfdde3c batches keep their Neuralwatt MiMo and GLM lanes and never see DeepSeek's.
-   - A batch gets DeepSeek on Neuralwatt once it runs this release.
+   - A batch gets DeepSeek on Neuralwatt once it runs this release. New launches get it at once.
+   - **Cost of `plumbing_release` (review 3, N3).** Moving a running batch reruns its model-stage
+     gates, because the model `verdict_code` digest changes (`model_runtime.py` and `model_router.py`
+     changed). That is the operator's choice per batch, as on 11-19.
 4. First hour: check one DeepSeek Neuralwatt step in a case ledger.
    - It books non-zero tokens at 0.15 / 0.015 / 0.6.
    - Neuralwatt's usage for that hour is at or below the booked amount.
@@ -652,6 +679,9 @@ release before the router does.
      - This is the existing rule: "a case that ran an NW call is never moved below this release".
    - **Never downgrade the router** below this release while any worker on this release is live. An
      old router refuses `chain`.
+     - The router's code is the checkout named in step 2: `source-current` on the VM today.
+     - Re-pointing `source-current` back moves the router at its next restart, and moves the
+       controller too.
    - **Loop-free rollback of every Neuralwatt lane:** withdraw the key, using "Rollout runbook" step 6,
      rollback steps 1-4.
      - `offered_accounts()` then drops the Neuralwatt lanes from every chain a worker counts.
