@@ -25,7 +25,7 @@ class ResumeTests(unittest.TestCase):
             with self.subTest(dry_run=dry_run), tempfile.TemporaryDirectory() as tmp:
                 home = pathlib.Path(tmp); work = home / saved['case']; work.mkdir()
                 artifacts = RunArtifacts(home, bench, home / 'sealed', home / 'absent', (),
-                    lambda: [], lambda *a: None, lambda c: 1, lambda c: None)
+                    lambda: [], lambda c: None)
                 c = SimpleNamespace(work=work, case_id=saved['case'], recipient='public-test-recipient',
                     args=SimpleNamespace(dry_run=dry_run), card={**saved, 'batch_release_sha256': 'a' * 64})
                 with patch.object(artifacts, 'results_since', return_value=[]), \
