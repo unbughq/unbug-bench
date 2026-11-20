@@ -15,6 +15,8 @@ to the diagnosis.
   the founder's "stop the spill"). A diagnosis then has no lane: the router answers `no_route`, and the case loops
   with 0 calls.
 
+On this lineage the worker sends `capacity_protocol=1`, so a diagnosis with no lane waits as `outage` rather than `no_route`. The fix is the same.
+
 ## Change
 
 1. `model_runtime._call`: the diagnosis-only Neuralwatt exclusion is deleted. A walled caller excludes only what
