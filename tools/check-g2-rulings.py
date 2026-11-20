@@ -88,10 +88,13 @@ def main(cases):
                 if isinstance(value, dict) and isinstance(value.get('hits'), list) and len(value['hits']) == flagged:
                     answers, source = {h.get('url'): h for h in value['hits'] if isinstance(h, dict)}, name
         g2 = json.loads(files['scorecard.json']()).get('admission_freshness') or {}
+        repair = json.loads(files['freshness-repair.json']()) if 'freshness-repair.json' in files else {}
+        same = repair.get('last_topup') == hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         results = check(statement, rows, receipts, answers)
         failed = failed or any(v != 'OK' for _, v in results)
         print(case, 'snapshot', digest[:12], 'statement', hashlib.sha256(statement).hexdigest()[:12],
               'G2 counted', g2.get('counted'), 'unfetched', g2.get('unfetched_searches'), 'reviewer answer', source)
+        print('   G2 repair: completed_defects', repair.get('completed_defects'), 'last top-up on these rows', same)
         for ruling, verdict in results or [(None, 'NO RULING')]:
             print('  ', verdict, *((ruling['kind'], ruling['url'], 'flagged rows with this url:',
                                     sum(r.get('url') == ruling['url'] for r in rows

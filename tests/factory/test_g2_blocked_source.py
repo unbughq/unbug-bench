@@ -122,6 +122,9 @@ class RulingTests(unittest.TestCase):
                 ('unknown field', ({**ruling, 'note': 'x'},), None, None),
                 ('hand check without page text', ({**hand_check(held, False), 'hand_check': {
                     **hand_check(held, False)['hand_check'], 'page_says': ' '}},), None, None),
+                ('not_needed with a hand_check key', ({**ruling, 'hand_check': None},), None, None),
+                ('hand check with an extra key', ({**hand_check(held, False), 'hand_check': {
+                    **hand_check(held, False)['hand_check'], 'url': 'x'}},), None, None),
                 ('reviewer claims the match', (ruling,), {**held['answer'], 'same_bug': True}, None),
                 ('page read live', (ruling,), None, {**held['receipt'], 'retrieved_from': 'live', 'live_failure': None}),
                 ('dead page', (ruling,), None, {**held['receipt'], 'live_failure': 'http_404'})):
@@ -134,6 +137,31 @@ class RulingTests(unittest.TestCase):
                   'archive_checked': False, 'archive_available': None, 'live_failure': None}
         c, blocked = self.verdict(held, (ruling,), answer, live)
         self.assertEqual((blocked, c.freshness_confirmed_hits), ([held['row']], 1))
+
+    def test_the_card_shows_only_the_latest_verdicts_rulings(self):
+        held = HELD[CAE763]
+        c, _ = self.verdict(held, run.G2_SOURCE_RULINGS)
+        self.assertIn('ruled_rows', c.card['freshness_confirmation'])
+        c.freshness_retrieval = [copy.deepcopy(held['receipt'])]
+        with patch.object(run, 'G2_SOURCE_RULINGS', ()):
+            run.checked_freshness_verdict(c, [held['row']], [copy.deepcopy(held['answer'])])
+        self.assertNotIn('ruled_rows', c.card['freshness_confirmation'])
+
+    def test_the_mixed_receipt_lists_a_hand_checked_match_as_confirmed(self):
+        import ordinary_freshness
+        held = HELD[D18681]
+        (self.case / 'verdict.json').write_text(json.dumps({'hits': [held['answer']]}))
+        c = SimpleNamespace(case=self.case, work=self.case, freshness_verdict_path='verdict.json',
+                            freshness_retrieval=[held['receipt']], freshness_review_summary={})
+        fake = SimpleNamespace(freshness_lines=lambda c: [held['row']], jload=run.jload,
+                               checked_freshness_verdict=run.checked_freshness_verdict,
+                               CONFIRMATION_CONTRACT=run.CONFIRMATION_CONTRACT)
+        for reports, confirmed in ((True, [1]), (False, [])):
+            ruling = {**hand_check(held, reports), 'statement_sha256': AUTHORED}
+            with patch.object(run, 'G2_SOURCE_RULINGS', (ruling,)), \
+                    patch('admission.search_binding', lambda c, flagged: {}):
+                ordinary_freshness.keep_mixed_receipt(fake, c)
+            self.assertEqual(run.jload(self.case / 'freshness-verdict.json')['confirmed_rows'], confirmed, reports)
 
     def test_other_rows_of_the_same_verdict_are_judged_as_before(self):
         held = HELD[A2A7B2]
@@ -192,6 +220,7 @@ class EndToEndTests(unittest.TestCase):
         (f.case / 'freshness.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
         sha = hashlib.sha256((f.case / 'statement.md').read_bytes()).hexdigest()
         ruling = {**shipped(CAE763), 'statement_sha256': sha}
+        f.cli(lambda c, text, name: f.answer_path(text).write_text(json.dumps({'hits': [held['answer']]})))   # its real answer
         with patch.object(run, 'G2_SOURCE_RULINGS', (ruling,)):
             ok, info = run.g2(f.c)
         self.assertTrue(ok)

@@ -2073,8 +2073,9 @@ def g2_source_ruling(c, row, answer, receipt):
     valid = (r.get('gate') == 'G2' and r.get('by') == 'founder' and date(r.get('at')) and text(r.get('case'))
              and text(r.get('ruling')) and set(r) <= {'gate', 'kind', 'by', 'at', 'case', 'statement_sha256', 'url',
                                                       'ruling', 'hand_check'}
-             and (r.get('kind') == 'not_needed' and check is None or
-                  r.get('kind') == 'hand_checked' and isinstance(check, dict) and date(check.get('checked_at'))
+             and (r.get('kind') == 'not_needed' and 'hand_check' not in r or
+                  r.get('kind') == 'hand_checked' and isinstance(check, dict)
+                  and set(check) == {'checked_at', 'checked_by', 'page_says', 'reports_this_bug'} and date(check.get('checked_at'))
                   and text(check.get('checked_by')) and text(check.get('page_says'))
                   and type(check.get('reports_this_bug')) is bool))
     return r if valid else None
