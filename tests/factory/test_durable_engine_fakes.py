@@ -790,9 +790,6 @@ def engine_main(workdir):
                 if "top_up" in act:
                     (work / "balance.txt").write_text(act["top_up"])
                     observed["lifted"] = router_store.lift_credit() == "lifted"
-                if "credit_recheck_s" in act:   # model_router.CREDIT_RECHECK_S: 0 stands for 30 quiet minutes
-                    import model_router
-                    model_router.CREDIT_RECHECK_S = act["credit_recheck_s"]
                 if "resume_held" in act:
                     observed["resume_sent"] = engine.resume_held(f"case-{spec.batch_id[2:]}-{act['resume_held']}")
                 if "stop" in act:   # {"case": n, "reason": text}: the founder stops case n (`founder_reply`)

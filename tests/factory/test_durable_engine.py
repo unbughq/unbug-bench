@@ -2374,27 +2374,35 @@ class CreditPark(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_a_parked_case_wakes_without_a_top_up_and_a_refused_retry_parks_again_uncounted(self):
-        # 11-20: 1108c sat parked 80+ minutes on router:credit with Neuralwatt first in its chain. The real router's
-        # block stays (no top-up, balance $0.20), yet once it has seen no fresh refusal for CREDIT_RECHECK_S the
-        # case retries; a retry still refused parks again. Neither counts as infra or reaches a diagnosis.
-        # CREDIT_RECHECK_S 0 stands for "30 quiet minutes have passed"; 1800 for "the block was just observed".
-        second = f"{C1}/4/gates:1/2"
-        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 0},
-                      "timing": {"wake_poll_s": 0.2}, "inputs": {"dry_run": False}, "router_credit": "0.2",
-                      "script": {"1/gates:1/1": self.CREDIT, "1/gates:1/2": dict(self.CREDIT, dur=1.0)},
-                      "actions": [{"when": self.PARKED, "delay_s": 1.0, "credit_recheck_s": 0},
-                                  {"when": {"started": second}, "credit_recheck_s": 1800},
-                                  {"when": {"ran": second, **self.PARKED}, "delay_s": 1.0, "credit_recheck_s": 0}]})
+        # 11-20: 1108c sat parked 80+ minutes on router:credit with Neuralwatt first in its chain, and the founder
+        # will not top up. The real router's block stays the whole time (balance $0.20, never topped up), yet each
+        # park ends after credit_recheck_s of its own (30 min; 1 s here) and the case retries once. The retry,
+        # refused again, finds the block and parks again without its worker. No stop counts or is diagnosed.
+        second, third = f"{C1}/4/gates:1/2", f"{C1}/4/gates:1/3"
+        scenario = {"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 0},
+                    "timing": {"wake_poll_s": 0.2, "credit_recheck_s": 1.0}, "inputs": {"dry_run": False},
+                    "router_credit": "0.2", "script": {"1/gates:1/1": self.CREDIT, "1/gates:1/2": self.CREDIT},
+                    "actions": [{"when": self.PARKED}, {"when": {"started": second, **self.PARKED}}]}
+        r, out = run(scenario)
         self.addCleanup(r.close)
         self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "gates:1", "gates:1", "seal"])
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
         self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 0)   # both stops are the case's spend
-        first_wake, _, second_wake = r.actions()
-        self.assertEqual((first_wake["status"], second_wake["status"]), ("waiting_for_credit",) * 2)   # parked twice
-        self.assertGreater(start(r, second)["t"], first_wake["t"])
-        self.assertGreater(start(r, f"{C1}/4/gates:1/3")["t"], second_wake["t"])
-        released = [x for x in r.pool_log() if x["op"] == "release"]
-        self.assertGreaterEqual(len(released), 3)   # each park gave up its worker, then the seal
+        first_park, second_park = r.actions()
+        self.assertEqual((first_park["reason"], second_park["reason"]), ("router:credit",) * 2)   # parked twice
+        # One retry per park, after it; each park gave up its worker before its retry started.
+        for key, park, retry in ((f"{C1}/4/gates:1/1", first_park, second), (second, second_park, third)):
+            self.assertGreater(start(r, retry)["t"], park["t"])
+            worker = start(r, key)["worker"]
+            released = [x for x in r.pool_log() if x["op"] == "release" and x["worker"] == worker]
+            self.assertTrue(released and released[0]["t"] < start(r, retry)["t"], key)
+        # A park recorded before the patch keeps waiting for the block to lift: no retry without a top-up.
+        r, out = run({**scenario, "disabled_patches": ["credit_park_recheck"],
+                      "actions": [{"when": self.PARKED, "delay_s": 3.0, "top_up": "6"}]})
+        self.addCleanup(r.close)
+        (topped_up,) = r.actions()
+        self.assertTrue(topped_up["lifted"])
+        self.assertGreater(start(r, second)["t"], topped_up["t"])
 
     def test_a_refusal_with_no_credit_block_keeps_its_worker_and_its_short_sleep(self):
         # The router's ceiling or an unreadable balance refuses without a block: as before, a short

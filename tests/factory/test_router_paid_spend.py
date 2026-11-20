@@ -288,29 +288,6 @@ class PaidTests(unittest.TestCase):
         self.store.lift_credit()
         self.assertTrue(self.credit_clear())
 
-    def test_a_parked_case_retries_once_the_block_has_seen_no_refusal_for_thirty_minutes(self):
-        """11-20: 1108c sat parked 80+ minutes on router:credit while Neuralwatt, first in its chain, could serve
-        it: only a top-up lifts the block. The parked case now retries once the block has seen no fresh 402
-        or short balance for CREDIT_RECHECK_S; the block, and when lift_credit lifts it, are unchanged."""
-        ready = lambda after: router.credit_ready(self.path, now=self.now[0] + after)
-        def refused(lease):   # a provider 402 on a call in flight
-            self.store.rpc('observe', dict(pool=None, healthy=False, observation_id=uuid.uuid4().hex,
-                                           lease_id=lease.lease_id, reason='credit', reset_at=None))
-        self.assertEqual(router.CREDIT_RECHECK_S, 1800)
-        first, second = admit(self.store), admit(self.store)   # both in flight before the block
-        self.credit = Decimal('.2')                    # a short balance at the gate: the router's own refusal
-        self.store.refresh_credit()
-        self.assertEqual(self.reserve(first)[1], dict(granted=False, reason='credit'))
-        self.assertEqual((ready(0), ready(1799), ready(1800)), (False, False, True))
-        self.now[0] += 1000
-        refused(second)                                # a provider 402 still: the clock starts again
-        self.assertEqual((ready(1799), ready(1800)), (False, True))
-        self.now[0] += 1800
-        self.credit = Decimal('1')                     # no top-up: lift_credit leaves the block where it was
-        self.assertTrue(self.store.lift_credit().startswith('short_by'))
-        self.assertEqual(admit(self.store)['reason'], 'credit')   # the pool stays blocked
-        self.assertTrue(ready(0))
-
     def test_three_402s_despite_the_balance_stop_lifting_and_alert_until_the_operator_lifts(self):
         from durable.guard import router_spend
         self.credit = Decimal('100')

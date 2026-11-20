@@ -75,11 +75,12 @@ class Timing:
     reconcile_retry_s: float = 30.0    # after a failed reconcile of an unconfirmed attempt
     unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S  # then it counts as lost
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
+    credit_recheck_s: float = 1800.0   # a credit park retries after this long, top-up or not (credit_park_recheck)
 
 
 # Rechecks (seconds of waiting) of a router or credential wait while the case keeps its worker: at 2, 4 and 8 minutes.
 OPERATIONAL_RECHECK_S = (120.0, 120.0, 240.0)
-CREDIT_REASON = "router:credit"   # parks until the block lifts or goes stale (_Case.wait_for_credit), under credit_park
+CREDIT_REASON = "router:credit"   # parks (_Case.wait_for_credit), under the credit_park patch
 BUSY_REASON = "infra:attempt_busy"   # the worker refused a start: an earlier attempt of the case still runs on it
 
 
@@ -387,8 +388,7 @@ def hold_clear_step(kind: str, batch_id: str, case_id: str, case_limit: int) -> 
 @DBOS.step()
 def credit_ready_step() -> bool:
     """Whether a case stopped on router:credit may run (_Case.wait_for_credit): the router shows no
-    credit block on its paid pool, or the block has seen no fresh refusal for model_router.CREDIT_RECHECK_S.
-    Unreadable books are no block (model_router.credit_ready)."""
+    credit block on its paid pool. Unreadable books are no block (model_router.credit_ready)."""
     try:
         return bool(_RT.credit_ready())
     except Exception:
@@ -1692,20 +1692,24 @@ class _Case:
         """Founder 15 November: out of credit, stop cleanly and resume where it stopped once credit is
         back. The attempt has settled (its unspent hold released, its spend the case's, not waste) and
         its snapshot keeps every passed gate. Park without a worker for the attempt's own backoff, then
-        until the router has lifted its credit block (model_router.lift_credit, after a top-up) or the
-        block has gone model_router.CREDIT_RECHECK_S without a fresh refusal (founder 2026-11-20: no
-        top-ups, so a parked case must wake by itself; its chain may now route elsewhere). Only the
-        block: a woken case the balance still cannot fund is refused once and parks again. One retry,
-        never counted or diagnosed; the wake clears the card's router:credit reason, and with it the
-        guard's alert."""
+        until the router has lifted its credit block (model_router.lift_credit, after a top-up) or, under
+        the credit_park_recheck patch, for at most Timing.credit_recheck_s of its own (founder 2026-11-20:
+        no top-ups, so a parked case wakes by itself; its chain may route elsewhere by then). A woken case
+        the router still refuses parks again: its stop finds the block (the SLEEP branch's
+        credit_ready_step), so each park gives at most one retry. Never counted or diagnosed; the wake
+        clears the card's router:credit reason, and with it the guard's alert."""
         self.release_worker()
         if self.replaying:
             return
         self.status = "waiting_for_credit"
         self.card()
         self.nap(seconds)
+        bounded, parked_s = DBOS.patch("credit_park_recheck"), 0.0   # recorded parks keep the unbounded wait
         while not credit_ready_step():
+            if bounded and parked_s >= _RT.timing.credit_recheck_s:
+                break
             self.nap(_RT.timing.wake_poll_s)
+            parked_s += _RT.timing.wake_poll_s
         self.status, self.last_reason = "running", None
         self.card()
 
