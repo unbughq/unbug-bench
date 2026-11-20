@@ -114,13 +114,19 @@ class RulingTests(unittest.TestCase):
                     ('not_needed without hand_check', ({k: v for k, v in ruling.items() if k != 'hand_check'} | {'kind': 'not_needed'},), None, None),
                     ('reviewer confirmed', (ruling,), confirmed, None),
                     ('reviewer confirmed, left unresolved', (ruling,), {**held['answer'], 'same_bug': True}, None),
+                    ('same_bug not a bool', (ruling,), {**held['answer'], 'same_bug': 'true'}, None),
                     ('reviewer read it', (ruling,), read, None),
                     ('answer for another url', (ruling,), {**held['answer'], 'url': ruling['url'] + '?x'}, None),
                     ('answer disagrees with the receipt', (ruling,), {**held['answer'], 'retrieved_from': 'archive'}, None),
                     ('no answer', (ruling,), 'missing', None),
                     ('dead page, no copy', (ruling,), {**held['answer'], 'live_failure': 'http_404', 'retrieved_from': 'none',
                                                        'archive_checked': True, 'archive_available': False},
-                     {**held['receipt'], 'live_failure': 'http_404', 'retrieved_from': 'none', 'archive_available': False})):
+                     {**held['receipt'], 'live_failure': 'http_404', 'retrieved_from': 'none', 'archive_available': False}),
+                    ('dead page, archive copy', (ruling,), {**held['answer'], 'live_failure': 'http_404', 'retrieved_from': 'archive',
+                                                            'archive_checked': True, 'archive_available': True,
+                                                            'archive_snapshot_url': 'https://web.archive.org/web/20261101000000/x'},
+                     {**held['receipt'], 'live_failure': 'http_404', 'retrieved_from': 'archive', 'archive_available': True,
+                      'archive_snapshot_url': 'https://web.archive.org/web/20261101000000/x'})):
                 c, blocked = self.verdict(held, rulings, answer, receipt)
                 self.assertNotIn('ruled_rows', c.card['freshness_confirmation'], (case, name))
                 if name != 'reviewer read it':

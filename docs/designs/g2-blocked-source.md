@@ -5,8 +5,9 @@ every fetch and has no readable archive copy. This is an explicit founder except
 section 4 ("no one-off rulings"): the rulings are per case and per URL by the founder's choice.
 
 **Amendment, 2026-11-20 ~17:00 UTC (founder: "Yes, do it", for 5813be):** a `hand_checked` ruling may also
-settle a flagged row whose fetch returned a page (for example HTTP 200) that the reviewer left unresolved
-because it could not read it, such as a JavaScript "Loading" shell. It never settles a row the reviewer
+settle a flagged row whose live fetch returned a page (for example HTTP 200) that the reviewer left
+unresolved (`resolved: false`), such as a JavaScript "Loading" shell it could not read. The code cannot tell
+why a reviewer left a page unresolved; the person who hand checked that URL is the safeguard. It never settles a row the reviewer
 confirmed (`same_bug: true`). See section 2 and the amendment section below.
 
 This note is kept out of the top-level `*.md` files on purpose, because those files are G8/G9 gate
@@ -88,9 +89,10 @@ hold:
 - the row is unread, in one of two ways:
   - the runner's own receipt for the row shows an access failure (`freshness_retrieval.access_failure`);
     any `kind` applies; or
-  - (amendment, `hand_checked` only) the receipt shows a fetched page (`retrieved_from` `live` or
-    `archive`) and the reviewer's answer for that row is a dict with `resolved: false`, the row's URL,
-    and retrieval fields that agree with the receipt (`freshness_retrieval.agrees`);
+  - (amendment, `hand_checked` only) the receipt shows a page fetched live (`retrieved_from: live`)
+    and the reviewer's answer for that row is a dict with `resolved: false`, `same_bug` null or false,
+    the row's URL, and retrieval fields that agree with the receipt (`freshness_retrieval.agrees`). An
+    archive copy of a dead page does not qualify: it keeps the unreachable rule;
 - the reviewer's answer does not say `same_bug: true`, whether that answer is valid or not;
 - exactly one valid entry matches.
 
@@ -194,11 +196,13 @@ Retained G2 data cannot skip a ruling:
   renders, so it was read from its source, the OpenAPI spec in medusajs/medusa). G2 reruns its searches
   on a relaunch, so either URL may be flagged again.
 - **Not overridden.** A reviewer's `same_bug: true`, a `resolved: true` answer, an answer that disagrees
-  with the receipt or names another URL, and a receipt with no page (`retrieved_from: none`).
+  with the receipt or names another URL, a receipt with no page (`retrieved_from: none`) and a page read
+  from an archive copy (`retrieved_from: archive`).
 - **Tests.** `test_a_hand_check_settles_5813be_unreadable_shells_never_a_confirmed_row` on both real
   rows (fixture entries read from h3's and h1's snapshots): the shipped hand checks clear them;
   `reports_this_bug: true` confirms a match; `not_needed`, a confirmed row, a read row, another URL, a
-  disagreeing answer, no answer and a dead page with no copy settle nothing. It fails on the previous
+  disagreeing answer, a non-bool `same_bug`, no answer, a dead page with no copy and a dead page read
+  from an archive copy settle nothing. It fails on the previous
   predicate, and each new guard fails it when removed. `test_each_held_row_stays_blocked_without_a_ruling`
   now expects these two rows to hold as unresolved, not as transport.
 - **Identity.** Only G2's runner inputs change (`g2_source_ruling` and `G2_SOURCE_RULINGS`).

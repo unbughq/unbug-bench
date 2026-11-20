@@ -2112,8 +2112,9 @@ def g2_source_ruling(c, row, answer, receipt):
     from freshness_retrieval import access_failure, agrees
     statement = c.case / 'statement.md' if getattr(c, 'case', None) is not None else None
     blocked = access_failure(receipt)
-    unreadable = (not blocked and receipt.get('retrieved_from') in ('live', 'archive') and isinstance(answer, dict)
-                  and answer.get('resolved') is False and answer.get('url') == row.get('url') and agrees(answer, receipt))
+    unreadable = (not blocked and receipt.get('retrieved_from') == 'live' and isinstance(answer, dict)
+                  and answer.get('resolved') is False and answer.get('same_bug') in (None, False)
+                  and answer.get('url') == row.get('url') and agrees(answer, receipt))
     if (statement is None or not statement.is_file() or not (blocked or unreadable)
             or isinstance(answer, dict) and answer.get('same_bug') is True):
         return None

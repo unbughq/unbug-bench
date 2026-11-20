@@ -5,8 +5,9 @@ Run on the control VM from the candidate source tree (the one about to be instal
   cd ~/durable-first-case-20261106
   BOAT_NO_UPDATE=1 $V -B source-<candidate>/tools/check-g2-rulings.py case-import-cae763-h5-1 ...
 For each case it opens the latest CASE_SNAPSHOT and runs the candidate's own g2_source_ruling on every flagged row
-a ruling names for that case's statement. Prints OK (the ruling applies), MISMATCH (it would not: wrong URL, the
-page was read, or the reviewer confirmed a match) or NO RULING, plus G2's last recorded search counts. Writes
+a ruling names for that case's statement. Prints OK (the ruling applies), MISMATCH (it would not: wrong URL or no
+flagged row with it, the reviewer read the page or confirmed a match, or a not_needed ruling on a page that was
+fetched) or NO RULING, plus G2's last recorded search counts. Writes
 nothing; the database session is read-only. Releasing to a held batch resumes it, so run this first.
 """
 import hashlib
