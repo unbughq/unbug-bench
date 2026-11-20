@@ -1,7 +1,7 @@
 # G2: a founder ruling for a source that blocks every fetch (2026-11-20)
 
 Founder decision, 2026-11-20 morning: give G2 (freshness) a path for a flagged source URL that blocks
-every fetch and has no readable archive copy. This is an explicit founder exception to ENGINEERING.md
+every fetch and has no readable archive copy. This is an explicit founder exception to `docs/ENGINEERING.md`
 section 4 ("no one-off rulings"): the rulings are per case and per URL by the founder's choice.
 
 This note is kept out of the top-level `*.md` files on purpose, because those files are G8/G9 gate
@@ -74,7 +74,8 @@ case, a dict with exactly these keys:
 ### 2. G2 applies a ruling in `run.checked_freshness_verdict`
 
 This is the one place that decides every G2 verdict: a fresh one, a retained one, and the stress-round
-`loop_freshness` one.
+`loop_freshness` one. The founder's ruling is about the page, so it holds wherever G2's freshness rule
+judges that URL, the stress round included.
 
 For each flagged row, `g2_source_ruling(c, row, answer, receipt)` returns the ruling only if all of these
 hold:
@@ -107,7 +108,10 @@ What a ruling does not override:
   info (`admission_freshness` / `gate_results.G2`), beside `unreachable_rows`.
 - The repo and the card are not contestant-visible. The contestant box copies only
   `factory/case_permissions.py` (`harbor/*/Dockerfile`), and the card is published only through the
-  allowlist.
+  allowlist. Still, case text that names a case's bug stays out of the repo where it is not needed:
+  `page_says` says what the page is (site, topic, product, version, date) and whether it reports this
+  case's bug, without restating the bug; the same rule redacts the 18681d reviewer text in the test
+  fixture.
 
 ### 4. Supporting change: `ordinary_freshness.keep_mixed_receipt`
 
@@ -140,8 +144,9 @@ plumbing release digest seal it.
 
 ### Identity
 
-`G2_SOURCE_RULINGS`, `g2_source_ruling` and `checked_freshness_verdict` are reachable only from G2's
-runner root. So only `gate_state.runner_inputs('G2')` changes. No other gate's identity changes, and
+`G2_SOURCE_RULINGS`, `g2_source_ruling` and `checked_freshness_verdict` are hashed only into G2's runner
+inputs (the stress round's `loop_freshness` also reaches them, and the stress version hashes no runner
+source). So only `gate_state.runner_inputs('G2')` changes. No other gate's identity changes, and
 neither do the judge, model science or the delivery contract. The PR lists the `myident.py` proof, and
 the committed test `test_only_g2_identity_reads_the_rulings` checks it.
 
@@ -168,7 +173,18 @@ case-file edit that changes every gate's identity.
   lists per batch source).
 - **The release is the resume.** `wait_for_fix` ends a hold as soon as the batch's plumbing changes
   (`engine.py` `wait_for_fix`). Every release to a held batch therefore resumes it, and uses one of the
-  lineage's 3 factory-bug resumes. Each card shows `diagnoses: 1`.
+  lineage's 3 factory-bug resumes (`MAX_FACTORY_BUG_RESUMES`). All three workflows began as imports
+  (first result `admit:imported_hand`), not resumes, so their lineage count starts at 0
+  (`lineage_factory_bug_resumes` comes only from a resume record); each card shows `diagnoses: 1`. This
+  release is each lineage's first resume, leaving 2.
+- **Search minima after the ruling.** An unread page never counts toward G2's minima
+  (`freshness_unfetched`), and the ruling does not change that. G2's last recorded counts:
+  cae763 builder/web 19, builder/github 25, attacker 8 (met); 2a7b2a 3 / 4 / 6, met only on cycles where
+  the Shopline archive copy is found (then the row counts); 18681d 2 / 4 / 4, one builder/web short.
+  Where a minimum is short, the cleared hold exposes it and G2 runs its usual top-up search
+  (`evidence_incomplete`). The top-up appends rows to `case/freshness.jsonl`, which only G8/G9 identity
+  reads; none of the three has passed G8 or G9 on this attempt. Today the hold stops the attempt before
+  the top-up can run.
 - **Timeline.** About an hour per case to get back to G2, for G1, G3 and the re-asked review.
 
 ## Tests
@@ -197,10 +213,15 @@ and the retained reviewer answer of each held case, read in memory from its snap
   cae763's real URL behind an authored 202 wall. With the ruling, G2 passes on its first cycle with
   `ruled_rows` on the card. The existing test shows that without a ruling it stops
   `freshness_source_blocked`.
-- **Operator pre-release check.** This one is outside the repo because it needs the VM. It runs the
-  candidate `run.py`'s `g2_source_ruling` read-only, in memory, against each held case's latest snapshot:
-  its real statement, flagged rows, receipt and retained answer. It must print `OK` for each ruled case
-  before a release.
+- **Every shipped ruling is valid** and keyed to a held case's real digest and URL
+  (`test_every_shipped_ruling_is_valid_and_keyed_to_a_held_case`), so a malformed entry fails a test, not
+  a held case.
+- **Operator pre-release check, `tools/check-g2-rulings.py`.** It runs on the VM from the candidate tree,
+  read-only and in memory, against each held case's latest snapshot: its real statement, flagged rows,
+  current receipt and retained answer, through the candidate's own `g2_source_ruling`. It prints `OK`,
+  `MISMATCH` or `NO RULING` per case, with G2's last search counts. Its logic is tested on the fixture
+  (`test_the_pre_release_check_names_each_ruling_ok_or_mismatch`); its snapshot reading was run live,
+  read-only, on this branch: cae763 OK, 2a7b2a OK, 18681d NO RULING.
 
 The existing G2 suites (`test_stream_d_retries`, `test_freshness_archive`, `test_freshness_restore_fixes`,
 `test_admission`) pass unchanged.
@@ -218,15 +239,24 @@ The local register, `docs/murphy-register.md` in the main checkout, is untracked
 
 ## Operator steps (after the founder merges; the operator deploys)
 
-1. Run the pre-release check against the merge commit's `run.py` for all three cases. Expected output:
-   cae763 OK, 2a7b2a OK, and 18681d "NO RULING" until its hand check is in.
-2. Build and install the plumbing from the merge commit, for new launches only.
+`$V` is the campaign venv python; run everything in `~/durable-first-case-20261106` with `BOAT_NO_UPDATE=1`.
+
+1. Upload the merge commit's tree to the VM as `source-<sha>` (as for every deploy), then run
+   `$V -B source-<sha>/tools/check-g2-rulings.py case-import-cae763-h5-1 case-import-2a7b2a-h1-1 case-import-18681d-h5-1`.
+   Expected: cae763 `OK`, 2a7b2a `OK`, 18681d `NO RULING` until its hand check is in. Stop on any
+   `MISMATCH`.
+2. Build and install the plumbing from that tree, for new launches only.
 3. Send `plumbing_release` to `b-import-cae763-h5` and `b-import-2a7b2a-h1`. The release itself ends
    their holds; `resume_held` is needed only if a card still says `held_for_release` after a minute.
 4. 18681d:
-   1. The founder fills in the hand-check template.
-   2. The entry is added to `G2_SOURCE_RULINGS`. This is a data-only commit, checked by a goldfish.
-   3. Run step 1 for 18681d, which must print OK.
+   1. The founder opens the page and fills in the hand-check template: one `G2_SOURCE_RULINGS` entry with
+      `kind: "hand_checked"`, the keys in the schema table, `case: "case-import-18681d-h5-1"`,
+      `statement_sha256: "50f568b817bc374ddbcb3d6b927127db90fc368b1c2cb14b1477a9e7b30df5d5"`,
+      `url: "https://www.answeroverflow.com/m/1273391376289239134"`, and `hand_check` filled.
+   2. The entry is added to `G2_SOURCE_RULINGS` in one commit (no other change; the shipped-ruling test
+      checks it against the 18681d fixture digest and URL), reviewed by a goldfish, and merged by the
+      founder.
+   3. Run step 1 from that tree; 18681d must print `OK`.
    4. Install, then send `plumbing_release` to `b-import-18681d-h5`.
 
    Never release anything to `b-import-18681d-h5` before its ruling is in. Any release resumes it, and

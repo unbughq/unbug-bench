@@ -79,12 +79,36 @@ class RulingTests(unittest.TestCase):
 
     def test_a_hand_check_settles_18681d_either_way(self):
         held = HELD[D18681]
-        self.assertFalse(any(r['url'] == held['row']['url'] for r in run.G2_SOURCE_RULINGS))   # waits for the person
         c, blocked = self.verdict(held, (hand_check(held, False),))
         self.assertEqual((blocked, c.freshness_confirmed_hits, c.freshness_transport_pending), ([], 0, False))
         self.assertEqual(c.card['freshness_confirmation']['ruled_rows'][0]['hand_check']['reports_this_bug'], False)
         c, blocked = self.verdict(held, (hand_check(held, True),))
         self.assertEqual((blocked, c.freshness_confirmed_hits, c.freshness_transport_pending), ([held['row']], 1, False))
+
+    def test_every_shipped_ruling_is_valid_and_keyed_to_a_held_case(self):
+        # A malformed entry would apply nothing at runtime and cost a held case a resume: fail here instead.
+        for ruling in run.G2_SOURCE_RULINGS:
+            held = [h for h in HELD.values() if (h['statement_sha256'], h['row']['url']) ==
+                    (ruling['statement_sha256'], ruling['url'])]
+            self.assertEqual(len(held), 1, ruling['case'])
+            c, blocked = self.verdict(held[0], (ruling,))
+            self.assertEqual(c.card['freshness_confirmation']['ruled_rows'],
+                             [{'row': 1, **ruling, 'statement_sha256': AUTHORED}], ruling['case'])
+
+    def test_the_pre_release_check_names_each_ruling_ok_or_mismatch(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('check_g2_rulings', ROOT / 'tools/check-g2-rulings.py')
+        tool = importlib.util.module_from_spec(spec); spec.loader.exec_module(tool)
+        held = HELD[A2A7B2]
+        url = held['row']['url']
+        args = (STATEMENT, [held['row']], {url: held['receipt']}, {url: held['answer']})
+        ruling = {**shipped(A2A7B2), 'statement_sha256': AUTHORED}
+        moved = {**ruling, 'url': url + '/'}
+        with patch.object(run, 'G2_SOURCE_RULINGS', (ruling, moved)):
+            self.assertEqual(tool.check(*args), [(ruling, 'OK'), (moved, 'MISMATCH')])
+        with patch.object(run, 'G2_SOURCE_RULINGS', (ruling,)):
+            self.assertEqual(tool.check(*args[:3], {url: {**held['answer'], 'same_bug': True}}), [(ruling, 'MISMATCH')])
+        self.assertEqual(tool.check(*args), [])   # no shipped ruling names the authored statement
 
     def test_a_ruling_settles_only_its_own_unread_row(self):
         held = HELD[CAE763]
