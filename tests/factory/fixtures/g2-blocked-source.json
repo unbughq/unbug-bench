@@ -1,5 +1,5 @@
 {
- "_source": "Read in memory, 2026-11-20 ~10:40 UTC, from each held case's latest CASE_SNAPSHOT on the control VM (nothing written there): the flagged row (query and note left out), the runner's current receipt for that URL (response bodies left out) and the reviewer's retained G2 answer for that row (ordinary-retries). Verbatim except the 18681d answer's two free-text fields (answer_redacted), which name the case's bug.",
+ "_source": "Read in memory, 2026-11-20 ~10:40 UTC, from each held case's latest CASE_SNAPSHOT on the control VM (nothing written there): the flagged row (query and note left out), the runner's current receipt for that URL (response bodies left out) and the reviewer's retained G2 answer for that row (ordinary-retries). Verbatim except the 18681d answer's two free-text fields (answer_redacted), which name the case's bug. 5813be (added 2026-11-20 ~17:30 UTC, read the same way): its two docs-page rows, each a live HTTP 200 JS loading shell the reviewer left unresolved; createOrderFulfillmentWorkflow from case-import-5813be-h3-1's latest snapshot, api/admin/orders/create-fulfillment (first of its 4 flagged rows) from case-import-5813be-h1-1's; both answers verbatim.",
  "cases": [
   {
    "answer": {
@@ -169,6 +169,100 @@
    },
    "snapshot": "42c9dadb913a",
    "statement_sha256": "bf5345fbd5b1a8fa696e8811f88a86be8389423c45358549553876c5b61c50de"
+  },
+  {
+   "answer": {
+    "app_version": "2.19.0",
+    "archive_available": null,
+    "archive_checked": false,
+    "archive_snapshot_url": null,
+    "live_failure": null,
+    "resolved": false,
+    "retrieved": true,
+    "retrieved_from": "live",
+    "same_bug": null,
+    "url": "https://docs.medusajs.com/resources/references/medusa-workflows/createOrderFulfillmentWorkflow",
+    "version_scope": "Receipt records HTTP 200 from the live workflow-reference URL, but the supplied response contains only the documentation shell, title, and Loading placeholder, with no workflow reference body from which reporting or applicability to 2.19.0 can be established.",
+    "why": "The live response was retrieved successfully but exposes only a loading shell, so the reference content and its version applicability cannot be reviewed."
+   },
+   "answer_file": "ordinary-retries/d404a0a560a0961c96610d6bcee8414637104858f28c20bd842e6ffdacae44b5/answer-0.json",
+   "case": "case-import-5813be-h3-1",
+   "flagged_index": 8,
+   "flagged_rows": 16,
+   "receipt": {
+    "archive_available": null,
+    "archive_snapshot_url": null,
+    "at": "2026-11-20T00:40:00.539396+00:00",
+    "live_failure": null,
+    "responses": [
+     {
+      "final_url": "https://docs.medusajs.com/resources/references/medusa-workflows/createOrderFulfillmentWorkflow",
+      "sha256": "11c2e224a9b83c8c29fcead884a3fa170f1cb1468cfa7b796df2a404d78a65fc",
+      "status": 200,
+      "url": "https://docs.medusajs.com/resources/references/medusa-workflows/createOrderFulfillmentWorkflow"
+     }
+    ],
+    "retrieved_from": "live",
+    "url": "https://docs.medusajs.com/resources/references/medusa-workflows/createOrderFulfillmentWorkflow"
+   },
+   "row": {
+    "ambiguous": true,
+    "app_version": "2.19.0",
+    "hit": false,
+    "kind": "web",
+    "retrieved": true,
+    "url": "https://docs.medusajs.com/resources/references/medusa-workflows/createOrderFulfillmentWorkflow",
+    "who": "attacker"
+   },
+   "snapshot": "f074bf6eb9d9",
+   "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf"
+  },
+  {
+   "answer": {
+    "app_version": "2.19.0",
+    "archive_available": null,
+    "archive_checked": false,
+    "archive_snapshot_url": null,
+    "live_failure": null,
+    "resolved": false,
+    "retrieved": true,
+    "retrieved_from": "live",
+    "same_bug": null,
+    "url": "https://docs.medusajs.com/api/admin/orders/create-fulfillment",
+    "version_scope": "The HTTP 200 response identifies current documentation v2.22.7 but contains only the API loading shell and base-spec references, without the create-fulfillment operation content needed to assess applicability to 2.19.0.",
+    "why": "The receipt confirms live HTTP 200 retrieval, but the saved response lacks the endpoint's substantive documentation, leaving its bug comparison and version applicability unresolved."
+   },
+   "answer_file": "ordinary-retries/18757728e2779c8bc0e57309a1b385e784819139d5577482ed4c6e6595008af6/answer-0.json",
+   "case": "case-import-5813be-h1-1",
+   "flagged_index": 2,
+   "flagged_rows": 30,
+   "receipt": {
+    "archive_available": null,
+    "archive_snapshot_url": null,
+    "at": "2026-11-19T11:42:17.984138+00:00",
+    "live_failure": null,
+    "responses": [
+     {
+      "final_url": "https://docs.medusajs.com/api/admin/orders/create-fulfillment",
+      "sha256": "fb6fd9bd1dfc39a36b65ecd5da4cf7ff5da271adfec60cbece161016a835929b",
+      "status": 200,
+      "url": "https://docs.medusajs.com/api/admin/orders/create-fulfillment"
+     }
+    ],
+    "retrieved_from": "live",
+    "url": "https://docs.medusajs.com/api/admin/orders/create-fulfillment"
+   },
+   "row": {
+    "ambiguous": true,
+    "app_version": "2.19.0",
+    "hit": false,
+    "kind": "web",
+    "retrieved": true,
+    "url": "https://docs.medusajs.com/api/admin/orders/create-fulfillment",
+    "who": "attacker"
+   },
+   "snapshot": "eb3e93aa72db",
+   "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf"
   }
  ]
 }
