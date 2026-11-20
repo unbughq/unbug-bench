@@ -255,7 +255,7 @@ Strictly in this order. No release reaches any batch until step 3 is done.
      carry `open_steps`, which older `usage_coverage` reads as unknown coverage.
 
 **Known costs, recorded.**
-- A case with less money left than one whole request ($0.57 MiMo, $0.63 GLM) gets an NW
+- A case with less money left than one whole request ($0.57 MiMo, $0.63 GLM, $0.79 DeepSeek) gets an NW
   reservation that stops before sending and books its small bound. This over-counts only.
 - The pre-stop at `booked + nw_request_worst > maximum` can label a call that finished within one
   request of its maximum `usage_reservation_exceeded`. That is retried as infra.
@@ -344,15 +344,27 @@ Neuralwatt's catalog is `/v1/models`, read 2026-11-19 23:51Z and saved as
 |---|---|---|---|---|
 | `xiaomi/mimo-v2.6-pro` | builder, reviewers | $79.66 | `mimo-v2.6-pro`, list = pin | live since 11-19 |
 | `z-ai/glm-5.3-flash` | reviewers, easy_calibrator | $15.49 | `glm-5.3-flash`, list = pin | live since 11-19 (not for easy_calibrator, see below) |
-| `deepseek/deepseek-v4.1-flash` | attacker, builder | $12.37 | `deepseek-v4.1-flash`: 0.15 / 0.015 / 0.6, against the pin's 0.14 / 0.0042 / 0.42 | **yes, this change** |
+| `deepseek/deepseek-v4.1-flash` | attacker, builder (October cards also have a walled DeepSeek easy_calibrator) | $12.37 | `deepseek-v4.1-flash`: 0.15 / 0.015 / 0.6, against the pin's 0.14 / 0.0042 / 0.42 | **yes, this change** |
 | `minimax/minimax-m3.1-flash` | attacker, builder | $9.52 | not served | no |
 | `meta/muse-spark-1.3-contributor` | builder | $0.29 | not served | no |
 
 - **DeepSeek.** It was deferred on 11-19 because Neuralwatt's list price is above OpenRouter's. The
   founder now prefers Neuralwatt anyway.
-  - Neuralwatt bills by measured energy, about 45% of list.
+  - Neuralwatt bills by measured energy: about 45% of list by the operator's 11-20 measurement (lines
+    23-24 above give 20-27% below list for MiMo and GLM over 7 days).
   - DeepSeek V4.1 Flash is in the free Flash promo: 50 Wh a day on Basic, until 2027-01-01.
-  - So the list price is only the reservation bound.
+  - **Case money is still booked at list (review 1, B2).** Every Neuralwatt step books
+    `max(OpenCode cost, go_step_cost)` (`budget.py:1410-1413`), and for DeepSeek that is now Neuralwatt's
+    own list. So the list is both the reservation bound and what each step books, not what Neuralwatt
+    bills.
+    - On the real 7-day OpenRouter DeepSeek token mix (1,962 requests with usage: 156.5M prompt tokens,
+      149.7M of them cached, 2.75M completion; read-only from `paid_requests.usage`), the booking is:
+      - $2.73 at the OpenRouter pin;
+      - $4.91 at Neuralwatt's list, 1.8×, mostly cache reads (0.015 against 0.0042).
+    - On 11-19, with OpenRouter credit-blocked, DeepSeek fell to its free lane and booked $0. It now
+      books list.
+    - The founder's "Neuralwatt anyway" is taken to cover this over-count of case money. Reconciliation
+      with Neuralwatt's usage API stays out of scope, as before.
 - **Lanes not used:**
   - `-speed` lanes, which are billed above list;
   - `-flex` lanes, which are a different service tier and are held during peaks.
@@ -391,9 +403,21 @@ Neuralwatt's catalog is `/v1/models`, read 2026-11-19 23:51Z and saved as
      `service_tier == "standard"` and context 1048560. The pricing statement reads "no standard or
      flex request costs more than its listed token price (speed lanes are priced above it)". So
      booking at Neuralwatt's own list is an upper bound.
-2. **`model_router.py`** (chains only). The DeepSeek chain becomes
-   `('opencode-go/deepseek-v4.1-flash', 'neuralwatt/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free')`.
-   `routes()`, `ungated_lanes()` and `route_maximum()` already cover every member of `NW_ROUTES`.
+2. **`model_router.py`**
+   - **Chain.** The DeepSeek chain becomes
+     `('opencode-go/deepseek-v4.1-flash', 'neuralwatt/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free')`.
+     `routes()`, `ungated_lanes()` and `route_maximum()` already cover every member of `NW_ROUTES`.
+   - **The caller's chain** (cross-version fix, below). `chain(model)` is factored out of `routes()`.
+     - `_admit` sends `chain=chain(model)` in `acquire`.
+     - The router validates it: a list of at most 16 route-shaped strings.
+     - The router leases only lanes the caller `knows`, in two places: its `choices` and its
+       queue-ahead check over older requests.
+     - `knows(request, route)`:
+       - if the caller sent a chain, `route in request['chain']`;
+       - if it did not, `route not in LATE_ROUTES`, where `LATE_ROUTES = {'neuralwatt/deepseek-v4.1-flash'}`
+         is every lane added to `CHAINS` after 3dfdde3c.
+     - Five lines in the acquire path. The parallel router-retry change edits nearby lines, so merge it
+       with care.
 3. **`model_runtime.opencode_config`.** The Neuralwatt provider's model cost becomes `price(route)`
    instead of `price(NW_TWINS[route])`.
    - The value is the same for MiMo and GLM, and Neuralwatt's own list for DeepSeek.
@@ -425,16 +449,31 @@ MiMo and GLM on Neuralwatt.
 
 That is the cae763 loop, and it also starves the MiMo and GLM Neuralwatt calls.
 
-**Who is safe.** Workers older than 3dfdde3c never offer the key. New workers know the lane.
+A waiting 3dfdde3c DeepSeek request does further harm. The router computes its lanes with the new
+`CHAINS`, so the request queues ahead of every newer request for the `neuralwatt-key` pool, MiMo and
+GLM included, on a lane it can never take.
 
-**Fix: the off switch, no code.**
-- The router restart that brings this code also adds `"neuralwatt/deepseek-v4.1-flash"` to
-  `disabled_routes`.
-- `disabled_routes` matches by prefix (`model_router.py:446`), so MiMo and GLM stay on.
-- A later drained restart removes the entry, once no batch on plumbing `00ff2156…` (3dfdde3c) is
-  live or held. Each such batch either ends or gets `plumbing_release` to this release.
-- **Follow-up, not done here.** A protocol flag in `acquire` would avoid the second restart. It is
-  left out because the parallel router-retry change is editing the acquire path.
+**Who is safe.** Workers older than 3dfdde3c never offer the key.
+
+**Why the off switch is not enough (review 1, B1).** Putting the lane in `disabled_routes` protects the
+3dfdde3c workers, but it loops the new ones instead:
+- their own chain counts a lane the router never leases;
+- `ordinary_retry.answer` never reaches exhausted;
+- the router answers `outage`.
+
+This is diff-3's B1 shape.
+
+**Fix: the caller sends its chain** (Change item 2).
+- **Old callers.** A 3dfdde3c caller sends none, so it is never offered `LATE_ROUTES` and never queues
+  on them. It still gets the MiMo and GLM Neuralwatt lanes it knows.
+- **New callers.** A new caller sends its chain, so it gets every lane it counts.
+- **No switch.** Nothing is disabled and no second router restart is needed. Every future chain
+  change is guarded too, because a new caller is offered only what it sent.
+- **Removing `LATE_ROUTES`.** It can be deleted once no 3dfdde3c batch is live or held. Older callers
+  never offer the key.
+- **Deploy order.** The router must restart on this code before any worker runs it. An old router
+  refuses the unknown `chain` field (`invalid admission fields`). That is the deploy order below,
+  which the router-retry restart already needs.
 
 ### Walled roles (easy_calibrator) and Neuralwatt
 
@@ -502,14 +541,28 @@ forbids, so `test_walled_roles_never_take_the_neuralwatt_lane` is correct and st
 - With OpenRouter nearly empty, those 3 seats are all the paid capacity for MiMo, GLM and DeepSeek
   whenever both Go plans are on quota. Both plans were on quota for most of 11-19 and 11-20.
 - Over the last 7 days, OpenRouter served 13,153 MiMo, GLM and DeepSeek requests for unwalled roles.
-  Their concurrency was not measured.
+- **Concurrency (review 1, N7),** read-only from the router ledger. Each lease runs from its request's
+  `created` to `expires − 180`. Counted over all Go, Neuralwatt and OpenRouter leases of these three
+  models in the last 7 days, the concurrent count was:
+  - 0 for 55% of the time;
+  - 1 for 30%;
+  - 2 for 7%;
+  - 3 for 4%;
+  - more than 3 for about 4%;
+  - 10 at its peak.
+
+  So 3 Neuralwatt seats cover about 96% of the time, even with Go fully on quota.
+- **When the seats are full.** A call takes the next open lane in its chain.
+  - DeepSeek and GLM spill to their free lanes, after OpenRouter if OpenRouter still has credit.
+  - MiMo waits for a seat (`capacity`, up to 30 minutes) or uses OpenRouter credit.
+  - Any spill onto OpenRouter eats into the $10 that option A keeps for walled roles.
 - More seats need a higher Neuralwatt level:
   - Standard (5 floor, 10 burst) after $50 of total spend;
   - or a larger plan.
 
   That is the founder's money call.
-- Until then, calls beyond 3 either wait for a seat (`capacity`, up to 30 minutes) or take OpenRouter
-  while it still has credit.
+- **Recommendation: no more seats now.** Revisit if the router's `capacity` waits on `neuralwatt-key`
+  grow.
 
 ### Tests (real fixtures)
 
@@ -518,15 +571,21 @@ forbids, so `test_walled_roles_never_take_the_neuralwatt_lane` is correct and st
     credit-blocked) and e15450's real DeepSeek stress_tester model.
     - An acquire that offers the key gets `neuralwatt-key/neuralwatt/deepseek-v4.1-flash`.
     - The same acquire without the key does what it did on 11-19.
-  - **The off switch.** The real 3dfdde3c request is replayed to a router with
-    `disabled_routes=('neuralwatt/deepseek-v4.1-flash',)`.
-    - It is never offered the DeepSeek Neuralwatt lane.
-    - MiMo still gets its Neuralwatt lane on the same router.
-    - Without the switch, the request is offered that lane. The lane lies outside 3dfdde3c's chain,
-      which the test pins as a literal.
-  - **The wall.** The walled easy_calibrator still never gets a Neuralwatt lane.
+  - **The caller's chain.** It replays the real 3dfdde3c request, which sends no chain.
+    - It is never offered the DeepSeek Neuralwatt lane, which lies outside 3dfdde3c's chain, pinned as
+      a literal.
+    - The same request from this release, with its chain, gets the lane.
+    - The 3dfdde3c caller still gets MiMo's Neuralwatt lane.
+    - A waiting 3dfdde3c DeepSeek request does not queue ahead of a newer MiMo request on the
+      Neuralwatt pool.
+    - `_admit` sends the chain.
+    - A malformed chain is refused.
+    - Each `knows` filter was removed in turn, and the tests failed each time.
+  - **The wall.** Walled GLM and DeepSeek (a real October card has a DeepSeek easy_calibrator) still
+    never get a Neuralwatt lane.
 - **Maximum**
-  - MiMo and GLM `nw_maximum` values are unchanged (exact string).
+  - MiMo and GLM `nw_maximum` values are byte-identical to 3dfdde3c's, pinned as literals.
+  - The twin-equality checks loop over `NW_TWINS` minus `NW_OWN_PRICES`.
   - DeepSeek's maximum is built from Neuralwatt's own list in the 11-20 record. The record shows
     `service_tier == "standard"` and context 1048560.
   - `runtime_prices` and `go_step_cost` for DeepSeek on Neuralwatt use 0.15 / 0.015 / 0.6, never the
@@ -534,6 +593,20 @@ forbids, so `test_walled_roles_never_take_the_neuralwatt_lane` is correct and st
   - `nw_request_worst` is $0.786432, which is at least the clamped worst case of one request ($0.177).
   - `funded_maximum` and `valid_maximum` accept a funded DeepSeek Neuralwatt lease.
 - **Runtime.** The exact provider block has three models, and DeepSeek's cost is Neuralwatt's list.
+  - No provider-block id ends in `-speed` or `-flex`.
+  - Each id's catalog entry is `service_tier == "standard"`. That check is secondary, because `-speed`
+    entries are also listed as standard.
+- **No OpenCode capture for DeepSeek on Neuralwatt (review 1, N6).**
+  - The 11-19 OpenCode capture ran in a worker sandbox with the trial key. Copying the key onto a live
+    case's box is not done here.
+  - The direct 11-20 smoke does show:
+    - a streamed usage frame (`include_usage`) for `deepseek-v4.1-flash`, with reasoning tokens counted
+      in `completion_tokens`;
+    - the same model id as the provider block.
+
+    The capture is saved under the operator scratchpad, not as a fixture: no test reads it.
+  - DeepSeek runs through the same `@ai-sdk/openai-compatible` provider block as MiMo and GLM.
+  - First-hour check after deploy: a DeepSeek Neuralwatt step books non-zero tokens (deploy step 4).
 - Full suite.
 
 ### Murphy rows
@@ -543,21 +616,30 @@ forbids, so `test_walled_roles_never_take_the_neuralwatt_lane` is correct and st
 - **`new-neuralwatt-3`:** "a router whose chains name a route that an older worker does not know hands
   that worker a lease it rejects; the lease dangles and holds a seat (the `invalid lease response`
   loop)".
-  - The off switch and its test on the real 3dfdde3c request mitigate it.
-  - It stays open until a protocol flag, or the retirement of the 3dfdde3c batches, removes the
-    operator step.
+  - It is closed by the caller's-chain tests on the real 3dfdde3c request.
 
 ### Deploy (operator, after merge; this change does none of it)
 
-1. Run `unbug install` for the release, then point `source-current` at it. New launches get it.
-2. Do one drained router restart, together with the router-retry release.
-   - In `router-approved-config.json`, add `"neuralwatt/deepseek-v4.1-flash"` to `disabled_routes`,
-     keeping the existing entries.
-   - Before the restart, check:
-     `python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0]"`.
+**The router goes first.** An old router refuses the new `chain` field, so no worker may run this
+release before the router does.
+
+1. Run `unbug install` for the release (merged with the router-retry release). From here until step 3,
+   launch nothing new and send no `plumbing_release`.
+2. Point `source-current` at the release and check:
+   `python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0] and 'neuralwatt-key' in m.ACCOUNTS"`.
+   Then do one drained router restart.
+   - Config is unchanged: `neuralwatt-key` stays at 3 seats and no `disabled_routes` entry is added.
    - No controller restart is needed for this change: it adds no account and no controller-side code.
-3. Once no 3dfdde3c batch is live or held, do a drained router restart that removes the DeepSeek
-   entry from `disabled_routes`. Each such batch must first have ended or been moved to this release
-   with `plumbing_release`.
-4. Rollback: put the entry back, then do a drained restart. Nothing else holds DeepSeek Neuralwatt
-   state, and a spent route survives in retry state, as before.
+3. Launches and `plumbing_release` may resume.
+   - Running batches keep their own release and work unchanged.
+   - The 3dfdde3c batches keep their Neuralwatt MiMo and GLM lanes and never see DeepSeek's.
+   - A batch gets DeepSeek on Neuralwatt once it runs this release.
+4. First hour: check one DeepSeek Neuralwatt step in a case ledger.
+   - It books non-zero tokens at 0.15 / 0.015 / 0.6.
+   - Neuralwatt's usage for that hour is at or below the booked amount.
+5. Rollback: disable the lane with `"neuralwatt/deepseek-v4.1-flash"` in
+   `disabled_routes` and a drained restart.
+   - That brings back review 1's B1 loop for workers on this release, as for any disabled lane they
+     count.
+   - So prefer moving those batches back with `plumbing_release`, and use the switch only for an
+     emergency. In an emergency, also withdraw the key ("Rollout runbook" step 6, rollback).
