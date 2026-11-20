@@ -29,4 +29,8 @@ assert "CREATE ROLE bench_checker LOGIN BYPASSRLS" in bench and "UNBUG_MONITOR_B
 assert "/data/monitor-blind" in (ROOT / "bin/land").read_text()
 assert "oversold_other_items" in bench   # the checker field the rule names
 assert "`ALTER ROLE bench_checker NOBYPASSRLS;`" in flat("factory/prompts/builder.md")
-print("reviewer limits: known blind-step limitations and the bench_checker rule are stated")
+# Founder ruling 2026-11-20: the S0 null-change step is keyed keep-only.
+assert "touches nothing the bench runs, such as a README edit), `keep` is the only correct response" in flat("factory/prompts/reviewer-keys.md")
+assert "key `correct_responses` as `[\"keep\"]` only" in flat("factory/prompts/builder.md")
+assert "This applies to no other step" in flat("factory/prompts/reviewer-keys.md")
+print("reviewer limits: blind-step limitations, bench_checker, checkpoint grading and S0 keep-only are stated")
