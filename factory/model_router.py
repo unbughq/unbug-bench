@@ -461,11 +461,12 @@ class Store:
         """Read the provider balance off the request path (reconcile_forever). A failed read keeps the
         last one, which ages past CREDIT_FRESH_SECONDS into paid_reserve's live read."""
         at = self.clock()
-        try: observed = self.credit_reader() if self.credit_reader else None
-        except Exception: return   # no provider diagnostics
-        if observed is not None: self.balance = (_nano(observed, ROUND_FLOOR), at)
+        try:
+            observed = self.credit_reader() if self.credit_reader else None
+            if observed is not None: self.balance = (_nano(observed, ROUND_FLOOR), at)
+        except Exception: pass   # no provider diagnostics
 
-    def rpc(self, operation, data, *, handling_started=None):
+    def rpc(self, operation, data, *, handling_started=None, live=False):
         started = time.monotonic() if handling_started is None else handling_started
         credit, fetched_at = None, self.clock()
         if operation in ('paid_reserve', 'paid_settle'): _paid_envelope(operation, data)
@@ -473,10 +474,11 @@ class Store:
             # The cached balance is checked against every hold granted since it was read (fetched_at is the
             # read's start), so its age never lets the ledger's spend pass it. A live /credits read here held
             # each paid request past the 4 s rule on a loaded control VM (19 November, 16 calls lost).
-            cached = self.balance
+            cached = None if live else self.balance
             if cached is not None and fetched_at - cached[1] <= CREDIT_FRESH_SECONDS:
                 credit, fetched_at = cached
             else:
+                cached = None
                 try:
                     observed = self.credit_reader() if self.credit_reader else None
                     if observed is not None: credit = _nano(observed, ROUND_FLOOR)
@@ -509,6 +511,11 @@ class Store:
             result = None
             if operation == 'paid_reserve':
                 result = self._paid_reserve(db, data, credit, fetched_at, started)
+                if 'short' in result and cached is not None:
+                    # Short is final for the case (credit park): confirm it with a live read, outside this
+                    # transaction, so a balance cached before a top-up never parks a case.
+                    db.rollback()
+                    return self.rpc(operation, data, handling_started=started, live=True)
                 if 'short' in result:
                     key = result.pop('short'); old = health.get(key, {})
                     health[key] = dict(old, reason='credit', observed_at=now,
@@ -592,13 +599,15 @@ class Store:
                             # Only a client that waits for seats is told `capacity`; an older one rejects the reason
                             # as an invalid response, which would recreate its worker on every full seat.
                             alternatives.append((ready, limit['reason'] if limit else
-                                                 'capacity' if data.get('capacity_protocol') == 1 else 'rate', route))
+                                                 'capacity' if data.get('capacity_protocol') in (1, 2) else 'rate', route))
                         # A seat that frees in minutes beats a pool waiting on a top-up: the call takes the seat.
                         if any(r in ('rate', 'capacity') for _, r, _ in alternatives):
                             alternatives = [a for a in alternatives if a[1] != 'credit']
                         bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
                         ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
-                            now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'no_route') if bounded
+                            now + 900, ('credential_expiring' if data['model'].startswith('claude/') else
+                                        # capacity_protocol 2 also knows no_route; an older worker keeps `outage`.
+                                        'no_route' if data.get('capacity_protocol') == 2 else 'outage') if bounded
                             else 'unbounded_route', dict(route=data['model'], account=None))
                         result = dict(kind='wait', reason=reason, retry_after=ready, route=route['route'], account=route['account'])
             elif operation in ('renew', 'finish', 'start'):
@@ -897,7 +906,7 @@ def _account_order(case):
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
     data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1,
-                capacity_protocol=1)
+                capacity_protocol=2)
     funding = getattr(case, 'router_funding_usd', None)
     if funding is not None: data['funding_usd'] = funding
     priority = STAGE_PRIORITY.get(getattr(getattr(case, 'engine', None), 'kind', None))
@@ -1080,7 +1089,7 @@ def running(lease, cancel):
         except ValueError: raise RouterUnavailable('lease renewal unavailable') from None
         if not valid_maximum(result) or any(result.get(k) != getattr(lease, k)
                 for k in ('route', 'account', 'pool', 'family', 'billing', *MAXIMUM_FIELDS)):
-            raise RouterUnavailable('lease binding changed')
+            raise RouterRejected('lease binding changed')   # the router's answer: never retried
         renewed[0] = sent
     renew_once()
     def renew():
@@ -1177,6 +1186,7 @@ RECONCILE_SECONDS = 60
 
 def reconcile_forever(store, stopped=None, interval=RECONCILE_SECONDS):
     stopped = stopped or threading.Event()
+    store.refresh_credit()   # at start too, off the serving thread (a provider read has no DNS timeout)
     while not stopped.wait(interval):
         store.refresh_credit()   # first, so a slow reconcile never ages the balance paid_reserve reads
         try: store.reconcile(cost_reader=generation_cost, usage_reader=account_usage)
@@ -1205,7 +1215,6 @@ def main():
     token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
     server = Server(('0.0.0.0', 8765), store, token)
     server.enable_tls(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
-    store.refresh_credit()
     threading.Thread(target=reconcile_forever, args=(store,), daemon=True).start()
     server.serve_forever()
 

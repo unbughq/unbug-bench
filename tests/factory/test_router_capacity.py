@@ -128,6 +128,10 @@ class RouterCapacity(unittest.TestCase):
         from durable.stop_registry import lookup
         self.assertEqual(lookup('router:no_route'), {'kind': 'wait'})
         self.assertIn('router:no_route', PUBLISHED_REASONS)
+        # A worker from before no_route (capacity_protocol 1) still gets the reason it understands.
+        older = closed.rpc('acquire', dict(id=uuid.uuid4().hex, model=TWIN, accounts=['openrouter-key'], role='writer',
+                                           deadline=time.time() + 3600, paid_protocol=1, capacity_protocol=1))
+        self.assertEqual(older['reason'], 'outage')
         # A worker never publishes it as a provider limit.
         held = self.hold_seat()
         with self.assertRaises(ValueError):

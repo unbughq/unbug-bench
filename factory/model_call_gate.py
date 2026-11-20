@@ -636,7 +636,8 @@ class Handler(BaseHTTPRequestHandler):
                     else: reason = 'router_unavailable'
                 except model_router.RouterUnavailable: reason = 'router_unavailable'
                 # Only a credit refusal is final at once; the paid pool waits for a top-up.
-                if reason != 'router_unavailable' or gate.state.is_set() or time.monotonic() + PAID_RESERVE_PAUSE_SECONDS >= until:
+                if (reason != 'router_unavailable' or gate.state.is_set() or gate.state.closed
+                        or time.monotonic() + PAID_RESERVE_PAUSE_SECONDS >= until):
                     break
                 time.sleep(PAID_RESERVE_PAUSE_SECONDS)
             if reason:

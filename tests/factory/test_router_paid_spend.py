@@ -174,9 +174,11 @@ class PaidTests(unittest.TestCase):
             self.assertTrue(self.store.rpc('paid_settle', data | {'usage': usage})['settled'])
             self.now[0] += 50                      # still fresh; the provider has not shown these charges
         self.assertTrue(self.reserve(lease)[1]['granted'])
-        # The cached $0.69 never pays for a fourth: every hold granted since the read counts against it.
-        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))
         self.assertEqual(len(reads), 1)            # no provider round trip on the request path
+        # The cached $0.69 never pays for a fourth: every hold granted since the read counts against it.
+        # A refusal parks the case, so it is confirmed with one live read first.
+        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))
+        self.assertEqual(len(reads), 2)
         self.assertEqual(self.status()['total_usd'], '0.690000000')
 
     def test_a_stale_or_missing_cached_balance_is_read_live(self):
@@ -194,9 +196,37 @@ class PaidTests(unittest.TestCase):
 
     def test_the_background_pass_refreshes_the_balance_before_reconciling(self):
         stopped, seen = threading.Event(), []
-        self.store.reconcile = lambda **kw: (seen.append(self.store.balance), stopped.set())
-        router.reconcile_forever(self.store, stopped, interval=.01)
+        self.store.reconcile = lambda **kw: (seen.append(getattr(self.store, 'balance', None)), stopped.set())
+        thread = threading.Thread(target=router.reconcile_forever, args=(self.store, stopped), kwargs=dict(interval=.01), daemon=True)
+        thread.start(); thread.join(5); stopped.set()
         self.assertEqual(seen, [(router._nano('11.63'), self.now[0])])
+
+    def test_a_cached_balance_counts_charges_from_before_its_own_read_not_before_now(self):
+        """The provider's balance may lag our charges by CREDIT_OVERLAP (900 s), counted back from when the
+        balance was read. A charge settled 850 s before the read is still outstanding 100 s later."""
+        usage = dict(prompt_tokens=1000000, completion_tokens=900000)   # the whole $0.23 window
+        data, _ = self.reserve(admit(self.store))
+        self.assertTrue(self.store.rpc('paid_settle', data | {'usage': usage})['settled'])
+        self.now[0] += 850
+        self.credit = Decimal('.46')               # the balance does not show that $0.23 yet
+        self.store.refresh_credit()
+        self.now[0] += 100                         # fresh, but the charge is now 950 s old
+        self.credit = Decimal('.23')               # by now the provider shows it (a live read would see this)
+        lease = admit(self.store)
+        self.assertTrue(self.reserve(lease)[1]['granted'])   # cached $0.46 less the $0.23 still outstanding at the read
+        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))
+
+    def test_a_short_cached_balance_is_confirmed_live_before_it_parks_anything(self):
+        lease = admit(self.store)
+        self.credit = Decimal('.1')
+        self.store.refresh_credit()                # read before a top-up
+        self.credit = Decimal('11.63')             # the operator tops up
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertTrue(self.credit_clear())       # no credit block from the old balance
+        self.credit = Decimal('.1')
+        self.store.refresh_credit()
+        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))   # really short: final
+        self.assertFalse(self.credit_clear())
 
     def credit_clear(self):
         return router.credit_ready(self.path)   # what a case parked on router:credit polls
