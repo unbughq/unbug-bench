@@ -2084,9 +2084,9 @@ G2_SOURCE_RULINGS = (
                "this case's bug.",
      "hand_check": {"checked_at": "2026-11-20", "checked_by": "Claude at the founder's direction",
                     "page_says": "Medusa's reference page for createOrderFulfillmentWorkflow (docs v2.22.7): its steps, "
-                                 "an example, its input and output schema, its events, and a note that each fulfilled "
-                                 "managed-inventory item needs a reservation. It documents intended behaviour only: no "
-                                 "defect, issue, fix or workaround is reported; it does not report this case's bug.",
+                                 "an example, its input and output schema and its events. It documents intended "
+                                 "behaviour only: no defect, issue, fix or workaround is reported; it does not report "
+                                 "this case's bug.",
                     "reports_this_bug": False}},
     {"gate": "G2", "kind": "hand_checked", "by": "founder", "at": "2026-11-20", "case": "case-import-5813be-h1-1",
      "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf",
@@ -2113,7 +2113,7 @@ def g2_source_ruling(c, row, answer, receipt):
     statement = c.case / 'statement.md' if getattr(c, 'case', None) is not None else None
     blocked = access_failure(receipt)
     unreadable = (not blocked and receipt.get('retrieved_from') == 'live' and isinstance(answer, dict)
-                  and answer.get('resolved') is False and answer.get('same_bug') in (None, False)
+                  and answer.get('resolved') is False and (answer.get('same_bug') is None or answer.get('same_bug') is False)
                   and answer.get('url') == row.get('url') and agrees(answer, receipt))
     if (statement is None or not statement.is_file() or not (blocked or unreadable)
             or isinstance(answer, dict) and answer.get('same_bug') is True):

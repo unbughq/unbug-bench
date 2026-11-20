@@ -90,7 +90,7 @@ hold:
   - the runner's own receipt for the row shows an access failure (`freshness_retrieval.access_failure`);
     any `kind` applies; or
   - (amendment, `hand_checked` only) the receipt shows a page fetched live (`retrieved_from: live`)
-    and the reviewer's answer for that row is a dict with `resolved: false`, `same_bug` null or false,
+    and the reviewer's answer for that row is a dict with `resolved: false`, `same_bug` null, absent or `false` (not `0` or a string),
     the row's URL, and retrieval fields that agree with the receipt (`freshness_retrieval.agrees`). An
     archive copy of a dead page does not qualify: it keeps the unreachable rule;
 - the reviewer's answer does not say `same_bug: true`, whether that answer is valid or not;
@@ -201,7 +201,7 @@ Retained G2 data cannot skip a ruling:
 - **Tests.** `test_a_hand_check_settles_5813be_unreadable_shells_never_a_confirmed_row` on both real
   rows (fixture entries read from h3's and h1's snapshots): the shipped hand checks clear them;
   `reports_this_bug: true` confirms a match; `not_needed`, a confirmed row, a read row, another URL, a
-  disagreeing answer, a non-bool `same_bug`, no answer, a dead page with no copy and a dead page read
+  disagreeing answer, a non-bool `same_bug` (a string or `0`), no answer, a dead page with no copy and a dead page read
   from an archive copy settle nothing. It fails on the previous
   predicate, and each new guard fails it when removed. `test_each_held_row_stays_blocked_without_a_ruling`
   now expects these two rows to hold as unresolved, not as transport.

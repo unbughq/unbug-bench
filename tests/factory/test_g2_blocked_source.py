@@ -115,6 +115,7 @@ class RulingTests(unittest.TestCase):
                     ('reviewer confirmed', (ruling,), confirmed, None),
                     ('reviewer confirmed, left unresolved', (ruling,), {**held['answer'], 'same_bug': True}, None),
                     ('same_bug not a bool', (ruling,), {**held['answer'], 'same_bug': 'true'}, None),
+                    ('same_bug zero', (ruling,), {**held['answer'], 'same_bug': 0}, None),
                     ('reviewer read it', (ruling,), read, None),
                     ('answer for another url', (ruling,), {**held['answer'], 'url': ruling['url'] + '?x'}, None),
                     ('answer disagrees with the receipt', (ruling,), {**held['answer'], 'retrieved_from': 'archive'}, None),
