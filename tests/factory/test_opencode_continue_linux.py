@@ -77,9 +77,10 @@ def sudo(*args, check=True):
 @unittest.skipUnless(live(), 'needs Linux, passwordless sudo, opencode and FACTORY_LIVE_OPENCODE=1')
 class OpenCodeContinue(unittest.TestCase):
     def setUp(self):
-        sudo('useradd', '-m', '-s', '/bin/bash', USER)
         self.home = Path('/home') / USER
         self.addCleanup(self.cleanup)
+        self.cleanup()   # a run that crashed left its user behind
+        sudo('useradd', '-m', '-s', '/bin/bash', USER)
         uid, gid = (int(sudo('id', flag, USER).stdout) for flag in ('-u', '-g'))
         sudo('mount', '-t', 'tmpfs', '-o', f'mode=0700,size=2g,nodev,nosuid,uid={uid},gid={gid}', 'tmpfs', str(self.home))
         sudo('install', '-d', '-m', '700', '-o', USER, '-g', USER, str(self.home / '.cache'))
@@ -92,12 +93,14 @@ class OpenCodeContinue(unittest.TestCase):
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def cleanup(self):
-        self.server.shutdown()
-        self.server.server_close()
+        if getattr(self, 'server', None):
+            self.server.shutdown()
+            self.server.server_close()
+            self.server = None
         sudo('pkill', '-KILL', '-u', USER, check=False)
         sudo('umount', str(self.home), check=False)
         sudo('userdel', '-r', USER, check=False)
-        sudo('rm', '-rf', str(self.work), check=False)
+        if getattr(self, 'work', None): sudo('rm', '-rf', str(self.work), check=False)
 
     def run_opencode(self, prompt, *extra):
         scratch = Path(tempfile.mkdtemp(prefix='factory-tester-state-', dir=self.work))
@@ -126,6 +129,8 @@ class OpenCodeContinue(unittest.TestCase):
         return {e['sessionID'] for e in events if 'sessionID' in e}, events
 
     def test_a_stopped_session_is_resumed_and_writes_its_result(self):
+        version = subprocess.run([shutil.which('opencode'), '--version'], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(version, '1.19.0')   # the workers' pin (router_cheap_pin_probe.py)
         first, events = self.run_opencode(FIRST)
         self.assertEqual(len(first), 1, events)
         self.assertFalse(any(e.get('type') == 'tool_use' for e in events), events)
@@ -139,8 +144,7 @@ class OpenCodeContinue(unittest.TestCase):
         self.assertIn(FIRST, history)             # the first run's prompt and reply are in context
         self.assertIn(FIRST_REPLY, history)
         self.assertTrue(sudo('test', '-f', self.server.result, check=False).returncode == 0, events)
-        print('opencode', subprocess.run(['opencode', '--version'], capture_output=True, text=True).stdout.strip(),
-              'session', sorted(first), 'requests', len(self.server.requests))
+        print('opencode', version, 'session', sorted(first), 'requests', len(self.server.requests))
 
 
 if __name__ == '__main__':
