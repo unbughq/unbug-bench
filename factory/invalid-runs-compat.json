@@ -69,11 +69,11 @@
   "verdict_code_pins": {
     "bench": {
       "from": "d4a7127ada7b117d7286e79d2f5b81427ae93aa716378cbca6ba47c427413a14",
-      "to": "e50c8b749f50ce9390aadad1e71bfcf80dc01b47dab0cf83d134555f0f0add51"
+      "to": "9511baaeda23f2e8f5b61bcd4c56ba93f65cd48281929a5cbba042268cf25ef5"
     },
     "model": {
       "from": "802bfc8fa85d4c28ce1606cc58430d21d1d8ac65a3884fa648be7b2c2eb71a0b",
-      "to": "01433a2640f8cca7f7099adfc0493cebb5eb9b719b3cb7c433f5c4d13e90981f"
+      "to": "c464ced1c70cedd9fea14a0fce80253ccfcb79de50e5483cc43b2eb138dae9e8"
     }
   }
 }
