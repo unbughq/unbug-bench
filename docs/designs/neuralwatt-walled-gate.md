@@ -189,6 +189,14 @@ The register is the untracked local `docs/murphy-register.md`; the parent append
 - `hotfix/cb5e26-nw-gate` is a per-case release branch, the existing practice (`hotfix/cb5e26-diag`), which
   ENGINEERING §4 ("Do not add per-case bundles, rescue branches") leans against; it is the coordinator's call
   and carries only code that is on main or in this change.
+- A malformed Neuralwatt answer in an ordinary retry (the calibrator dedup) moves the next try to the twin,
+  which parks on OpenRouter credit while it has none (diff review 1, N2).
+- A case parked in `wait_for_credit` is not woken by a plumbing release: check its engine status; it may still
+  need the operator's credit lift (hotfix review, N1).
+- Rollback: once a case has run a Neuralwatt step, never move it back to a pre-Neuralwatt source (d038ab59 or
+  older rejects `open_steps` ledger rows, Neuralwatt `spent_routes` and a `neuralwatt-key` account list);
+  withdraw the key instead (hotfix review, N2). The live router must be neuralwatt-first or later (it accepts
+  `chain`).
 - First check: a G10 easy calibrator receipt (worker and helper try) shows `neuralwatt/glm-5.3-flash`,
   `cap_used.validated_requests > 0` and a booked step. Watch `capacity` waits on `neuralwatt-key`: walled G10
   tries now share its 3 seats (review 1, N10).
