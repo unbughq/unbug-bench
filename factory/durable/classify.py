@@ -50,6 +50,9 @@ _P, _I, _E = Outcome.PROVIDER_LIMIT, Outcome.INFRA_ERROR, Outcome.EXHAUSTED
 # (model_router.CAPACITY_WAIT_SECONDS). No provider refused anything; it sleeps briefly and keeps its worker.
 _WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"), "capacity": (_P, "router:capacity"),
          "credit": (_P, "router:credit"), "outage": (_I, "router:outage"),
+         # The request had no eligible lane at all (model_router.acquire): it sleeps out the router's
+         # retry_after; as `outage` it relaunched 0-call attempts every few minutes (1110a-h1, 18 November).
+         "no_route": (_P, "router:no_route"),
          "credential_expiring": (_I, "router:credential_expiring"),
          "unbounded_route": (_I, "router:unbounded_route"),
          "router_unavailable": (_I, "infra:router_unavailable"),
