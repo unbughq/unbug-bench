@@ -127,7 +127,7 @@ def keep_mixed_receipt(run, c):
     if isinstance(answers, list) and len(answers) == len(flagged) == len(c.freshness_retrieval):
         for index, (row, answer, got) in enumerate(zip(flagged, answers, c.freshness_retrieval), 1):
             one = types.SimpleNamespace(freshness_retrieval=[got], freshness_confirmed_hits=0,
-                                        freshness_transport_pending=False)
+                                        freshness_transport_pending=False, case=c.case)   # case: G2 source rulings
             run.checked_freshness_verdict(one, [row], [answer])
             if one.freshness_confirmed_hits: confirmed.append(index)
     atomic_json(c.work / 'freshness-verdict.json', {
