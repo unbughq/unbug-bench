@@ -75,7 +75,9 @@ class Timing:
     reconcile_retry_s: float = 30.0    # after a failed reconcile of an unconfirmed attempt
     unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S  # then it counts as lost
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
-    credit_recheck_s: float = 1800.0   # a credit park retries after this long, top-up or not (credit_park_recheck)
+    # A credit park retries after this long, top-up or not (credit_park_recheck). With wake_poll_s it sets how many
+    # steps a bounded park records: changing either changes replay of recorded parks, so ship a new patch name.
+    credit_recheck_s: float = 1800.0
 
 
 # Rechecks (seconds of waiting) of a router or credential wait while the case keeps its worker: at 2, 4 and 8 minutes.

@@ -35,8 +35,12 @@ Founder, 2026-11-20 ~10:40 UTC: "Let's fix them".
     parked case.
   - Each case's own park sets its clock, so cases parked on one block wake staggered, not together.
   - The poll cost is unchanged: one read-only SQLite row every `wake_poll_s` (300 s).
+  - In total that is up to 2 worker creations an hour per parked case: about 10 cases parked at once match the
+    8 November rate. A shortfall shows as uncounted pool waits, which slow cases rather than break them.
   - ponytail: one cadence for every parked case, whatever its chain. Add a per-chain readiness check if the
     retries bite.
+  - `credit_recheck_s / wake_poll_s` (6) fixes how many steps a bounded park records. Changing either value
+    changes the replay of recorded parks, so a change ships under a new patch name.
 
 ## What it deletes
 
@@ -62,6 +66,13 @@ Nothing. The "top-up only" wake becomes "top-up, or 30 minutes parked".
 - Only `durable/engine.py` changes (controller side). It is neither a gate-identity input nor in `VERDICT_CODE`,
   and `myident.py` prints identical JSON.
 - It reaches running cases with a controller restart. A worker never calls it.
+
+## Deploy (operator)
+
+- Main and a controller restart.
+- A case already parked when the controller restarts (1108c) keeps its recorded, unbounded wait: it does not wake
+  by itself. Its remedy is a founder decision, not part of this change: for example a stop and resume (the new
+  workflow is patched), or a one-off `lift_credit` force (the next 402 blocks the pool again).
 
 ## Murphy row
 
