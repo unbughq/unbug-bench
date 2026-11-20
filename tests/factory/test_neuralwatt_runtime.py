@@ -69,13 +69,12 @@ class NeuralwattRuntime(unittest.TestCase):
             with self.assertRaisesRegex(BudgetError, '^model_call_cap$'):
                 with model_call_gate.enforce(lease(), dict(full), cap, 5, None):
                     raise BudgetError('usage_reservation_exceeded')
-            # No key, or a lease on another account: credential_expiring. Behind the wall: refused.
+            # No key, or a lease on another account: credential_expiring. Behind the wall it takes the gate
+            # (test_neuralwatt_walled_gate.py).
             for bad_env, bad_lease in ((dict(full, NEURALWATT_API_KEY=''), lease()),
                                        (dict(full, OPENCODE_API_KEY='k'), lease(account='opencode-go-key'))):
                 with self.assertRaisesRegex(BudgetError, '^credential_expiring$'):
                     with model_call_gate.enforce(bad_lease, dict(bad_env), cap, 5, None): pass
-            with self.assertRaisesRegex(BudgetError, '^route_feature_unsupported$'):
-                with model_call_gate.enforce(lease(), dict(full), cap, 5, None, user='pilot'): pass
         with self.assertRaisesRegex(BudgetError, '^unbounded_route$'):
             with model_call_gate.enforce(lease(max_usd=0.0), {}, cap, 5, None): pass
 
@@ -85,14 +84,14 @@ class NeuralwattRuntime(unittest.TestCase):
         clean = model_call_gate.free_environment(SimpleNamespace(route=go, account='opencode-go-key'), env)
         self.assertEqual((clean.get('OPENCODE_API_KEY'), clean.get('NEURALWATT_API_KEY')), ('k', None))
 
-    def test_a_walled_role_is_never_bounded_on_a_neuralwatt_lane(self):
-        nw_only = ('neuralwatt-key',)
+    def test_a_walled_role_is_bounded_on_a_neuralwatt_lane_but_never_on_go_alone(self):
+        # Founder 2026-11-20: Neuralwatt has a gate for a walled role. The Go plan still has none.
+        nw_only, go_only = ('neuralwatt-key',), model_router.ACCOUNTS[2:4]
         for route in (MIMO, GLM, DEEPSEEK):
-            self.assertTrue(model_runtime.bounded_route('writer', route, nw_only))
-            self.assertFalse(model_runtime.bounded_route('strong_calibrator', route, nw_only))
-            self.assertFalse(model_runtime.bounded_route('easy_calibrator', route, nw_only))
-            # Its gated OpenRouter twin still bounds the walled role.
-            self.assertTrue(model_runtime.bounded_route('easy_calibrator', route, ('neuralwatt-key', 'openrouter-key')))
+            for role in ('writer', 'strong_calibrator', 'easy_calibrator'):
+                self.assertTrue(model_runtime.bounded_route(role, route, nw_only))
+            self.assertTrue(model_runtime.bounded_route('writer', route, go_only))
+            self.assertFalse(model_runtime.bounded_route('easy_calibrator', route, go_only))
 
     def test_diagnosis_never_carries_a_key_for_a_neuralwatt_lease(self):
         # Walled diagnosis never leases an NW lane (bounded_route); if that regressed, no key crosses the wall.

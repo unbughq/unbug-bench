@@ -23,7 +23,8 @@ import time
 from budget import BudgetError
 from token_prices import (GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, CLAUDE_CONTEXT, CLAUDE_OUTPUT, claude_profile,
                           CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage,
-                          GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_cached_tokens, openrouter_gate_cost, runtime_prices)
+                          GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_cached_tokens, openrouter_gate_cost, runtime_prices,
+                          NW_CONTEXT, NW_ROUTES, gate_profile)
 
 ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
@@ -151,7 +152,7 @@ def empty_usage(route=GATED_CLAUDE):
     return dict(version=1, forwarded_requests=0, validated_requests=0, unknown_requests=0,
         in_flight_requests=0, unsupported_requests=0, settled_usd='0', held_usd='0',
         settled_input_tokens=0, held_input_tokens=0, settled_output_tokens=0,
-        held_output_tokens=0, max_request_output_tokens=GATED_OPENROUTER[route]['output'] if route in GATED_OPENROUTER else (claude_profile(route) or {'output': CLAUDE_OUTPUT})['output'], exhausted=False, closed=True)
+        held_output_tokens=0, max_request_output_tokens=(gate_profile(route) or claude_profile(route) or {'output': CLAUDE_OUTPUT})['output'], exhausted=False, closed=True)
 
 
 def worst_request(route, output=None):
@@ -168,14 +169,15 @@ def worst_request(route, output=None):
     # limit (943,718 tokens on GLM 5.3 Flash, $0.63 a request against $0.17) made 19 requests whose
     # stream ended without usage retain $11.95 of a $12.50 window, and 18681d's G10 easy calibrator
     # (12 November) stopped model_call_cap after $0.17 of real spend.
-    profile = GATED_OPENROUTER[route]
+    # A walled Neuralwatt request (gate_profile: its twin's limits, Neuralwatt's list) is clamped the same way.
+    profile = gate_profile(route)
     output = OPENROUTER_OUTPUT if output is None else output
     return dict(prompt_tokens=profile['context'], completion_tokens=min(output, profile['output']))
 
 
 def request_hold(route):
     """USD one request on this gated route reserves before it is forwarded, or None if ungated."""
-    if route not in CLAUDE_PROFILES and route not in GATED_OPENROUTER: return None
+    if route not in CLAUDE_PROFILES and gate_profile(route) is None: return None
     usage = worst_request(route)
     cost = claude_gate_cost(usage, route) if route in CLAUDE_PROFILES else openrouter_gate_cost(route, usage)
     return None if cost is None else Decimal(cost)
@@ -219,7 +221,7 @@ class Allowance:
         if cost is None: return None
         # The input cap is max_usd / input price, so a cached token counts at its price's share of a full one,
         # as in the cost: whole cached tokens cut 412ba567 at 27.6M of a 28.7M cap (new-cached-window-1).
-        incoming, cache_read, _ = map(Decimal, GATED_OPENROUTER[self.lease.route]['prices'])
+        incoming, cache_read, _ = map(Decimal, gate_profile(self.lease.route)['prices'])
         cached = openrouter_cached_tokens(usage)
         return cost, usage['prompt_tokens'] - cached + math.ceil(cached * cache_read / incoming), usage['completion_tokens']
 
@@ -390,10 +392,15 @@ REASONING_EFFORTS = {'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'}
 
 
 def openrouter_body(raw, route, bound_reasoning=False):
+    """An OpenAI-style request for a gated OpenRouter or (walled) Neuralwatt route. Neuralwatt serves vLLM, so
+    OpenRouter's own usage, reasoning and provider fields are refused or never added; OpenCode's openai-compatible
+    provider sends an assistant's reasoning as reasoning_content instead."""
+    nw = route in NW_ROUTES
     body = _json(raw)
-    if not isinstance(body, dict) or set(body) - OPENROUTER_FIELDS or body.get('model') != route.partition('/')[2]:
+    fields = OPENROUTER_FIELDS - {'usage', 'reasoning', 'include_reasoning'} if nw else OPENROUTER_FIELDS
+    if not isinstance(body, dict) or set(body) - fields or body.get('model') != route.partition('/')[2]:
         raise ValueError('unsupported request')
-    profile = GATED_OPENROUTER[route]
+    profile = gate_profile(route)
     maxima = [body[k] for k in ('max_tokens', 'max_completion_tokens') if k in body]
     if any(type(v) is not int or v < 1 for v in maxima): raise ValueError('invalid output bound')
     body['max_tokens'] = min(OPENROUTER_OUTPUT, *maxima) if maxima else OPENROUTER_OUTPUT
@@ -403,7 +410,7 @@ def openrouter_body(raw, route, bound_reasoning=False):
     for key, allowed in (('stream_options', {'include_usage'}), ('usage', {'include'})):
         if key in body and (not isinstance(body[key], dict) or set(body[key]) - allowed
                 or any(type(v) is not bool for v in body[key].values())): raise ValueError('invalid usage control')
-    body['usage'] = {'include': True}
+    if not nw: body['usage'] = {'include': True}
     if body.get('stream'): body['stream_options'] = {'include_usage': True}
     else: body.pop('stream_options', None)
     reasoning = body.get('reasoning', {})
@@ -422,7 +429,7 @@ def openrouter_body(raw, route, bound_reasoning=False):
     if 'max_tokens' in reasoning:
         if type(reasoning['max_tokens']) is not int or reasoning['max_tokens'] < 1: raise ValueError('invalid reasoning bound')
         reasoning['max_tokens'] = min(reasoning['max_tokens'], room)
-    elif bound_reasoning and not ('effort' in reasoning or 'reasoning_effort' in body or reasoning.get('enabled') is False):
+    elif bound_reasoning and not nw and not ('effort' in reasoning or 'reasoning_effort' in body or reasoning.get('enabled') is False):
         body['reasoning'] = reasoning | {'max_tokens': room}
     for key in ('temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p'):
         if key in body and (type(body[key]) not in (int, float) or not math.isfinite(body[key])):
@@ -434,8 +441,10 @@ def openrouter_body(raw, route, bound_reasoning=False):
         raise ValueError('invalid stop')
     messages = body.get('messages')
     if not isinstance(messages, list) or not messages: raise ValueError('invalid messages')
+    keys = ({'role', 'content', 'name', 'tool_calls', 'tool_call_id', 'reasoning_content'} if nw else
+            {'role', 'content', 'name', 'tool_calls', 'tool_call_id', 'reasoning', 'reasoning_details'})
     for message in messages:
-        if (not isinstance(message, dict) or set(message) - {'role', 'content', 'name', 'tool_calls', 'tool_call_id', 'reasoning', 'reasoning_details'}
+        if (not isinstance(message, dict) or set(message) - keys
                 or message.get('role') not in ('system', 'developer', 'user', 'assistant', 'tool')):
             raise ValueError('unsupported message')
         content = message.get('content')
@@ -444,7 +453,7 @@ def openrouter_body(raw, route, bound_reasoning=False):
                    or not isinstance(v['text'], str) for v in content): raise ValueError('text only')
         elif not isinstance(content, str) and not (content is None and message['role'] == 'assistant'):
             raise ValueError('text only')
-        for key in ('name', 'tool_call_id', 'reasoning'):
+        for key in ('name', 'tool_call_id', 'reasoning', 'reasoning_content'):
             if key in message and not isinstance(message[key], str): raise ValueError('invalid message text')
         details = message.get('reasoning_details', [])
         if not isinstance(details, list): raise ValueError('invalid reasoning details')
@@ -484,6 +493,7 @@ def openrouter_body(raw, route, bound_reasoning=False):
         schema = format_.get('json_schema')
         if (not isinstance(schema, dict) or set(schema) - {'name', 'description', 'schema', 'strict'}
                 or not isinstance(schema.get('schema'), dict)): raise ValueError('unsupported schema')
+    if nw: return body
     incoming, _, outgoing = map(float, profile['prices'])
     # Cheaper endpoints first (founder 2026-11-10), then the pin; max_price stays the pin's tariff, so
     # the per-call bound and the booked amount never rise, and OpenRouter refuses any dearer endpoint.
@@ -537,7 +547,7 @@ class OpenRouterUsage:
                 self.terminal += 1
         if event.get('usage') is not None:
             if self.usage is not None or self.terminal != 1: self.invalid = True; return
-            usage = event['usage'];profile = GATED_OPENROUTER[self.route]
+            usage = event['usage'];profile = gate_profile(self.route)
             cost = openrouter_gate_cost(self.route, usage)
             if (cost is None or usage['prompt_tokens'] > profile['context'] or usage['completion_tokens'] > profile['output']
                     or type(usage.get('total_tokens')) is not int
@@ -596,20 +606,23 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         gate = self.server.gate
-        paid = gate.route in GATED_OPENROUTER
+        paid = gate.route in GATED_OPENROUTER   # OpenRouter: the router's shared paid reservation
+        nw = gate.route in NW_ROUTES            # walled Neuralwatt: bounded by this gate's holds alone
+        openai = paid or nw                     # an OpenAI-style chat completion
         self.connection.settimeout(min(15, gate.remaining()))
         auth = self.headers.get_all('Authorization', [])
         if len(auth) != 1 or not hmac.compare_digest(auth[0].encode(), ('Bearer ' + gate.token).encode()):
             self.error(401, 'authentication_error', 'gate_authentication_required'); return
         try:
-            if (self.path not in (('/api/v1/chat/completions',) if paid else ('/v1/messages', '/v1/messages?beta=true')) or self.headers.get('Transfer-Encoding')
+            if (self.path not in (('/api/v1/chat/completions',) if paid else ('/v1/chat/completions',) if nw
+                                  else ('/v1/messages', '/v1/messages?beta=true')) or self.headers.get('Transfer-Encoding')
                     or self.headers.get('Content-Encoding', 'identity') != 'identity'
                     or len(self.headers.get_all('Content-Length', [])) != 1): raise ValueError()
             size = int(self.headers['Content-Length'])
             if not 0 < size <= 16 * 1024 * 1024: raise ValueError()
             raw = self.rfile.read(size)
             if len(raw) != size: raise ValueError()
-            body = openrouter_body(raw, gate.route, gate.bound_reasoning) if paid else request_body(raw, gate.route)
+            body = openrouter_body(raw, gate.route, gate.bound_reasoning) if openai else request_body(raw, gate.route)
         except (ValueError, TypeError, RecursionError):
             with gate.state.lock:
                 if not gate.state.closed: gate.state.unsupported += 1
@@ -644,10 +657,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.error(503, 'api_error', 'shared_paid_spend_wait'); return
         encoded = json.dumps(body, allow_nan=False).encode()
         headers = {'Authorization': 'Bearer ' + gate.upstream_token, 'Content-Type': 'application/json', 'Accept-Encoding': 'identity'}
-        if not paid: headers.update({'anthropic-version': '2023-06-01', 'anthropic-beta': BETAS})
+        if not openai: headers.update({'anthropic-version': '2023-06-01', 'anthropic-beta': BETAS})
         for key in ('User-Agent', 'x-app'):
             if self.headers.get(key): headers[key] = self.headers[key]
-        connection = http.client.HTTPSConnection('openrouter.ai' if paid else 'api.anthropic.com', timeout=gate.remaining())
+        host = 'openrouter.ai' if paid else 'api.neuralwatt.com' if nw else 'api.anthropic.com'
+        connection = http.client.HTTPSConnection(host, timeout=gate.remaining())
         usage, sent, parser, rejected_status = None, False, None, None
         try:
             with gate.state.lock:
@@ -666,7 +680,7 @@ class Handler(BaseHTTPRequestHandler):
             connection.request('POST', self.path, encoded, headers)
             response = connection.getresponse()
             streaming = 'text/event-stream' in response.getheader('Content-Type', '')
-            parser = OpenRouterUsage(gate.route, streaming) if paid else Usage(body['max_tokens'], streaming, gate.route)
+            parser = OpenRouterUsage(gate.route, streaming) if openai else Usage(body['max_tokens'], streaming, gate.route)
             self.send_response(response.status)
             for key, value in response.getheaders():
                 if key.lower() not in HOP_HEADERS and not key.lower().startswith('proxy-'): self.send_header(key, value)
@@ -676,7 +690,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk); self.wfile.flush()
             identity_encoded = response.getheader('Content-Encoding', 'identity') == 'identity'
             if response.status == 200 and identity_encoded: usage = parser.final()
-            elif not paid and 400 <= response.status < 500 and identity_encoded and parser.rejected():
+            elif not openai and 400 <= response.status < 500 and identity_encoded and parser.rejected():
                 # Anthropic rejected it (a 429 rate or usage limit, a bad request) with its JSON error and
                 # no model output: nothing is billed. Holding its worst case ($9.52 on Opus 5.5) booked
                 # phantom spend on every quota stop and exhausted a $12.50 window at the first 429.
@@ -715,7 +729,8 @@ class Gate:
 
     def __init__(self, lease, token, timeout, cancel=None):
         self.route, self.upstream_token = lease.route, token
-        self.token = secrets.token_urlsafe(32) if lease.route in GATED_OPENROUTER else token
+        # Claude's CLI needs its OAuth token as is; an OpenAI-style route's walled process gets only this random one.
+        self.token = secrets.token_urlsafe(32) if lease.route in GATED_OPENROUTER or lease.route in NW_ROUTES else token
         self.timeout = max(.01, timeout)
         self.deadline = time.monotonic() + self.timeout
         self.state = Allowance(lease, cancel, self.deadline)
@@ -766,13 +781,19 @@ def _wall_access(gate, lease, user):
 
 
 def openrouter_environment(lease, env, gate):
-    profile = GATED_OPENROUTER[lease.route]
+    """The walled OpenCode's only provider: the gate, with the gate's token. For Neuralwatt, OpenCode's bundled
+    openai-compatible provider, as model_runtime.opencode_config sets it up unwalled, pointed at the gate."""
+    nw = lease.route in NW_ROUTES
+    profile = gate_profile(lease.route)
     model = lease.route.partition('/')[2]
-    cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=['openrouter'],
-        permission={'task': 'deny'}, compaction={'auto': True}, provider={'openrouter': {
-            'npm': '@openrouter/ai-sdk-provider', 'whitelist': [model],
-            'options': {'baseURL': 'http://127.0.0.1:' + str(gate.server.server_port) + '/api/v1', 'apiKey': gate.token},
-            'models': {model: {'id': model, 'name': model, 'limit': {'context': profile['context'], 'output': OPENROUTER_OUTPUT},
+    name = 'neuralwatt' if nw else 'openrouter'
+    options = {'baseURL': 'http://127.0.0.1:' + str(gate.server.server_port) + ('/v1' if nw else '/api/v1'), 'apiKey': gate.token}
+    if nw: options['includeUsage'] = True
+    cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=[name],
+        permission={'task': 'deny'}, compaction={'auto': True}, provider={name: {
+            'npm': '@ai-sdk/openai-compatible' if nw else '@openrouter/ai-sdk-provider', 'whitelist': [model],
+            'options': options,
+            'models': {model: {'id': model, 'name': model, 'limit': {'context': NW_CONTEXT if nw else profile['context'], 'output': OPENROUTER_OUTPUT},
                 'cost': runtime_prices(lease.route), 'modalities': {'input': ['text'], 'output': ['text']}}}}})
     keys = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
             'FACTORY_STRATEGY_DIAGNOSTIC', 'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
@@ -833,12 +854,13 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
         env.clear(); env.update(clean)
         yield FreeCall(cancel)
         return
-    if lease.route in GO_ROUTES or lease.route in NW_ROUTES:
+    if lease.route in GO_ROUTES or (lease.route in NW_ROUTES and user is None):
         # The founder's Go plan pays (Extra Usage off), so no gate: OpenCode books each step at the
         # OpenRouter twin's list price (model_runtime.opencode_config) and the reservation check stops
         # the call once it passes the lease maximum, as for Codex. A walled role reaches only a gate's
         # port, so the runtime never leases it a Go route; refusing here is the backstop. Neuralwatt
-        # bills at most its list (the twin's, or NW_OWN_PRICES), so it runs the same way on its own account and key.
+        # bills at most its list (the twin's, or NW_OWN_PRICES), so it runs the same way on its own account and key;
+        # walled, it goes through the gate below instead (founder 2026-11-20).
         if not model_router.valid_maximum(lease) or lease.max_usd <= 0: raise BudgetError('unbounded_route')
         if user is not None: raise BudgetError('route_feature_unsupported')
         if Path('/etc/opencode').exists() or any(not env.get(k) for k in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')):
@@ -866,16 +888,20 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
             if str(error) == 'usage_reservation_exceeded': raise BudgetError('model_call_cap') from error
             raise
         return
-    if (lease.route not in CLAUDE_PROFILES and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):
+    # A Neuralwatt lease here is walled (user set): the gate holds its key, and its spend is bounded by the
+    # gate's per-request holds and case money, with no router paid reservation (that is OpenRouter's credit).
+    nw = lease.route in NW_ROUTES
+    if (lease.route not in CLAUDE_PROFILES and lease.route not in GATED_OPENROUTER and not nw) or not model_router.valid_maximum(lease):
         raise BudgetError('unbounded_route')
     paid = lease.route in GATED_OPENROUTER
-    if paid and (sys.platform != 'linux' or Path('/etc/opencode').exists()
+    if (paid or nw) and (sys.platform != 'linux' or Path('/etc/opencode').exists()
             or any(not env.get(k) for k in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME'))):
         raise BudgetError('route_feature_unsupported')
-    token = env.get('OPENROUTER_API_KEY' if paid else 'CLAUDE_CODE_OAUTH_TOKEN', '')
+    if nw and lease.account != 'neuralwatt-key': raise BudgetError('credential_expiring')
+    token = env.get('OPENROUTER_API_KEY' if paid else 'NEURALWATT_API_KEY' if nw else 'CLAUDE_CODE_OAUTH_TOKEN', '')
     if not token: raise BudgetError('credential_expiring')
     gate = Gate(lease, token, timeout, cancel)
-    if paid: clean = openrouter_environment(lease, env, gate)
+    if paid or nw: clean = openrouter_environment(lease, env, gate)
     else:
         profile = claude_profile(lease.route)
         clean = {k: env[k] for k in ENV_KEYS if k in env and k != 'MAX_THINKING_TOKENS'}
@@ -891,6 +917,9 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
         with _wall_access(gate, lease, user): yield gate
     except BudgetError as error:
         failure = error
+        # budget.py's Neuralwatt stop (one more whole request no longer fits the reservation) is this call's
+        # cap, as on the ungated path; unmapped it would be retried as infra (usage_reservation_exceeded).
+        if nw and str(error) == 'usage_reservation_exceeded': raise BudgetError('model_call_cap') from error
         raise
     finally:
         cap_used.clear(); cap_used.update(gate.state.snapshot())

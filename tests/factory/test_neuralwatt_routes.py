@@ -25,7 +25,7 @@ import unittest
 from unittest.mock import patch
 import uuid
 import model_router as router
-from token_prices import (GATED_OPENROUTER, NW_OWN_PRICES, NW_TWINS, NW_ROUTES, go_step_cost, nw_maximum, nw_request_worst,
+from token_prices import (FREE_ROUTES, GO_ROUTES, GATED_OPENROUTER, NW_OWN_PRICES, NW_TWINS, NW_ROUTES, go_step_cost, nw_maximum, nw_request_worst,
                           openrouter_gate_maximum, runtime_prices)
 
 FIXTURES = Path(__file__).with_name('fixtures')
@@ -142,15 +142,29 @@ class RealStateRoutes(unittest.TestCase):
         wait = self.acquire(MIMO)
         self.assertEqual((wait['kind'], wait['account'], wait['reason']), ('wait', 'openrouter-key', 'credit'))
 
-    def test_walled_roles_never_take_the_neuralwatt_lane(self):
-        self.spend_go()
+    def test_walled_roles_take_the_neuralwatt_lane_first_then_the_twin_and_never_go_or_free(self):
+        # neuralwatt-walled-gate (founder 2026-11-20): on 11-19's state (Go on quota, OpenRouter credit-blocked)
+        # a walled calibrator used to park on credit. Neuralwatt now has a gate for it, so it leases Neuralwatt
+        # first; when Neuralwatt's credit runs out it waits on the OpenRouter twin. A lane with no gate (Go plan,
+        # free) is still never leased to it.
         for model, nw, twin in ((GLM, 'neuralwatt/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash'),
                                 (DEEPSEEK, NW_DEEPSEEK, 'openrouter/deepseek/deepseek-v4.1-flash')):
             with self.subTest(model=model):
+                self.setUp(); self.spend_go()
                 excluded = router.ungated_lanes(model, router.ACCOUNTS)
-                self.assertIn('neuralwatt-key/' + nw, excluded)
+                self.assertNotIn('neuralwatt-key/' + nw, excluded)
+                rows = router.routes(model, router.ACCOUNTS)
+                ungated = {r['pool'] + '/' + r['route'] for r in rows if r['route'] in FREE_ROUTES or r['route'] in GO_ROUTES}
+                self.assertTrue(ungated and set(excluded) == ungated)
+                lease = self.acquire(model, role='easy_calibrator', excluded=excluded)
+                self.assertEqual((lease['kind'], lease['route'], lease['account']), ('lease', nw, 'neuralwatt-key'))
+                self.store.rpc('observe', dict(lease_id=lease['lease_id'], reason='credit', observation_id=lease['lease_id'] + ':credit'))
+                self.store.rpc('finish', dict(lease_id=lease['lease_id'], outcome='interrupted', receipt=None))
                 wait = self.acquire(model, role='easy_calibrator', excluded=excluded)
                 self.assertEqual((wait['kind'], wait['reason'], wait['route']), ('wait', 'credit', twin))
+                # Unwalled, the same state still hands out a lane with no gate: only the exclusion keeps it away.
+                free = self.acquire(model, role='writer')
+                if model == GLM: self.assertEqual((free['kind'], free['route']), ('lease', 'opencode/glm-5.3-flash-free'))
 
     def test_old_accounts_see_no_neuralwatt_lane_anywhere(self):
         for chain in router.CHAINS:
