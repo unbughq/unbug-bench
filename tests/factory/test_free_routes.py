@@ -153,20 +153,18 @@ class FreeRoutes(unittest.TestCase):
         try:
             for user, name in (('pilot', 'easy-calibrator-1'), (None, 'easy-calibrator-provider-preflight'),
                                ('pilot', 'diagnosis-1')):
-                # DeepSeek keeps its gated routes: the Go plan lanes have no gate either. Neuralwatt has one for a
-                # calibrator (founder 2026-11-20); a diagnosis, walled but no calibrator, still never takes it.
-                nw = ('neuralwatt-key/neuralwatt/deepseek-v4.1-flash',) if name.startswith('diagnosis') else ()
+                # DeepSeek keeps its gated routes: the Go plan lanes have no gate either. Neuralwatt has one, for a
+                # calibrator and (founder 2026-11-20 ~10:40) a diagnosis alike, so neither excludes it.
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), [FREE], 'x', '/', name, user=user)
                 go = 'opencode-go/deepseek-v4.1-flash'
                 self.assertEqual(seen.pop(), (model_runtime.invocation_role(name),
                                               ('opencode-go-key/' + go, 'opencode-go-key-2/' + go,
-                                               'opencode-go-key/' + FREE, 'opencode-go-key-2/' + FREE, *nw)))
-                # So does GLM, whose chain now ends in OpenRouter's gated route: both Go lanes and free (and Neuralwatt
-                # for a diagnosis).
+                                               'opencode-go-key/' + FREE, 'opencode-go-key-2/' + FREE)))
+                # So does GLM, whose chain now ends in OpenRouter's gated route: both Go lanes and free.
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), ['opencode/glm-5.3-flash-free'], 'x', '/', name, user=user)
-                self.assertEqual(len(seen.pop()[1]), 3 + len(nw))
+                self.assertEqual(len(seen.pop()[1]), 3)
                 # Muse (86b100's writer) keeps only its gated OpenRouter route behind the wall: never the Go plan.
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), ['opencode-go/muse-spark-1.3-contributor'], 'x', '/', name, user=user)
