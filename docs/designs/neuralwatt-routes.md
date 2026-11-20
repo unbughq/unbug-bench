@@ -630,9 +630,9 @@ forbids, so `test_walled_roles_never_take_the_neuralwatt_lane` is correct and st
 
 ### Murphy rows
 
-`docs/murphy-register.md` is still not on `main` (review 3, N5). So, as with `new-neuralwatt-1`, these
-rows are recorded here, together with their closing tests, and go into the register when that file
-lands.
+The register is the untracked local `docs/murphy-register.md` (main, 4b7b5eac). Both rows were
+appended there on 2026-11-20 (review 3, N5), with their closing tests; they stay open until deploy and
+a live check.
 
 - **`new-neuralwatt-2`:** "no OpenRouter credit (founder: no top-up), so every DeepSeek paid fallback
   parks". The DeepSeek real-state routes test closes it.
