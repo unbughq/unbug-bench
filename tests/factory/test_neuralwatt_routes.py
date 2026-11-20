@@ -42,8 +42,15 @@ GLM = next(c['card']['roles']['easy_calibrator']['model']
            for c in json.loads(gzip.decompress((FIXTURES / '20261029-real-public-cards.json.gz').read_bytes())) if 'roles' in c['card'])
 OLD = router.ACCOUNTS[:-1]   # what a caller without the Neuralwatt key offers (and every caller before it)
 NW_DEEPSEEK = 'neuralwatt/deepseek-v4.1-flash'
-# The DeepSeek chain as release 3dfdde3c knows it (git show 3dfdde3c:factory/model_router.py, CHAINS[0]).
-DEEPSEEK_3DFDDE3C = ('opencode-go/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free')
+# CHAINS as release 3dfdde3c (and 6ed7c545) knows it: git show 3dfdde3c:factory/model_router.py.
+CHAINS_3DFDDE3C = (
+    ('opencode-go/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free'),
+    ('opencode-go/minimax-m3.1-flash', 'opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free',
+     'openrouter/minimax/minimax-m3.1-flash'),
+    ('opencode-go/mimo-v2.6-pro', 'neuralwatt/mimo-v2.6-pro', 'openrouter/xiaomi/mimo-v2.6-pro'),
+    ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'),
+    ('opencode-go/glm-5.3-flash', 'neuralwatt/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'))
+DEEPSEEK_3DFDDE3C = CHAINS_3DFDDE3C[0]
 
 
 class RealStateRoutes(unittest.TestCase):
@@ -96,6 +103,9 @@ class RealStateRoutes(unittest.TestCase):
         self.assertIn('neuralwatt-key', request['accounts'])
         self.assertEqual([r for r in router.chain(request['model']) if r not in router.LATE_ROUTES], list(DEEPSEEK_3DFDDE3C))
         self.assertNotIn(NW_DEEPSEEK, DEEPSEEK_3DFDDE3C)
+        # LATE_ROUTES is complete: every chain minus it is exactly what a chainless caller knows. A lane added to
+        # any chain without LATE_ROUTES would hand old workers a lease they reject (new-neuralwatt-3).
+        self.assertEqual(tuple(tuple(r for r in c if r not in router.LATE_ROUTES) for c in router.CHAINS), CHAINS_3DFDDE3C)
         legacy = self.store.rpc('acquire', request)
         self.assertNotEqual(legacy.get('route'), NW_DEEPSEEK)
         # The same request from this release (it sends its chain) gets the lane.
