@@ -17,6 +17,10 @@ These explicit evidence paths are allowed even outside case_dir; do not search f
 
 Write selection.json with up to three SHORT sketches (at most 120 words each): mechanism,
 shop flow, trigger, source/version, plausibility, and cheapest falsifying experiment.
+When selection_progress_path is supplied, an earlier pass of this selection stopped at its
+request limit. Read it first, continue from the sketches and rejected reasons it records, and
+do not repeat that exploration. Keep selection.json current as you investigate, so progress
+survives a stop.
 Investigate progressively: start with one sketch; inspect only enough code/public evidence
 to reject it or select it. Add the next sketch only if the preceding one is rejected.
 Never run three full investigations. Record rejected reasons. Select exactly one.

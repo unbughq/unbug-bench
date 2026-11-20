@@ -15,6 +15,6 @@ Restart=always
 RestartSec=15
 RuntimeMaxSec=86400
 TimeoutStopSec=90
-KillMode=control-group
+KillMode=mixed
 [Install]
 WantedBy=multi-user.target

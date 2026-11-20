@@ -779,14 +779,21 @@ def _wall_access(gate, lease, user):
         if not release: raise BudgetError('cancellation_failed') from None
 
 
+WORKING_CONTEXT_ENV = 'FACTORY_MODEL_WORKING_CONTEXT'
+
+
 def openrouter_environment(lease, env, gate):
     profile = GATED_OPENROUTER[lease.route]
+    # OpenCode auto-compacts near the context limit it is given. A role may ask for a smaller
+    # working limit so compaction starts sooner; routing, holds and pricing keep the true limit.
+    working = env.get(WORKING_CONTEXT_ENV, '')
+    context = min(profile['context'], int(working)) if working.isdigit() and int(working) > 0 else profile['context']
     model = lease.route.partition('/')[2]
     cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=['openrouter'],
         permission={'task': 'deny'}, compaction={'auto': True}, provider={'openrouter': {
             'npm': '@openrouter/ai-sdk-provider', 'whitelist': [model],
             'options': {'baseURL': 'http://127.0.0.1:' + str(gate.server.server_port) + '/api/v1', 'apiKey': gate.token},
-            'models': {model: {'id': model, 'name': model, 'limit': {'context': profile['context'], 'output': OPENROUTER_OUTPUT},
+            'models': {model: {'id': model, 'name': model, 'limit': {'context': context, 'output': OPENROUTER_OUTPUT},
                 'cost': runtime_prices(lease.route), 'modalities': {'input': ['text'], 'output': ['text']}}}}})
     keys = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
             'FACTORY_STRATEGY_DIAGNOSTIC', 'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
