@@ -30,6 +30,9 @@ Founder, 2026-11-20 ~10:40 UTC: "Let's fix them".
      `attempt_busy` wait (2).
    - `Executor(lost_window_s=...)` is the window, so the engine fakes can run at fake speed (0.05 s). Production
      uses the policy value.
+   - `pool.alive` also answers False without a read when the case has no record, or the record names another
+     worker. That is definite, but `_Presence` waits out its window on it too. It costs about two minutes, only
+     for a box the pool no longer claims.
    - Why N = 3 over 120 s:
      - All three observed blips were one read, and the very next read found the box.
      - Three in a row, spread over two minutes, while the worker also fails every poll, is not a blip.
@@ -48,8 +51,23 @@ Founder, 2026-11-20 ~10:40 UTC: "Let's fix them".
      box.
    - The RETRY wait never releases the worker for a busy result, even when a batch sets a short
      `release_worker_after_sleep_s`.
-   - The wait is bounded by the existing `pool_wait_ceiling_s` (6 h). The orphan ends by its own worker-side
-     deadline. Past the ceiling it counts as infra as before.
+   - The wait is bounded by the longest attempt deadline plus grace: `max(step_deadline_s, GATES_DEADLINE_S) +
+     POLL_GRACE_S` (12 h 15 min), not the 6 h `pool_wait_ceiling_s`, which is shorter than a GATES attempt. The
+     worker kills the orphan at its own `deadline_s`, so the box stops being busy by then. Past that bound it
+     counts as infra as before.
+   - Each busy retry still goes through `acquire`, which reads the inventory once. If that one read misses the
+     box, `acquire` moves the case to a fresh box, and the orphan's box becomes a stray that `sweep` deletes. The
+     orphan's result was never going to be collected (its attempt was settled lost), so nothing the engine uses
+     is lost: the step restarts sooner on a fresh box. Making `acquire` wait on a miss would leave a case stuck on a
+     truly dead box, so it is not changed.
+3. **Controller restart (`BoatPool.recover`).** On start, `recover` dropped a case's record when its worker was
+   missing from its one inventory read, and the next `sweep` (within 300 s) deleted the box as a stray, under the
+   attempt the restarted controller reattaches. Now a record whose worker is merely missing from the list is kept:
+   - `acquire` replaces it if the box is really gone;
+   - the reattached attempt calls the worker lost only through `_Presence`;
+   - `sweep` has no row to delete.
+   A row that is present but not ours to adopt (dead, or mismatched) is still deleted, as before: that is an
+   observation, not a miss. This matters because this change's own deploy is a controller restart.
    - Workflows recorded before the patch replay their old path (a counted infra error), so no recorded history
      diverges.
 
@@ -70,11 +88,18 @@ The executor's per-round `boat list` while the worker answers. The single-read l
   - `test_a_dead_worker_needs_no_cancel` is unchanged: `cancel` keeps one read.
 - `tests/factory/test_durable_engine.py::Outcomes.test_a_busy_worker_is_waited_for_on_the_same_box_never_counted_diagnosed_or_released`,
   through the real engine and DBOS:
-  - Four busy GATES attempts with an infra allowance of 1: the case seals, every attempt is on the same worker,
-    and no release happens before the end.
+  - Four busy GATES attempts with an infra allowance of 1 and a pool ceiling of 0.1 s: the case seals, every
+    attempt is on the same worker, and no release happens before the end.
   - With the patch disabled (a recorded workflow), the old path ends in a diagnosis.
+- `tests/factory/test_durable_workers.py::PoolTests.test_restart_keeps_a_recorded_worker_that_one_list_missed`,
+  on the real saved `boat list` envelope (`isolation-timeouts/list.json`) with the box missing from one read: the
+  restart keeps the record, the next sweep deletes nothing, and the box is alive and leased again.
 - Failing first: with the executor and policy reverted, all 4 `InventoryMiss` tests fail (5 failures: one test
-  fails in both subtests). The busy engine test's disabled-patch arm is the old path, and it ends in a diagnosis.
+  fails in both subtests). With `recover` reverted, the restart test fails. The busy engine test's
+  disabled-patch arm is the old path, and it ends in a diagnosis.
+- The engine fakes' worker reported busy across boxes (one per-case list). The real `worker_step.busy` reads the
+  box's own case directory, so a fresh box is never busy. The fake now scopes busy to the box too. With the busy
+  wait, the cross-box fake had made `test_failure_drill.py`'s deleted-worker drill nap 900 s on a fresh box.
 - The engine fakes' worker now answers a dead or dropped poll with the contract's shared `UNANSWERED`, as
   `channel.BoatChannel` does (`RUNNING = UNANSWERED`). It used to return a fresh `Poll(RUNNING)`, which the executor
   reads as an answer, so a released fake worker would have looked alive forever.
@@ -84,7 +109,7 @@ The executor's per-round `boat list` while the worker answers. The single-read l
 
 ## Gate identity
 
-Controller-side only: `durable/executor.py`, `durable/policy.py`, `durable/engine.py`. None is a gate dependency or
+Controller-side only: `durable/executor.py`, `durable/policy.py`, `durable/engine.py`, `durable/workers.py`. None is a gate dependency or
 in `VERDICT_CODE`, and `myident.py` prints identical JSON. It ships with main and a controller restart. Workers and
 running cases need no plumbing release.
 

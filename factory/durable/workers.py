@@ -641,7 +641,12 @@ class BoatPool:
                 if worker is None:
                     if record["worker"] is None and record["intent"] is not None:
                         continue  # Keep ownership of an unresolved create across restarts.
-                    if record["worker"] is not None and any(r.get("id") == record["worker"] for r in rows):
+                    if record["worker"] is not None and not any(r.get("id") == record["worker"] for r in rows):
+                        # Missing from one list is not gone (one boat list missed a live box, 11-19/11-20).
+                        # Keep the record: acquire replaces it if the box is really gone, and the executor's
+                        # attempt calls it lost only after LOST_MISSES misses (executor._Presence).
+                        continue
+                    if record["worker"] is not None:
                         self._delete_locked(case_id, record["worker"])
                         deleted.append(record["worker"])
                     self._record_path(case_id).unlink(missing_ok=True)

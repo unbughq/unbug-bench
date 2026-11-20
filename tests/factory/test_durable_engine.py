@@ -275,8 +275,10 @@ class Outcomes(unittest.TestCase):
         # too, and its infra hold deleted the box under the live G10 (engine diagnosis_infra_holds).
         busy = {"outcome": "infra_error", "reason": "infra:attempt_busy", "paid": 0}
         script = {f"1/gates:1/{n}": busy for n in (1, 2, 3, 4)}
+        # A pool ceiling far below the busy run: the orphan ends by its own attempt deadline (12 h for GATES,
+        # past the 6 h pool ceiling), so the busy wait is bounded by that, never by the pool ceiling.
         r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
-                      "timing": {"pause_retry_s": 0.2}, "script": script})
+                      "timing": {"pause_retry_s": 0.2, "pool_wait_ceiling_s": 0.1}, "script": script})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
         self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", *["gates:1"] * 5, "seal"])

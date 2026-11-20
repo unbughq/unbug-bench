@@ -756,6 +756,21 @@ class PoolTests(unittest.TestCase):
         self.assertTrue(restarted.alive(lease))
         self.assertEqual(self.acquire(restarted), lease)
 
+    def test_restart_keeps_a_recorded_worker_that_one_list_missed(self):
+        # 11-19/11-20: one boat list missed a live box. A controller restart on that read must not drop the
+        # case's record, or the next sweep deletes the box as a stray under its running attempt.
+        lease = self.acquire(self.h.pool())
+        inventory = self.h.boat_dir / "inventory.json"
+        rows = inventory.read_text()
+        inventory.write_text("[]")   # the saved list envelope, the box missing from this one read
+        restarted = self.h.pool()
+        self.assertEqual(restarted.recover(), {"adopted": [], "deleted": []})
+        inventory.write_text(rows)   # the next read finds it
+        restarted.sweep()
+        self.assertEqual([r["id"] for r in self.h.inventory()], ["bx_d6dzvjbc"])
+        self.assertTrue(restarted.alive(lease))
+        self.assertEqual(self.acquire(restarted), lease)
+
     def test_completed_deletion_receipt_survives_crash_before_record_removal(self):
         from unittest.mock import patch
         pool = self.h.pool()

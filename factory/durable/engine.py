@@ -38,7 +38,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               wait_seconds)
 from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
-from durable.policy import (DEADLINE_REASON, MIN_GRANT_USD_MICROS, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+from durable.policy import (DEADLINE_REASON, GATES_DEADLINE_S, POLL_GRACE_S, MIN_GRANT_USD_MICROS, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
                             progressed, request_usd_micros, starts_replacement, gates_money_extension)
 from durable.report import verified_seal
@@ -1513,8 +1513,11 @@ class _Case:
                 # Waiting for a free campaign slot is bounded by the batch deadline, not the ceiling:
                 # a slot frees whenever another case finishes. No replay diverges: nothing recorded
                 # these reasons before they existed.
-                pool_wait = (pool_now - pool_since < _RT.timing.pool_wait_ceiling_s
-                             or result.reason in CAMPAIGN_WAIT_REASONS)
+                # A busy box ends its earlier attempt by that attempt's own deadline (the worker kills it at
+                # deadline_s), so a busy wait lasts that long, not the pool ceiling (6 h < a GATES attempt's 12 h).
+                ceiling = (max(self.spec.step_deadline_s, GATES_DEADLINE_S) + POLL_GRACE_S
+                           if result.reason == BUSY_REASON else _RT.timing.pool_wait_ceiling_s)
+                pool_wait = pool_now - pool_since < ceiling or result.reason in CAMPAIGN_WAIT_REASONS
             else:
                 pool_since = None
             late_stop = is_batch_deadline_stop(result, self.spec, now)

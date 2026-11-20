@@ -462,7 +462,8 @@ class FakeWorker:
             if key in attempts:
                 self.f.append("worker.log", {"op": "start_again", "key": key, "t": now})
                 return   # the marker exists (O_EXCL): a second start does nothing
-            live = [k for k, a in attempts.items() if not a["done"] and not a["dead"]]
+            # Busy is box-local, as worker_step.busy reads the box's own case directory: a fresh box never is.
+            live = [k for k, a in attempts.items() if not a["done"] and not a["dead"] and a["worker"] == lease.worker_id]
             spec = self._spec_for(si)
             opened = self._open_inputs(frame, si)
             mode = "busy" if live else ("run" if opened is not None else "bad_input")
