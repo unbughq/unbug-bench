@@ -649,10 +649,13 @@ release before the router does.
 1. **Check the merged tree.** On the tree that merges this change and the router-retry change, run
    `BENCH="$PWD" python3 -B tests/factory/test_neuralwatt_routes.py`. It fails if the merge dropped
    `chain` from the acquire's allowed fields.
-2. **Stage, but switch nothing.** Run `control/release.py build-plumbing <release>`.
-   - It archives the tree to `~/.unbug-release/plumbing-<short>/source` and builds its bundle. The 11-19
-     hand form (`nw-deploy.sh`: `source-<short>` plus `workers.py release`) is equivalent; below, "the
-     release tree" is whichever was built.
+2. **Stage, but switch nothing.** Run
+   `/home/user/durable-qualification-20261105/venv/bin/python -B <git checkout holding the merge>/control/release.py build-plumbing <release>`.
+   - Use the controller's venv python (`release.py`'s docstring): `switch` runs `check-drained.py`, which
+     imports `dbos`. Use a git checkout, not `source-current` (an archive with no `.git`).
+   - It archives the tree to `~/.unbug-release/plumbing-<short>/source` ("the release tree") and builds
+     its bundle. This is the only path: `switch` links only a tree `build-plumbing` recorded, so the
+     11-19 hand form (`source-<short>`) does not work with step 4.
    - Check that tree with the router's own interpreter:
      `cd <release tree>; /usr/bin/python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0] and 'neuralwatt-key' in m.ACCOUNTS and hasattr(m, 'knows')"`.
    - Do not install or launch anything, and do not touch `source-current`.
@@ -663,19 +666,23 @@ release before the router does.
    - move that checkout to the release in step 4, as well as `source-current`, which the controller
      still needs;
    - name both checkouts in the rollback.
-4. **Drain, then switch both services back to back.** Run
-   `control/release.py switch --config <controller config.json> --plumbing <release> --source-current ~/durable-first-case-20261106/source-current --router-db ~/.unbug-control/router/factory.sqlite3 --unit unbug-model-router.service --unit unbug-durable-case-campaign.service`.
+4. **Drain, then switch both services back to back.**
+   - First record `systemctl show -p MainPID,ExecMainStartTimestamp unbug-model-router.service`.
+   - Then run, with the same python and checkout as step 2:
+     `release.py switch --config /home/user/durable-first-case-20261106/config.json --plumbing <release> --source-current ~/durable-first-case-20261106/source-current --router-db ~/.unbug-control/router/factory.sqlite3 --unit unbug-model-router.service --unit unbug-durable-case-campaign.service`.
    - It refuses unless `control/check-drained.py` exits 0: no attempt holds a worker without a recorded
-     step, and no router lease is unexpired. Rerun it until it passes. Also wait until the router has
-     no pending paid request.
+     step, and no router lease is unexpired. Rerun it until it passes. With live cases stepping, a
+     drained moment can be rare; pause launches and wait for a quiet moment, as on 11-19.
    - It then prints `ln -sfn <release tree> source-current` and both restarts. Run them at once, in
-     that order.
+     that order, in the same shell, straight after the check passes.
    - The symlink moves only after both services are drained, and the controller (which imports
      `model_router` lazily) restarts right behind the router, so no old process runs on new files.
    - The router config is unchanged: `neuralwatt-key` stays at 3 seats, and no `disabled_routes`
      entry is added.
    - Verify before going on:
      - `readlink -f source-current` is the release tree;
+     - the router has a new `MainPID` and an `ExecMainStartTimestamp` later than the `ln` (the old
+       process's cmdline also names `source-current`, so the cmdline alone proves nothing);
      - `/proc/$(systemctl show -p MainPID --value unbug-model-router.service)/cmdline` names `source-current`;
      - the router answers `status`, and `unbug status` is clean.
 5. **Release to workers, router first, as 11-19 did.**
