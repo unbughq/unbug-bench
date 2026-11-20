@@ -258,9 +258,9 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     if base: go["options"]["baseURL"] = base.rstrip("/") + "/go/v1"
     cfg["provider"]["opencode-go"] = go
     # Neuralwatt serves the same MiMo/GLM/DeepSeek as their OpenRouter twins, billed at most at its own list price
-    # (the twin's, or NW_OWN_PRICES where Neuralwatt lists higher), so a step carries that price, as Go does. includeUsage: without a gate nothing else asks the stream for
-    # usage, and every step would book $0. Context is Neuralwatt's max_model_len (below the twins' 1048576);
-    # output is the gated OpenRouter cap. Only an NW call gets the provider, so other configs stay as they were.
+    # (the twin's, or NW_OWN_PRICES where Neuralwatt lists higher), so a step carries that price, as Go does.
+    # includeUsage: without a gate nothing else asks the stream for usage, and every step would book $0.
+    # Context is Neuralwatt's max_model_len (below the twins' 1048576); output is the gated OpenRouter cap. Only an NW call gets the provider, so other configs stay as they were.
     if model in NW_ROUTES:
         cfg["provider"]["neuralwatt"] = {"npm": "@ai-sdk/openai-compatible",
             "options": {"baseURL": "https://api.neuralwatt.com/v1", "apiKey": "{env:NEURALWATT_API_KEY}", "includeUsage": True},
