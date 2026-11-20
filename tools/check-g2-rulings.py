@@ -79,21 +79,23 @@ def main(cases):
         statement = files['case/statement.md']()
         rows = [json.loads(line) for line in files['case/freshness.jsonl']().decode().splitlines() if line.strip()]
         flagged = sum(r.get('hit') is True or r.get('ambiguous') is True for r in rows)
-        receipts, answers = {}, {}
+        receipts, answers, source = {}, {}, None
         for name, read in files.items():
             if name.startswith('g2-url-retrieval/') and name.endswith('/receipts.json') and '-superseded-' not in name:
                 receipts.update((x['url'], x) for x in json.loads(read()))
             elif name.startswith('ordinary-retries/') and re.search(r'/answer-[0-9]+\.json$', name):
                 value = json.loads(read())
                 if isinstance(value, dict) and isinstance(value.get('hits'), list) and len(value['hits']) == flagged:
-                    answers = {h.get('url'): h for h in value['hits'] if isinstance(h, dict)}
+                    answers, source = {h.get('url'): h for h in value['hits'] if isinstance(h, dict)}, name
         g2 = json.loads(files['scorecard.json']()).get('admission_freshness') or {}
         results = check(statement, rows, receipts, answers)
         failed = failed or any(v != 'OK' for _, v in results)
         print(case, 'snapshot', digest[:12], 'statement', hashlib.sha256(statement).hexdigest()[:12],
-              'G2 counted', g2.get('counted'), 'unfetched', g2.get('unfetched_searches'))
+              'G2 counted', g2.get('counted'), 'unfetched', g2.get('unfetched_searches'), 'reviewer answer', source)
         for ruling, verdict in results or [(None, 'NO RULING')]:
-            print('  ', verdict, *((ruling['kind'], ruling['url']) if ruling else ()))
+            print('  ', verdict, *((ruling['kind'], ruling['url'], 'flagged rows with this url:',
+                                    sum(r.get('url') == ruling['url'] for r in rows
+                                        if r.get('hit') is True or r.get('ambiguous') is True)) if ruling else ()))
     return 1 if failed else 0
 
 

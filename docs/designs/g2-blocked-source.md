@@ -113,13 +113,24 @@ What a ruling does not override:
   case's bug, without restating the bug; the same rule redacts the 18681d reviewer text in the test
   fixture.
 
-### 4. Supporting change: `ordinary_freshness.keep_mixed_receipt`
+### 4. Supporting changes in `ordinary_freshness` (plumbing, no identity)
 
-`keep_mixed_receipt` judges one row at a time through a namespace. That namespace now carries `case`, so
-a `hand_checked: true` row counts in `confirmed_rows`. `tools/open-g2-verdicts.py` already passes `case`.
+- `keep_mixed_receipt` judges one row at a time through a namespace. That namespace now carries `case`,
+  so a `hand_checked: true` row counts in `confirmed_rows`. `tools/open-g2-verdicts.py` already passes
+  `case`.
+- `ruled(c)`: the URLs the last verdict ruled (`freshness_review_summary['ruled_rows']`). Two places
+  leave them out (design review 3, findings 1 and 2):
+  - `stalled` never counts a ruled page as a wall to wait on. Otherwise another row's 429 next to a
+    ruled 202 stops G2 as `freshness_source_blocked` after 3 cycles, instead of the 30-minute retryable
+    stall.
+  - `ensure.metadata()` never counts a ruled (unread) row as search evidence, as `_g2` already does
+    (`freshness_unfetched`). Otherwise the two counts disagree: for 18681d, `_g2` is one builder/web
+    search short while `metadata()` says enough, and since its saved `last_topup` equals the digest of
+    its rows (read on the VM), the guard skips the top-up and refetches the 429 page until the attempt
+    deadline. With the fix, the short minimum is a charged top-up (bounded by `completed_defects` 2).
 
 Nothing else about G2 changes: the reviewer prompt, the retrieval, the confirmation contract, the stall
-stops, the minima and the searches all stay as they are.
+stop thresholds, the minima and the searches all stay as they are.
 
 ### Why not the existing sealed FOUNDER_RULING artifact
 
@@ -168,9 +179,9 @@ case-file edit that changes every gate's identity.
 - **A different row can go unresolved.** A fresh answer can leave some other row unresolved. That row is
   re-asked up to `REVIEW_REASKS` = 2 times and can still end `freshness_review_unavailable`. The ruling
   does not help there: that is today's rule.
-- **What a release reruns.** The resumed GATES attempt reruns G1, G2 and G3. It keeps the `gate_state`
-  caches (cae763 G4/G5, 2a7b2a G4), because their identities do not change (see the PR's identity
-  lists per batch source).
+- **What a release reruns.** The resumed GATES attempt reruns G1, G2 and G3 (the table's "gates on
+  card" is this attempt). Passes cached in `gate_state` from earlier attempts (cae763 G4/G5, 2a7b2a G4)
+  stay valid, because their identities do not change (see the PR's identity lists per batch source).
 - **The release is the resume.** `wait_for_fix` ends a hold as soon as the batch's plumbing changes
   (`engine.py` `wait_for_fix`). Every release to a held batch therefore resumes it, and uses one of the
   lineage's 3 factory-bug resumes (`MAX_FACTORY_BUG_RESUMES`). All three workflows began as imports
@@ -182,9 +193,13 @@ case-file edit that changes every gate's identity.
   cae763 builder/web 19, builder/github 25, attacker 8 (met); 2a7b2a 3 / 4 / 6, met only on cycles where
   the Shopline archive copy is found (then the row counts); 18681d 2 / 4 / 4, one builder/web short.
   Where a minimum is short, the cleared hold exposes it and G2 runs its usual top-up search
-  (`evidence_incomplete`). The top-up appends rows to `case/freshness.jsonl`, which only G8/G9 identity
+  (`evidence_incomplete`), charged as a defect: 18681d takes this path (one builder top-up; two that add
+  no fetched builder/web search end `freshness_evidence_unavailable`). The top-up appends rows to `case/freshness.jsonl`, which only G8/G9 identity
   reads; none of the three has passed G8 or G9 on this attempt. Today the hold stops the attempt before
   the top-up can run.
+- **Case money.** The rerun (G1, G3, the re-asked review, 18681d's top-up) is paid from each case's
+  remaining case money (`wait_for_fix` takes `case_limit`). I did not read the remainders; a shortfall
+  is a money stop and another hold, so the operator reads each card's money before releasing.
 - **Timeline.** About an hour per case to get back to G2, for G1, G3 and the re-asked review.
 
 ## Tests
@@ -213,13 +228,19 @@ and the retained reviewer answer of each held case, read in memory from its snap
   cae763's real URL behind an authored 202 wall. With the ruling, G2 passes on its first cycle with
   `ruled_rows` on the card. The existing test shows that without a ruling it stops
   `freshness_source_blocked`.
+- **18681d's path.** `run.g2` on 18681d's real row shape (ambiguous, searcher-unretrieved, 429), ruled
+  by a hand check, one builder/web search short, with `last_topup` equal to the rows' digest: one builder
+  top-up, then G2 passes, no defect charged. Without the `metadata()` fix it refetches until cancelled.
+- **A ruled wall is not a stall reason.** `stalled` on cae763's real 202 receipt, ruled, next to a held
+  429 row: no `freshness_source_blocked` after 3 cycles; unruled, it stops.
 - **Every shipped ruling is valid** and keyed to a held case's real digest and URL
   (`test_every_shipped_ruling_is_valid_and_keyed_to_a_held_case`), so a malformed entry fails a test, not
   a held case.
 - **Operator pre-release check, `tools/check-g2-rulings.py`.** It runs on the VM from the candidate tree,
   read-only and in memory, against each held case's latest snapshot: its real statement, flagged rows,
   current receipt and retained answer, through the candidate's own `g2_source_ruling`. It prints `OK`,
-  `MISMATCH` or `NO RULING` per case, with G2's last search counts. Its logic is tested on the fixture
+  `MISMATCH` or `NO RULING` per case, with G2's last search counts, the reviewer answer file it used, and
+  how many flagged rows share each ruled URL. Its logic is tested on the fixture
   (`test_the_pre_release_check_names_each_ruling_ok_or_mismatch`); its snapshot reading was run live,
   read-only, on this branch: cae763 OK, 2a7b2a OK, 18681d NO RULING.
 
@@ -233,7 +254,8 @@ The local register, `docs/murphy-register.md` in the main checkout, is untracked
 - **`new-g2-blocked-source-1` (new).** A flagged G2 source that blocks every fetch has no path to clear.
   The case holds for a release and every resume loops (cae763-h5, 18681d-h5, 2a7b2a-h1, 20 Nov). The
   sources seen are a bot wall, a 429/202 challenge, and a 403 whose archive copy is found only sometimes.
-  Closed by `tests/factory/test_g2_blocked_source.py`.
+  Closed by `tests/factory/test_g2_blocked_source.py` (on authored statements) together with the recorded
+  live run of `tools/check-g2-rulings.py` against the held snapshots (real digests and URLs).
 - **`new-walled-flagged-row-1` (already closed).** Its open half, "a person reads it", now has a path:
   the `hand_checked` ruling.
 
@@ -249,10 +271,18 @@ The local register, `docs/murphy-register.md` in the main checkout, is untracked
 3. Send `plumbing_release` to `b-import-cae763-h5` and `b-import-2a7b2a-h1`. The release itself ends
    their holds; `resume_held` is needed only if a card still says `held_for_release` after a minute.
 4. 18681d:
-   1. The founder opens the page and fills in the hand-check template: one `G2_SOURCE_RULINGS` entry with
-      `kind: "hand_checked"`, the keys in the schema table, `case: "case-import-18681d-h5-1"`,
-      `statement_sha256: "50f568b817bc374ddbcb3d6b927127db90fc368b1c2cb14b1477a9e7b30df5d5"`,
-      `url: "https://www.answeroverflow.com/m/1273391376289239134"`, and `hand_check` filled.
+   1. The founder opens the page and fills in the `<...>` fields of this template, one
+      `G2_SOURCE_RULINGS` entry (`page_says` describes the page; it need not restate the bug):
+
+      ```python
+      {"gate": "G2", "kind": "hand_checked", "by": "founder", "at": "<YYYY-MM-DD>", "case": "case-import-18681d-h5-1",
+       "statement_sha256": "50f568b817bc374ddbcb3d6b927127db90fc368b1c2cb14b1477a9e7b30df5d5",
+       "url": "https://www.answeroverflow.com/m/1273391376289239134",
+       "ruling": "Hand checked: a person opened the page; the factory takes this check as its content.",
+       "hand_check": {"checked_at": "<YYYY-MM-DD>", "checked_by": "<who opened it>",
+                      "page_says": "<what the page says, in a sentence or two>",
+                      "reports_this_bug": <True or False>}},
+      ```
    2. The entry is added to `G2_SOURCE_RULINGS` in one commit (no other change; the shipped-ruling test
       checks it against the 18681d fixture digest and URL), reviewed by a goldfish, and merged by the
       founder.

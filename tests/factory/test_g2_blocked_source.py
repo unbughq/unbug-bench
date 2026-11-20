@@ -91,6 +91,7 @@ class RulingTests(unittest.TestCase):
             held = [h for h in HELD.values() if (h['statement_sha256'], h['row']['url']) ==
                     (ruling['statement_sha256'], ruling['url'])]
             self.assertEqual(len(held), 1, ruling['case'])
+            self.assertEqual(ruling['case'], held[0]['case'])
             c, blocked = self.verdict(held[0], (ruling,))
             self.assertEqual(c.card['freshness_confirmation']['ruled_rows'],
                              [{'row': 1, **ruling, 'statement_sha256': AUTHORED}], ruling['case'])
@@ -147,6 +148,22 @@ class RulingTests(unittest.TestCase):
         self.assertTrue(c.freshness_transport_pending)
         self.assertEqual([r['row'] for r in c.card['freshness_confirmation']['ruled_rows']], [1])
 
+    def test_a_ruled_wall_never_stops_g2_while_another_row_is_held(self):
+        # cae763's real WAF 202 receipt, ruled, next to another flagged row held on a 429: the hold waits on the
+        # 429 (our own stall, STALLED_SECONDS), never stops as a bot wall after SOURCE_BLOCKED_CYCLES.
+        import ordinary_freshness
+        held = HELD[CAE763]
+        other = {**held['receipt'], 'url': 'https://github.com/medusajs/medusa/issues/1', 'live_failure': 'http_429'}
+        c = SimpleNamespace(work=self.case, card={}, freshness_retrieval=[held['receipt'], other],
+                            freshness_review_summary={'ruled_rows': [{'row': 1, **shipped(CAE763)}]})
+        fake = SimpleNamespace(freshness_lines=lambda c: [held['row']])
+        for _ in range(ordinary_freshness.SOURCE_BLOCKED_CYCLES + 1):
+            ordinary_freshness.stalled(fake, c, {'transport_pending': True})
+        c.freshness_review_summary = {}
+        with self.assertRaisesRegex(Exception, '^freshness_source_blocked$'):
+            for _ in range(ordinary_freshness.SOURCE_BLOCKED_CYCLES):
+                ordinary_freshness.stalled(fake, c, {'transport_pending': True})
+
     def test_only_g2_identity_reads_the_rulings(self):
         names = {'G2_SOURCE_RULINGS', 'g2_source_ruling', 'checked_freshness_verdict'}
         for gate in gate_state.STAGE_DEPENDENCIES:
@@ -182,6 +199,39 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(info['outcome'], 'clear')
         self.assertEqual(info['ruled_rows'], [{'row': 1, **ruling}])
         self.assertEqual(f.c.card['freshness_confirmation']['ruled_rows'], [{'row': 1, **ruling}])
+        self.assertNotIn('freshness_stalled', f.c.card)
+
+    def test_18681d_a_ruled_unread_row_short_of_searches_buys_one_top_up_not_a_refetch_loop(self):
+        # 18681d's real shape: its ruled row (ambiguous, searcher-unretrieved, 429) is unread, so G2 counts one
+        # builder/web search short, and its saved repair state says the last top-up already ran on these rows.
+        # The ruled row is no search evidence for the top-up guard either: one builder top-up, then G2 passes.
+        import ordinary_freshness
+        f = self.fixture
+        held = HELD[D18681]
+        url, cycles = f.bot_wall(99, status=429, url=held['row']['url'], hit=False, ambiguous=True, retrieved=False)
+        statement = (f.case / 'statement.md').read_bytes()
+        ruling = {**hand_check(held, False), 'statement_sha256': hashlib.sha256(statement).hexdigest()}
+        (f.work / 'freshness-repair.json').write_text(json.dumps({
+            'version': 2, 'statement_sha256': hashlib.sha256(statement).hexdigest(), 'completed_defects': 0,
+            'pending': None, 'last_topup': ordinary_freshness.digest(run.freshness_lines(f.c))}))
+        def emit(c, text, name, cwd=None):
+            if name == 'builder-freshness':
+                path = Path(cwd) / 'freshness.jsonl'
+                rows = [json.loads(line) for line in path.read_text().splitlines()]
+                extra = {**rows[1], 'query': 'builder web query 9', 'url': 'https://github.com/medusajs/medusa/issues/99'}
+                path.write_text(path.read_text() + json.dumps(extra) + '\n')
+            else:
+                f.answer_path(text).write_text(json.dumps({'hits': [{
+                    'url': url, 'resolved': True, 'same_bug': False, 'retrieved': True, 'app_version': '2.19.0',
+                    'version_scope': 'authored applicability', 'retrieved_from': 'live', 'archive_checked': False,
+                    'archive_available': None, 'archive_snapshot_url': None, 'live_failure': None, 'why': 'authored review'}]}))
+        f.cli(emit)
+        with patch.object(run, 'G2_SOURCE_RULINGS', (ruling,)):
+            ok, info = run.g2(f.c)
+        self.assertTrue(ok)
+        self.assertEqual([name for name, _, _ in f.calls if name.endswith('-freshness')], ['builder-freshness'])
+        self.assertEqual(info['ruled_rows'], [{'row': 1, **ruling}])
+        self.assertEqual(run.jload(f.work / 'freshness-repair.json')['completed_defects'], 0)
         self.assertNotIn('freshness_stalled', f.c.card)
 
 
