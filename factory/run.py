@@ -3105,7 +3105,7 @@ def g11(c):
         'case_rerun_solved': rerun_solved}
 
 
-# ---------------------------------------------------------------- seal (G12) and wipe
+# ---------------------------------------------------------------- seal (G12)
 
 def _retain_delivery(c):
     from sealed_audit import retain_delivery
@@ -3114,15 +3114,12 @@ def _retain_delivery(c):
 
 def _run_artifacts():
     return RunArtifacts(HOME, BENCH, SEALED, STATEMENTS_RECIPIENT, tuple(AGENT_STATE),
-                        pilot_homes, pilot_wall, factory_slots, _retain_delivery, shred_tree)
+                        pilot_homes, _retain_delivery, shred_tree)
 
 
 def seal(c, *, checkpoint=False):
+    gather_bench_results(c)
     return _run_artifacts().seal(c, checkpoint=checkpoint)
-
-
-def wipe(c):
-    return _run_artifacts().wipe(c)
 
 
 # ---------------------------------------------------------------- scorecard
@@ -3916,8 +3913,21 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
 
 
 def gather_bench_results(c):
-    """Move this step's bench results into c.work/bench-results, where gate_state.load and the seal look."""
-    for f in _run_artifacts().results_since(c):
+    """Move this step's bench results into c.work/bench-results, where gate_state.load and the seal look.
+    The one place bench results move (engine snapshots, engine_seal and seal). First stops each slot's inventory services whose compose file is about to move (1bb2ad-h9, 19 Nov: bench's
+    later stop_inventory_services failed on the moved file and every G3 on the box crashed). A failed stop
+    is logged; the gather still runs, so the snapshot is never lost."""
+    files = _run_artifacts().results_since(c)
+    moving = {str(f.resolve()) for f in files}
+    results = BENCH / "results"
+    for state in [results / ".inventory-services.json", *results.glob("factory-slots/*/.inventory-services.json")]:
+        try:
+            if state.is_file() and moving.intersection(json.loads(state.read_text())["compose"]):
+                stop_tester_services(c, 0 if state.parent == results else int(state.parent.name))
+        except Exception as error:
+            log(c, "gather: inventory services not stopped:", state, type(error).__name__,
+                str(getattr(error, "stderr", None) or error)[-500:])
+    for f in files:
         dest = c.work / "bench-results" / f.relative_to(BENCH / "results")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(f, dest)
