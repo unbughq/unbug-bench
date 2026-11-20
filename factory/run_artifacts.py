@@ -1,6 +1,6 @@
 """Archive and plaintext lifecycle for one factory run.
 
-Owns evidence collection, atomic encryption and cleanup ordering. The composition
+Owns which bench files are evidence, atomic encryption and cleanup ordering. The composition
 root supplies deployment paths and the pilot/retained-delivery operations.
 """
 import hashlib
@@ -8,7 +8,6 @@ import json
 import os
 import pathlib
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,39 +40,26 @@ class RunArtifacts:
     statements_recipient: Path
     agent_state: tuple
     pilot_homes: Callable
-    pilot_wall: Callable
-    factory_slots: Callable
     retain_delivery: Callable
     cleanup: Callable = shred_tree
 
-    def results_since(self, c, *, include_state=False):
-        """Bench files written during this run: evidence only, unless include_state (the wipe).
-        slot_state.is_state names what a slot or a running bench still uses (readiness receipt, compose
-        and port overrides, inventory services, pending decisions, temporaries, progress, seed IDs); the
-        gather leaves it, as gate_state.inventory does. The lock and seed IDs stay even for the wipe.
+    def results_since(self, c):
+        """Bench files written during this run, evidence only. slot_state.is_state names what a slot or a
+        running bench still uses (readiness receipt, compose and port overrides, inventory services, pending
+        decisions, temporaries, progress, lock, seed IDs); the gather leaves it, as gate_state.inventory does.
         Written since t0 by ctime, not mtime: bench.py freezes inventory services with shutil.copytree, which
         keeps the case files' old mtimes (8acb5c, 19 November: those copies stayed out of the snapshot, so
-        G13-G15 missed their evidence on every restored attempt, and the wipe left them on the bench)."""
+        G13-G15 missed their evidence on every restored attempt)."""
         results = self.bench / "results"
-        def kept(rel):
-            return (slot_state.always_kept(rel.as_posix())
-                    or (not include_state and slot_state.is_state(rel.as_posix())))
         return [f for f in results.rglob("*") if f.is_file() and f.stat().st_ctime >= c.t0
-                and not kept(f.relative_to(results))]
-
-
-    def result_dirs_since(self, c):
-        """Bench result directories made during this run, deepest first (their names come from the case)."""
-        return sorted((d for d in (self.bench / "results").rglob("*") if d.is_dir() and d.stat().st_ctime >= c.t0), key=lambda d: -len(d.parts))
+                and not slot_state.is_state(f.relative_to(results).as_posix())]
 
 
     @processes.deadline(600, independent=True)
     def seal(self, c, *, checkpoint=False):
-        """G12: gather bench evidence and transcripts into the work dir, tar | age, sha256, shred."""
+        """G12: agent state and transcripts into the work dir (run.seal gathers bench evidence first),
+        tar | age, sha256, shred."""
         work = c.work
-        for f in self.results_since(c):  # bench evidence written during this run (holds case copies)
-            dest = work / "bench-results" / f.relative_to(self.bench / "results")
-            dest.parent.mkdir(parents=True, exist_ok=True); shutil.move(f, dest)
         for d in self.agent_state:
             if (self.home / d).exists():
                 (work / "agent-state").mkdir(exist_ok=True)
@@ -146,38 +132,3 @@ class RunArtifacts:
                 c.card["dry_run_roundtrip"] = {"decrypted": d.returncode == 0, "identical": same,
                                                "files": sum(1 for f in work.rglob("*") if f.is_file())}
                 self.cleanup(pathlib.Path(tmp) / work.name)
-
-
-    @processes.deadline(120, independent=True)
-    def wipe(self, c):
-        factory_cleanup = []
-        for slot in range(1, max(self.factory_slots(c), getattr(c, 'prepared_factory_slots', 1))):
-            import factory_pool
-            result = processes.run([sys.executable, "-c", "import bench, processes; bench.stop_inventory_services(); bench.dc('down', '-v', '--remove-orphans'); processes.run(['docker', 'image', 'rm', '-f', bench.GUARD_IMAGE], capture_output=True); assert not bench.command(['docker', 'images', '-q', bench.GUARD_IMAGE])"],
-                                    cwd=self.bench / "bin", env=factory_pool.worker_env(slot), capture_output=True)
-            factory_cleanup.append(result.returncode == 0)
-        for user, home in self.pilot_homes():
-            if home.exists(): self.pilot_wall(c, user, 0, remove=True)
-        self.cleanup(c.work)
-        for d in self.agent_state: self.cleanup(self.home / d)
-        for user, home in self.pilot_homes():
-            if home.exists():
-                self.cleanup(home, sudo=True)
-                processes.run(["sudo", "pkill", "-KILL", "-u", user], capture_output=True)
-                processes.run(["sudo", "userdel", "-r", user], capture_output=True)
-        processes.run(["chmod", "755", str(self.home)], capture_output=True)
-        for f in self.results_since(c, include_state=True): self.cleanup(f)
-        for d in self.result_dirs_since(c):
-            if d.exists() and not any(f.is_file() for f in d.rglob("*")): shutil.rmtree(d)
-        processes.run(["docker", "image", "rm", "-f", "unbug-bench-medusa:guard"], capture_output=True)
-        processes.run(["docker", "compose", "-f", str(self.bench / "projects/medusa/compose.yaml"), "down", "-v"], capture_output=True)  # the database held case data
-        processes.run(["docker", "builder", "prune", "-af"], capture_output=True)  # layers held patched source
-        left = sum(1 for p in [c.work, *(home for _, home in self.pilot_homes()), *(self.home / d for d in self.agent_state)] if p.exists() for f in ([p] if p.is_file() else p.rglob("*")) if f.is_file())
-        left += len(self.results_since(c, include_state=True))
-        c.card["wipe"] = {"plaintext_files_left": left,
-                          "named_dirs_left": sum(1 for d in self.result_dirs_since(c) if not any(f.is_file() for f in d.rglob("*"))),
-                          "guard_image_left": bool(processes.run(["docker", "images", "-q", "unbug-bench-medusa:guard"], capture_output=True, text=True).stdout.strip()),
-                          "db_volume_left": "unbug-bench_postgres-data" in processes.run(["docker", "volume", "ls", "-q"], capture_output=True, text=True).stdout}
-        if factory_cleanup: c.card["wipe"]["factory_cleanup_ok"] = all(factory_cleanup)
-
-
