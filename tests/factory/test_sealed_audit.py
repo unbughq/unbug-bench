@@ -111,7 +111,7 @@ card = {"case": source.name, "seed": 7, "sha256": "a" * 64, "roles": {},
 (sealed / (source.name + ".source-scorecard.json")).write_text(json.dumps(card))
 run.HOME = root; run.SEALED = sealed; run.BENCH = root / "bench"
 run.sh = lambda *a, **kw: 0; run.bench_manifest = lambda: "trusted"
-run.pilot_homes = lambda: []; run.wipe = lambda c: None
+run.pilot_homes = lambda: []
 def forbidden(*a, **kw): raise AssertionError("audit must not build")
 run.engine_writer_round = forbidden
 def pick(c): c.card["roles"] = {}; return {}
