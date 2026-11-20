@@ -127,7 +127,8 @@ What a ruling does not override:
     (`freshness_unfetched`). Otherwise the two counts disagree: for 18681d, `_g2` is one builder/web
     search short while `metadata()` says enough, and since its saved `last_topup` equals the digest of
     its rows (read on the VM), the guard skips the top-up and refetches the 429 page until the attempt
-    deadline. With the fix, the short minimum is a charged top-up (bounded by `completed_defects` 2).
+    deadline. With the fix, the short minimum gets a top-up; it is charged as a defect only if the case is
+    still short after it (bounded by `completed_defects` 2).
 
 Nothing else about G2 changes: the reviewer prompt, the retrieval, the confirmation contract, the stall
 stop thresholds, the minima and the searches all stay as they are.
@@ -193,8 +194,16 @@ case-file edit that changes every gate's identity.
   cae763 builder/web 19, builder/github 25, attacker 8 (met); 2a7b2a 3 / 4 / 6, met only on cycles where
   the Shopline archive copy is found (then the row counts); 18681d 2 / 4 / 4, one builder/web short.
   Where a minimum is short, the cleared hold exposes it and G2 runs its usual top-up search
-  (`evidence_incomplete`), charged as a defect: 18681d takes this path (one builder top-up; two that add
-  no fetched builder/web search end `freshness_evidence_unavailable`). The top-up appends rows to `case/freshness.jsonl`, which only G8/G9 identity
+  (`evidence_incomplete`): 18681d takes this path. A top-up is charged as a defect only if the case is
+  still short after it, and the second charged one ends `freshness_evidence_unavailable` (which
+  diagnosis may treat as case-caused). The saved counts (read on the VM, 20 Nov): `completed_defects`
+  cae763 0, 2a7b2a 1, 18681d 0.
+- **2a7b2a's no-archive cycles now buy a top-up.** Before this change a 2a7b2a cycle with no Shopline
+  archive copy refetched for free until the copy came back or the attempt deadline. Now that cycle,
+  ruled and unread, is one builder/web search short and gets a builder top-up. Its first cycle likely
+  reuses the saved archive receipt, so the row counts and no top-up runs; a reviewer re-ask refetches
+  and can lose the copy. Because 2a7b2a already has `completed_defects` 1, one top-up that adds no
+  readable builder/web search ends its G2 `freshness_evidence_unavailable`. The top-up appends rows to `case/freshness.jsonl`, which only G8/G9 identity
   reads; none of the three has passed G8 or G9 on this attempt. Today the hold stops the attempt before
   the top-up can run.
 - **Case money.** The rerun (G1, G3, the re-asked review, 18681d's top-up) is paid from each case's
@@ -215,7 +224,8 @@ and the retained reviewer answer of each held case, read in memory from its snap
 - **Hand check on 18681d.** `reports_this_bug: false` clears the row. `true` confirms a public match.
 - **Scope.** Each of these settles nothing:
   - another statement or another URL;
-  - a duplicate entry, a bad `kind`, an unknown key, or empty `page_says`;
+  - a duplicate entry, a bad `kind`, an unknown key, a `hand_check` key on `not_needed`, an extra key in
+    `hand_check`, or empty `page_says`;
   - a reviewer `same_bug: true` with an access-failed receipt;
   - a page read live;
   - a dead page.
@@ -230,9 +240,11 @@ and the retained reviewer answer of each held case, read in memory from its snap
   `freshness_source_blocked`.
 - **18681d's path.** `run.g2` on 18681d's real row shape (ambiguous, searcher-unretrieved, 429), ruled
   by a hand check, one builder/web search short, with `last_topup` equal to the rows' digest: one builder
-  top-up, then G2 passes, no defect charged. Without the `metadata()` fix it refetches until cancelled.
+  top-up that fixes the shortfall, then G2 passes; `completed_defects` stays 0. Without the `metadata()` fix it refetches until cancelled.
 - **A ruled wall is not a stall reason.** `stalled` on cae763's real 202 receipt, ruled, next to a held
   429 row: no `freshness_source_blocked` after 3 cycles; unruled, it stops.
+- **Card and mixed receipt.** A later verdict without a ruling leaves no `ruled_rows` on the card;
+  `keep_mixed_receipt` lists a `hand_checked` / `reports_this_bug: true` row in `confirmed_rows`.
 - **Every shipped ruling is valid** and keyed to a held case's real digest and URL
   (`test_every_shipped_ruling_is_valid_and_keyed_to_a_held_case`), so a malformed entry fails a test, not
   a held case.
@@ -265,8 +277,12 @@ The local register, `docs/murphy-register.md` in the main checkout, is untracked
 
 1. Upload the merge commit's tree to the VM as `source-<sha>` (as for every deploy), then run
    `$V -B source-<sha>/tools/check-g2-rulings.py case-import-cae763-h5-1 case-import-2a7b2a-h1-1 case-import-18681d-h5-1`.
-   Expected: cae763 `OK`, 2a7b2a `OK`, 18681d `NO RULING` until its hand check is in. Stop on any
-   `MISMATCH`.
+   Expected, exactly: cae763 `OK`, 2a7b2a `OK`, each with `flagged rows with this url: 1`, and 18681d
+   `NO RULING` until its hand check is in (a wrong digest also prints `NO RULING`, so check the case
+   names). Stop on anything else. Also read each case's `G2 repair` line (`completed_defects`, recorded
+   20 Nov: cae763 0, 2a7b2a 1, 18681d 0) and its remaining case money on the card; a case that needs a
+   top-up (18681d; 2a7b2a on a no-archive cycle) with `completed_defects` 1 has one top-up left before
+   `freshness_evidence_unavailable`.
 2. Build and install the plumbing from that tree, for new launches only.
 3. Send `plumbing_release` to `b-import-cae763-h5` and `b-import-2a7b2a-h1`. The release itself ends
    their holds; `resume_held` is needed only if a card still says `held_for_release` after a minute.
