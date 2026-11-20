@@ -15,6 +15,10 @@ import diagnosis
 import diagnosis_task as task
 
 HELPER_LINE = re.compile(r'diagnosis task operation failed: \w+')
+CONTINUATIONS = 2   # ponytail: a fixed count; each is its own accounted call, bounded like the first
+CONTINUE = ('Your last reply ended this session before the result file existed. Continue the same '
+            'diagnosis and write the schema-v1 JSON object to the fixed output path in the run context. '
+            'The session ends at your first reply that calls no tool.')
 
 
 def _helper(runner, c, operation, identity):
@@ -104,9 +108,21 @@ def invoke(runner, c, *, model, prompt, inputs, output):
         mapping = {str(inputs): str(exposed / 'inputs'), str(output): str(exposed / 'output')}
         for old in sorted(mapping, key=len, reverse=True):
             prompt = prompt.replace(old, mapping[old])
-        runner.opencode(c, [model], prompt, exposed / 'output', 'diagnosis-' + identity,
-                        user='pilot', before_attempt=reset)
-        response, raw = _helper(runner, c, 'collect', identity)
+        # A model that replies without a tool call ends its OpenCode run, written or not: cb5e26-h5's
+        # diagnoses 2-1, 3-1 and 4-1 (19 November, MiMo) each stopped cleanly after 9, 25 and 4 requests
+        # with no result, and the engine's fresh retries met the same stop. The same session is
+        # continued instead. Codex and Claude runs keep no session to continue.
+        turns = 1 + (CONTINUATIONS if model.partition('/')[0] not in ('codex', 'claude') else 0)
+        for turn in range(turns):
+            c.diagnosis_continue = turn > 0
+            runner.opencode(c, [model], CONTINUE if turn else prompt, exposed / 'output',
+                            'diagnosis-' + identity, user='pilot', before_attempt=reset)
+            try:
+                response, raw = _helper(runner, c, 'collect', identity)
+            except BudgetError as error:
+                if str(error) == 'diagnosis_result_missing' and turn + 1 < turns: continue
+                raise
+            break
         if response['inputs_sha256'] != expected:
             raise BudgetError('diagnosis_input_invalid')
         return raw
@@ -114,6 +130,7 @@ def invoke(runner, c, *, model, prompt, inputs, output):
         first = error
         raise
     finally:
+        c.diagnosis_continue = False
         # The first cleanup stage that failed, and its error's class, name the stop
         # (durable/classify.py CLEANUP_STAGES): 1bb2ad-2 and f46dac-2r2 stopped with only
         # "diagnosis_cleanup_failed" after diagnoses that had succeeded.

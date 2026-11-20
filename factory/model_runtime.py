@@ -796,6 +796,7 @@ class ModelRuntime:
             cli_model = model
             cmd = [OPENCODE_BIN, "run", *_opencode_flags(OPENCODE_BIN), "-m", cli_model, "--format", "json", "--auto", "--title", f"factory-{name}"]
             if effort != 'default': cmd[2:2] = ['--variant', effort]
+            if diagnosis and getattr(c, 'diagnosis_continue', False): cmd.append('--continue')
             if user: cmd = ["sudo", "--preserve-env", "-H", "-u", user] + cmd
             scratch = pathlib.Path(tempfile.mkdtemp(prefix='factory-tester-state-'))
             if getattr(c, 'engine', None) is not None and sys.platform == 'linux':
@@ -814,8 +815,10 @@ class ModelRuntime:
                 self._remove_state(c, scratch, memory=memory_scratch, user=user)
                 raise
             if not diagnosis: env['OPENCODE_ENABLE_EXA'] = '1'
-            env.update(XDG_CONFIG_HOME=str(scratch/'config'),
-                       XDG_DATA_HOME=str(scratch/'data'), XDG_CACHE_HOME=str(scratch/'cache'))
+            # A diagnosis keeps its sessions in the pilot's memory home, which outlives one run, so a
+            # continuation (diagnosis_invocation.CONTINUATIONS) can resume the session; disposal unmounts it.
+            env.update(XDG_CONFIG_HOME=str(scratch/'config'), XDG_CACHE_HOME=str(scratch/'cache'),
+                       XDG_DATA_HOME=str(self.pilot_home(user) / '.local/share' if diagnosis else scratch/'data'))
             if model not in GATED_OPENROUTER:
                 env['OPENCODE_CONFIG'] = str(opencode_config(cli_model, case=c.case_id, diagnosis=diagnosis))
         else:  # fresh config/state dir per call, no session files: roles share nothing but what run.py passes

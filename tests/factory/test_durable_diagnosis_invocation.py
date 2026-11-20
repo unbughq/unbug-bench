@@ -34,6 +34,7 @@ class InvocationTests(unittest.TestCase):
         (self.inputs / 'case/answer.py').write_bytes(b'private evidence')
         self.output = self.home / 'private output'
         self.events = []
+        self.sessions = []
         self.raw = b'{"private": "report"}'
         self.error = None
         self.mutate = lambda operation, value: value
@@ -83,9 +84,13 @@ class InvocationTests(unittest.TestCase):
         self.assertEqual(user, 'pilot')
         exposed = task.ROOT / c.case_id / self.identity
         self.assertEqual(cwd, exposed / 'output')
-        context = json.loads(prompt.split('Run context (data):\n')[1])
-        self.assertEqual(context['inputs'], str(exposed / 'inputs'))
-        self.assertEqual(context['output'], str(exposed / 'output/result.json'))
+        self.sessions.append((getattr(c, 'diagnosis_continue', False), prompt))
+        if getattr(c, 'diagnosis_continue', False):
+            self.assertEqual(prompt, invocation.CONTINUE)
+        else:
+            context = json.loads(prompt.split('Run context (data):\n')[1])
+            self.assertEqual(context['inputs'], str(exposed / 'inputs'))
+            self.assertEqual(context['output'], str(exposed / 'output/result.json'))
         before_attempt()
         # Represents already-accounted work; errors must not erase its ledger.
         (self.c.work / 'ledger.json').write_text('{"spent": 0.25}')
@@ -152,6 +157,41 @@ class InvocationTests(unittest.TestCase):
         self.assertIn('diagnosis task operation failed: PermissionError', cause)
         self.assertNotIn('secret', cause)  # only the helper's fixed lines pass, never raw stderr
         self.assert_clean()
+
+    def test_a_session_that_stops_before_its_result_is_continued(self):
+        """cb5e26-h5 diagnoses 2-1, 3-1 and 4-1 (19 November): MiMo's OpenCode run ended cleanly (lease
+        done, exit 0) after 9, 25 and 4 requests, its last reply a 88-token message or reasoning only
+        (2,778 of 2,779 and 151 of 152 tokens), and collect found no result.json (status=missing)."""
+        missing = iter((True, True, False))
+        self.mutate = lambda op, value: {**value, 'status': 'missing'} if op == 'collect' and next(missing) else value
+        self.assertEqual(self.invoke(), self.raw)
+        self.assertEqual([turn for turn, _ in self.sessions], [False, True, True])
+        self.assertEqual(self.events, ['pilot', 'prepare', 'model', 'reset', 'collect', 'model', 'reset', 'collect',
+                                       'model', 'reset', 'collect', 'dispose', 'remove'])
+        self.assertIs(self.c.diagnosis_continue, False)
+        self.assert_clean()
+        # Still missing after every continuation: the stop is the one the engine already knows.
+        self.events.clear(); self.sessions.clear()
+        self.mutate = lambda op, value: {**value, 'status': 'missing'} if op == 'collect' else value
+        with self.assertRaisesRegex(BudgetError, '^diagnosis_result_missing$'): self.invoke()
+        self.assertEqual(len(self.sessions), 1 + invocation.CONTINUATIONS)
+        self.assert_clean()
+        # Any other collect status is never continued.
+        self.events.clear(); self.sessions.clear()
+        self.mutate = lambda op, value: {**value, 'status': 'unsafe'} if op == 'collect' else value
+        with self.assertRaisesRegex(BudgetError, '^diagnosis_result_unsafe$'): self.invoke()
+        self.assertEqual(len(self.sessions), 1)
+
+    def test_codex_and_claude_diagnoses_are_not_continued(self):
+        self.mutate = lambda op, value: {**value, 'status': 'missing'} if op == 'collect' else value
+        self.runner.opencode = lambda c, models, *args, **kwargs: self.sessions.append(models)
+        for model in ('codex/gpt-6.1-sol', 'claude/claude-opus-5-5'):
+            with self.subTest(model=model):
+                self.sessions.clear()
+                with self.assertRaisesRegex(BudgetError, '^diagnosis_result_missing$'):
+                    invocation.invoke(self.runner, self.c, model=model, prompt='Inspect evidence.',
+                                      inputs=self.inputs, output=self.output)
+                self.assertEqual(self.sessions, [[model]])
 
     def test_rejects_oversized_bytes_even_with_valid_digest(self):
         self.raw = b'x' * (task.MAX_RESULT + 1)
@@ -235,6 +275,57 @@ class InvocationTests(unittest.TestCase):
         (self.inputs / 'link').symlink_to(self.inputs / 'case/answer.py')
         with self.assertRaises(ValueError): self.invoke()
         self.assertEqual(self.events, ['dispose'])
+
+
+class ContinuedSession(unittest.TestCase):
+    def test_a_diagnosis_session_outlives_its_run_and_is_continued(self):
+        """A continuation resumes the run before it: OpenCode keeps a diagnosis's sessions in the pilot's
+        memory home, not in the per-run scratch removed after each run. The lease is the router's row for
+        cb5e26-h5 diagnosis 4-1 (19 November), whose run ended without a result."""
+        import argparse, contextlib, shutil, time
+        import model_call_gate, model_router, model_runtime
+        row = json.loads('{"route": "openrouter/xiaomi/mimo-v2.6-pro", "account": "openrouter-key", "billing": "paid", '
+            '"family": "xiaomi", "pool": "openrouter-key", "max_usd": 12.5, "max_input_tokens": 28735629, '
+            '"max_output_tokens": 14367814, "price_source": "token_prices:2026-10-30:openrouter:xiaomi/mimo-v2.6-pro:'
+            'xiaomi/fp8:0.435,0.0036,0.87:joint-gate-v1:funded:12.500000000"}')
+        lease = model_router.Lease(lease_id='6a76b6bfbc7a471998e15d077bff9482', expires_at=time.time() + 600, **row)
+        self.assertTrue(model_router.valid_lease(lease, lease.route))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'transcripts').mkdir()
+            c = SimpleNamespace(work=root, case=root / 'case', case_id='case-import-cb5e26-h5-1', card={},
+                model_env={'OPENROUTER_API_KEY': 'synthetic'}, ledger=root / 'ledger.json', model_lease=lease, model_cap_used={},
+                args=argparse.Namespace(agent_timeout=3, max_cost=5, max_role_calls=10, max_total_calls=20,
+                                        no_progress_minutes=1, max_zero_tokens=3))
+            runtime = model_runtime.ModelRuntime(root, lambda *a, **k: 0, lambda *a, **k: None,
+                lambda path, sudo=False: shutil.rmtree(path), lambda user: root / 'home' / user)
+            gate = SimpleNamespace(server=SimpleNamespace(server_port=1), token='gate', bound_reasoning=False)
+            @contextlib.contextmanager
+            def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
+                clean = model_call_gate.openrouter_environment(lease, env, gate)
+                env.clear(); env.update(clean)
+                yield gate
+            seen = []
+            def budgeted(cmd, cwd, env, *args, **kwargs):
+                seen.append((cmd, env))
+                return subprocess.CompletedProcess(cmd, 0)
+            with patch.object(model_call_gate, 'enforce', enforce), \
+                 patch.object(model_runtime, 'run_budgeted', budgeted), \
+                 patch.object(model_runtime, '_opencode_flags', return_value=()), \
+                 patch.object(model_runtime.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=12345)), \
+                 patch.object(task, '_quiet'):
+                for turn in (False, True):
+                    c.diagnosis_continue, c._model_launch_permit = turn, lease.lease_id
+                    runtime._invoke(c, [lease.route], 'diagnose', root, 'diagnosis-' + lease.lease_id, user='pilot')
+                c.diagnosis_continue, c._model_launch_permit = True, lease.lease_id
+                runtime._invoke(c, [lease.route], 'review', root, 'reviewer-1', user='pilot')
+            (first, first_env), (second, second_env), (review, review_env) = seen
+            data = str(root / 'home/pilot/.local/share')
+            self.assertEqual((first_env['XDG_DATA_HOME'], second_env['XDG_DATA_HOME']), (data, data))
+            self.assertNotIn('--continue', first)
+            self.assertEqual(second[second.index('run'):], first[first.index('run'):] + ['--continue'])
+            # Every other role keeps its per-run scratch and never continues a session.
+            self.assertNotIn('--continue', review)
+            self.assertNotEqual(review_env['XDG_DATA_HOME'], data)
 
 
 def linux_pilot():
