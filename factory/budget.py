@@ -431,7 +431,7 @@ def _settle_leaf(ledger, receipt, wait_id=None):
         # Codex refusals and an expired Codex login at $12.50 each, 11-12 November).
         estimate = Decimal(0)
     elif row.get('route') in NW_ROUTES and type(row.get('open_steps')) is int:
-        # Neuralwatt bills real money but never above its twin's list (design neuralwatt-routes item 6), so
+        # Neuralwatt bills real money but never above its list (the twin's or NW_OWN_PRICES; design item 6), so
         # an NW tail is at most one whole request per step its process left open: a 402 before any step
         # books $0. Without the stop's own count (a killed worker) the whole bound stays booked.
         estimate = min(estimate, (row['open_steps'] * nw_request_worst(row['route'])).quantize(
@@ -1408,7 +1408,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             plan_listed = max(float(part['cost']), go_step_cost(configured_model, tokens))
             part = dict(part, cost=0)
         elif configured_model in NW_ROUTES:
-            # A Neuralwatt step is real case money, booked at its twin's list price: Neuralwatt never bills
+            # A Neuralwatt step is real case money, booked at its list price (the twin's, or NW_OWN_PRICES): it never bills
             # above it, so this is an upper bound until its usage API is reconciled (design item 6).
             part = dict(part, cost=max(float(part['cost']), go_step_cost(configured_model, tokens)))
         seen.add(identity)

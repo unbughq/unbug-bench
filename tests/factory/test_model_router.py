@@ -44,9 +44,10 @@ class RouterTests(unittest.TestCase):
         self.now = [1792510000.0]
         self.store = router.Store(self.root / 'router.sqlite', clock=lambda: self.now[0])
 
-    def acquire(self, model, *, identity=None, accounts=router.ACCOUNTS):
+    def acquire(self, model, *, identity=None, accounts=router.ACCOUNTS, chain=True):
+        # chain=True sends the caller's chain, as this release's _admit does; False is a 3dfdde3c caller.
         return self.store.rpc('acquire', dict(paid_protocol=1,id=identity or uuid.uuid4().hex, model=model,
-            accounts=list(accounts), role='writer', deadline=self.now[0] + 86400))
+            accounts=list(accounts), role='writer', deadline=self.now[0] + 86400, **({'chain': router.chain(model)} if chain else {})))
 
     def finish(self, lease, outcome='done'):
         return self.store.rpc('finish', dict(lease_id=lease['lease_id'], outcome=outcome, receipt=None))
@@ -194,8 +195,8 @@ class RouterTests(unittest.TestCase):
             lease = self.acquire(source)
             self.assertEqual((lease['route'], lease['account']), (go, account))
             self.observe(lease, 'quota'); self.finish(lease, 'interrupted')
-        # acquire() sends no chain, as a 3dfdde3c caller: it never gets the Neuralwatt DeepSeek lane (LATE_ROUTES).
-        selected = self.acquire(source)
+        # A 3dfdde3c caller (no chain) never gets the Neuralwatt DeepSeek lane (LATE_ROUTES).
+        selected = self.acquire(source, chain=False)
         self.assertEqual((selected['route'], selected['account'], selected['family']), (target, 'openrouter-key', 'deepseek'))
         for card in PAID:
             ledger = copy.deepcopy(card['continuation_budget']); before = json.dumps(ledger, sort_keys=True)

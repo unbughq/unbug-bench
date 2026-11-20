@@ -361,8 +361,9 @@ Neuralwatt's catalog is `/v1/models`, read 2026-11-19 23:51Z and saved as
       149.7M of them cached, 2.75M completion; read-only from `paid_requests.usage`), the booking is:
       - $2.73 at the OpenRouter pin;
       - $4.91 at Neuralwatt's list, 1.8×, mostly cache reads (0.015 against 0.0042).
-    - On 11-19, with OpenRouter credit-blocked, DeepSeek fell to its free lane and booked $0. It now
-      books list.
+    - On 11-19, with OpenRouter credit-blocked and both Go plans on quota, DeepSeek parked on credit.
+      Its free lane runs on the Go account pools, so it was blocked too (the routes test shows this).
+      It now runs and books list.
     - The founder's "Neuralwatt anyway" is taken to cover this over-count of case money. Reconciliation
       with Neuralwatt's usage API stays out of scope, as before.
 - **Lanes not used:**
@@ -553,8 +554,11 @@ forbids, so `test_walled_roles_never_take_the_neuralwatt_lane` is correct and st
 
   So 3 Neuralwatt seats cover about 96% of the time, even with Go fully on quota.
 - **When the seats are full.** A call takes the next open lane in its chain.
-  - DeepSeek and GLM spill to their free lanes, after OpenRouter if OpenRouter still has credit.
-  - MiMo waits for a seat (`capacity`, up to 30 minutes) or uses OpenRouter credit.
+  - GLM spills to its anonymous free lane.
+  - MiMo and DeepSeek wait for a seat (`capacity`, up to 30 minutes) or use OpenRouter credit.
+    DeepSeek's free lane runs on the Go account pools, so it is blocked whenever Go is on quota.
+  - The DeepSeek attacker on every live case now competes with MiMo for the 3 seats. That is still
+    better than parking on credit.
   - Any spill onto OpenRouter eats into the $10 that option A keeps for walled roles.
 - More seats need a higher Neuralwatt level:
   - Standard (5 floor, 10 burst) after $50 of total spend;
@@ -623,10 +627,13 @@ forbids, so `test_walled_roles_never_take_the_neuralwatt_lane` is correct and st
 **The router goes first.** An old router refuses the new `chain` field, so no worker may run this
 release before the router does.
 
-1. Run `unbug install` for the release (merged with the router-retry release). From here until step 3,
-   launch nothing new and send no `plumbing_release`.
+1. On the merged tree (this change plus the router-retry change), run
+   `BENCH="$PWD" python3 -B tests/factory/test_neuralwatt_routes.py`.
+   - It fails if the merge dropped `chain` from the acquire's allowed fields.
+   - Then run `unbug install` for the release. From here until step 3, launch nothing new and send no
+     `plumbing_release`.
 2. Point `source-current` at the release and check:
-   `python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0] and 'neuralwatt-key' in m.ACCOUNTS"`.
+   `python3 -c "import sys; sys.path.insert(0,'factory'); import model_router as m; assert 'neuralwatt/deepseek-v4.1-flash' in m.CHAINS[0] and 'neuralwatt-key' in m.ACCOUNTS and hasattr(m, 'knows')"`.
    Then do one drained router restart.
    - Config is unchanged: `neuralwatt-key` stays at 3 seats and no `disabled_routes` entry is added.
    - No controller restart is needed for this change: it adds no account and no controller-side code.
@@ -637,9 +644,18 @@ release before the router does.
 4. First hour: check one DeepSeek Neuralwatt step in a case ledger.
    - It books non-zero tokens at 0.15 / 0.015 / 0.6.
    - Neuralwatt's usage for that hour is at or below the booked amount.
-5. Rollback: disable the lane with `"neuralwatt/deepseek-v4.1-flash"` in
-   `disabled_routes` and a drained restart.
-   - That brings back review 1's B1 loop for workers on this release, as for any disabled lane they
-     count.
-   - So prefer moving those batches back with `plumbing_release`, and use the switch only for an
-     emergency. In an emergency, also withdraw the key ("Rollout runbook" step 6, rollback).
+5. **Rollback (review 2, B1).**
+   - **Never move a batch that ran this release back to 3dfdde3c.**
+     - A DeepSeek Neuralwatt route in its `ordinary-retries/*/state.json` `spent_routes` fails
+       3dfdde3c's check against its own `CHAINS`, raising `ordinary_retry_state_invalid`.
+     - Its ledger's DeepSeek `open_steps` tail would also book the whole bound.
+     - This is the existing rule: "a case that ran an NW call is never moved below this release".
+   - **Never downgrade the router** below this release while any worker on this release is live. An
+     old router refuses `chain`.
+   - **Loop-free rollback of every Neuralwatt lane:** withdraw the key, using "Rollout runbook" step 6,
+     rollback steps 1-4.
+     - `offered_accounts()` then drops the Neuralwatt lanes from every chain a worker counts.
+     - Spent routes stay valid, because they are checked against `ACCOUNTS`.
+   - **DeepSeek only:** a fix-forward release that takes it out of `CHAINS`.
+   - **Emergency only:** a `disabled_routes` entry alone with a drained restart. It brings back review
+     1's B1 loop for keyed workers on this release.
