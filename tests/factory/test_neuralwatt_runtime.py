@@ -93,11 +93,12 @@ class NeuralwattRuntime(unittest.TestCase):
             self.assertTrue(model_runtime.bounded_route('writer', route, go_only))
             self.assertFalse(model_runtime.bounded_route('easy_calibrator', route, go_only))
 
-    def test_diagnosis_never_carries_a_key_for_a_neuralwatt_lease(self):
-        # Walled diagnosis never leases an NW lane (bounded_route); if that regressed, no key crosses the wall.
+    def test_diagnosis_hands_only_its_leases_neuralwatt_key_to_the_gate(self):
+        # A walled diagnosis may lease the NW lane (founder 2026-11-20): only that key reaches the gate, which
+        # replaces the walled env (test_diagnosis_neuralwatt checks that the process never sees it).
         env = {'PATH': '/bin', 'NEURALWATT_API_KEY': 'n', 'OPENCODE_API_KEY': 'k', 'OPENROUTER_API_KEY': 'r'}
         clean = model_runtime.diagnosis_environment(env, 'opencode', lease(), Path('/h'))
-        self.assertEqual({k for k in clean if k.endswith('_KEY')}, set())
+        self.assertEqual({k: v for k, v in clean.items() if k.endswith('_KEY')}, {'NEURALWATT_API_KEY': 'n'})
 
     def test_a_case_context_offers_accounts_as_a_list_without_a_missing_neuralwatt_key(self):
         import run

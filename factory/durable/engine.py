@@ -38,7 +38,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               wait_seconds)
 from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
-from durable.policy import (DEADLINE_REASON, MIN_GRANT_USD_MICROS, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+from durable.policy import (DEADLINE_REASON, GATES_DEADLINE_S, POLL_GRACE_S, MIN_GRANT_USD_MICROS, MAX_WRITER_HANDBACKS, WRITER_HANDBACK, WRITER_HANDBACK_CEILING, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
                             progressed, request_usd_micros, starts_replacement, gates_money_extension)
 from durable.report import verified_seal
@@ -75,11 +75,15 @@ class Timing:
     reconcile_retry_s: float = 30.0    # after a failed reconcile of an unconfirmed attempt
     unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S  # then it counts as lost
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
+    # A credit park retries after this long, top-up or not (credit_park_recheck). With wake_poll_s it sets how many
+    # steps a bounded park records: changing either changes replay of recorded parks, so ship a new patch name.
+    credit_recheck_s: float = 1800.0
 
 
 # Rechecks (seconds of waiting) of a router or credential wait while the case keeps its worker: at 2, 4 and 8 minutes.
 OPERATIONAL_RECHECK_S = (120.0, 120.0, 240.0)
-CREDIT_REASON = "router:credit"   # parks until a top-up (_Case.wait_for_credit), under the credit_park patch
+CREDIT_REASON = "router:credit"   # parks (_Case.wait_for_credit), under the credit_park patch
+BUSY_REASON = "infra:attempt_busy"   # the worker refused a start: an earlier attempt of the case still runs on it
 
 
 class _Runtime:
@@ -1499,16 +1503,23 @@ class _Case:
             # A worker create outage waits like a pause and spends no allowance, up to a total ceiling
             # measured with recorded clock reads: Boat never proves that a failed create left no
             # sandbox, so the pool settles it by time (workers.py).
-            pool_wait = (result.outcome is Outcome.INFRA_ERROR and result.reason in WORKER_POOL_REASONS
-                         and DBOS.patch("worker_pool_retry_wait"))
+            # A start refused as busy proves the worker alive with an earlier attempt of this case still running
+            # there (worker_step.busy). Wait for it like a pool outage, on the same worker: never counted,
+            # diagnosed or released under it (cb5e26 and 1108c, 11-20: the hold deleted the box under a live G10).
+            pool_wait = (result.outcome is Outcome.INFRA_ERROR
+                         and (result.reason in WORKER_POOL_REASONS and DBOS.patch("worker_pool_retry_wait")
+                              or result.reason == BUSY_REASON and DBOS.patch("attempt_busy_waits")))
             if pool_wait:
                 pool_now = now_step()
                 pool_since = pool_now if pool_since is None else pool_since
                 # Waiting for a free campaign slot is bounded by the batch deadline, not the ceiling:
                 # a slot frees whenever another case finishes. No replay diverges: nothing recorded
                 # these reasons before they existed.
-                pool_wait = (pool_now - pool_since < _RT.timing.pool_wait_ceiling_s
-                             or result.reason in CAMPAIGN_WAIT_REASONS)
+                # A busy box ends its earlier attempt by that attempt's own deadline (the worker kills it at
+                # deadline_s), so a busy wait lasts that long, not the pool ceiling (6 h < a GATES attempt's 12 h).
+                ceiling = (max(self.spec.step_deadline_s, GATES_DEADLINE_S) + POLL_GRACE_S
+                           if result.reason == BUSY_REASON else _RT.timing.pool_wait_ceiling_s)
+                pool_wait = pool_now - pool_since < ceiling or result.reason in CAMPAIGN_WAIT_REASONS
             else:
                 pool_since = None
             late_stop = is_batch_deadline_stop(result, self.spec, now)
@@ -1575,7 +1586,8 @@ class _Case:
                     self.worker_id = None
                     continue
                 if (not self.keeps_worker_for(_RT.timing.pause_retry_s) if DBOS.patch('keep_worker_through_waits')
-                        else _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s) and self.worker_id is not None:
+                        else _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s) and self.worker_id is not None \
+                        and result.reason != BUSY_REASON:   # a busy worker is never released under its live attempt
                     release_step(self.case_id, self.worker_id)
                     self.worker_id = None
                 self.nap(_RT.timing.pause_retry_s)
@@ -1682,18 +1694,24 @@ class _Case:
         """Founder 15 November: out of credit, stop cleanly and resume where it stopped once credit is
         back. The attempt has settled (its unspent hold released, its spend the case's, not waste) and
         its snapshot keeps every passed gate. Park without a worker for the attempt's own backoff, then
-        until the router has lifted its credit block (model_router.lift_credit, after a top-up). Only
-        the block: a woken case the balance still cannot fund is refused once and parks again. One
-        retry, never counted or diagnosed; the wake clears the card's router:credit reason, and with
-        it the guard's alert."""
+        until the router has lifted its credit block (model_router.lift_credit, after a top-up) or, under
+        the credit_park_recheck patch, for at most Timing.credit_recheck_s of its own (founder 2026-11-20:
+        no top-ups, so a parked case wakes by itself; its chain may route elsewhere by then). A woken case
+        the router still refuses parks again: its stop finds the block (the SLEEP branch's
+        credit_ready_step), so each park gives at most one retry. Never counted or diagnosed; the wake
+        clears the card's router:credit reason, and with it the guard's alert."""
         self.release_worker()
         if self.replaying:
             return
         self.status = "waiting_for_credit"
         self.card()
         self.nap(seconds)
+        bounded, parked_s = DBOS.patch("credit_park_recheck"), 0.0   # recorded parks keep the unbounded wait
         while not credit_ready_step():
+            if bounded and parked_s >= _RT.timing.credit_recheck_s:
+                break
             self.nap(_RT.timing.wake_poll_s)
+            parked_s += _RT.timing.wake_poll_s
         self.status, self.last_reason = "running", None
         self.card()
 

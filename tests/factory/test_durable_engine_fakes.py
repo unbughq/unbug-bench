@@ -39,7 +39,7 @@ from durable.artifacts import ArtifactError
 from durable.contract import (BATCH_SCOPED, ArtifactKind, BatchSpec, Grant, LimitedBy, Outcome, Poll, PollState,
                               Ref, StepKind, StepResult, Usage, Verdict, WorkerLease, artifact_digest, derive_keys,
                               poll_from_record, start_frame, step_input_from_record, step_result_from_record,
-                              to_record)
+                              to_record, UNANSWERED)
 
 A64 = "a" * 64
 ALL_GATES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14", "G15", "G16", "G17")
@@ -462,7 +462,8 @@ class FakeWorker:
             if key in attempts:
                 self.f.append("worker.log", {"op": "start_again", "key": key, "t": now})
                 return   # the marker exists (O_EXCL): a second start does nothing
-            live = [k for k, a in attempts.items() if not a["done"] and not a["dead"]]
+            # Busy is box-local, as worker_step.busy reads the box's own case directory: a fresh box never is.
+            live = [k for k, a in attempts.items() if not a["done"] and not a["dead"] and a["worker"] == lease.worker_id]
             spec = self._spec_for(si)
             opened = self._open_inputs(frame, si)
             mode = "busy" if live else ("run" if opened is not None else "bad_input")
@@ -498,7 +499,7 @@ class FakeWorker:
     def poll(self, lease, step_input):
         key = step_input.idempotency_key
         if not self.pool.alive(lease) or self._drop("poll", key):
-            return Poll(PollState.RUNNING)   # transport failure
+            return UNANSWERED   # transport failure: the contract's shared sentinel, as channel.BoatChannel
         with self.f.locked():
             self._materialize(step_input.case_id, time.time())
             result = self._read_result(key)
@@ -659,7 +660,8 @@ def engine_main(workdir):
         DBOS.sleep = staticmethod(trace_sleep)
     ex = FaultInjectingExecutor(fakes["pool"], fakes["worker"], fakes["ledger"], fakes["store"], fakes["sealer"],
                                 fakes["keys"], poll_interval_s=scenario.get("poll_s", 0.02),
-                                grace_s=scenario.get("grace_s", 0.3), sleep=draining_sleep, pause=hold_if_draining)
+                                grace_s=scenario.get("grace_s", 0.3), sleep=draining_sleep, pause=hold_if_draining,
+                                lost_window_s=scenario.get("lost_window_s", 0.05))   # three misses, at fake speed
     credit_ready = lambda: (work / "router-clear").exists()   # the paid pool has no credit block
     if "router_credit" in scenario:
         # The real router's books, a paid-pool balance read from a file, and a low-balance refusal that

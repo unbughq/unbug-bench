@@ -476,7 +476,70 @@ class CancelBeforeRetry(Setup):
         self.pool.dead = True
         ch = Channel([None])
         self.assertFalse(self.ex(ch).cancel(self.si(), started_at=self.clock()))
-        self.assertEqual(ch.cancels, 1)
+        self.assertEqual(ch.cancels, 1)   # a settled prior attempt: one miss is enough (Executor.cancel)
+
+
+class InventoryMiss(Setup):
+    """policy.LOST_MISSES / LOST_WINDOW_S. On 11-20 08:50 (cb5e26 G10) and 01:52 (1108c) one `boat list` missed a
+    live box: the executor called the worker lost though it was answering polls, the retry was refused
+    infra:attempt_busy, and the hold deleted the box under the running G10. The next pool lookup found the box."""
+
+    class Blinks(Pool):
+        """The inventory misses the box on the listed reads (1-based), and finds it otherwise."""
+        def __init__(self, misses):
+            super().__init__(); self.misses, self.reads = set(misses), 0
+        def alive(self, lease):
+            self.reads += 1
+            return self.reads not in self.misses
+
+    def run_on(self, pool, polls, interval=30.0, deadline=6 * 3600.0):
+        ex = Executor(pool, Channel(polls), self.ledger, self.store, self.sealer, self.keys, poll_interval_s=interval,
+                      grace_s=100.0, clock=self.clock, sleep=self.clock.sleep)
+        si = self.si(deadline=deadline)
+        return ex.run(si, started_at=self.clock(), lease=WorkerLease("w-1", si.case_id)), ex
+
+    def test_one_inventory_miss_never_loses_a_worker_that_answers(self):
+        done = self.ok()
+        for pool in (self.Blinks({1}), self.Blinks(range(1, 1000))):   # one blip, or a record that never matches
+            with self.subTest(misses=len(pool.misses)):
+                result, _ = self.run_on(pool, [Poll(PollState.RUNNING)] * 20 + [Poll(PollState.DONE, done)])
+                self.assertEqual(result, done)
+                self.assertEqual(pool.reads, 0)          # an answering worker needs no inventory read
+                self.assertEqual(pool.released, [])
+
+    def test_a_blip_while_the_worker_is_briefly_unreachable_is_not_a_loss(self):
+        # 08:50 with a transport failure on the same round: unanswered polls and isolated misses never add up.
+        done = self.ok()
+        pool = self.Blinks({1, 3, 5, 7})
+        result, _ = self.run_on(pool, [None] * 8 + [Poll(PollState.DONE, done)])
+        self.assertEqual(result, done)
+        self.assertEqual(pool.reads, 8)
+        # Two misses in a row, then the box is found again: still running.
+        pool = self.Blinks({1, 2})
+        result, _ = self.run_on(pool, [None] * 4 + [Poll(PollState.DONE, done)])
+        self.assertEqual(result, done)
+
+    def test_a_dead_box_is_still_called_lost_within_a_few_minutes(self):
+        self.pool.dead = True
+        ckpt = self.put("case-t-1", K.CASE_SNAPSHOT, b"checkpoint")
+        result, _ = self.run_on(self.pool, [Poll(PollState.RUNNING, checkpoint=ckpt), None])
+        self.assertEqual((result.reason, result.snapshot), ("infra:worker_lost", ckpt))
+        self.assertGreaterEqual(self.clock.t - 1000, 120)
+        self.assertLessEqual(self.clock.t - 1000, 180)
+        # At 30 s polls the third miss (60 s) is inside the window; at 90 s polls the third miss spans it.
+        self.clock.t = 1000.0
+        result, _ = self.run_on(self.pool, [None], interval=90.0)
+        self.assertEqual(result.reason, "infra:worker_lost")
+        self.assertEqual(self.clock.t - 1000, 180)
+
+    def test_reconcile_rides_out_a_blip_too(self):
+        cancelled = Poll(PollState.DONE, StepResult(Outcome.INFRA_ERROR, "infra:cancelled"))
+        ch = Channel([None], cancel_drops=4, on_cancel=cancelled)
+        pool = self.Blinks({1})
+        ex = Executor(pool, ch, self.ledger, self.store, self.sealer, self.keys, poll_interval_s=10.0,
+                      grace_s=100.0, clock=self.clock, sleep=self.clock.sleep)
+        self.assertEqual(ex.reconcile(self.si(), WorkerLease("w-1", "case-t-1")).reason, "infra:cancelled")
+        self.assertEqual(pool.reads, 4)   # one blip, then found: no loss
 
 
 class Settle(Setup):

@@ -20,7 +20,8 @@ from durable.artifacts import ArtifactError, ArtifactMissing, open_from, scope_f
 from durable.contract import (ArtifactKind, ArtifactStore, Grant, KeyService, Ledger, Outcome, Poll,
                               PollState, Ref, Sealer, StepInput, StepKind, StepResult, WorkerChannel, WorkerLease,
                               WorkerPool, UNANSWERED, Usage)
-from durable.policy import POLL_GRACE_S, SILENT_WORKER_LIMIT_S, UNCONFIRMED_WORKER_LIMIT_S, settles_as_waste, settles_lost
+from durable.policy import (LOST_MISSES, LOST_WINDOW_S, POLL_GRACE_S, SILENT_WORKER_LIMIT_S, UNCONFIRMED_WORKER_LIMIT_S,
+                             settles_as_waste, settles_lost)
 
 OUTPUT_REFS = ("snapshot", "receipt", "feedback", "report", "registry", "archive", "diagnostic")
 
@@ -68,7 +69,7 @@ class Executor:
                  sealer: Sealer, keys: KeyService, *, poll_interval_s: float = 30.0,
                  grace_s: float = POLL_GRACE_S, clock=time.time, sleep=time.sleep,
                  pause=lambda: None, unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S,
-                 renewing=None, silent_limit_s: float = SILENT_WORKER_LIMIT_S):
+                 renewing=None, silent_limit_s: float = SILENT_WORKER_LIMIT_S, lost_window_s: float = LOST_WINDOW_S):
         self.pool, self.channel, self.ledger, self.store = pool, channel, ledger, store
         self.sealer, self.keys = sealer, keys
         self.poll_interval_s, self.grace_s = poll_interval_s, grace_s
@@ -77,6 +78,7 @@ class Executor:
         # renewing(lease) -> False only when the worker's lease renewal is known to have stopped
         # (guard.renewing). None, or any other answer, never retires a worker early.
         self.renewing, self.silent_limit_s = renewing, silent_limit_s
+        self.lost_window_s = lost_window_s   # _Presence: how long LOST_MISSES misses in a row must span
 
     # ---- the attempt (StepExecutor) ------------------------------------------------------------
 
@@ -117,6 +119,7 @@ class Executor:
         limit = max(start, self.clock()) + si.deadline_s + self.grace_s
         checkpoint = None
         last_answer = self.clock()
+        presence = _Presence(self, lease)
         while True:
             self.pause()   # shutdown: leave the step unrecorded, so a restart reattaches
             if stopped():
@@ -138,24 +141,24 @@ class Executor:
             if poll.state is PollState.ABSENT:
                 # A timed-out start could still arrive late. A tombstone or proven
                 # worker death is required before a different attempt can begin.
-                done = self._cancel_confirm(lease, si, self.clock() + self.grace_s)
+                done = self._cancel_confirm(lease, si, self.clock() + self.grace_s, presence)
                 if done is not None:
                     if done.reason == "infra:cancelled":
                         return self._lost(si, "infra:attempt_absent", checkpoint)
                     return self._check_outputs(si, done)
-                if not self._alive(lease):
+                if presence.lost:
                     return self._lost(si, "infra:worker_lost", checkpoint)
                 continue
-            if not self._alive(lease):
+            if presence.gone(poll is not UNANSWERED):
                 return self._lost(si, "infra:worker_lost", checkpoint)
             if self.clock() >= limit:
                 # Input transfer may have used the whole deadline before the worker
                 # started. Repeatedly cancel and reconcile; elapsed time is not proof
                 # that the worker stopped, and a late DONE result always wins.
-                done = self._cancel_confirm(lease, si, self.clock() + self.grace_s)
+                done = self._cancel_confirm(lease, si, self.clock() + self.grace_s, presence)
                 if done is not None:
                     return self._check_outputs(si, done)
-                if not self._alive(lease):
+                if presence.lost:
                     return self._lost(si, "infra:worker_lost", checkpoint)
                 continue
             self.sleep(self.poll_interval_s)
@@ -262,10 +265,11 @@ class Executor:
         snap = checkpoint if checkpoint is not None and self._verify_ref(si, checkpoint) == "ok" else None
         return StepResult(Outcome.INFRA_ERROR, reason, snapshot=snap)
 
-    def _cancel_confirm(self, lease, si, until) -> Optional[StepResult]:
+    def _cancel_confirm(self, lease, si, until, presence=None) -> Optional[StepResult]:
         """cancel() returns nothing, so a cancel counts only once a poll shows a result (the
         attempt's own or infra:cancelled). Retried through transport failures until the worker
-        answers, the worker is gone, or `until`."""
+        answers, the worker is gone (presence.lost), or `until`."""
+        presence = presence or _Presence(self, lease, misses=1, window_s=0.0)
         first = True
         while first or self.clock() < until:
             first = False
@@ -276,7 +280,7 @@ class Executor:
             poll = self._poll(lease, si)
             if poll.state is PollState.DONE:
                 return self._check_outputs(si, poll.result, poll.checkpoint)
-            if not self._alive(lease):
+            if presence.gone(poll is not UNANSWERED):
                 return None
             self.sleep(self.poll_interval_s)
         return None
@@ -289,12 +293,13 @@ class Executor:
         stayed unconfirmed past the limit and been deleted.
         """
         until = self.clock() + self.unconfirmed_limit_s
+        presence = _Presence(self, lease)
         while True:
             self.pause()
-            done = self._cancel_confirm(lease, si, self.clock() + self.grace_s)
+            done = self._cancel_confirm(lease, si, self.clock() + self.grace_s, presence)
             if done is not None:
                 return self._check_outputs(si, done)
-            if not self._alive(lease) or (self.clock() >= until and self._retire(lease)):
+            if presence.lost or (self.clock() >= until and self._retire(lease)):
                 return self._lost(si, "infra:worker_lost", None)
 
     # ---- the engine's other side effects -------------------------------------------------------
@@ -304,6 +309,9 @@ class Executor:
 
         ``run`` has already obtained DONE or proven worker death before a retry reaches
         here. This final cancellation never provisions a replacement for a released worker.
+        One inventory miss ends it, as before: the prior attempt is already settled, its worker is most
+        often one the engine released (a park, a pause), and waiting out _Presence's window would delay
+        every such retry by two minutes. A live leftover is caught by the start's attempt_busy wait.
         """
         lease = (WorkerLease(worker_id, si.case_id) if worker_id else
                  _call("engine:pool_failed", self.pool.acquire, si.case_id, si.plumbing_version, si.bench_version))
@@ -392,6 +400,30 @@ class Executor:
         ref, ciphertext = _call("engine:sealer_failed", self.sealer.seal, key, ArtifactKind.DIAGNOSTIC, plaintext)
         _call("engine:store_failed", self.store.put_sealed, case_id, ref, ciphertext)
         return ref
+
+class _Presence:
+    """Whether one attempt's worker is gone. A poll the worker answers is proof of life and needs no inventory
+    read. Otherwise the pool is asked, and the worker is gone only after policy.LOST_MISSES misses in a row,
+    spanning policy.LOST_WINDOW_S, with no answer since the first miss. A single `boat list` that missed a live
+    box is not proof (cb5e26 11-19 and 11-20, 1108c 11-20: the box was live and the next lookup found it)."""
+
+    def __init__(self, executor: Executor, lease: WorkerLease, misses: int = LOST_MISSES, window_s=None):
+        self._executor, self._lease = executor, lease
+        self._limit = misses
+        self._window = executor.lost_window_s if window_s is None else window_s
+        self.first_miss, self.misses, self.lost = None, 0, False
+
+    def gone(self, answered: bool) -> bool:
+        if answered or self._executor._alive(self._lease):
+            self.first_miss, self.misses, self.lost = None, 0, False
+            return False
+        now = self._executor.clock()
+        if self.first_miss is None:
+            self.first_miss = now
+        self.misses += 1
+        self.lost = self.misses >= self._limit and now - self.first_miss >= self._window
+        return self.lost
+
 
 class _Bound:
     def __init__(self, executor: Executor, started_at: float, lease: WorkerLease, stopped=lambda: False):

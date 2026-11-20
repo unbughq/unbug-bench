@@ -269,6 +269,31 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(len(reserves), 5)
         self.assertTrue(all(b - a >= 0.3 for a, b in zip(reserves, reserves[1:])), reserves)
 
+    def test_a_busy_worker_is_waited_for_on_the_same_box_never_counted_diagnosed_or_released(self):
+        # cb5e26 (11-19, 11-20 08:50) and 1108c (11-20 01:52): after a wrongly lost G10, each retry was refused
+        # infra:attempt_busy by the box still running it; counted, they reached a diagnosis, which was refused
+        # too, and its infra hold deleted the box under the live G10 (engine diagnosis_infra_holds).
+        busy = {"outcome": "infra_error", "reason": "infra:attempt_busy", "paid": 0}
+        script = {f"1/gates:1/{n}": busy for n in (1, 2, 3, 4)}
+        # A pool ceiling far below the busy run: the orphan ends by its own attempt deadline (12 h for GATES,
+        # past the 6 h pool ceiling), so the busy wait is bounded by that, never by the pool ceiling. A batch
+        # that releases workers after 0.1 s of sleep still keeps the busy one.
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1,
+                               "release_worker_after_sleep_s": 0.1},
+                      "timing": {"pause_retry_s": 0.2, "pool_wait_ceiling_s": 0.1}, "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", *["gates:1"] * 5, "seal"])
+        gates = [x["worker"] for x in r.starts() if "/gates:1/" in x["key"]]
+        self.assertEqual(len(set(gates)), 1)                      # every retry on the box that was busy
+        self.assertEqual([x for x in r.pool_log() if x["op"] == "release"][:-1], [])   # released only at the end
+        # Workflows recorded before the patch keep counting it: the allowance ends in a diagnosis.
+        r, out = run(manual_holds({"disabled_patches": ["attempt_busy_waits"],
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.2}, "script": {**script, "1/diagnosis/*": {"verdict": "factory_bug"}}}))
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "gates:1", "diagnosis"])
+
     def test_credential_delivery_recovers_without_spending_the_infra_allowance(self):
         r, out = run({"pool_failures": 4, "pool_reason": "infra:credentials_unavailable",
                       "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
@@ -2349,6 +2374,37 @@ class CreditPark(unittest.TestCase):
         self.assertTrue(topped_up["lifted"])
         self.assertGreater(start(r, self.RETRY)["t"], topped_up["t"])
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_a_parked_case_wakes_without_a_top_up_and_a_refused_retry_parks_again_uncounted(self):
+        # 11-20: 1108c sat parked 80+ minutes on router:credit with Neuralwatt first in its chain, and the founder
+        # will not top up. The real router's block stays the whole time (balance $0.20, never topped up), yet each
+        # park ends after credit_recheck_s of its own (30 min; 1 s here) and the case retries once. The retry,
+        # refused again, finds the block and parks again without its worker. No stop counts or is diagnosed.
+        second, third = f"{C1}/4/gates:1/2", f"{C1}/4/gates:1/3"
+        scenario = {"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 0},
+                    "timing": {"wake_poll_s": 0.2, "credit_recheck_s": 1.0}, "inputs": {"dry_run": False},
+                    "router_credit": "0.2", "script": {"1/gates:1/1": self.CREDIT, "1/gates:1/2": self.CREDIT},
+                    "actions": [{"when": self.PARKED}, {"when": {"started": second, **self.PARKED}}]}
+        r, out = run(scenario)
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "gates:1", "gates:1", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 0)   # both stops are the case's spend
+        first_park, second_park = r.actions()
+        self.assertEqual((first_park["reason"], second_park["reason"]), ("router:credit",) * 2)   # parked twice
+        # One retry per park, after it; each park gave up its worker before its retry started.
+        for key, park, retry in ((f"{C1}/4/gates:1/1", first_park, second), (second, second_park, third)):
+            self.assertGreater(start(r, retry)["t"], park["t"])
+            worker = start(r, key)["worker"]
+            released = [x for x in r.pool_log() if x["op"] == "release" and x["worker"] == worker]
+            self.assertTrue(released and released[0]["t"] < start(r, retry)["t"], key)
+        # A park recorded before the patch keeps waiting for the block to lift: no retry without a top-up.
+        r, out = run({**scenario, "disabled_patches": ["credit_park_recheck"],
+                      "actions": [{"when": self.PARKED, "delay_s": 3.0, "top_up": "6"}]})
+        self.addCleanup(r.close)
+        (topped_up,) = r.actions()
+        self.assertTrue(topped_up["lifted"])
+        self.assertGreater(start(r, second)["t"], topped_up["t"])
 
     def test_a_refusal_with_no_credit_block_keeps_its_worker_and_its_short_sleep(self):
         # The router's ceiling or an unreadable balance refuses without a block: as before, a short
