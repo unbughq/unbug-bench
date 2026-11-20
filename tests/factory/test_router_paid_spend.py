@@ -201,6 +201,13 @@ class PaidTests(unittest.TestCase):
         thread.start(); thread.join(5); stopped.set()
         self.assertEqual(seen, [(router._nano('11.63'), self.now[0])])
 
+    def test_the_background_pass_reads_the_balance_as_it_starts(self):
+        stopped = threading.Event(); self.addCleanup(stopped.set)
+        threading.Thread(target=router.reconcile_forever, args=(self.store, stopped), kwargs=dict(interval=60), daemon=True).start()
+        deadline = time.monotonic() + 5
+        while self.store.balance is None and time.monotonic() < deadline: time.sleep(.01)
+        self.assertEqual(self.store.balance, (router._nano('11.63'), self.now[0]))   # not 60 s later
+
     def test_a_cached_balance_counts_charges_from_before_its_own_read_not_before_now(self):
         """The provider's balance may lag our charges by CREDIT_OVERLAP (900 s), counted back from when the
         balance was read. A charge settled 850 s before the read is still outstanding 100 s later."""
@@ -930,6 +937,24 @@ class PaidWireTests(unittest.TestCase):
                 self.assertEqual(len(self.seen), 1)                                     # forwarded once
                 with closing(sqlite3.connect(store.path)) as db:
                     self.assertEqual(db.execute('SELECT COUNT(*),state FROM paid_requests').fetchone(), (1, 'settled'))
+
+    def test_a_reserve_retry_stops_when_its_call_ends(self):
+        import test_model_call_maxima as core
+        actual = core.lease(MINIMAX)
+        with authority(actual) as store, patch.object(gate.sys, 'platform', 'linux'):
+            asked = []
+            def rpc(op, data):
+                if op == 'paid_reserve': asked.append(1); raise router.RouterUnavailable('router response unavailable')
+                return store.rpc(op, data)
+            with patch.object(router, '_rpc', rpc), patch.object(gate, 'PAID_RESERVE_PAUSE_SECONDS', .05):
+                with gate.enforce(actual, self.env(), {}, 30) as active:
+                    posting = threading.Thread(target=lambda: self.post(active), daemon=True); posting.start()
+                    deadline = time.monotonic() + 5
+                    while len(asked) < 2 and time.monotonic() < deadline: time.sleep(.01)
+                ended = len(asked)          # the call ended (the gate closed) while its reserve was retrying
+                posting.join(5)
+            self.assertLessEqual(len(asked), ended + 1)   # at most the try already in flight, not 30 s more
+            self.assertEqual(self.seen, [])
 
     def test_a_router_reply_slowed_by_its_write_lock_is_retried_over_real_http(self):
         """The real router and client: a write lock held 6 s (the 19 November CPU-bound VM) makes the first reply

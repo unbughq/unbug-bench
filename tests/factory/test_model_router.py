@@ -544,6 +544,26 @@ class RouterTests(unittest.TestCase):
         self.assertGreaterEqual(renewals[0], 6)
         self.assertEqual(self.store.rpc('status', {})['leases'], [])   # finished, not lost
 
+    def test_a_renewal_answer_with_a_changed_binding_ends_the_call_at_once(self):
+        c, secrets, _ = self.context(); renewals = [0]
+        def rpc(operation, data):
+            result = self.store.rpc(operation, data)
+            if operation == 'renew':
+                renewals[0] += 1
+                if renewals[0] > 1: return dict(result, pool='changed')   # the router's answer, not a lost reply
+            return result
+        def execute(context, *args, **kwargs):
+            self.assertTrue(context.role_cancel.wait(2))
+            raise budget.BudgetError('cancelled')
+        runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), patch.object(router, '_rpc', side_effect=rpc), \
+             patch.object(router, 'SECRETS', secrets), patch.object(router, 'RENEW_SECONDS', .01), \
+             patch.object(router, 'RENEW_RETRY_SECONDS', .01), patch.object(router, 'WAIT_SECONDS', 0), \
+             patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=execute):
+            with self.assertRaises(router.ProviderWait):
+                runtime.call(c, [router.CHAINS[0][0]], '', c.case, 'attacker-1')
+        self.assertEqual(renewals[0], 2)   # the first renewal and the changed answer, never retried
+
     def test_the_router_listens_with_a_deep_backlog(self):
         server = router.Server(('127.0.0.1', 0), self.store, 'synthetic-token')
         self.addCleanup(server.server_close)

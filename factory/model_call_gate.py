@@ -642,7 +642,10 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(PAID_RESERVE_PAUSE_SECONDS)
             if reason:
                 with gate.state.condition:
-                    gate.state.paid_failure = reason
+                    # A retry cut short because the call already stopped (a peer's credit refusal, its cap, a
+                    # cancel, the gate closing) keeps that stop; a credit refusal is always recorded.
+                    if reason == 'credit' or not (gate.state.is_set() or gate.state.closed):
+                        gate.state.paid_failure = reason
                     gate.state.condition.notify_all()
                 # A definite refusal proves this attempt never reached upstream.
                 # It is a validated zero-cost admission, not provider usage.
