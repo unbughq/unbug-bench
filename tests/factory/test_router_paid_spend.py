@@ -157,6 +157,84 @@ class PaidTests(unittest.TestCase):
         self.credit = None
         self.assertFalse(self.reserve(lease)[1]['granted'])
 
+    def test_a_paid_request_reads_the_cached_balance_and_still_counts_every_hold_since(self):
+        """19 November: each paid_reserve read /credits inline; on a CPU-bound control VM that read pushed requests
+        past the 4 s rule and 16 calls ended on one refused request. The background pass reads it instead."""
+        reads = []
+        def provider(): reads.append(1); time.sleep(.5); return Decimal('.69')   # three $0.23 holds
+        self.store.credit_reader = provider
+        self.store.refresh_credit()
+        self.assertEqual(len(reads), 1)
+        lease = admit(self.store)
+        usage = dict(prompt_tokens=1000000, completion_tokens=900000)   # the whole $0.23 window
+        for _ in range(2):
+            started = time.monotonic()
+            data, result = self.reserve(lease)
+            self.assertTrue(result['granted']); self.assertLess(time.monotonic() - started, .5)
+            self.assertTrue(self.store.rpc('paid_settle', data | {'usage': usage})['settled'])
+            self.now[0] += 50                      # still fresh; the provider has not shown these charges
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertEqual(len(reads), 1)            # no provider round trip on the request path
+        # The cached $0.69 never pays for a fourth: every hold granted since the read counts against it.
+        # A refusal parks the case, so it is confirmed with one live read first.
+        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(self.status()['total_usd'], '0.690000000')
+
+    def test_a_stale_or_missing_cached_balance_is_read_live(self):
+        reads = []
+        self.store.credit_reader = lambda: reads.append(1) or Decimal('11.63')
+        lease = admit(self.store)
+        self.assertTrue(self.reserve(lease)[1]['granted']); self.assertEqual(len(reads), 1)   # never refreshed
+        self.store.refresh_credit(); self.assertEqual(len(reads), 2)
+        self.assertTrue(self.reserve(lease)[1]['granted']); self.assertEqual(len(reads), 2)
+        self.now[0] += router.CREDIT_FRESH_SECONDS + 1
+        self.assertTrue(self.reserve(lease)[1]['granted']); self.assertEqual(len(reads), 3)
+        self.store.credit_reader = lambda: None    # a failed background read keeps nothing new
+        self.store.refresh_credit()
+        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))   # live read, unknown: refused
+
+    def test_the_background_pass_refreshes_the_balance_before_reconciling(self):
+        stopped, seen = threading.Event(), []
+        self.store.reconcile = lambda **kw: (seen.append(getattr(self.store, 'balance', None)), stopped.set())
+        thread = threading.Thread(target=router.reconcile_forever, args=(self.store, stopped), kwargs=dict(interval=.01), daemon=True)
+        thread.start(); thread.join(5); stopped.set()
+        self.assertEqual(seen, [(router._nano('11.63'), self.now[0])])
+
+    def test_the_background_pass_reads_the_balance_as_it_starts(self):
+        stopped = threading.Event(); self.addCleanup(stopped.set)
+        threading.Thread(target=router.reconcile_forever, args=(self.store, stopped), kwargs=dict(interval=60), daemon=True).start()
+        deadline = time.monotonic() + 5
+        while self.store.balance is None and time.monotonic() < deadline: time.sleep(.01)
+        self.assertEqual(self.store.balance, (router._nano('11.63'), self.now[0]))   # not 60 s later
+
+    def test_a_cached_balance_counts_charges_from_before_its_own_read_not_before_now(self):
+        """The provider's balance may lag our charges by CREDIT_OVERLAP (900 s), counted back from when the
+        balance was read. A charge settled 850 s before the read is still outstanding 100 s later."""
+        usage = dict(prompt_tokens=1000000, completion_tokens=900000)   # the whole $0.23 window
+        data, _ = self.reserve(admit(self.store))
+        self.assertTrue(self.store.rpc('paid_settle', data | {'usage': usage})['settled'])
+        self.now[0] += 850
+        self.credit = Decimal('.46')               # the balance does not show that $0.23 yet
+        self.store.refresh_credit()
+        self.now[0] += 100                         # fresh, but the charge is now 950 s old
+        self.credit = Decimal('.23')               # by now the provider shows it (a live read would see this)
+        lease = admit(self.store)
+        self.assertTrue(self.reserve(lease)[1]['granted'])   # cached $0.46 less the $0.23 still outstanding at the read
+        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))
+
+    def test_a_short_cached_balance_is_confirmed_live_before_it_parks_anything(self):
+        lease = admit(self.store)
+        self.credit = Decimal('.1')
+        self.store.refresh_credit()                # read before a top-up
+        self.credit = Decimal('11.63')             # the operator tops up
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertTrue(self.credit_clear())       # no credit block from the old balance
+        self.credit = Decimal('.1')
+        self.store.refresh_credit()
+        self.assertEqual(self.reserve(lease)[1], dict(granted=False, reason='credit'))   # really short: final
+        self.assertFalse(self.credit_clear())
+
     def credit_clear(self):
         return router.credit_ready(self.path)   # what a case parked on router:credit polls
 
@@ -825,12 +903,106 @@ class PaidWireTests(unittest.TestCase):
                     result = store.rpc(op, data)
                     if lost and op == 'paid_reserve': raise router.RouterUnavailable('lost response')
                     return result
-                with patch.object(router, '_rpc', rpc), self.assertRaisesRegex(BudgetError, 'shared_paid_spend_wait'):
+                with patch.object(router, '_rpc', rpc), patch.object(gate, 'PAID_RESERVE_PAUSE_SECONDS', .05), \
+                        self.assertRaisesRegex(BudgetError, 'shared_paid_spend_wait'):
                     with gate.enforce(actual, self.env(), {}, 3) as active:
                         for _ in range(3): self.assertEqual(self.post(active)[0], 503)
-                self.assertEqual(len(reads), 1)
+                # A credit refusal is final at once; a reply lost every time is retried, with one request id.
+                if lost: self.assertGreater(len(reads), 1)
+                else: self.assertEqual(len(reads), 1)
                 self.assertEqual(self.seen, [])
                 self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.230000000' if lost else '0.000000000')
+
+    def test_a_lost_or_late_reserve_reply_is_asked_again_and_booked_once(self):
+        """f46dac-h6 / cae763-h4, 19 November: one paid_reserve past the 4 s rule (binding) or past the client's
+        5 s (no reply) ended reviewer calls that had forwarded 48-69 requests (~$13 of work thrown away)."""
+        import test_model_call_maxima as core
+        for first in ('late', 'lost'):
+            self.seen, self.responses = [], [self.payload()]
+            actual = core.lease(MINIMAX)
+            with authority(actual) as store, patch.object(gate.sys, 'platform', 'linux'):
+                asked = []
+                def rpc(op, data):
+                    if op != 'paid_reserve': return store.rpc(op, data)
+                    asked.append(data['request_id'])
+                    if len(asked) > 1: return store.rpc(op, data)
+                    if first == 'late':    # the router's own answer when handling took 4 s or more
+                        return store.rpc(op, data, handling_started=time.monotonic() - 4)
+                    store.rpc(op, data)   # granted, but the reply never arrived
+                    raise router.RouterUnavailable('router response unavailable')
+                with patch.object(router, '_rpc', rpc), patch.object(gate, 'PAID_RESERVE_PAUSE_SECONDS', .05):
+                    with gate.enforce(actual, self.env(), {}, 3) as active:
+                        self.assertEqual(self.post(active)[0], 200)
+                self.assertEqual(len(asked), 2); self.assertEqual(len(set(asked)), 1)   # one request id
+                self.assertEqual(len(self.seen), 1)                                     # forwarded once
+                with closing(sqlite3.connect(store.path)) as db:
+                    self.assertEqual(db.execute('SELECT COUNT(*),state FROM paid_requests').fetchone(), (1, 'settled'))
+
+    def test_a_reserve_retry_stops_when_its_call_ends(self):
+        import test_model_call_maxima as core
+        actual = core.lease(MINIMAX)
+        with authority(actual) as store, patch.object(gate.sys, 'platform', 'linux'):
+            asked = []
+            def rpc(op, data):
+                if op == 'paid_reserve': asked.append(1); raise router.RouterUnavailable('router response unavailable')
+                return store.rpc(op, data)
+            with patch.object(router, '_rpc', rpc), patch.object(gate, 'PAID_RESERVE_PAUSE_SECONDS', .05):
+                with gate.enforce(actual, self.env(), {}, 30) as active:
+                    posting = threading.Thread(target=lambda: self.post(active), daemon=True); posting.start()
+                    deadline = time.monotonic() + 5
+                    while len(asked) < 2 and time.monotonic() < deadline: time.sleep(.01)
+                ended = len(asked)          # the call ended (the gate closed) while its reserve was retrying
+                posting.join(5)
+            self.assertLessEqual(len(asked), ended + 1)   # at most the try already in flight, not 30 s more
+            self.assertEqual(self.seen, [])
+
+    def test_a_retry_cut_short_by_a_peers_credit_refusal_keeps_that_stop(self):
+        import test_model_call_maxima as core
+        from budget import BudgetError
+        actual = core.lease(MINIMAX)
+        with authority(actual) as store, patch.object(gate.sys, 'platform', 'linux'):
+            def rpc(op, data):
+                if op != 'paid_reserve': return store.rpc(op, data)
+                with active.state.condition: active.state.paid_failure = 'credit'   # a concurrent request's refusal
+                raise router.RouterUnavailable('router response unavailable')
+            with patch.object(router, '_rpc', rpc), patch.object(gate, 'PAID_RESERVE_PAUSE_SECONDS', .05), \
+                    self.assertRaises(BudgetError) as stopped:
+                with gate.enforce(actual, self.env(), {}, 3) as active:
+                    self.assertEqual(self.post(active)[0], 503)
+            self.assertEqual(stopped.exception.provider_failure['reason'], 'credit')   # not router_unavailable
+            self.assertEqual(self.seen, [])
+
+    def test_a_router_reply_slowed_by_its_write_lock_is_retried_over_real_http(self):
+        """The real router and client: a write lock held 6 s (the 19 November CPU-bound VM) makes the first reply
+        miss the client's 5 s; the retry with the same request id is granted and the call goes on."""
+        import test_model_call_maxima as core
+        self.responses = [self.payload()]
+        actual = core.lease(MINIMAX)
+        with tempfile.TemporaryDirectory() as root:
+            store = router.Store(Path(root) / 'router.sqlite', credit_reader=lambda: Decimal('11.63'))
+            admit(store, actual.route, actual.lease_id)
+            server = router.Server(('127.0.0.1', 0), store, 'synthetic-token')
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
+            locked = threading.Event()
+            def hold():
+                with closing(sqlite3.connect(store.path)) as db:
+                    db.execute('BEGIN IMMEDIATE'); locked.set(); time.sleep(6); db.rollback()
+            env = {'FACTORY_ROUTER_URL': f'http://127.0.0.1:{server.server_port}', 'FACTORY_ROUTER_TOKEN': 'synthetic-token'}
+            with patch.dict(os.environ, env), patch.object(gate.sys, 'platform', 'linux'):
+                with gate.enforce(actual, self.env(), {}, 30) as active:
+                    threading.Thread(target=hold, daemon=True).start(); self.assertTrue(locked.wait(2))
+                    import http.client
+                    connection = http.client.HTTPConnection('127.0.0.1', active.server.server_port, timeout=30)
+                    body = dict(model='minimax/minimax-m3.1-flash', messages=[dict(role='user', content='synthetic')], stream=True)
+                    started = time.monotonic()
+                    connection.request('POST', '/api/v1/chat/completions', json.dumps(body), {'Authorization': 'Bearer ' + active.token})
+                    response = connection.getresponse(); response.read(); connection.close()
+                    self.assertEqual(response.status, 200)
+                    self.assertGreater(time.monotonic() - started, 5)   # the first reply really was lost
+            self.assertEqual(len(self.seen), 1)
+            with closing(sqlite3.connect(store.path)) as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM paid_requests').fetchone()[0], 1)
 
     def test_worker_and_diagnosis_runtime_share_one_ledger_across_batches(self):
         import shutil

@@ -23,7 +23,7 @@ import time
 from budget import BudgetError
 from token_prices import (GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, CLAUDE_CONTEXT, CLAUDE_OUTPUT, claude_profile,
                           CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage,
-                          GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_gate_cost, runtime_prices)
+                          GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_cached_tokens, openrouter_gate_cost, runtime_prices)
 
 ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
@@ -36,6 +36,9 @@ HEADROOM = Decimal('0.000001')
 # Free 4xx rejections in a row (not 429) after which a call stops as upstream_rejected: a permanent one
 # (a prompt too long, a bad request) settles at $0 and would otherwise be retried until the step timeout.
 MAX_REJECTIONS = 3
+# A paid_reserve with no definite answer (a lost reply, the router's 4 s self-refusal) is asked again, with the
+# same request id, for this long. 19 November: 16 calls each ended on one slow reply out of 10-70.
+PAID_RESERVE_RETRY_SECONDS, PAID_RESERVE_PAUSE_SECONDS = 30, 2
 _RETAINED = []  # Unresolved firewall cleanup must never release a reusable port.
 BODY_FIELDS = {'model', 'max_tokens', 'messages', 'system', 'tools', 'tool_choice',
     'stream', 'stop_sequences', 'temperature', 'top_p', 'top_k', 'thinking',
@@ -216,7 +219,12 @@ class Allowance:
             if cost is None: return None
             return cost, sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens']
         cost = openrouter_gate_cost(self.lease.route, usage)
-        return None if cost is None else (cost, usage['prompt_tokens'], usage['completion_tokens'])
+        if cost is None: return None
+        # The input cap is max_usd / input price, so a cached token counts at its price's share of a full one,
+        # as in the cost: whole cached tokens cut 412ba567 at 27.6M of a 28.7M cap (new-cached-window-1).
+        incoming, cache_read, _ = map(Decimal, GATED_OPENROUTER[self.lease.route]['prices'])
+        cached = openrouter_cached_tokens(usage)
+        return cost, usage['prompt_tokens'] - cached + math.ceil(cached * cache_read / incoming), usage['completion_tokens']
 
     def reserve(self, output):
         allowance = self.amount(worst_request(self.lease.route, output))
@@ -538,8 +546,8 @@ class OpenRouterUsage:
                     or type(usage.get('total_tokens')) is not int
                     or usage['total_tokens'] != usage['prompt_tokens'] + usage['completion_tokens']):
                 self.invalid = True; return
-            for field, key, maximum in (('prompt_tokens_details', 'cached_tokens', usage['prompt_tokens']),
-                                        ('completion_tokens_details', 'reasoning_tokens', usage['completion_tokens'])):
+            # openrouter_gate_cost has checked prompt_tokens_details.cached_tokens (openrouter_cached_tokens).
+            for field, key, maximum in (('completion_tokens_details', 'reasoning_tokens', usage['completion_tokens']),):
                 if field in usage:
                     details = usage[field]
                     if not isinstance(details, dict): self.invalid = True; return
@@ -619,19 +627,30 @@ class Handler(BaseHTTPRequestHandler):
         if paid:
             import model_router
             paid_id = secrets.token_hex(16)
-            definite = False
-            try:
-                result = model_router._rpc('paid_reserve', dict(lease_id=gate.state.lease.lease_id, request_id=paid_id))
-                if result == {'granted': True}: reason = None
-                elif (set(result) == {'granted', 'reason'} and result['granted'] is False
-                        and result['reason'] in ('credit', 'duplicate', 'binding')):
-                    definite = True
-                    reason = 'credit' if result['reason'] == 'credit' else 'router_unavailable'
-                else: reason = 'router_unavailable'
-            except model_router.RouterUnavailable: reason = 'router_unavailable'
+            until = min(time.monotonic() + PAID_RESERVE_RETRY_SECONDS, gate.deadline)
+            while True:
+                definite = False
+                try:
+                    result = model_router._rpc('paid_reserve', dict(lease_id=gate.state.lease.lease_id, request_id=paid_id))
+                    # The router books a request id once: 'duplicate' answers a retry whose earlier try it granted.
+                    if result in ({'granted': True}, {'granted': False, 'reason': 'duplicate'}): reason = None
+                    elif (set(result) == {'granted', 'reason'} and result['granted'] is False
+                            and result['reason'] in ('credit', 'binding')):
+                        definite = True
+                        reason = 'credit' if result['reason'] == 'credit' else 'router_unavailable'
+                    else: reason = 'router_unavailable'
+                except model_router.RouterUnavailable: reason = 'router_unavailable'
+                # Only a credit refusal is final at once; the paid pool waits for a top-up.
+                if (reason != 'router_unavailable' or gate.state.is_set() or gate.state.closed
+                        or time.monotonic() + PAID_RESERVE_PAUSE_SECONDS >= until):
+                    break
+                time.sleep(PAID_RESERVE_PAUSE_SECONDS)
             if reason:
                 with gate.state.condition:
-                    gate.state.paid_failure = reason
+                    # A retry cut short because the call already stopped (a peer's credit refusal, its cap, a
+                    # cancel, the gate closing) keeps that stop; a credit refusal is always recorded.
+                    if reason == 'credit' or not (gate.state.is_set() or gate.state.closed):
+                        gate.state.paid_failure = reason
                     gate.state.condition.notify_all()
                 # A definite refusal proves this attempt never reached upstream.
                 # It is a validated zero-cost admission, not provider usage.

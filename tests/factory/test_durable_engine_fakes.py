@@ -764,15 +764,18 @@ def engine_main(workdir):
                 if act.get('delay_s'):
                     stop.wait(act['delay_s'])
                 held = fakes['ledger'].snapshot()['batches'].get(spec.batch_id, {}).get('held')
+                if "delete_queue" in act:   # a queue row gone: only an enqueue can bring it back
+                    DBOS.delete_queue(act["delete_queue"])
                 if "reply" in act:
                     rep = act["reply"]
                     ruling = None
+                    n = rep.get("case", when.get("case"))   # by default the case the trigger watches
                     if rep["action"] == "continue":
-                        cid = f"case-{spec.batch_id[2:]}-{when['case']}"
+                        cid = f"case-{spec.batch_id[2:]}-{n}"
                         ruling, ct = fakes["sealer"].seal(fakes["keys"].scope_key(cid), ArtifactKind.FOUNDER_RULING,
                                                           b"ruling: the reviewers' split is settled")
                         fakes["store"].put_sealed(cid, ruling, ct)
-                    engine.reply(f"case-{spec.batch_id[2:]}-{when['case']}", FounderReply(rep["action"], ruling))
+                    engine.reply(f"case-{spec.batch_id[2:]}-{n}", FounderReply(rep["action"], ruling))
                 if "bound" in act:
                     engine.send(spec.batch_id, Topic.BOUND_RAISED, BoundRaised(act["bound"]))
                 if "plumbing" in act:
@@ -805,6 +808,10 @@ def engine_main(workdir):
                                          target_sealed=spec.target_sealed),
            "ledger": fakes["ledger"].snapshot()}
     (work / "result.json").write_text(json.dumps(out, sort_keys=True, indent=1))
+    # What DBOS polls at the end: its queue worker threads, and each queue row's settings.
+    (work / "queues.json").write_text(json.dumps({
+        "threads": sorted(t.name for t in threading.enumerate() if t.name.startswith("queue-worker-")),
+        "rows": {q.name: [q.global_concurrency, q._polling_interval_sec] for q in DBOS.list_queues()}}))
     print("ENGINE-DONE", flush=True)
     os._exit(0)   # the fakes' state is on disk; skip DBOS's thread teardown
 

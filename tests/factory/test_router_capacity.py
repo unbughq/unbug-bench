@@ -108,6 +108,36 @@ class RouterCapacity(unittest.TestCase):
         self.assertEqual(caught.exception.wait.reason, 'capacity')
         self.assertLess(time.monotonic() - started, 5)
 
+    def test_no_eligible_lane_is_its_own_wait_that_sleeps_out_its_retry(self):
+        """1110a-h1, 18 November 00:17-01:37: a mimo request with no eligible lane was answered `outage` (+900 s) while
+        other cases leased the same route; as an operational wait the engine relaunched it 8 times with 0 calls."""
+        closed = model_router.Store(self.root / 'closed.sqlite', disabled_routes=('openrouter/xiaomi/',))
+        with patch.object(model_router, '_rpc', closed.rpc), self.assertRaises(model_router.ProviderWait) as caught:
+            model_router.await_lease('writer', self.case())
+        wait = caught.exception.wait
+        self.assertEqual(wait.reason, 'no_route')
+        now = time.time()
+        classified, record = classify_wait(caught.exception, step=StepKind.WRITER, now=now)
+        self.assertEqual((classified.outcome, classified.reason), (Outcome.PROVIDER_LIMIT, 'router:no_route'))
+        self.assertEqual(classified.retry_at, wait.retry_after)   # the router's +900 s, not a 2-minute recheck
+        self.assertGreater(classified.retry_at, now + 800)
+        self.assertEqual(record['waits'][-1]['reason'], 'no_route')
+        result = StepResult(Outcome.PROVIDER_LIMIT, 'router:no_route', retry_at=classified.retry_at)
+        self.assertEqual(decide(Step(StepKind.WRITER, 1), result, Counters(), SPEC), Action.SLEEP)
+        self.assertFalse(settles_as_waste(result))
+        from durable.stop_registry import lookup
+        self.assertEqual(lookup('router:no_route'), {'kind': 'wait'})
+        self.assertIn('router:no_route', PUBLISHED_REASONS)
+        # A worker from before no_route (capacity_protocol 1) still gets the reason it understands.
+        older = closed.rpc('acquire', dict(id=uuid.uuid4().hex, model=TWIN, accounts=['openrouter-key'], role='writer',
+                                           deadline=time.time() + 3600, paid_protocol=1, capacity_protocol=1))
+        self.assertEqual(older['reason'], 'outage')
+        # A worker never publishes it as a provider limit.
+        held = self.hold_seat()
+        with self.assertRaises(ValueError):
+            self.store.rpc('observe', dict(pool=None, healthy=False, observation_id=uuid.uuid4().hex,
+                                           lease_id=held['lease_id'], reason='no_route', reset_at=None))
+
     def test_capacity_after_a_fault_keeps_the_original_stop(self):
         # A deterministic fault followed by a seat wait is still that fault: infra retries, then diagnosis.
         prior = [{'reason': 'outage', 'retry_after': time.time() + 900, 'historical': True, 'source_stop': 'opencode_error'}]
