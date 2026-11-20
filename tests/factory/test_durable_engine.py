@@ -3,6 +3,7 @@
 docs/designs/durable-execution-wp1.md, "Tests". Each test runs the engine program in a child
 process on a fresh database, then reads the fake worker's log, the ledger and the cards.
 """
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -1229,6 +1230,91 @@ class Restart(unittest.TestCase):
         self.assertEqual(len(spans), 3)
         for (s1, e1), (s2, e2) in zip(spans, spans[1:]):
             self.assertGreaterEqual(s2, e1, spans)
+
+
+class QueuePolling(unittest.TestCase):
+    """DBOS 3.4 polls every queue row once a second on its own thread, forever. On 2026-11-19 the
+    controller held 370 rows (2 to 3 per batch ever started), 8 with work: about 400 threads and 0.9 of
+    the control VM's 2 cores, starving the router. Launch now deletes the rows of finished batches
+    (engine.queue_plan, docs/designs/queue-polling.md) and an enqueue registers a missing row again."""
+    ESCALATE = {"1/4/gates:1/1": {"outcome": "needs_founder", "gate": "G16", "reason": "g16:split_review"}}
+
+    def test_a_restart_polls_only_live_batches_and_their_waiting_work_runs(self):
+        r, out = run({})   # b-t seals: a finished batch
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        U1, U2 = "case-u-1", "case-u-2"
+        # Batch b-u: case 1 escalates, its replacement case 2 is killed mid-attempt.
+        first = {"spec": {"batch_id": "b-u"}, "script": {**self.ESCALATE, "2/writer:1/1": {"dur": 2.0}}}
+        b = EngineRun(first, workdir=r.work)
+        p = b.spawn()
+        try:
+            deadline = time.time() + 60
+            while not b.starts(2) or not any(x["key"] == f"{U2}/2/writer:1/1" for x in b.starts()):
+                self.assertLess(time.time(), deadline, b.tail())
+                time.sleep(0.05)
+            p.send_signal(signal.SIGKILL)
+            p.wait()
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+        with contextlib.closing(sqlite3.connect(r.work / "sys.sqlite")) as db, db:
+            rows = {name for (name,) in db.execute("SELECT name FROM queues")}
+            # b-u's launch already deleted the finished batch's rows.
+            self.assertEqual({n for n in rows if n.endswith("-b-t")}, set(), rows)
+            self.assertIn("steps-b-u", rows)
+            # The row case 2's attempt sits on goes missing: the restart must bring it back.
+            db.execute("DELETE FROM queues WHERE name = 'steps-b-u'")
+        # Once case 2 has sealed only the escalated case 1 is left: its row goes missing again, and the
+        # reply's enqueue is the only thing that can bring it back.
+        (r.work / "scenario.json").write_text(json.dumps({**first, "actions": [
+            {"when": {"case": 2, "status": "sealed"}, "delete_queue": "steps-b-u",
+             "reply": {"action": "continue", "case": 1}}]}))
+        out = b.run()
+        self.assertEqual(out["result"]["cases"], {U1: "sealed", U2: "sealed"})
+        self.assertEqual([x["key"].split("/", 2)[2] for x in b.starts() if x["key"].startswith(U1 + "/")][-2:],
+                         ["gates:1/1", "seal/1"])   # case 1 ran on after the reply
+        self.assertEqual(len(b.actions()), 1)
+        polled = json.loads((r.work / "queues.json").read_text())
+        self.assertEqual([t for t in polled["threads"] if t.endswith("-b-t")], [])
+        self.assertIn("queue-worker-steps-b-u", polled["threads"])
+        # Same settings as Engine.register_queues: steps at max_concurrency (2), ADMIT serial, test poll.
+        self.assertEqual({n: v for n, v in polled["rows"].items() if n.endswith("-b-u")},
+                         {"admit-b-u": [1, 0.05], "steps-b-u": [2, 0.05]})
+
+    def test_the_plan_keeps_every_row_live_work_can_reach(self):
+        from types import SimpleNamespace as Row
+        from durable.contract import to_record
+        from durable.engine import queue_plan
+        from test_durable_engine_fakes import make_spec
+
+        def wf(name, job, queue=None):
+            return Row(name=name, queue_name=queue, input={"args": [job], "kwargs": {}})
+        spec = lambda b, n=2: to_record(make_spec(batch_id=b, max_concurrency=n))
+        names = ["admit-b-live", "steps-b-live", "admit-b-done", "steps-b-done", "decision-b-done",
+                 "admit-b-case", "steps-b-case", "admit-b-orphan", "admit-b-x", "_dbos_internal_queue", "nightly",
+                 "steps-x"]
+        live = [wf("batch_workflow", {"spec": spec("b-live", 3), "queue_v2": False}),
+                # a case whose batch workflow has ended, waiting on its steps queue after a restart
+                wf("case_workflow", {"spec": spec("b-case", 4), "case_id": "case-case-1"}),
+                wf("slot_workflow", {"input": {"batch_id": "b-case"}}, "steps-b-case"),
+                # an orphan attempt ENQUEUED on its admit queue; its case and batch have ended
+                wf("attempt_workflow", {"input": {"batch_id": "b-orphan"}}, "admit-b-orphan"),
+                wf("attempt_workflow", {"input": {"batch_id": "b-orphan"}}, "steps-b-orphan"),
+                # an attempt whose input cannot be read still keeps the queue it sits on
+                wf("attempt_workflow", "undecodable", "admit-b-x"),
+                wf("founder_stop_workflow", {"case": "case-done-1", "reason": "r"})]
+        specs, waiting, retire = queue_plan(names, live)
+        self.assertEqual({b: (s["max_concurrency"], v2) for b, (s, v2) in specs.items()},
+                         {"b-live": (3, False), "b-case": (4, False)})
+        self.assertEqual(waiting, {"steps-b-case": 4, "admit-b-orphan": 1, "steps-b-orphan": 1, "admit-b-x": 1})
+        self.assertEqual(retire, ["admit-b-done", "decision-b-done", "steps-b-done"])
+        # A workflow that enqueues with an unreadable batch: nothing is deleted.
+        for bad in ("undecodable", {"spec": None}, {}, {"spec": {"batch_id": ["b-done"]}}):
+            self.assertEqual(queue_plan(names, live + [wf("case_workflow", bad)])[2], [])
+        # One that never enqueues does not stop the deletes.
+        self.assertEqual(queue_plan(names, live + [wf("raise_bound_workflow", "undecodable")])[2], retire)
 
 
 class AttackCap(unittest.TestCase):
