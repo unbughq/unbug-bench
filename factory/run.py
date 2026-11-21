@@ -1100,6 +1100,9 @@ def g11_slots(c):
     if limit < 2: return 1
     import bench
     try:
+        # The installed bench may predate --traffic-tables (a release keeps the case's own bench); its
+        # fake-pass-check would reject every per-guard scan (f46dac-h9 G11, 2026-11-21), so run serially.
+        if "--traffic-tables" not in (BENCH / "bin/fake-pass-check").read_text(): return 1
         n = 1
         while n < limit and bench.factory_slot_ready(BENCH / "results", n): n += 1
         scenarios = [bench.load_scenario(c.case / "base")]

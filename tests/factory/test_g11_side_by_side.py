@@ -13,7 +13,7 @@ from unittest import mock
 import run, bench, run_validity, independent_review, gate_state
 
 
-def harness(fits, *, ready=4, fail=None):
+def harness(fits, *, ready=4, fail=None, bench_root=_TEST_ROOT):
     """Run G11 through evaluate_gate once with `ready` prepared slots (0 included) and memory for `fits`
     copies. Returns (result or raised error, retained report, slots used, max overlap, commands)."""
     root = pathlib.Path(tempfile.mkdtemp())
@@ -55,7 +55,8 @@ def harness(fits, *, ready=4, fail=None):
         if fail and index in fail: raise fail[index]
         return {}, [{"solved": True}]
 
-    with mock.patch.object(run, "sh", sh), mock.patch.object(run, "checkpoint", checkpoint), \
+    with mock.patch.object(run, "BENCH", bench_root), \
+         mock.patch.object(run, "sh", sh), mock.patch.object(run, "checkpoint", checkpoint), \
          mock.patch.object(run, "verdicts", lambda c, records: records), \
          mock.patch.object(run_validity, "require_valid", lambda *a, **k: None), \
          mock.patch.object(bench, "load_scenario", lambda path: {"dir": path}), \
@@ -107,6 +108,16 @@ print("PASS G11 uses only slots prepared now, not the card's high-water mark")
 fail = {1: run_validity.InvalidInfra("guard 1 rerun"), 2: ValueError("guard 2 rerun")}
 assert harness(fits=1, fail=fail)[0] == harness(fits=3, fail=fail)[0] == ("InvalidInfra", "guard 1 rerun")
 print("PASS G11 raises the serial path's first failure")
+
+# An installed bench older than --traffic-tables (f46dac-h9, 2026-11-21): its fake-pass-check would reject
+# every per-guard scan, so G11 must take the serial path and never send the flag.
+old_bench = pathlib.Path(tempfile.mkdtemp()); (old_bench / "bin").mkdir()
+(old_bench / "bin/fake-pass-check").write_text("#!/usr/bin/env python3\n# usage: [--runs RUNS] [--seed SEED] [guards ...]\n")
+old = harness(fits=4, bench_root=old_bench)
+assert old[3] == 1 and all("--traffic-tables" not in cmd for cmd in old[4]), old[4]
+assert json.dumps(old[0], sort_keys=True) == json.dumps(serial[0], sort_keys=True), old[0]
+assert harness(fits=4, bench_root=pathlib.Path(tempfile.mkdtemp()))[3] == 1, "no fake-pass-check found: serial"
+print("PASS G11 runs serially on a bench whose fake-pass-check lacks --traffic-tables")
 
 # Slot choice and scheduling stay outside G11's hashed sources.
 hashed = gate_state.runner_inputs("G11")
