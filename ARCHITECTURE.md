@@ -77,8 +77,7 @@ worker per watched batch is allowed): failures pause new attempts. A stall (a ca
 the router, no case, ledger or router-spend progress for 15 minutes while cases are live and no step is in flight, or a case parked on a
 founder decision for 30 minutes) reads `degraded` with its reason in `stalled` and alerts; it pauses nothing. Only a money,
 deadline or confirmed Boat limit is a hard stop: after a bounded checkpoint grace the guard stops the
-controller and deletes the workers. The deadline stops new work, not a running step: the guard keeps
-checking and renewing until no step is in flight, or `GATES_DEADLINE_S` past the deadline. Worker size is a Boat type: the controller config's `vm_type` (Boat's
+controller and deletes the workers. Worker size is a Boat type: the controller config's `vm_type` (Boat's
 default when absent), or for a bounded campaign the request's `vm_type` (default `"default"`), read at each
 create. A type other than `default` needs its approved rate in the request's `worker_rates_usd_per_second`
 (e.g. `{"large": ...}` for 8 vCPU/16 GB); otherwise nothing is created and the guard degrades. The guard's
