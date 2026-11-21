@@ -19,10 +19,33 @@ the guard cut running steps. Its TTL renewal also stopped at `deadline + checkpo
 - Every other hard stop (money, compute bound, worker count, allowance, rate, cleanup) is unchanged. They now
   also apply during the drain.
 
-**Known gap (founder decision, not changed here).** `compute_bound` still counts each running slot for
-`wall_seconds + grace`, not the drain. Changing the formula could make the live request stop `compute_bound`
-or be refused at controller start. During the drain, live workers' real Boat spend past the bound is still a
-`worker_rate` hard stop.
+**The cleanup timer still cuts at once.** `control/campaign/unbug-case-campaign-deadline.timer` runs
+`campaign_guard.py --cleanup`, and `run` treats `cleanup` as an immediate `deadline` hard stop. This change
+leaves that alone. The operator must keep that timer disabled, or set it at or after the drain ceiling
+(`deadline + GATES_DEADLINE_S + CHECKPOINT_GRACE_S`). On the live VM its `OnCalendar` was 2026-11-15 06:00 UTC.
+It has fired and has no next run, so it cannot cut today's drain.
+
+## Known gaps (goldfish NITs, not changed here)
+
+- **No SEAL during the drain.** The controller's `assess` refuses every worker acquire after the deadline. A
+  case whose GATES step finishes in the drain therefore cannot start its SEAL step. The drain saves the gate
+  results, but sealing still needs a raised deadline.
+- **The ceiling is a little short.** A GATES attempt started just before the deadline can run until
+  `deadline + deadline_s`. The engine then polls for `POLL_GRACE_S` (900 s) and the result still has to
+  transfer. The ceiling is `deadline + GATES_DEADLINE_S + CHECKPOINT_GRACE_S` (600 s), so it is shorter than
+  `deadline_s + POLL_GRACE_S + transfer time`. A step that uses its whole deadline can still be cut at the end.
+- **Long renewals just before the deadline.** The TTL now covers the drain, so renewals just before the
+  deadline are 7200 s, not the time left plus the grace. If the guard dies, a worker can outlive the deadline
+  by up to 2 h.
+- **Compute past the approval (needs founder OK).** `compute_bound` still counts each running slot for
+  `wall_seconds + grace`, not the drain. A drain can therefore take compute past `approved_infrastructure_usd`
+  by up to `max_running_sandboxes × GATES_DEADLINE_S × rate`. I did not change the formula, because that could
+  make the live request stop `compute_bound` or be refused at controller start. The `worker_rate` backstop
+  (real spend past the bound) does not help here. On the live campaign (`max_running_sandboxes` 26,
+  `wall_seconds` 86400) it cannot fire within a 12 h drain.
+- **No Boat-breach test during the drain.** Money is tested during the drain
+  (`test_money_still_hard_stops_during_the_drain`). Boat count, allowance and rate breaches during the drain
+  run through the same `_breach` call but have no test of their own.
 
 ## Murphy rows
 
