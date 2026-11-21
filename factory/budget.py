@@ -22,7 +22,7 @@ import tempfile
 import threading
 import time
 import uuid
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING, ROUND_FLOOR
 from token_prices import CODEX_PRICES, CODEX_USAGE_FIELDS, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
 from token_prices import GO_ROUTES, NW_ROUTES, go_step_cost, nw_request_worst
 from durable import stop_registry
@@ -301,8 +301,12 @@ def invocation_headroom(path, attempt, call_name=None):
 
 
 def available_invocation_funding(path, attempt, call_name=None):
-    """Uncommitted funding only; reserve_invocation arbitrates concurrent callers."""
-    available = invocation_headroom(path, attempt, call_name)
+    """Uncommitted funding only; reserve_invocation arbitrates concurrent callers.
+
+    Rounded down: headroom mixes the nine-place spend total with exact booked holds, so it can sit a
+    sub-nanodollar below a window. A quote rounded up is one reserve_invocation then refuses (2a7b2a-h5,
+    21 November: a G10 owner funded at its whole 1.7104906 window was refused, which cancelled the try)."""
+    available = invocation_headroom(path, attempt, call_name).quantize(Decimal('.000000001'), rounding=ROUND_FLOOR)
     if available <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
     return format(available, '.9f')
 
