@@ -24,7 +24,7 @@ from budget import BudgetError
 from token_prices import (GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, CLAUDE_CONTEXT, CLAUDE_OUTPUT, claude_profile,
                           CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage,
                           GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_gate_cost, runtime_prices,
-                          NW_CONTEXT, NW_ROUTES, gate_profile)
+                          NW_CONTEXT, NW_ROUTES, gate_profile, nw_cached_tokens)
 
 ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
@@ -218,7 +218,12 @@ class Allowance:
             if cost is None: return None
             return cost, sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens']
         cost = openrouter_gate_cost(self.lease.route, usage)
-        return None if cost is None else (cost, usage['prompt_tokens'], usage['completion_tokens'])
+        if cost is None: return None
+        if self.lease.route not in NW_ROUTES: return cost, usage['prompt_tokens'], usage['completion_tokens']
+        # The input cap is max_usd / input price, so a cached token counts at its price's share of a full one.
+        incoming, cache_read, _ = map(Decimal, gate_profile(self.lease.route)['prices'])
+        cached = nw_cached_tokens(usage)
+        return cost, usage['prompt_tokens'] - cached + math.ceil(cached * cache_read / incoming), usage['completion_tokens']
 
     def reserve(self, output):
         allowance = self.amount(worst_request(self.lease.route, output))
