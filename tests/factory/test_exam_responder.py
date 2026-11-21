@@ -196,7 +196,7 @@ class OwnerFailureTests(unittest.TestCase):
     in 120 s cancelled the strong tester; the cancelled tester then skipped the owner port's cleanup and both
     finallys reported the derived "cancelled" instead of the owner's error."""
 
-    def ask(self, model, *, body=None):
+    def ask(self, model, *, body=None, on_cleanup=None):
         """One tester try that asks one question. Returns (raised error, iptables rules, tester cancel)."""
         import threading
         from budget import BudgetError
@@ -211,7 +211,9 @@ class OwnerFailureTests(unittest.TestCase):
             rules = []
             def shell(ctx, argv, **kwargs):   # run.sh: a set role_cancel stops it before the command runs
                 if getattr(ctx, "role_cancel", None) is not None and ctx.role_cancel.is_set(): raise BudgetError("cancelled")
-                if argv[1] == "iptables": rules.append(argv[4])
+                if argv[1] == "iptables":
+                    rules.append(argv[4])
+                    if argv[4] == "-D" and on_cleanup: on_cleanup()
                 else: pathlib.Path(argv[-1]).write_bytes(pathlib.Path(argv[-2]).read_bytes())
             runner = types.SimpleNamespace(BENCH=_TEST_ROOT, sh=shell, model_call=model, BudgetError=BudgetError,
                 jload=lambda p, default: json.loads(p.read_text()) if p.exists() else default)
@@ -307,6 +309,52 @@ class OwnerFailureTests(unittest.TestCase):
             # The ended try cancels no one: role_cancel is shared with the other G10 tester and the next try.
             self.assertFalse(cancelled)
             self.assertEqual(rules, ["-I", "-D"])
+
+    def test_a_try_that_ends_during_the_first_wait_or_answer_is_an_unscored_provider_wait(self):
+        """The reviewer's probe (goldfish diff 2): the tester's CLI drops ask-human while the owner is still in its
+        first await_lease, or still answering, and the try ends cleanly. The teardown's cancel was infra:cancelled."""
+        from budget import BudgetError
+        from durable.classify import classify
+        from durable.contract import Outcome
+        def first(ctx, *a, **k):   # no ProviderWait yet: still in the first lane wait, or the model still running
+            if not ctx.role_cancel.wait(10): raise AssertionError("owner never cancelled")
+            raise BudgetError("cancelled")
+        with patch.dict(os.environ, ASK_TIMEOUT="1"):
+            error, rules, cancelled = self.ask(first, body=lambda c, result: self.assertTrue(result.returncode))
+        self.assertEqual(str(error), "provider_wait")   # was "cancelled"; still raised, so the try stays unscored
+        self.assertFalse(cancelled)
+        self.assertEqual(rules, ["-I", "-D"])
+        result = classify(str(error), step="gates", now=0)
+        self.assertEqual((result.outcome, result.reason), (Outcome.PROVIDER_LIMIT, "router:provider_wait"))
+
+    def test_an_owner_failure_during_the_port_cleanup_cancels_no_one(self):
+        import threading, time
+        from budget import BudgetError
+        cleanup, failed = threading.Event(), threading.Event()
+        def late(*a, **k):   # the owner fails only once the ended try is closing its port
+            if not cleanup.wait(10): raise AssertionError("cleanup never ran")
+            failed.set()
+            raise BudgetError("process_error")
+        def closing_port():
+            cleanup.set()
+            self.assertTrue(failed.wait(5))
+            time.sleep(.1)   # answer() records the failure
+        with patch.dict(os.environ, ASK_TIMEOUT="1"):
+            error, rules, cancelled = self.ask(late, body=lambda c, result: None, on_cleanup=closing_port)
+        self.assertFalse(cancelled)   # was True: the shared role_cancel stopped the other G10 tester
+        self.assertEqual(str(error), "process_error")
+        self.assertEqual(rules, ["-I", "-D"])
+
+    def test_an_owner_failure_wins_over_a_cap_reached_in_the_same_moment(self):
+        from budget import BudgetError
+        def broken(*a, **k): raise BudgetError("process_error")
+        def capped(c, result):   # the tester's call stopped on its own limit just as the owner failed
+            self.assertTrue(c.role_cancel.is_set())
+            raise BudgetError("timeout")
+        error, rules, cancelled = self.ask(broken, body=capped)
+        self.assertTrue(cancelled)
+        self.assertEqual(str(error), "process_error")   # not "timeout": the try stays unscored, as before
+        self.assertEqual(rules, ["-I", "-D"])
 
     def test_g10_reports_the_tester_stop_that_cancelled_both(self):
         import argparse, threading, time

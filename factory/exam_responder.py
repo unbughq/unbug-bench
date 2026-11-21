@@ -74,7 +74,7 @@ def contract(root, reviewer):
 
 
 @contextlib.contextmanager
-def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
+def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None, closing=None):
     """Shared, metered reviewer answerer; facts and raw answers stay private."""
     protocol = responder(r.BENCH)
     private = workspace / "owner"
@@ -87,7 +87,9 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
     token = secrets.token_hex(24)
     failure = []
     cancel = threading.Event()
-    closing = threading.Event()   # the try's body has ended; the teardown below cancels the owner
+    # The try's body has ended (owner_channel sets it before its own cleanup); the teardown cancels the owner.
+    closing = threading.Event() if closing is None else closing
+    caused = threading.Event()    # an owner failure cancelled the running try
     import model_router, model_runtime
     owner = copy.copy(c)
     owner.args = copy.copy(c.args)
@@ -136,8 +138,10 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
                 raise r.BudgetError("owner_invalid_answer")
             return value, {"model": c.models["reviewers"][0][0]}
         except BaseException as error:
-            if waited is not None and closing.is_set() and str(error) == "cancelled":
-                error = waited   # the try ended while the owner still waited for a lane
+            if closing.is_set() and str(error) == "cancelled":
+                # The try ended while its question was still with the provider (waiting for a lane, or being
+                # answered). Unscored as before, but a provider wait, not our infra:cancelled.
+                error = waited or r.BudgetError("provider_wait")
             elif isinstance(error, r.BudgetError) and str(error) in ("timeout", "call_limit"):
                 # The tester's own caps end a scored try (run._author_try); the owner's give no answer.
                 error = r.BudgetError("owner_invalid_answer")
@@ -147,6 +151,7 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
             # other G10 tester and this tester's next try.
             if getattr(c, "role_cancel", None) is not None and not closing.is_set():
                 c.role_cancel.set()
+                caused.set()
             raise RuntimeError("owner unavailable") from None
 
     class Handler(protocol.Handler):
@@ -246,9 +251,6 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
             raise failure[0]
     finally:
         body_error = sys.exc_info()[1]
-        # An owner failure recorded before the body ended is what cancelled the tester (answer() sets its
-        # role_cancel): report it, not the derived "cancelled". A later one (the tester ended first) is not.
-        owner_first = bool(failure)
         closing.set()
         cancel.set()
         deadline = time.monotonic() + OWNER_DRAIN_SECONDS
@@ -265,7 +267,9 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
         if incomplete and body_error is None:
             from run_validity import InvalidInfra
             raise InvalidInfra('owner request cleanup incomplete')
-        if failure and (body_error is None or owner_first and str(body_error) == "cancelled"):
+        # An owner failure that cancelled the running try is its stop, whatever the tester's call raised on the
+        # way out ("cancelled", or a cap reached in the same moment): such a try was never scored, and stays so.
+        if failure and (body_error is None or caused.is_set()):
             raise failure[0]
 
 
@@ -273,7 +277,8 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
 def owner_channel(c, r, workspace, destination, user, *, parent_call_name=None):
     """Only this pilot can reach the endpoint; owner evidence stays behind its UID wall."""
     from urllib.parse import urlparse
-    with owner_server(c, r, workspace, parent_call_name=parent_call_name) as url:
+    closing = threading.Event()
+    with owner_server(c, r, workspace, parent_call_name=parent_call_name, closing=closing) as url:
         rule = ["sudo", "iptables", "-w", "5", "-I", "factory-" + user, "1",
                 "-d", "127.0.0.1", "-p", "tcp", "--dport", str(urlparse(url).port), "-j", "ACCEPT"]
         client = workspace / "owner/ask-human"
@@ -287,6 +292,7 @@ def owner_channel(c, r, workspace, destination, user, *, parent_call_name=None):
             r.sh(c, ["sudo", "install", "-o", user, "-g", user, "-m", "700", client, target], check=True)
             yield f'\nOwner questions: run `python3 {shlex.quote(str(target))} "your question"`. The owner answers only what you ask.\n'
         finally:
+            closing.set()   # the try has ended: an owner failure from here on cancels no one
             if installed:
                 cleanup = copy.copy(c)
                 cleanup.role_cancel = None   # cleanup: a cancelled tester still closes its owner port
