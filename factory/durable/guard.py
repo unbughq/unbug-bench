@@ -48,7 +48,7 @@ EVIDENCE_KEPT = 200
 READ_LIMIT = 1 << 20
 # Worker limits. The campaign caps sandboxes running at once, never sandboxes started in total:
 # a case that needs a fresh worker waits for a free slot instead of stopping. Starts are only
-# rate-limited, below Boat's plan (100 running, 60 starts an hour, 12 a minute, 200 a day).
+# rate-limited, at or below Boat's plan (100 running, 60 starts an hour, 12 a minute, 200 a day; # the day limit equals the plan, so boxes started outside this campaign can make Boat refuse a create).
 # Going past the request's own limits only degrades (an operator may lower them mid-run);
 # going past Boat's plan is a confirmed allowance breach and a hard stop.
 BOAT_RUNNING_LIMIT = 100
@@ -56,7 +56,7 @@ BOAT_STARTS_PER_HOUR = 60
 BOAT_STARTS_PER_MINUTE = 12
 BOAT_STARTS_PER_DAY = 200
 STARTS_PER_MINUTE = 10
-STARTS_PER_DAY = 180
+STARTS_PER_DAY = 200          # founder 2026-11-21: Boat plan maximum, so helpers get 164 (was 180 / 144)
 WORKER_TTL_S = 7200          # the longest a worker lives without a renewal
 TERMINAL = ("sealed", "retired", "held", "stopped_admission", "engine_error")
 HARD_STOPS = {

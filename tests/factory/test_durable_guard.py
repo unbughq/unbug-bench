@@ -593,7 +593,8 @@ class GuardTests(unittest.TestCase):
         self.assertTrue(starts_over([NOW - 1] * 11, 30, NOW))                           # a minute: 10
         self.assertFalse(starts_over([NOW - 600 - i for i in range(30)], 30, NOW))
         self.assertTrue(starts_over([NOW - 600 - i for i in range(30)], 30, NOW, adding=1))
-        self.assertTrue(starts_over([NOW - 7200 - 60 * i for i in range(181)], 59, NOW))  # a day: 180
+        self.assertTrue(starts_over([NOW - 7200 - 60 * i for i in range(201)], 59, NOW))  # a day: 200
+        self.assertFalse(starts_over([NOW - 7200 - 60 * i for i in range(200)], 59, NOW))  # 200 is allowed
         self.assertFalse(starts_over([NOW - 86400] * 500, 30, NOW))                     # older than a day
 
     def test_deadline_with_nothing_in_flight_is_a_hard_stop(self):
