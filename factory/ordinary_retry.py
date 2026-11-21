@@ -161,6 +161,7 @@ def answer(c, models, identity, kind, schema, request, invoke, validate, *, wall
             if not isinstance(history, list): raise BudgetError('ordinary_retry_state_invalid')
             history.append({'engine_attempt': previous, 'spent_routes': list(state['spent_routes'])})
             state['spent_routes'] = []
+            last.pop('no_route', None)
             if not stuck:
                 state['attempts'].append({'kind': 'judgment', 'phase': 'pending',
                                          'output': f'answer-{len(state["attempts"])}.json'})
@@ -233,7 +234,7 @@ def answer(c, models, identity, kind, schema, request, invoke, validate, *, wall
         try:
             invoke(context, text, output, completed)
         except model_router.ProviderWait as error:
-            if error.wait.reason == 'no_route' and state['spent_routes']:
+            if error.wait.reason == 'no_route' and state['spent_routes'] and row['kind'] == 'judgment':
                 row['no_route'] = True
                 save()
             raise
