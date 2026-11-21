@@ -21,6 +21,7 @@ import run
 HELD = {d['case']: d for d in json.loads((Path(__file__).with_name('fixtures') / 'g2-blocked-source.json').read_text())['cases']}
 CAE763, D18681, A2A7B2 = 'case-import-cae763-h5-1', 'case-import-18681d-h5-1', 'case-import-2a7b2a-h1-1'
 SHELLS = ('case-import-5813be-h3-1', 'case-import-5813be-h1-1')   # live HTTP 200 JS loading shells, left unresolved
+H6 = 'case-import-5813be-h6-1'   # a Vercel bot-wall 429 with no archive copy
 STATEMENT = b'authored statement: the real ones stay sealed in the snapshots\n'
 AUTHORED = hashlib.sha256(STATEMENT).hexdigest()
 
@@ -92,6 +93,17 @@ class RulingTests(unittest.TestCase):
         self.assertEqual(c.card['freshness_confirmation']['ruled_rows'][0]['hand_check']['reports_this_bug'], False)
         c, blocked = self.verdict(held, (hand_check(held, True),))
         self.assertEqual((blocked, c.freshness_confirmed_hits, c.freshness_transport_pending), ([held['row']], 1, False))
+
+    def test_the_shipped_hand_check_settles_5813be_h6s_bot_walled_row(self):
+        # Founder delegation 2026-11-21: 5813be-h6's real row, a Vercel bot-wall 429 with no Wayback copy.
+        held, ruling = HELD[H6], shipped(H6)
+        self.assertEqual((held['receipt']['live_failure'], held['receipt']['retrieved_from'], held['receipt']['archive_available']),
+                         ('http_429', 'none', False))
+        self.assertEqual((ruling['kind'], ruling['url'], ruling['statement_sha256'], ruling['hand_check']['reports_this_bug']),
+                         ('hand_checked', held['row']['url'], held['statement_sha256'], False))
+        c, blocked = self.verdict(held, run.G2_SOURCE_RULINGS)
+        self.assertEqual((blocked, c.freshness_confirmed_hits, c.freshness_transport_pending), ([], 0, False))
+        self.assertEqual(c.card['freshness_confirmation']['ruled_rows'], [{'row': 1, **ruling, 'statement_sha256': AUTHORED}])
 
     def test_a_hand_check_settles_5813be_unreadable_shells_never_a_confirmed_row(self):
         # Founder 2026-11-20 ~17:00: a hand_checked ruling also settles a fetched page the reviewer left
