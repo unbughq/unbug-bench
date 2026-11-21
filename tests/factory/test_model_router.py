@@ -61,10 +61,10 @@ class RouterTests(unittest.TestCase):
         reset = cards[0]['continuation_budget']['claude_resets_at']
         self.assertEqual({c['continuation_budget']['claude_resets_at'] for c in cards}, {reset})
         first = self.acquire(cards[0]['terminal_stop'].split(':', 1)[1])
-        self.assertEqual(first['account'], 'claude-factory-token-2')
+        self.assertEqual(first['account'], 'claude-token')
         self.observe(first, 'quota', reset_at=reset); self.finish(first, 'interrupted')
         second = self.acquire(first['route'])
-        self.assertEqual(second['account'], 'claude-token')
+        self.assertEqual(second['account'], 'claude-factory-token-2')
         self.observe(second, 'quota', reset_at=reset); self.finish(second, 'interrupted')
         waiting = self.acquire(first['route'])
         self.assertEqual((waiting['kind'], waiting['retry_after']), ('wait', reset))
@@ -75,8 +75,8 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(self.store.rpc('capacity', {'route': first['route']})['slots'], 1)
         self.assertTrue(all(not v['blocked_until'] for v in self.store.rpc('status', {})['health'].values()))
         self.assertEqual(router.retry_at('quota', now=0, reset_at=7 * 3600), 7 * 3600)
-        self.assertEqual(self.acquire(first['route'], accounts=('claude-token',))['kind'], 'wait')
-        self.assertEqual(self.acquire(first['route'])['account'], 'claude-factory-token-2')
+        self.assertEqual(self.acquire(first['route'], accounts=('claude-factory-token-2',))['kind'], 'wait')
+        self.assertEqual(self.acquire(first['route'])['account'], 'claude-token')
 
     def test_a_disabled_route_is_skipped_while_its_account_pool_still_serves_free_minimax(self):
         # 10 Nov: the Go plan's weekly quota was spent; free MiniMax shares the Go accounts' pools.
@@ -91,13 +91,14 @@ class RouterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             router.Store(self.root / 'bad.sqlite', disabled_routes=('',))
 
-    def test_account2_policy_replays_real_limit_card(self):
+    def test_small_account_policy_replays_real_limit_card(self):
+        # Founder 2026-11-21: claude-token first; the small account only while claude-token is out.
         # Historical card supplies real model/reset semantics, not account identity.
         card = next(c for c in LIMITS if c['terminal_stop'].startswith('provider_limit:claude/'))
         model = card['terminal_stop'].split(':', 1)[1]
         reset = card['continuation_budget']['claude_resets_at']
-        first = self.acquire(model, accounts=('claude-token', 'claude-factory-token-2'))
-        self.assertEqual(first['account'], 'claude-factory-token-2')
+        first = self.acquire(model, accounts=('claude-factory-token-2', 'claude-token'))
+        self.assertEqual(first['account'], 'claude-token')
         self.assertEqual(self.store.rpc('capacity', {'route': model})['slots'], 0)
         busy = self.acquire(model)
         self.assertEqual(busy['kind'], 'wait')  # synthetic rate wait is not evidence
@@ -108,14 +109,14 @@ class RouterTests(unittest.TestCase):
         self.now[0] += router.LEASE_SECONDS + 1
         fallback_id = uuid.uuid4().hex
         fallback = self.acquire(model, identity=fallback_id)
-        self.assertEqual(fallback['account'], 'claude-token')
-        self.store.rpc('observe', dict(pool='claude-factory-token-2', healthy=True,
-                                      observation_id='verified-account2-recovery'))
+        self.assertEqual(fallback['account'], 'claude-factory-token-2')
+        self.store.rpc('observe', dict(pool='claude-token', healthy=True,
+                                      observation_id='verified-account1-recovery'))
         self.assertEqual(self.acquire(model, identity=fallback_id), fallback)
-        self.assertEqual(self.store.rpc('renew', {'lease_id': fallback_id})['account'], 'claude-token')
-        self.assertEqual(self.acquire(model)['account'], 'claude-factory-token-2')
+        self.assertEqual(self.store.rpc('renew', {'lease_id': fallback_id})['account'], 'claude-factory-token-2')
+        self.assertEqual(self.acquire(model)['account'], 'claude-token')
 
-    def test_account2_non_rate_failures_and_allowlists_never_unlock_account1(self):
+    def test_account1_non_rate_failures_and_allowlists_never_unlock_the_small_account(self):
         model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS
                      if c['terminal_stop'].startswith('provider_limit:claude/'))
         for reason in ('credit', 'outage', 'credential_expiring', 'router_unavailable'):
@@ -125,7 +126,7 @@ class RouterTests(unittest.TestCase):
                 self.observe(lease, reason); self.finish(lease, 'denied')
                 self.assertEqual(self.acquire(model)['kind'], 'wait')
                 self.assertEqual(self.store.rpc('capacity', {'route': model})['slots'], 0)
-        for accounts in (('claude-token',), ()):
+        for accounts in (('claude-factory-token-2',), ()):
             with self.subTest(accounts=accounts):
                 self.store = router.Store(self.root / ('missing-' + str(len(accounts)) + '.sqlite'),
                                           accounts=accounts, clock=lambda: self.now[0])
@@ -133,44 +134,45 @@ class RouterTests(unittest.TestCase):
                 self.assertEqual((wait['kind'], wait['reason']), ('wait', 'credential_expiring'))
                 self.assertEqual(self.store.rpc('capacity', {'route': model})['slots'], 0)
 
-    def test_account1_only_waiter_does_not_block_eligible_account2(self):
+    def test_small_account_only_waiter_does_not_block_eligible_account1(self):
         model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS
                      if c['terminal_stop'].startswith('provider_limit:claude/'))
-        self.assertEqual(self.acquire(model, accounts=('claude-token',))['kind'], 'wait')
-        self.assertEqual(self.acquire(model)['account'], 'claude-factory-token-2')
+        self.assertEqual(self.acquire(model, accounts=('claude-factory-token-2',))['kind'], 'wait')
+        self.assertEqual(self.acquire(model)['account'], 'claude-token')
 
-    def test_excluded_second_account_is_not_rate_evidence(self):
+    def test_excluded_first_account_is_not_rate_evidence(self):
         model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS
                      if c['terminal_stop'].startswith('provider_limit:claude/'))
         wait = self.store.rpc('acquire', dict(paid_protocol=1,id=uuid.uuid4().hex, model=model,
             accounts=list(router.ACCOUNTS), role='writer', deadline=self.now[0] + 86400,
-            excluded_lanes=['claude-factory-token-2/' + model]))
+            excluded_lanes=['claude-token/' + model]))
         self.assertEqual(wait['kind'], 'wait')
         self.assertEqual(self.store.rpc('status', {})['health'], {})
 
-    def test_saved_account1_preference_and_only_local_key_cannot_run_account1(self):
+    def test_saved_small_account_preference_and_only_local_key_cannot_run_it(self):
         c, secrets, _ = self.context()
-        c.card['provider_accounts'] = {'claude': 1}
+        c.card['provider_accounts'] = {'claude': 2}
         c.card['roles']['writer']['model'] = 'claude/claude-opus-5-5'
-        (secrets / 'claude-factory-token-2').unlink()
+        (secrets / 'claude-token').unlink()
         with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), \
              patch.object(router, '_rpc', self.store.rpc), patch.object(router, 'SECRETS', secrets), \
              patch.object(router, 'WAIT_SECONDS', 0):
             with self.assertRaises(router.ProviderWait) as caught:
                 router.await_lease('writer', c)
-        self.assertEqual(caught.exception.wait.account, 'claude-factory-token-2')
+        self.assertEqual(caught.exception.wait.account, None)
         self.assertEqual(caught.exception.wait.reason, 'credential_expiring')
         self.assertEqual(self.store.rpc('status', {})['leases'], [])
         self.assertEqual(self.store.rpc('status', {})['health'], {})
 
-    def test_a_worker_without_the_builder_login_waits_for_the_second_account_reset(self):
-        # 2abb0a, 14 November: workers are never sent claude-token, yet asked for it while the second
-        # account was out of quota, so the router leased it and the gate stopped on a fake credential fault.
+    def test_a_worker_without_the_small_login_waits_for_the_first_account_reset(self):
+        # 2abb0a, 14 November, mirrored for the 2026-11-21 order: a worker asked for a Claude login it was
+        # not sent while the other was out of quota, so the router leased it and the gate stopped on a fake
+        # credential fault. A worker without the small login waits for claude-token's reset instead.
         c, secrets, _ = self.context()
         c.card['roles']['writer']['model'] = 'claude/claude-opus-5-5'
-        (secrets / 'claude-token').unlink()
+        (secrets / 'claude-factory-token-2').unlink()
         blocked = self.store.rpc('acquire', dict(paid_protocol=1, id=uuid.uuid4().hex, model='claude/claude-opus-5-5',
-            accounts=['claude-factory-token-2'], role='writer', deadline=time.time() + 86400))
+            accounts=['claude-token'], role='writer', deadline=time.time() + 86400))
         reset = time.time() + 3600
         self.observe(blocked, 'quota', reset_at=reset); self.finish(blocked, 'interrupted')
         with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), \
@@ -179,8 +181,20 @@ class RouterTests(unittest.TestCase):
             with self.assertRaises(router.ProviderWait) as caught:
                 router.await_lease('writer', c)
         self.assertEqual((caught.exception.wait.reason, caught.exception.wait.account),
-                         ('quota', 'claude-factory-token-2'))
+                         ('quota', 'claude-token'))
         self.assertAlmostEqual(caught.exception.wait.retry_after, reset, delta=1)
+
+    def test_mythos_only_ever_leases_claude_token(self):
+        # The small account has no Mythos (founder 2026-11-14): not even as claude-token's fallback.
+        mythos = 'claude/claude-mythos-5-2'   # the Mythos id the role-swap card names (test_resume_role_swap)
+        self.assertEqual([r['account'] for r in router.routes(mythos)], ['claude-token'])
+        self.assertEqual(router.routes(mythos, ['claude-factory-token-2']), [])
+        first = self.acquire(mythos)
+        self.assertEqual(first['account'], 'claude-token')
+        self.observe(first, 'quota', reset_at=self.now[0] + 3600); self.finish(first, 'interrupted')
+        self.assertEqual(self.acquire('claude/claude-opus-5-5')['account'], 'claude-factory-token-2')
+        wait = self.acquire(mythos)
+        self.assertEqual((wait['kind'], wait['reason'], wait['account']), ('wait', 'quota', 'claude-token'))
 
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
         go, nw, target, source = router.CHAINS[0]
@@ -252,7 +266,7 @@ class RouterTests(unittest.TestCase):
                 self.assertEqual([r['route'] for r in rows if r['account'] != 'opencode-go-key-2'], list(chain))
                 self.assertEqual({r['family'] for r in rows}, {model_runtime.family(requested)})
                 self.assertTrue(all(r['pool'] and r['billing'] in ('free', 'paid', 'subscription') for r in rows))
-        self.assertEqual({r['account'] for r in router.routes('claude/claude-opus-5-5')}, {'claude-token', 'claude-factory-token-2'})
+        self.assertEqual([r['account'] for r in router.routes('claude/claude-opus-5-5')], ['claude-token', 'claude-factory-token-2'])
         with self.assertRaises(ValueError): router.routes('claude/claude-opus-5-5', ['claude-token-2'])
 
     def test_http_auth_and_lost_acquire_response_reuses_lease(self):
@@ -735,7 +749,7 @@ class RouterTests(unittest.TestCase):
             if operation=='acquire':
                 seen.append(copy.deepcopy(data))
                 if len(seen)==1:
-                    (secrets/'claude-token').unlink()
+                    (secrets/'claude-factory-token-2').unlink()
                     raise router.RouterUnavailable('lost reply')
             return result
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'0'}),patch.object(router,'_rpc',side_effect=rpc), \
@@ -743,7 +757,7 @@ class RouterTests(unittest.TestCase):
             lease=router.await_lease('writer',c)
             router.finish(lease.lease_id,'denied',None)
         self.assertEqual(seen[0],seen[1])
-        self.assertEqual(lease.account,'claude-factory-token-2')
+        self.assertEqual(lease.account,'claude-token')
 
     def test_unknown_paid_model_uses_paid_account_pool(self):
         rows=router.routes('opencode/operator-selected-paid-model')
@@ -752,7 +766,7 @@ class RouterTests(unittest.TestCase):
     def test_label_only_budget_errors_leave_peer_capacity_healthy(self):
         from test_budget import emit
         c,secrets,_=self.context();runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
-        baseline=c.ledger.read_bytes();c.router_accounts=('claude-factory-token-2','codex-auth.json')
+        baseline=c.ledger.read_bytes();c.router_accounts=('claude-token','codex-auth.json')
         cases=[('codex/gpt-6.1-sol','codex',{'type':'turn.failed','error':{'message':'context window exceeded'}}),
                ('claude/claude-opus-5-5','claude',{'type':'result','is_error':True,'result':'prompt too long'})]
         for model,driver,event in cases:
@@ -824,18 +838,19 @@ class RouterTests(unittest.TestCase):
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
              patch.object(router,'SECRETS',secrets),patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
             runtime.call(c,[model],'',c.case,'builder-retry')
-        self.assertEqual(seen,['claude-factory-token-2','claude-token'])
-        self.assertEqual(self.store.rpc('status',{})['health']['claude-factory-token-2']['reason'],'rate')
+        self.assertEqual(seen,['claude-token','claude-factory-token-2'])
+        self.assertEqual(self.store.rpc('status',{})['health']['claude-token']['reason'],'rate')
 
     def test_a_deferred_claude_quota_retries_soon_while_the_other_login_is_held(self):
-        # 2abb0a gates:9/4 (14 November): the small Claude account ran out mid-call; the deferred
-        # wait slept to that account's reset (1h50m) though the worker held the founder's login.
+        # 2abb0a gates:9/4 (14 November): a Claude account ran out mid-call; the deferred wait slept to
+        # that account's reset (1h50m) though the worker held the other login. Since 2026-11-21 the first
+        # lease is claude-token's and the other login is the small account.
         model = 'claude/claude-opus-5-5'
         for held, soon in ((True, True), (False, False)):
             c, secrets, _ = self.context(); c.card['roles']['writer']['model'] = model
             reset = time.time() + 6000
             c.ledger.write_text(json.dumps({**json.loads(c.ledger.read_text()), 'claude_resets_at': reset}))
-            if not held: (secrets / 'claude-token').unlink()
+            if not held: (secrets / 'claude-factory-token-2').unlink()
             runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
             def execute(context, *args, **kwargs):
                 c.card.setdefault('cleanup_errors', []).append({'stage': 'synthetic', 'error': 'synthetic'})  # defers the wait
@@ -845,8 +860,8 @@ class RouterTests(unittest.TestCase):
                  patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=execute):
                 with self.assertRaises(router.ProviderWait) as caught: runtime.call(c, [model], '', c.case, 'builder-quota')
             self.assertEqual(caught.exception.wait.retry_after < reset - 3600, soon, held)
-            # Either way the small account itself stays blocked until its own reset.
-            health = self.store.rpc('status', {})['health']['claude-factory-token-2']
+            # Either way the account itself stays blocked until its own reset.
+            health = self.store.rpc('status', {})['health']['claude-token']
             self.assertEqual((health['reason'], round(health['blocked_until'])), ('quota', round(reset)))
             import shutil; shutil.rmtree(self.root); self.root.mkdir()
 

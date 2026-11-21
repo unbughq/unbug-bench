@@ -405,8 +405,10 @@ def go_quota_moves_on(lease, reason):
     to the same model's next route (its OpenRouter twin, token_prices.GO_TWINS) inside the attempt instead
     of ending it (13 attempts, 12.9 h lost to Go quota, 6-11 November). Any other Go fault (a refusal, a
     crash) would likely repeat on the paid twin, so it defers and ends the attempt as before. A Neuralwatt
-    call's tail is bounded by its steps in flight (budget.py), so its quota or spent credit moves on too."""
-    return (lease.route in GO_ROUTES and reason == 'quota') or (lease.route in NW_ROUTES and reason in ('quota', 'credit'))
+    call's tail is bounded by its steps in flight (budget.py), so its quota, spent credit or 429 moves on too: a
+    429 above the burst floor only drops the pool to its floor (model_router.BURST_COOLDOWN_SECONDS), so the call
+    takes a floor seat instead of parking 15 minutes."""
+    return (lease.route in GO_ROUTES and reason == 'quota') or (lease.route in NW_ROUTES and reason in ('quota', 'credit', 'rate'))
 
 
 OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]

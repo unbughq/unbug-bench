@@ -107,12 +107,14 @@ class NeuralwattRuntime(unittest.TestCase):
         self.assertIs(type(accounts), list)   # a helper's sealed job comes back from JSON as a list
         self.assertEqual(accounts, list(model_router.ACCOUNTS[:-1]))
 
-    def test_neuralwatt_quota_or_credit_moves_on_and_other_faults_do_not(self):
+    def test_neuralwatt_quota_credit_or_rate_moves_on_and_other_faults_do_not(self):
+        # rate since 2026-11-21 (docs/designs/router-claude-order-nw-burst.md): a 429 above the burst floor
+        # leaves the pool open at its floor, so the refused call takes a floor seat instead of parking 15 min.
         moves = model_runtime.go_quota_moves_on
-        for reason in ('quota', 'credit'):
+        for reason in ('quota', 'credit', 'rate'):
             self.assertTrue(moves(SimpleNamespace(route=MIMO), reason))
             self.assertTrue(moves(SimpleNamespace(route=GLM), reason))
-        for reason in ('rate', 'refusal', 'process_error'):
+        for reason in ('refusal', 'process_error', 'outage'):
             self.assertFalse(moves(SimpleNamespace(route=MIMO), reason))
         # Go is unchanged: quota only. OpenRouter never.
         self.assertTrue(moves(SimpleNamespace(route='opencode-go/mimo-v2.6-pro'), 'quota'))
