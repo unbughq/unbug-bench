@@ -411,6 +411,22 @@ def go_quota_moves_on(lease, reason):
     return (lease.route in GO_ROUTES and reason == 'quota') or (lease.route in NW_ROUTES and reason in ('quota', 'credit', 'rate'))
 
 
+SUBSCRIPTION_RETRY_SECONDS = 30
+
+
+def subscription_outage_retries(context, lease, error):
+    """One same-lane retry inside the attempt for a subscription call's CLI fault (speed plan 2026-11-18):
+    a lone `claude_error`/`codex_error` ended whole attempts (2abb0a-h1: 63 min). Subscription usage is
+    never cash, so nothing must settle first; a second fault on the lane defers and ends the attempt as before."""
+    if str(error).partition(':')[0] not in ('claude_error', 'codex_error') or not lease.route.startswith(('claude/', 'codex/')):
+        return False
+    tried = context.__dict__.setdefault('subscription_retried', set())
+    lane = lease.pool + '/' + lease.route
+    if lane in tried: return False
+    tried.add(lane)
+    return True
+
+
 OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]
 
 
@@ -605,6 +621,7 @@ class ModelRuntime:
             before = _read_json(getattr(c, 'ledger', '/nonexistent'), {})
             cleanup_before = len(c.card.get('cleanup_errors', []))
             outcome, receipt, failure, invoked, lost, cancelled = 'denied', None, None, False, None, False
+            retry_lane = False
             context.router_condition_since = None
             started = time.monotonic()
             try:
@@ -661,11 +678,17 @@ class ModelRuntime:
                 from durable.classify import FAILURE_STOPS
                 if failure.get('source_stop') not in FAILURE_STOPS:
                     failure = {k: v for k, v in failure.items() if k != 'source_stop'}
+                # Only a call whose spending the ledger still knows: an unknown one refuses the retry
+                # as budget_exhausted (require_case_budget), a worse stop than the outage wait.
+                retry_lane = (failure.get('per_call')
+                              and case_spending(_read_json(getattr(c, 'ledger', '/nonexistent'), {}))['spent_usd'] is not None
+                              and subscription_outage_retries(context, lease, error))
                 if failure.get('per_call'):
                     stop = str(error).partition(':')[0]
                     if 'source_stop' not in failure and stop in FAILURE_STOPS:
                         failure = {**failure, 'source_stop': stop}
-                    context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.pool + '/' + lease.route)
+                    if not retry_lane:
+                        context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.pool + '/' + lease.route)
                     if short_call(name) and str(error) == 'stalled':
                         # Later calls of this role skip the silent route too (not other roles' routes).
                         c.__dict__.setdefault('stalled_routes', {}).setdefault(role, set()).add(lease.pool + '/' + lease.route)
@@ -773,9 +796,11 @@ class ModelRuntime:
                                        or (getattr(c, 'engine', None) is not None and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
                                            and not free_usage_settled(lease)
                                            and not go_quota_moves_on(lease, last_wait.reason)
+                                           and not retry_lane
                                            and not _read_json(accounting_work(c) / receipt, {}).get('final_usage_known', False)))
             context.force_budget_resume = c.force_budget_resume = True
             lease = None
+            if retry_lane: time.sleep(SUBSCRIPTION_RETRY_SECONDS)   # a CLI/API blip, not a 15-minute outage wait
 
 
     def _hand_to(self, c, user, staged):
