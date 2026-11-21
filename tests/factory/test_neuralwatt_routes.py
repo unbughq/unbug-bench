@@ -8,6 +8,9 @@ first retries Go; the replay observes Go's quota answer as the router did that d
   sqlite3 -json factory.before-force-lift-20261119.sqlite3 'SELECT pool, value FROM health'
 (each value parsed as JSON, keyed by pool).
 
+router-approved-config-20261121.json is the control VM's live router config (~/durable-first-case-20261106,
+2026-11-20 23:53 UTC, 708 bytes; no secrets: lane keys, accounts and the paid ceiling).
+
 router-request-3dfdde3c-deepseek-20261120.json is a real acquire from a worker on release 3dfdde3c, read
 read-only from the router ledger (requests JOIN leases): it offers neuralwatt-key and sends no chain.
 """
@@ -15,7 +18,9 @@ import sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'factory'))
-from contextlib import closing
+from contextlib import closing, redirect_stderr
+import io
+import os
 from decimal import Decimal
 import gzip
 import json
@@ -35,6 +40,7 @@ HEALTH = json.loads((FIXTURES / 'router-health-20261119.json').read_text())
 CONCURRENT = json.loads((FIXTURES / 'neuralwatt-smoke-20261119.json').read_text())['errors']['concurrent']
 PRICES = json.loads(gzip.decompress((FIXTURES / 'neuralwatt-price-record-20261119.json.gz').read_bytes()))
 CATALOG = json.loads(gzip.decompress((FIXTURES / 'neuralwatt-price-record-20261120.json.gz').read_bytes()))
+LIVE_CONFIG = (FIXTURES / 'router-approved-config-20261121.json').read_text()
 LEGACY = json.loads((FIXTURES / 'router-request-3dfdde3c-deepseek-20261120.json').read_text())
 # Real saved roles: e15450's MiMo reviewer, and GLM as every 2026-10 card saved it (walled easy_calibrator).
 # No saved card has a GLM role outside the wall, so the unwalled GLM acquire reuses that saved model id.
@@ -218,6 +224,46 @@ class RealStateRoutes(unittest.TestCase):
         health = self.store.rpc('status', {})['health']['neuralwatt-key']
         self.assertEqual((health['reason'], health['blocked_until']), ('credit', self.now + 900))
         self.assertNotIn('burst_until', health)
+        self.assertEqual(slots(), 0)
+
+    def test_an_edited_router_config_is_picked_up_without_a_restart(self):
+        # A restart waits for zero calls in flight, which 12 live cases never reach: the lane keys reload.
+        path = Path(self.store.path).with_name('router-approved-config.json')
+        stamp = [1_000_000_000]
+        def write(text):
+            path.write_text(text); stamp[0] += 1; os.utime(path, ns=(stamp[0], stamp[0]))
+        def edit(**changes):
+            write(json.dumps(dict(json.loads(LIVE_CONFIG), **changes)))
+        write(LIVE_CONFIG)
+        live = json.loads(LIVE_CONFIG)
+        self.store = router.Store(self.store.path, clock=lambda: self.now, capacities=live['capacities'],
+                                  disabled_routes=live['disabled_routes'], config_path=path)   # as main() builds it
+        slots = lambda: self.store.rpc('capacity', {'route': 'neuralwatt/mimo-v2.6-pro'})['slots']
+        leases = [self.acquire(m) for m in (MIMO, GLM, DEEPSEEK)]   # Go and OpenRouter twins are disabled live
+        self.assertEqual({l['route'].split('/')[0] for l in leases}, {'neuralwatt'})
+        self.assertEqual(slots(), 0)
+        edit(burst_capacities={'neuralwatt-key': 6})
+        self.assertEqual(slots(), 3)
+        edit(burst_capacities={'neuralwatt-key': 6}, disabled_routes=live['disabled_routes'] + ['neuralwatt/'])
+        self.assertEqual(slots(), 0)
+        self.assertEqual(self.acquire(MIMO)['kind'], 'wait')
+        # An invalid edit is logged by kind only and the running config kept, until the file changes again.
+        for text in ('{"capacities": ', json.dumps(dict(live, burst_capacities={'neuralwatt-key': 2})),
+                     json.dumps(dict(live, disabled_routes='opencode-go/')), '[]'):
+            with self.subTest(text=text[:40]):
+                edit(burst_capacities={'neuralwatt-key': 6})
+                self.assertEqual(slots(), 3)
+                log = io.StringIO()
+                with redirect_stderr(log):
+                    write(text)
+                    self.assertEqual(slots(), 3)
+                    self.assertEqual(slots(), 3)
+                self.assertEqual(log.getvalue().count('router config not reloaded, keeping the running one'), 1)
+                self.assertNotIn('neuralwatt-key', log.getvalue())
+        path.unlink()
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(slots(), 3)
+        write(LIVE_CONFIG)   # back to the live file: no burst key, the floor of 3 is all
         self.assertEqual(slots(), 0)
 
     def test_a_burst_capacity_below_the_floor_or_not_an_int_is_refused(self):

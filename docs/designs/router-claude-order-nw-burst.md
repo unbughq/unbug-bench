@@ -84,6 +84,27 @@ defers", which assumed every 429 blocks the pool. It reaches workers on new laun
 **Config diff (not applied):** add `"burst_capacities": {"neuralwatt-key": 6}` next to
 `"capacities"`, keeping `"neuralwatt-key": 3` there as the floor.
 
+## 3. Lane config reload without a restart (coordinator request, 2026-11-21)
+
+**Problem.** A router restart must wait for zero model calls in flight (it books cut calls as waste). With
+12 live cases that has not happened in 8+ hours, so founder config changes (`disabled_routes`, and the
+burst key above) are stuck behind it.
+
+**Change.** `Store` keeps the config path (`main()` passes `--config`). Each RPC, inside its `BEGIN
+IMMEDIATE` write transaction (so RPCs on other threads never see a half-applied config), stats the file;
+when `(mtime_ns, size)` differs from the last one seen it re-reads the file and replaces `capacities`,
+`disabled_routes` and `burst_capacities`, validated by `lanes()`, the same function startup uses. Any error
+(unreadable, bad JSON, not an object, failed validation) logs one line to stderr with the error's kind only
+(no file content) and keeps the running config; the file is tried again only after it changes. A stat per
+RPC is cheap and every held lease renews every 60 s, so a change applies within seconds while calls run.
+Not reloaded (restart still needed): `accounts`, `paid_ceiling_usd`, the database. The reload code itself
+needs one more drained restart to go live; after that, lane edits need none.
+
+Tests: `test_an_edited_router_config_is_picked_up_without_a_restart`, on the live config file
+(`fixtures/router-approved-config-20261121.json`): adding the burst key opens 3 more NW seats, adding
+`neuralwatt/` to `disabled_routes` closes the lane, four kinds of invalid edit each log once and keep the
+running config, a deleted file keeps it, and restoring the live file returns to the floor.
+
 ## Rollout preconditions and steps
 
 Checked read-only on the control VM, 2026-11-21:
@@ -94,8 +115,11 @@ Checked read-only on the control VM, 2026-11-21:
   blocked.
 
 Steps (operator):
-1. New source dir from the merged head; add `burst_capacities` to the router config.
-2. Drained router restart (no model calls in flight), so the new config and code load together.
+1. New source dir from the merged head.
+2. One drained router restart (no model calls in flight) to load the new code. After it, edit
+   `router-approved-config.json` (add `burst_capacities`) in place; the router picks it up on the next
+   RPC (write the file atomically, e.g. temp file + `mv`, so it is never read half-written; a half-written
+   read is only logged and retried on the next change).
 3. `status`: the NW pool leases up to 6 (`capacity` on `neuralwatt/mimo-v2.6-pro`).
 4. The stopgap health row for `claude-factory-token-2` (quota-blocked with `operator_hold`) is redundant
    after the restart and would block the fallback when claude-token runs out: let it lapse at its

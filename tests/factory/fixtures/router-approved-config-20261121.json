@@ -1,0 +1,31 @@
+{
+  "accounts": [
+    "claude-token",
+    "claude-factory-token-2",
+    "opencode-go-key",
+    "opencode-go-key-2",
+    "codex-auth.json",
+    "openrouter-key",
+    "neuralwatt-key"
+  ],
+  "paid_ceiling_usd": "315.700000000",
+  "capacities": {
+    "claude-factory-token-2": 100,
+    "claude-token": 100,
+    "openrouter-key": 8,
+    "opencode-free": 0,
+    "opencode-go-key": 100,
+    "opencode-go-key-2": 100,
+    "codex-auth.json": 100,
+    "neuralwatt-key": 3
+  },
+  "disabled_routes": [
+    "opencode/minimax-m3.1-flash-free",
+    "openrouter/minimax/minimax-m3.1-flash:free",
+    "openrouter/xiaomi/",
+    "openrouter/deepseek/",
+    "openrouter/z-ai/",
+    "openrouter/meta/",
+    "opencode-go/"
+  ]
+}

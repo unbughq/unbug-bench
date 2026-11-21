@@ -19,6 +19,7 @@ from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 import re
 import sqlite3
 import ssl
+import sys
 import threading
 import time
 import urllib.error
@@ -431,6 +432,24 @@ def _hold(route):
 BURST_COOLDOWN_SECONDS = 300
 
 
+def lanes(capacities, disabled_routes, burst_capacities):
+    """The router config's lane keys, validated (at startup and on every reload)."""
+    capacities, disabled_routes, burst_capacities = capacities or {}, tuple(disabled_routes or ()), burst_capacities or {}
+    # 0 closes a lane (e.g. "opencode-free" while the anonymous free lane hangs): its routes are
+    # skipped like disabled routes, so a call moves on along its chain instead of waiting for a seat.
+    if any(type(n) is not int or not 0 <= n <= 100 for n in capacities.values()):
+        raise ValueError('invalid lane capacity')
+    if any(p not in ACCOUNTS or type(n) is not int or not capacities.get(p, 1) <= n <= 100
+           for p, n in burst_capacities.items()):
+        raise ValueError('invalid burst capacity')
+    # Route prefixes the operator has switched off (e.g. "opencode-go/" while the Go plan's weekly
+    # quota is spent): never leased or counted, while other routes of the same account pool, such
+    # as free MiniMax on the Go accounts, stay leasable. A pool's capacity cannot do this.
+    if any(not isinstance(r, str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{2,200}', r) for r in disabled_routes):
+        raise ValueError('invalid disabled route')
+    return capacities, disabled_routes, burst_capacities
+
+
 # A balance the background pass (reconcile_forever) read at most this long ago serves paid_reserve without a
 # provider round trip; an older or missing one is read live, as before the cache.
 CREDIT_FRESH_SECONDS = 120
@@ -440,28 +459,17 @@ class Store:
     """One short SQLite transaction per RPC. The only process-local state is the provider balance that
     refresh_credit reads off the request path (`balance`: nano-dollars and the time read began)."""
     def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None,
-                 paid_ceiling_usd=None, disabled_routes=(), burst_capacities=None):
+                 paid_ceiling_usd=None, disabled_routes=(), burst_capacities=None, config_path=None):
         approved_ceiling = None if paid_ceiling_usd is None else _nano(paid_ceiling_usd, ROUND_FLOOR)
         if approved_ceiling is not None and approved_ceiling > 2**63 - 1:
             raise ValueError('invalid paid ceiling')
         self.credit_reader, self.balance = credit_reader, None
         self.path, self.clock = str(path), clock
-        self.capacities, self.accounts = capacities or {}, tuple(accounts)
+        self.accounts = tuple(accounts)
         if any(a not in ACCOUNTS for a in self.accounts): raise ValueError('unapproved account')
-        # 0 closes a lane (e.g. "opencode-free" while the anonymous free lane hangs): its routes are
-        # skipped like disabled routes, so a call moves on along its chain instead of waiting for a seat.
-        if any(type(n) is not int or not 0 <= n <= 100 for n in self.capacities.values()):
-            raise ValueError('invalid lane capacity')
-        self.burst_capacities = burst_capacities or {}
-        if any(p not in ACCOUNTS or type(n) is not int or not self.capacities.get(p, 1) <= n <= 100
-               for p, n in self.burst_capacities.items()):
-            raise ValueError('invalid burst capacity')
-        # Route prefixes the operator has switched off (e.g. "opencode-go/" while the Go plan's weekly
-        # quota is spent): never leased or counted, while other routes of the same account pool, such
-        # as free MiniMax on the Go accounts, stay leasable. A pool's capacity cannot do this.
-        self.disabled_routes = tuple(disabled_routes or ())
-        if any(not isinstance(r, str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{2,200}', r) for r in self.disabled_routes):
-            raise ValueError('invalid disabled route')
+        self.capacities, self.disabled_routes, self.burst_capacities = lanes(capacities, disabled_routes, burst_capacities)
+        # The router config file (main()): its lane keys are re-read on the first RPC after it changes.
+        self.config_path, self.config_seen = config_path, None
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute('PRAGMA synchronous=FULL')
@@ -484,6 +492,23 @@ class Store:
                     raise ValueError('paid ceiling below retained spending')
                 db.execute('INSERT INTO paid_account(id,ceiling,credit) VALUES(1,?,NULL) '
                            'ON CONFLICT(id) DO UPDATE SET ceiling=excluded.ceiling', (approved_ceiling,))
+
+    def _reload(self):
+        """Pick up an edited router config's lane keys (capacities, disabled_routes, burst_capacities) without
+        a restart, which must wait for zero calls in flight. Called inside an RPC's write transaction, so no
+        other RPC sees a half-applied config. An invalid file is logged and the running config kept; it is
+        tried again when it changes. The other keys (accounts, paid ceiling, database) still need a restart."""
+        if self.config_path is None: return
+        try: seen = (lambda st: (st.st_mtime_ns, st.st_size))(os.stat(self.config_path))
+        except OSError: seen = 'unreadable'
+        if seen == self.config_seen: return
+        self.config_seen = seen
+        try:
+            config = json.loads(Path(self.config_path).read_text())
+            self.capacities, self.disabled_routes, self.burst_capacities = lanes(
+                config.get('capacities'), config.get('disabled_routes', ()), config.get('burst_capacities'))
+        except Exception as error:   # never crash the router on an operator edit; only the error's kind
+            print(f'router config not reloaded, keeping the running one: {type(error).__name__}', file=sys.stderr, flush=True)
 
     def _routes(self, model, accounts, funding=None):
         return [r for r in _bounded_routes(model, accounts, funding)
@@ -519,6 +544,7 @@ class Store:
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')
+            self._reload()
             db.execute("UPDATE leases SET outcome='expired' WHERE outcome IS NULL AND expires<=?", (now,))
             db.execute("UPDATE paid_requests SET state='unknown',settled_at=? WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)", (now,))
             health = {k: json.loads(v) for k, v in db.execute('SELECT pool,value FROM health')}
@@ -1253,7 +1279,7 @@ def main():
     store = Store(production_database(config), capacities=config.get('capacities'),
         accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit,
         paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=config.get('disabled_routes', ()),
-        burst_capacities=config.get('burst_capacities'))
+        burst_capacities=config.get('burst_capacities'), config_path=args.config)
     if args.lift_credit:
         print(json.dumps({'lift_credit': store.lift_credit(force=True)})); return
     if args.reconcile_once:
