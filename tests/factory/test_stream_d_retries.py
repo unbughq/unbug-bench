@@ -9,7 +9,7 @@ import fnmatch
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
-import json
+import json, time
 from pathlib import Path
 import re
 import sys
@@ -278,6 +278,31 @@ class RetryTests(unittest.TestCase):
         state = self.dedup_state()
         self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'invalid', 'completed'])
         self.assertEqual(len(state['exhausted_attempts']), 1)
+
+    def test_1110a_no_route_after_a_spent_lane_resets_on_the_next_attempt(self):
+        # 1110a-h4 (2026-11-21): one malformed Neuralwatt answer spent that lane; the router disables the
+        # Go and OpenRouter lanes, so the pending judgment's call got router:no_route and the chain never
+        # counted as exhausted. The next engine attempt must reset and retry the spent lane.
+        glm, nw = 'openrouter/z-ai/glm-5.3-flash', 'neuralwatt/glm-5.3-flash'
+        def setup():
+            self.c.models['easy_calibrator'] = [glm]
+            self.c.args.easy_calibrator = glm
+        setup()
+        def emit(c, text, name):
+            if len(self.calls) == 2:   # the router has no lane left for the pending judgment
+                raise model_router.ProviderWait('easy_calibrator', model_router.Wait('no_route', time.time() + 900))
+            if len(self.calls) > 2:
+                self.answer_path(text).write_text('{"duplicate_of":null,"reason":"fresh judgment"}')
+        self.cli(emit)
+        with self.assertRaises(model_router.ProviderWait): self.board_dedup()
+        state = self.dedup_state()
+        self.assertEqual(state['spent_routes'], [nw])
+        self.assertTrue(state['attempts'][-1]['no_route'])
+        self.fresh_context(); setup()
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0] + '/2'
+        self.assertIsNone(self.board_dedup()['duplicate_of'])
+        self.assertEqual([r for _, r, _ in self.calls], [nw, glm, nw])
+        self.assertEqual(self.dedup_state()['exhausted_attempts'][0]['spent_routes'], [nw])
 
     def test_pending_answer_adopts_new_attempt_before_it_exhausts(self):
         self.c.models['reviewers'] = [self.c.models['builder']]
