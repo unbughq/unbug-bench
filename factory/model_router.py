@@ -707,7 +707,7 @@ class Store:
                         refusals = old.get('refusals', 0) + (reason == 'credit' and old.get('reason') != 'credit')
                         reset = retry_at(reason, now=now, failures=refusals if reason == 'credit' else failures,
                                          reset_at=data.get('reset_at'))
-                        if (reason in ('rate', 'quota') and route['pool'] in self.burst_capacities and not lasting(key, old)
+                        if (reason in ('rate', 'quota') and route['pool'] in self.burst_capacities
                                 and old.get('above_floor_at', 0) > now - BURST_COOLDOWN_SECONDS):
                             health[key] = dict(old, burst_until=now + BURST_COOLDOWN_SECONDS, observed_at=now)
                         elif lasting(key, old) and old['reason'] == 'credit' and reason != 'credit':

@@ -31,6 +31,8 @@ from token_prices import (FREE_ROUTES, GO_ROUTES, GATED_OPENROUTER, NW_OWN_PRICE
 
 FIXTURES = Path(__file__).with_name('fixtures')
 HEALTH = json.loads((FIXTURES / 'router-health-20261119.json').read_text())
+# Neuralwatt's 429 for a full concurrency budget (rollout step 1's capture, body from Neuralwatt's docs).
+CONCURRENT = json.loads((FIXTURES / 'neuralwatt-smoke-20261119.json').read_text())['errors']['concurrent']
 PRICES = json.loads(gzip.decompress((FIXTURES / 'neuralwatt-price-record-20261119.json.gz').read_bytes()))
 CATALOG = json.loads(gzip.decompress((FIXTURES / 'neuralwatt-price-record-20261120.json.gz').read_bytes()))
 LEGACY = json.loads((FIXTURES / 'router-request-3dfdde3c-deepseek-20261120.json').read_text())
@@ -141,15 +143,17 @@ class RealStateRoutes(unittest.TestCase):
         self.spend_go()
         return lambda: self.store.rpc('capacity', {'route': 'neuralwatt/mimo-v2.6-pro'})['slots']
 
-    def refuse(self, lease, reason):
-        # A Neuralwatt 429 as the worker classifies it, published before its seat is freed (model_runtime).
-        failure = budget.classify_provider_failure('429 Too Many Requests', lease['route'], status_code=429)
-        self.assertEqual(failure['reason'], 'rate')
-        self.store.rpc('observe', dict(lease_id=lease['lease_id'], reason=reason, observation_id=lease['lease_id'] + ':failure'))
+    def refuse(self, lease, reason=None):
+        # Neuralwatt's concurrency 429 as the worker classifies it (or another reason), published before its
+        # seat is freed (model_runtime).
+        failure = budget.classify_provider_failure(CONCURRENT['body']['error']['message'], lease['route'],
+                                                   status_code=CONCURRENT['status'])
+        self.store.rpc('observe', dict(lease_id=lease['lease_id'], reason=reason or failure['reason'],
+                                       observation_id=lease['lease_id'] + ':failure'))
         self.store.rpc('finish', dict(lease_id=lease['lease_id'], outcome='interrupted', receipt=None))
 
     def test_a_refusal_above_the_neuralwatt_floor_drops_to_the_floor_without_blocking(self):
-        for reason in ('rate', 'quota'):
+        for reason in (None, 'quota'):   # None: the real concurrency 429, classified `rate`
             with self.subTest(reason=reason):
                 self.setUp()
                 slots = self.burst(burst_capacities={'neuralwatt-key': 6})
@@ -179,7 +183,7 @@ class RealStateRoutes(unittest.TestCase):
                 slots = self.burst(**config)
                 leases = [self.acquire(m) for m in (MIMO, GLM, DEEPSEEK)]
                 self.assertEqual(slots(), 3 if config else 0)
-                self.refuse(leases[0], 'rate')
+                self.refuse(leases[0])
                 health = self.store.rpc('status', {})['health']['neuralwatt-key']
                 self.assertEqual((health['reason'], health['blocked_until'], health['failures']), ('rate', self.now + 900, 1))
                 self.assertNotIn('burst_until', health)
@@ -192,7 +196,7 @@ class RealStateRoutes(unittest.TestCase):
         leases = [self.acquire(m) for m in (MIMO, GLM, DEEPSEEK, MIMO)]
         self.store.rpc('finish', dict(lease_id=leases[0]['lease_id'], outcome='done', receipt=None))
         self.now += 30
-        self.refuse(leases[3], 'rate')   # observed with three held
+        self.refuse(leases[3])   # observed with three held
         health = self.store.rpc('status', {})['health']['neuralwatt-key']
         self.assertEqual((health.get('reason'), health.get('blocked_until', 0)), (None, 0))
         self.assertEqual(slots(), 1)   # capped at the floor: two held
@@ -201,9 +205,19 @@ class RealStateRoutes(unittest.TestCase):
             self.now += router.RENEW_SECONDS
             for lease in leases[1:3]: self.store.rpc('renew', {'lease_id': lease['lease_id']})
         self.now += 1
-        self.refuse(leases[1], 'rate')
+        self.refuse(leases[1])
         health = self.store.rpc('status', {})['health']['neuralwatt-key']
         self.assertEqual((health['reason'], health['blocked_until']), ('rate', self.now + 900))
+        self.assertEqual(slots(), 0)
+
+    def test_spent_credit_above_the_floor_still_blocks(self):
+        # Only a rate or quota refusal is the burst's; a 402 is the wallet, whatever the seats held.
+        slots = self.burst(burst_capacities={'neuralwatt-key': 6})
+        leases = [self.acquire(m) for m in (MIMO, GLM, DEEPSEEK) * 2]
+        self.refuse(leases[5], 'credit')
+        health = self.store.rpc('status', {})['health']['neuralwatt-key']
+        self.assertEqual((health['reason'], health['blocked_until']), ('credit', self.now + 900))
+        self.assertNotIn('burst_until', health)
         self.assertEqual(slots(), 0)
 
     def test_a_burst_capacity_below_the_floor_or_not_an_int_is_refused(self):

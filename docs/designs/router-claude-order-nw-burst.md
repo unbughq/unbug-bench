@@ -48,10 +48,21 @@ account and `capacities[pool] <= n <= 100`).
   observe time would see the floor and block the pool for a burst refusal (goldfish design review 1, B3).
   Clustered refusals from one burst all fall in the window too.
 - A refusal after 300 s at or below the floor takes today's path (pool block, 900 s doubling).
-- Known ceiling: a real plan exhaustion (TPM, or `tpm_uncached_request_too_large`, which never succeeds)
-  that starts during a burst takes up to one window of refused calls before the pool blocks. Each is a
-  refused request, not a charged one.
-- A lasting block (paid-pool credit) is never touched by the burst path.
+- Deviation from the literal request, on purpose: a refusal with the floor or fewer held, but within 300 s
+  of the pool being above its floor, takes the burst path (the race above). Only a refusal after a whole
+  window at or below the floor blocks.
+- Known ceiling: a real plan exhaustion (TPM) that starts during a burst takes up to one window of refused
+  calls before the pool blocks. Worse, a call whose request can never succeed
+  (`tpm_uncached_request_too_large`, a prompt between 1,000,000 tokens and the 1,048,560 context) can keep
+  taking the burst path: each retry restarts its CLI, the cooldown ends, peers burst again, and the same
+  request is refused again. Each retry re-spends the session's charged prefix. It is bounded by that role's
+  duration and invocation funding inside the case's money, and it no longer blocks Neuralwatt for every
+  case for 15-60 min as before (diff review 1, nit 1; Murphy row `new-nw-burst-2`).
+- Only `rate` and `quota` take the burst path; `credit` and `outage` block as before. A block already on
+  the row is kept (`dict(old, ...)`).
+- `burst_capacities` is meant for providers with a documented guaranteed floor and best-effort burst
+  (Neuralwatt only). Any approved account is accepted; putting a Claude account there would turn its
+  quota into a 300 s cooldown, so don't.
 - No `burst_capacities` key: `free()` uses `capacities` exactly as today, no row is sampled and `observe`
   never takes the burst path.
 
@@ -63,7 +74,10 @@ account and `capacities[pool] <= n <= 100`).
 `retry_at('rate')`, +900 s, because only NW `quota`/`credit` moved on. `rate` now moves on as well, so the
 call goes straight back to the router: a floor seat if one is free, a `capacity` wait otherwise (up to 30
 min in the worker, FIFO behind older requests), or, when the refusal blocked the pool, a `rate` wait that
-parks as before. Its money case is the same as `quota`'s: an NW call's tail is bounded by its open steps,
+parks as before. "Floor seat" holds only because no later lane of the NW chains is open in production:
+`disabled_routes` has `openrouter/xiaomi/`, `openrouter/deepseek/`, `openrouter/z-ai/` and `opencode-go/`,
+and `opencode-free` is 0. With a later lane open, acquire skips the full NW pool and leases that lane
+instead, as for any full pool. Its money case is the same as `quota`'s: an NW call's tail is bounded by its open steps,
 which `budget.py` counts for `rate` refusals already. This reverses neuralwatt-routes item 8's "`rate`
 defers", which assumed every 429 blocks the pool. It reaches workers on new launches only.
 
@@ -114,3 +128,6 @@ The register is not on main. New rows, to be numbered at merge:
   starving the founder's other work on it. Closed by the mirrored order tests.
 - `new-nw-burst-1`: one Neuralwatt 429 above the guaranteed floor freezes the whole NW pool for 15+ min.
   Closed by the burst tests.
+- `new-nw-burst-2` (open): a Neuralwatt request that can never succeed (`tpm_uncached_request_too_large`)
+  during bursts retries on the burst path, re-spending its session prefix each time, until its role's
+  duration or funding ends. Not closed by this change.
