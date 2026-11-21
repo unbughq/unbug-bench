@@ -259,8 +259,20 @@ def atomic_results(path, rows):
     atomic_json(path, rows)
 
 
+def _portable_owner(identity):
+    """run.calibration_identity keys the exam owner's files by installed path, and a plumbing release
+    installs the factory under a new /home/user/releases/<hash>/ (f46dac-h9 G11, 2026-11-21: every
+    finished strong try quarantined, G11 found no pass). Only the file names and bytes decide anything."""
+    owner = identity.get('owner') if isinstance(identity, dict) else None
+    if not isinstance(owner, dict) or not isinstance(owner.get('files'), dict): return identity
+    files = {pathlib.PurePosixPath(k).name: v for k, v in owner['files'].items()}
+    if len(files) != len(owner['files']): return identity   # two files of one name: keep the strict paths
+    return {**identity, 'owner': {**owner, 'files': files}}
+
+
 def compatible_identity(prior, current):
     """One pinned policy-only migration; unknown historical code is never trusted."""
+    prior, current = _portable_owner(prior), _portable_owner(current)
     if prior == current: return True
     # The tester slot only picks which reserved bench instance (port offset) ran the try; it never
     # decides an outcome. Finished tries survive a resume onto another worker size. An unfinished
