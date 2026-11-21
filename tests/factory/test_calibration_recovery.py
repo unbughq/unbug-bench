@@ -51,7 +51,7 @@ def exercise(root, *, solved=False):
             (run, "sh", shell), (run, "shred_tree", lambda p, **kw: shutil.rmtree(p) if p.exists() else None),
             (bench, "load_scenario", lambda _: {}), (bench, "reset", lambda *a, **kw: None),
             (run, "model_call", model), (run, "prompt", lambda *a: "synthetic prompt"),
-            (run, "checkpoint", checkpoint), (run, "verdicts", lambda c, records: [{"clean": True, "solved": solved}] * len(records))]:
+            (run, "try_checkpoint", checkpoint), (run, "verdicts", lambda c, records: [{"clean": True, "solved": solved}] * len(records))]:
         stack.enter_context(mock.patch.object(owner, name, value))
     return c, stack, calls, seeds
 

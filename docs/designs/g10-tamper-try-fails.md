@@ -42,7 +42,8 @@ fairness.py is a dependency of G16/G17 only. helpers.py is a file dependency of 
 `BENCH_VERDICT_CODE`. Its edit is pinned in `invalid-runs-compat.json`: the helpers.py `release_pins` "to", plus the
 bench and model `verdict_code_pins` "to". `try_shards` serves only G10 tries, so no G5-G7 verdict changes. G10 is
 re-keyed by its runner hash anyway. `verdict_code()` still answers 802bfc8f (model) and d4a7127a (bench), so engine
-receipts and helper job releases are kept. The fairness.py release pin goes stale, which is harmless: G16/G17 change. `sealed_audit.delivery_contract()["run.py"]` changes, and its pin in
+receipts and helper job releases are kept. The fairness.py release pin "to" is re-pinned too (test_resume_reuse
+needs every pin current). Only G16/G17 read that file, and their runner hash changes anyway. `sealed_audit.delivery_contract()["run.py"]` changes, and its pin in
 `tests/factory/test_sealed_audit.py` is updated. No case is sealed yet. A case between G10 and G11 at deploy time loses
 its tries to the calibration-identity change (see the release-breaks-calibration-identity note), so deploy when no
 case sits there.
