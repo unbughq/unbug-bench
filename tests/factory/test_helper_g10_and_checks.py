@@ -253,6 +253,33 @@ class G10Tests(unittest.TestCase):
             with self.assertRaises(helpers.HelperRefused, msg=key): run.hosted_try(c, {**job, key: value})
             self.assertEqual(self.local, [], key)         # refused before any model call
 
+    def test_a_helper_try_prepares_model_containment_for_its_owner(self):
+        # 2a7b2a-h6 gates:1 (21 November): a helper's engine (helper_link._try_context) had no
+        # prepare_models, so the exam owner's unwalled call failed containment_unavailable and
+        # cancelled the try. model_runtime._invoke prepares containment through this hook.
+        import processes
+        c, job = self.job_and_context("contain")
+        c.engine = types.SimpleNamespace(kind="gates", round=None, key="a/helper/k")   # as _try_context builds it
+        prepared, seen = [], []
+        def author(c_, role, name, exposure, i, make_ws):
+            prepare = getattr(getattr(c_, "engine", None), "prepare_models", None)   # model_runtime._invoke's lookup
+            seen.append(prepare is not None)
+            if prepare is not None: prepare()
+            ws = make_ws(); (ws / "guard").mkdir(parents=True); (ws / "guard/db.sql").write_text("-- t")
+            return ws, None
+        with patch.object(run, "_author_try", author), \
+             patch.object(processes, "prepare_model_containment", lambda home: prepared.append(Path(home))):
+            run.hosted_try(c, job)
+        self.assertEqual(seen, [True])
+        self.assertEqual(prepared, [Path.home()])
+        keep = lambda: None                              # a case worker's own hook is left alone
+        c.engine.prepare_models = keep
+        with patch.object(run, "_author_try", author), \
+             patch.object(processes, "prepare_model_containment", lambda home: prepared.append(Path(home))):
+            run.hosted_try(c, job)
+        self.assertIs(c.engine.prepare_models, keep)
+        self.assertEqual(prepared, [Path.home()])
+
     def test_model_stop_on_a_helper_is_a_result_not_a_fault(self):
         c, job = self.job_and_context("stop")
         def stop(c_, role, name, exposure, i, make_ws): raise run.BudgetError("budget_exhausted:grant_insufficient")

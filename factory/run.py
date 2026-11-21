@@ -2777,6 +2777,13 @@ def hosted_try(c, job):
     identity = calibration_identity(c, role, exposure, runs=runs)
     if job["identity"] != helpers.digest_of({k: v for k, v in identity.items() if k != "slot"}):
         raise helpers.HelperRefused("try job's calibration identity differs from this helper's")
+    engine = getattr(c, "engine", None)
+    if engine is not None and getattr(engine, "prepare_models", None) is None:
+        # The exam owner's call runs unwalled, so in model containment, which a case worker prepares
+        # (worker_step.bind_checkpoint) and a helper's engine did not: the owner failed
+        # containment_unavailable and cancelled its try (2a7b2a-h6 gates:1, 21 November).
+        import processes
+        engine.prepare_models = lambda: processes.prepare_model_containment(pathlib.Path.home())
     ws = c.work / name / f"try-{i}"
     if ws.exists(): shutil.rmtree(ws)
     try:
