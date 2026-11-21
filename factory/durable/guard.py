@@ -4,8 +4,9 @@ A failed check never stops anything. It is retried, logged and marks the batch d
 which pauses new attempts (engine.py) until a pass succeeds. A stalled campaign (a case waiting on
 credentials or the router, no case progress for STALL_S while cases are live and no step is in
 flight, or a case parked on a founder decision for FOUNDER_WAIT_S) also reads degraded, with the
-reason in `stalled`, and alerts; it pauses nothing. Only these are hard stops: the deadline,
-the money ceiling (router spend only past its own ceiling: reaching it pauses) and a confirmed Boat
+reason in `stalled`, and alerts; it pauses nothing. Only these are hard stops: the deadline (once
+no step is in flight, or GATES_DEADLINE_S after it: the deadline stops new work, not a running
+step), the money ceiling (router spend only past its own ceiling: reaching it pauses) and a confirmed Boat
 allowance or rate breach.
 
 A hard stop pauses new attempts and gives steps in flight a checkpoint grace to record. When none
@@ -28,6 +29,7 @@ import time
 from typing import Callable, Optional
 import urllib.request
 
+from durable.policy import GATES_DEADLINE_S
 from durable.workers import PoolError, _atomic_json
 
 RETRY_WAITS_S = (2.0, 6.0)   # a check gets three tries; the unit timeout fits a pass where all fail
@@ -144,7 +146,8 @@ def compute_bound(request: dict, grace_s: float) -> float:
     """Worst-case worker compute in dollars: every running slot busy for the whole wall, plus the
     checkpoint grace that each worker's TTL may run past the deadline, plus one more worker for a
     full TTL as slack for a sandbox Boat lists late. Starts add nothing: a sandbox holds a slot
-    from its create request until Boat stops listing it as live."""
+    from its create request until Boat stops listing it as live. The drain after the deadline (run)
+    is not in it: there, live workers' real spend past this bound is still a worker_rate stop."""
     running, _ = campaign_limits(request)
     return worker_rate(request) * (running * (request["wall_seconds"] + grace_s) + WORKER_TTL_S)
 
@@ -333,7 +336,9 @@ class Guard:
         record = self.load("renewed.json", {})
         record = {k: v for k, v in record.items() if k in {row["id"] for row in owned} and isinstance(v, dict)}
         for row in owned:
-            ttl = min(7200, int(self.request["deadline_epoch"] + self.checkpoint_grace_s - self.clock()))
+            # Through the drain after the deadline (run), so a step in flight outlives no worker.
+            ttl = min(WORKER_TTL_S, int(self.request["deadline_epoch"] + GATES_DEADLINE_S
+                                        + self.checkpoint_grace_s - self.clock()))
             if ttl >= 1:
                 answers = []
                 def extend():
@@ -379,7 +384,9 @@ class Guard:
             if active == "active":   # an earlier stop failed
                 self.check("controller_stop", self.service.stop)
             return self._finish(health, status)
-        if health["hard_stop"] or cleanup or now >= self.request["deadline_epoch"]:
+        # Past the deadline the guard drains: steps in flight run on, checked and renewed as before, until
+        # none is left (below) or the longest step deadline has passed too; the wind-down adds the grace.
+        if health["hard_stop"] or cleanup or now >= self.request["deadline_epoch"] + GATES_DEADLINE_S:
             health["hard_stop"] = health["hard_stop"] or "deadline"
             return self._wind_down(health, status, active)
         if active == "active":
@@ -400,6 +407,10 @@ class Guard:
             health["hard_stop"] = self._breach(owned)
         if health["hard_stop"] is None and active in ("active", "unknown"):
             health["hard_stop"] = self._controller(health)
+        if (health["hard_stop"] is None and not health["finished"] and now >= self.request["deadline_epoch"]
+                and active == "active"
+                and self.check("in_flight", lambda: self.rpc("in_flight", self.batches[0])) == (True, 0)):
+            health["hard_stop"] = "deadline"   # only a controller that answers 0 has nothing left to record
         if health["hard_stop"]:
             return self._wind_down(health, status, active)
         # A crashed controller restarts and resumes on its worker, so renewal continues. A cleanly
