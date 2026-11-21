@@ -221,6 +221,7 @@ class RealStops(unittest.TestCase):
         'ordinary_retry_output_changed': ("infra_error", 'infra:ordinary_retry_output_changed'),
         'ordinary_retry_state_invalid': ("infra_error", 'infra:ordinary_retry_state_invalid'),
         'owner_invalid_answer': ("infra_error", 'infra:owner_invalid_answer'),
+        'owner_closed_unanswered': ("infra_error", 'infra:owner_closed_unanswered'),
         'stress_category_output_changed': ("infra_error", 'infra:stress_category_output_changed'),
         'stress_category_state_invalid': ("infra_error", 'infra:stress_category_state_invalid'),
         'stress_publication_not_quiescent': ("infra_error", 'infra:stress_publication_not_quiescent'),

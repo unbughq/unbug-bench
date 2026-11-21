@@ -114,6 +114,8 @@ _FIXED = {
     'ordinary_retry_output_changed': (_I, 'infra:ordinary_retry_output_changed'),
     'ordinary_retry_state_invalid': (_I, 'infra:ordinary_retry_state_invalid'),
     'owner_invalid_answer': (_I, 'infra:owner_invalid_answer'),
+    # exam_responder: a tester try ended while its owner question was still waiting for a lane or being answered.
+    'owner_closed_unanswered': (_I, 'infra:owner_closed_unanswered'),
     'stress_category_output_changed': (_I, 'infra:stress_category_output_changed'),
     'stress_category_state_invalid': (_I, 'infra:stress_category_state_invalid'),
     'stress_publication_not_quiescent': (_I, 'infra:stress_publication_not_quiescent'),
