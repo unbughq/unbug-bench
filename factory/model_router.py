@@ -450,6 +450,16 @@ def lanes(capacities, disabled_routes, burst_capacities):
     return capacities, disabled_routes, burst_capacities
 
 
+def config_lanes(config):
+    """Every check startup (main()) makes on the router config file, then its validated lane keys. The one
+    database check, a ceiling below retained spending, is Store's (__init__ and _reload)."""
+    if not isinstance(config, dict) or 'database' in config: raise ValueError('invalid router config')
+    if any(a not in ACCOUNTS for a in config.get('accounts', ACCOUNTS)): raise ValueError('unapproved account')
+    if config.get('paid_ceiling_usd') is not None and _nano(config['paid_ceiling_usd'], ROUND_FLOOR) > 2**63 - 1:
+        raise ValueError('invalid paid ceiling')
+    return lanes(config.get('capacities'), config.get('disabled_routes', ()), config.get('burst_capacities'))
+
+
 # A balance the background pass (reconcile_forever) read at most this long ago serves paid_reserve without a
 # provider round trip; an older or missing one is read live, as before the cache.
 CREDIT_FRESH_SECONDS = 120
@@ -493,22 +503,29 @@ class Store:
                 db.execute('INSERT INTO paid_account(id,ceiling,credit) VALUES(1,?,NULL) '
                            'ON CONFLICT(id) DO UPDATE SET ceiling=excluded.ceiling', (approved_ceiling,))
 
-    def _reload(self):
+    def _reload(self, db):
         """Pick up an edited router config's lane keys (capacities, disabled_routes, burst_capacities) without
         a restart, which must wait for zero calls in flight. Called inside an RPC's write transaction, so no
-        other RPC sees a half-applied config. An invalid file is logged and the running config kept; it is
-        tried again when it changes. The other keys (accounts, paid ceiling, database) still need a restart."""
+        other RPC sees a half-applied config. The whole file must pass startup's checks; otherwise it is
+        logged and the running config kept, and tried again when it changes. The other keys (accounts, paid
+        ceiling, database) are checked but still take effect only on a restart."""
         if self.config_path is None: return
-        try: seen = (lambda st: (st.st_mtime_ns, st.st_size))(os.stat(self.config_path))
+        try: seen = (lambda st: (st.st_mtime_ns, st.st_ctime_ns, st.st_ino, st.st_size))(os.stat(self.config_path))
         except OSError: seen = 'unreadable'
         if seen == self.config_seen: return
         self.config_seen = seen
         try:
             config = json.loads(Path(self.config_path).read_text())
-            self.capacities, self.disabled_routes, self.burst_capacities = lanes(
-                config.get('capacities'), config.get('disabled_routes', ()), config.get('burst_capacities'))
-        except Exception as error:   # never crash the router on an operator edit; only the error's kind
-            print(f'router config not reloaded, keeping the running one: {type(error).__name__}', file=sys.stderr, flush=True)
+            lanes_ = config_lanes(config)
+            if config.get('paid_ceiling_usd') is not None and (
+                    _nano(config['paid_ceiling_usd'], ROUND_FLOOR) < _paid_counts(db, self.clock() - CREDIT_OVERLAP)[0]):
+                raise ValueError('paid ceiling below retained spending')
+            self.capacities, self.disabled_routes, self.burst_capacities = lanes_
+            message = 'router config reloaded'
+        except Exception as error:   # never crash the router on an operator edit; log only the error's kind
+            message = f'router config not reloaded, keeping the running one: {type(error).__name__}'
+        try: print(message, file=sys.stderr, flush=True)
+        except OSError: pass
 
     def _routes(self, model, accounts, funding=None):
         return [r for r in _bounded_routes(model, accounts, funding)
@@ -544,7 +561,7 @@ class Store:
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')
-            self._reload()
+            self._reload(db)   # after BEGIN IMMEDIATE: the lock is what keeps a reload atomic for other RPCs
             db.execute("UPDATE leases SET outcome='expired' WHERE outcome IS NULL AND expires<=?", (now,))
             db.execute("UPDATE paid_requests SET state='unknown',settled_at=? WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)", (now,))
             health = {k: json.loads(v) for k, v in db.execute('SELECT pool,value FROM health')}
@@ -1276,10 +1293,11 @@ def main():
                         help='lift a paid-pool credit block the router stopped lifting, if the balance pays; print lifted or why not, exit')
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
-    store = Store(production_database(config), capacities=config.get('capacities'),
+    capacities, disabled_routes, burst_capacities = config_lanes(config)   # the checks a reload makes too
+    store = Store(production_database(config), capacities=capacities,
         accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit,
-        paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=config.get('disabled_routes', ()),
-        burst_capacities=config.get('burst_capacities'), config_path=args.config)
+        paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=disabled_routes,
+        burst_capacities=burst_capacities, config_path=args.config)
     if args.lift_credit:
         print(json.dumps({'lift_credit': store.lift_credit(force=True)})); return
     if args.reconcile_once:

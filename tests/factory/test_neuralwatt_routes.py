@@ -244,12 +244,19 @@ class RealStateRoutes(unittest.TestCase):
         self.assertEqual(slots(), 0)
         edit(burst_capacities={'neuralwatt-key': 6})
         self.assertEqual(slots(), 3)
+        edit(capacities=dict(live['capacities'], **{'neuralwatt-key': 4}))   # the floor too
+        self.assertEqual(slots(), 1)
         edit(burst_capacities={'neuralwatt-key': 6}, disabled_routes=live['disabled_routes'] + ['neuralwatt/'])
         self.assertEqual(slots(), 0)
         self.assertEqual(self.acquire(MIMO)['kind'], 'wait')
-        # An invalid edit is logged by kind only and the running config kept, until the file changes again.
+        # An edit startup would refuse is logged by kind only and the running config kept, whole, until the
+        # file changes again: even when its lane keys are valid.
+        burst = {'neuralwatt-key': 6}
         for text in ('{"capacities": ', json.dumps(dict(live, burst_capacities={'neuralwatt-key': 2})),
-                     json.dumps(dict(live, disabled_routes='opencode-go/')), '[]'):
+                     json.dumps(dict(live, disabled_routes='opencode-go/')), '[]',
+                     json.dumps(dict(live, burst_capacities={'neuralwatt-key': 5}, accounts=['bogus'])),
+                     json.dumps(dict(live, burst_capacities={'neuralwatt-key': 5}, paid_ceiling_usd='not-a-number')),
+                     json.dumps(dict(live, burst_capacities={'neuralwatt-key': 5}, database='/elsewhere.sqlite3'))):
             with self.subTest(text=text[:40]):
                 edit(burst_capacities={'neuralwatt-key': 6})
                 self.assertEqual(slots(), 3)
@@ -260,11 +267,31 @@ class RealStateRoutes(unittest.TestCase):
                     self.assertEqual(slots(), 3)
                 self.assertEqual(log.getvalue().count('router config not reloaded, keeping the running one'), 1)
                 self.assertNotIn('neuralwatt-key', log.getvalue())
+                with self.assertRaises(Exception):   # what startup does with the same file
+                    config = json.loads(text)
+                    router.config_lanes(config); router.production_database(config)
+                    router.Store(Path(self.store.path).with_name('startup.sqlite3'), accounts=config['accounts'],
+                                 paid_ceiling_usd=config.get('paid_ceiling_usd'))
         path.unlink()
         with redirect_stderr(io.StringIO()):
             self.assertEqual(slots(), 3)
-        write(LIVE_CONFIG)   # back to the live file: no burst key, the floor of 3 is all
-        self.assertEqual(slots(), 0)
+        log = io.StringIO()
+        with redirect_stderr(log):
+            write(LIVE_CONFIG)   # back to the live file: no burst key, the floor of 3 is all
+            self.assertEqual(slots(), 0)
+        self.assertEqual(log.getvalue(), 'router config reloaded\n')
+        # A ceiling below the spending the router has booked is refused at startup, so on reload too.
+        with closing(sqlite3.connect(self.store.path)) as db, db:
+            db.execute("INSERT INTO paid_requests (id,lease_id,route,profile,hold,charge,state,settled_at) "
+                       "VALUES ('x','y','r','{}',?,?,'reconciled',?)", (10**9, 10**9, self.now))   # $1 booked
+        log = io.StringIO()
+        with redirect_stderr(log):
+            edit(burst_capacities=burst, paid_ceiling_usd='0.5')
+            self.assertEqual(slots(), 0)
+        self.assertIn('not reloaded', log.getvalue())
+        with redirect_stderr(io.StringIO()):
+            edit(burst_capacities=burst, paid_ceiling_usd='1')   # covers it: reloads
+            self.assertEqual(slots(), 3)
 
     def test_a_burst_capacity_below_the_floor_or_not_an_int_is_refused(self):
         for burst in ({'neuralwatt-key': 2}, {'neuralwatt-key': 101}, {'neuralwatt-key': '6'}, {'neuralwatt': 6}):
