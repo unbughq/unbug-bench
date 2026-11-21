@@ -106,9 +106,11 @@ class RealStreams(unittest.TestCase):
         self.assertEqual(gate.request_hold('neuralwatt/deepseek-v4.1-flash'),
                          (1048576 * Decimal('0.15') + OPENROUTER_OUTPUT * Decimal('0.6')) / 1_000_000)
         self.assertEqual(gate.empty_usage(GLM)['max_request_output_tokens'], gate_profile(GLM)['output'])
-        # No provider charge in Neuralwatt's usage: a cached token is held at the full input price.
+        # No provider charge in Neuralwatt's usage, but it never bills a standard request above its list, whose
+        # cached rate is the pin: a cached token counts at the list cache rate (cae763-h6, 21 November).
         usage = dict(real_usage(RAW['glm-5.3-flash:text']), prompt_tokens_details={'cached_tokens': 19})
-        self.assertEqual(openrouter_gate_cost(GLM, usage), (19 * Decimal('0.15') + 77 * Decimal('0.5')) / 1_000_000)
+        self.assertEqual(usage['prompt_tokens'], 19)
+        self.assertEqual(openrouter_gate_cost(GLM, usage), (19 * Decimal('0.03') + 77 * Decimal('0.5')) / 1_000_000)
 
 
 class Upstream(BaseHTTPRequestHandler):

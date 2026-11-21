@@ -46,8 +46,11 @@ every Neuralwatt route (GLM, MiMo, DeepSeek) is opened to them; all three have r
    `empty_usage`, `Allowance.amount` and `OpenRouterUsage` read that profile. GLM's hold is $0.1736704 a request.
    - The usage parser is `OpenRouterUsage`, unchanged in logic. Real Neuralwatt streams are OpenAI-style: one
      terminal choice, then one usage frame with `choices: []`, then `: energy` and `: cost` SSE comments, then
-     `data: [DONE]`. Comments are not `data:` lines and are ignored. Neuralwatt's usage has no `cost`, so a cached
-     prompt token is held at the full input price (never below the bill).
+     `data: [DONE]`. Comments are not `data:` lines and are ignored. Neuralwatt's usage has no `cost`. A cached
+     prompt token counts at Neuralwatt's list cache rate, which is the pin: Neuralwatt never bills a standard
+     request above its list, so this is never below the bill (2026-11-21, after cae763-h6's easy calibrator
+     stopped `model_call_cap` twice: 98% cached tries counted $1.10 of a $1.09 window for ~$0.25 at list).
+     The ponytail below is superseded by that change; its cost-comment floor was not needed.
    - ponytail: that ceiling counts a cache-heavy request above its bill (a 100k prompt, 97k cached, 500 out:
      $0.0153 counted, $0.0036 billed, 4.2×). cb5e26's real G10 windows were $1.26 and its call 1d921598 billed
      $0.05, so about $0.22 counted plus one $0.17 hold in flight still fits; each 429 (below) takes $0.17 more, so

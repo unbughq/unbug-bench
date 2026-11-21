@@ -225,7 +225,7 @@ class Allowance:
         # The input cap is max_usd / input price, so a cached token counts at its price's share of a full one,
         # as in the cost: whole cached tokens cut 412ba567 at 27.6M of a 28.7M cap (new-cached-window-1).
         incoming, cache_read, _ = map(Decimal, gate_profile(self.lease.route)['prices'])
-        cached = openrouter_cached_tokens(usage)
+        cached = openrouter_cached_tokens(usage, self.lease.route)
         return cost, usage['prompt_tokens'] - cached + math.ceil(cached * cache_read / incoming), usage['completion_tokens']
 
     def reserve(self, output):
