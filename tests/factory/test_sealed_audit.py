@@ -26,7 +26,7 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(sealed_audit.delivery_contract(), {
             "run.py": "de695fb82af97fd6a7130a24a09df776eb84f3a629b432af0ccf8832875f90e3",
             "gate_state.py": "85ff257e30d745bd4d93636d85431b94f584d32ecfe1606c89f94eeae26325eb",
-            "calibration.py": "391794408ae17a52f5e827f9aa1bacb5c58b3102cbdd67defe749dc3e573a602",
+            "calibration.py": "5917db73149f23731be48430c9665e957a33afb4ff08cd15ca81862660b52270",
             "sealed_audit.py": "681286c25638d981f13b5090b21be5d0da365ba0669072d3df52f7ac2be198b7",
             "prompts/pilot.md": "5c8d1c8db27f95a4e4ac3b6abbdf91877da654899f006c8c8f43be5f1281b840"})
 
