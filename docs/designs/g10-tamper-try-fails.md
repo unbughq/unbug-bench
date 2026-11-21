@@ -23,15 +23,26 @@ later G10 attempts.
   `solved False, errors 0, checked_runs = runs, solved_runs 0, seed_data_changed True`. That gives
   `fix_failed_all_runs` / `demonstrated_failure`, and the series moves on to the next try.
 - `fairness.review_attempts` (G16/G17) does not rerun such a try. A rerun would hit the same stop through `checkpoint()`.
+- `helpers.try_shards.accept` (the case side of a try scored on a helper machine) accepts the same batch. Before, it
+  refused the batch as a helper fault, so the try was re-dispatched and then authored again locally: a re-roll of
+  exactly the failure that must count. `_read_batch` gains `require_valid` (default True, so G5/G6/G7 are unchanged).
 
 **Why the guard, not the box.** The baseline check runs after the guard and the case's base `admin.sql` are installed.
 G4 runs that same base scenario with the reference guard and passed before G10. The only new input is the guard.
+If a box drifted after G4 so that app start itself wrote data the checker reads, every try would be charged to the
+calibrator instead of retried. That is accepted under the ruling, because every run must match and nothing else may
+appear.
 
 **Not changed.** `calibration.py` (protected), `gate_state.py`, `bin/claims.py`, `bin/*` (bench files), and `checkpoint()`.
+`checkpoint()` gets no pointer to `try_checkpoint` either, since any edit to it re-keys every bench gate.
 
 **Gate identity.** The runner hashes of G10, G16 and G17 change, and so does `calibration_identity` (it hashes
 `calibrate`). G1-G9, G11 and G13-G15 are unchanged, checked by `gate_state.runner_inputs` before and after.
-fairness.py is a dependency of G16/G17 only. `sealed_audit.delivery_contract()["run.py"]` changes, and its pin in
+fairness.py is a dependency of G16/G17 only. helpers.py is a file dependency of G5, G6, G7 and G10, and it is in
+`BENCH_VERDICT_CODE`. Its edit is pinned in `invalid-runs-compat.json`: the helpers.py `release_pins` "to", plus the
+bench and model `verdict_code_pins` "to". `try_shards` serves only G10 tries, so no G5-G7 verdict changes. G10 is
+re-keyed by its runner hash anyway. `verdict_code()` still answers 802bfc8f (model) and d4a7127a (bench), so engine
+receipts and helper job releases are kept. The fairness.py release pin goes stale, which is harmless: G16/G17 change. `sealed_audit.delivery_contract()["run.py"]` changes, and its pin in
 `tests/factory/test_sealed_audit.py` is updated. No case is sealed yet. A case between G10 and G11 at deploy time loses
 its tries to the calibration-identity change (see the release-breaks-calibration-identity note), so deploy when no
 case sits there.
@@ -48,6 +59,9 @@ gate's identity.
   is retried once, then exhausted and refused. A tamper run that also carries a traffic error stays infra.
 - `test_invalid_runs.test_seed_tamper_is_bench_and_g6_evidence`: the matched strings are bench.py's own, G6's rejected
   probes match, and mixed or empty batches do not.
+- `test_helper_g10_and_checks.test_a_seed_tamper_try_scored_on_a_helper_is_accepted_as_a_failed_try`: a helper's tampered
+  try is committed failed, with no re-dispatch and no local authoring. On the old helpers.py, try 1 is authored again
+  here.
 - `test_fairness.test_a_seed_tamper_try_is_reviewed_as_failed_and_not_rerun`: G17 reviews the try without a rerun.
   It fails on the old fairness.py.
 
