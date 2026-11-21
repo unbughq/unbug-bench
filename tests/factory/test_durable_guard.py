@@ -596,14 +596,53 @@ class GuardTests(unittest.TestCase):
         self.assertTrue(starts_over([NOW - 7200 - 60 * i for i in range(181)], 59, NOW))  # a day: 180
         self.assertFalse(starts_over([NOW - 86400] * 500, 30, NOW))                     # older than a day
 
-    def test_deadline_is_a_hard_stop(self):
+    def test_deadline_with_nothing_in_flight_is_a_hard_stop(self):
         self.f.clock = REQUEST["deadline_epoch"] - 60
         self.hard("deadline")
 
-    def test_the_ttl_covers_the_grace_after_the_deadline(self):
-        self.f.clock = REQUEST["deadline_epoch"] - 100
+    def test_a_step_in_flight_drains_past_the_deadline_renewed(self):
+        """11-21 06:10: the deadline stopped the controller and deleted six workers mid-gates."""
+        self.f.clock = REQUEST["deadline_epoch"] + 3600
+        self.f.in_flight = 1
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("healthy", None))
+        self.assertEqual((self.f.stopped, self.f.deletes()), (0, []))
+        self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "7200"], self.f.calls)
+        self.f.in_flight = 0                     # the last step recorded: stop and delete at once
+        self.assertEqual(self.tick()["phase"], "stopped")
+        self.assertEqual(self.f.deletes(), ["bx_aaaaaaaa"])
+
+    def test_the_ttl_covers_the_drain_and_its_grace(self):
+        from durable.policy import GATES_DEADLINE_S
+        self.f.clock = REQUEST["deadline_epoch"] + GATES_DEADLINE_S - 100
+        self.f.in_flight = 1
         self.tick(0)
         self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "699"], self.f.calls)
+
+    def test_an_unanswering_or_down_controller_drains_until_the_ceiling(self):
+        self.f.clock = REQUEST["deadline_epoch"]
+        self.f.rpc_failures = 10 ** 6            # in flight unknown: never read as nothing left
+        self.assertEqual(self.tick()["hard_stop"], None)
+        self.f.active = "failed"
+        self.assertEqual(self.tick()["hard_stop"], None)
+        self.assertEqual(self.f.deletes(), [])
+
+    def test_the_drain_ceiling_is_a_hard_stop_with_steps_still_in_flight(self):
+        from durable.policy import GATES_DEADLINE_S
+        self.f.clock = REQUEST["deadline_epoch"] + GATES_DEADLINE_S - 30
+        self.f.in_flight = 1
+        out = self.tick()                        # the ceiling: the usual checkpoint grace, then delete
+        self.assertEqual((out["phase"], out["hard_stop"], self.f.stopped), ("stopping", "deadline", 0))
+        self.assertNotIn("extend", [c[0] for c in self.f.calls])
+        self.assertEqual(self.tick(600)["phase"], "stopped")
+        self.assertEqual((self.f.stopped, self.f.deletes()), (1, ["bx_aaaaaaaa"]))
+
+    def test_money_still_hard_stops_during_the_drain(self):
+        self.f.clock = REQUEST["deadline_epoch"] + 3600
+        self.f.in_flight = 1
+        self.assertEqual(self.tick()["hard_stop"], None)
+        self.f.money = {"spent": 3, "bound": 2}
+        self.assertEqual(self.tick()["hard_stop"], "money_ceiling")
 
     def test_cleanup_timer_stops_without_deleting(self):
         self.f.in_flight = 1
