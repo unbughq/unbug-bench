@@ -126,13 +126,23 @@ Steps (operator):
    `~/durable-first-case-20261106/router-approved-config.json` (the `--config` of the `ExecStart` in the
    drop-in `zzz-approved-ceiling.conf`) atomically, a temp file in the same directory then `mv`, with
    `burst_capacities` added. The router picks it up on the next RPC and logs `router config reloaded`
-   (`journalctl -u unbug-model-router`); `router config not reloaded` means the file was refused and the
-   running config kept. A half-written read is only logged and retried on the next change.
+   (`journalctl -u unbug-model-router`). The router also logs that line once on its first RPC after any
+   start, so look for a second one after the `mv`. `router config not reloaded` means the file was refused
+   and the running config kept. A half-written read is only logged and retried on the next change.
 3. `status`: the NW pool leases up to 6 (`capacity` on `neuralwatt/mimo-v2.6-pro`).
 4. The stopgap health row for `claude-factory-token-2` (quota-blocked with `operator_hold`) is redundant
    after the restart and would block the fallback when claude-token runs out: let it lapse at its
    `blocked_until` or clear it with a healthy observe for that pool.
 5. Worker-side pieces (`_account_order`, `go_quota_moves_on`) reach new launches only.
+
+## Verdict-code pin
+
+`model_router.py` and `model_runtime.py` are in `durable/checkpoints.MODEL_CODE`, so this change moves the raw
+model verdict digest from `c464ced1…` to `a8c991fb…`. Nothing here changes what a finished model call or
+gate produced, only which account or seat a call is admitted to and when it retries, so
+`invalid-runs-compat.json` repins `model.to` to `a8c991fb…`, keeping `from: 802bfc8f…` (what 19b404be answers).
+With the pin, live cases keep their model-stage receipt folders on the new release. The bench digest is
+unchanged (`9511baae…`, pinned to `d4a7127a…`). Recompute after any merge that touches these files.
 
 ## Deletes
 
