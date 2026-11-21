@@ -191,5 +191,135 @@ class OwnerTests(unittest.TestCase):
             self.assertNotEqual(a, b)
 
 
+class OwnerFailureTests(unittest.TestCase):
+    """2026-11-21: 13 GATES attempts (~56 h, ~$122) stopped infra:cancelled. An owner answer with no free lane
+    in 120 s cancelled the strong tester; the cancelled tester then skipped the owner port's cleanup and both
+    finallys reported the derived "cancelled" instead of the owner's error."""
+
+    def ask(self, model, *, body=None):
+        """One tester try that asks one question. Returns (raised error, iptables rules, tester cancel)."""
+        import threading
+        from budget import BudgetError
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            case = root / "case"; case.mkdir()
+            (case / "fact-sheet.md").write_text("synthetic fact")
+            workspace = root / "try-1"; workspace.mkdir()
+            destination = root / "pilot"; destination.mkdir()
+            c = types.SimpleNamespace(case=case, args=types.SimpleNamespace(), card={}, role_cancel=threading.Event(),
+                                      models={"reviewers": [["existing-reviewer"]]})
+            rules = []
+            def shell(ctx, argv, **kwargs):   # run.sh: a set role_cancel stops it before the command runs
+                if getattr(ctx, "role_cancel", None) is not None and ctx.role_cancel.is_set(): raise BudgetError("cancelled")
+                if argv[1] == "iptables": rules.append(argv[4])
+                else: pathlib.Path(argv[-1]).write_bytes(pathlib.Path(argv[-2]).read_bytes())
+            runner = types.SimpleNamespace(BENCH=_TEST_ROOT, sh=shell, model_call=model, BudgetError=BudgetError,
+                jload=lambda p, default: json.loads(p.read_text()) if p.exists() else default)
+            try:
+                with owner_channel(c, runner, workspace, destination, "synthetic-pilot"):
+                    result = subprocess.run([sys.executable, str(destination / "ask-human"), "What happened?"],
+                                            text=True, capture_output=True, timeout=20)
+                    if body: body(c, result)
+            except BaseException as error:
+                return error, rules, c.role_cancel.is_set()
+            return None, rules, c.role_cancel.is_set()
+
+    @staticmethod
+    def cancelled_tester(c, result):   # the tester's own model call, cancelled by the owner's failure
+        from budget import BudgetError
+        assert c.role_cancel.is_set() and result.returncode
+        raise BudgetError("cancelled")
+
+    def test_owner_failure_reports_its_own_error_and_still_closes_the_port(self):
+        from budget import BudgetError
+        from durable.classify import classify
+        def broken(*a, **k): raise BudgetError("process_error")
+        error, rules, cancelled = self.ask(broken, body=self.cancelled_tester)
+        self.assertTrue(cancelled)
+        self.assertEqual(str(error), "process_error")   # was "cancelled"
+        self.assertEqual(rules, ["-I", "-D"])            # was ["-I"]: the cancel skipped the cleanup
+        self.assertEqual(classify(str(error), step="gates", now=0).reason, "router:process_error")
+
+    def test_a_lane_wait_within_the_ceiling_is_no_owner_failure(self):
+        import model_router
+        calls = []
+        def lanes(ctx, models, text, directory, name, **kw):
+            calls.append(kw["timeout"])
+            if len(calls) < 3:   # Neuralwatt seats full, then both Go accounts on quota (2026-11-21)
+                reason = "capacity" if len(calls) == 1 else "quota"
+                raise model_router.ProviderWait("reviewer", model_router.Wait(reason, 0, evidence="interrupted"
+                    if reason == "quota" else "denied_before_work", route="opencode-go/mimo-v2.6-pro"))
+            (directory / "answer.json").write_text('{"answer":"synthetic answer"}')
+            return 0
+        answers = []
+        error, rules, cancelled = self.ask(lanes, body=lambda c, result: answers.append(result.stdout.strip()))
+        self.assertIsNone(error)
+        self.assertFalse(cancelled)
+        self.assertEqual(answers, ["synthetic answer"])
+        self.assertEqual(calls, [120, 120, 120])
+        self.assertEqual(rules, ["-I", "-D"])
+
+    def test_an_owner_that_never_gets_a_lane_stops_as_a_provider_wait(self):
+        import model_router
+        from durable.classify import classify
+        from durable.contract import Outcome
+        def full(*a, **k): raise model_router.ProviderWait("reviewer", model_router.Wait("capacity", 0))
+        with patch("exam_responder.OWNER_LANE_WAIT_SECONDS", 0):
+            error, rules, cancelled = self.ask(full, body=self.cancelled_tester)
+        self.assertIsInstance(error, model_router.ProviderWait)
+        self.assertEqual(error.wait.reason, "capacity")
+        self.assertEqual(rules, ["-I", "-D"])
+        self.assertEqual(classify(str(error), step="gates", now=0).outcome, Outcome.PROVIDER_LIMIT)
+
+    def test_real_owner_errors_are_not_waited_out_or_scored(self):
+        import model_router
+        from budget import BudgetError
+        # A spent credit is a financial refusal (no new CLI); an unsettled interrupted call settles first.
+        for wait in (model_router.Wait("credit", 0), model_router.Wait("rate", 0, evidence="interrupted", route="claude/x")):
+            calls = []
+            def refused(*a, **k):
+                calls.append(1); raise model_router.ProviderWait("reviewer", wait)
+            error, _, _ = self.ask(refused, body=self.cancelled_tester)
+            self.assertIsInstance(error, model_router.ProviderWait)
+            self.assertEqual(len(calls), 1)
+        # The owner's own run limit is no answer, never the tester's scored time limit (run._author_try).
+        def slow(*a, **k): raise BudgetError("timeout")
+        error, _, _ = self.ask(slow, body=self.cancelled_tester)
+        self.assertEqual(str(error), "owner_invalid_answer")
+
+    def test_a_try_that_ends_during_a_lane_wait_reports_the_wait(self):
+        import threading, model_router
+        from budget import BudgetError
+        calls = []
+        def lanes(ctx, *a, **k):
+            calls.append(1)
+            if len(calls) == 1: raise model_router.ProviderWait("reviewer", model_router.Wait("capacity", 0))
+            if not ctx.role_cancel.wait(10): raise AssertionError("owner never cancelled")
+            raise BudgetError("cancelled")   # await_lease, cancelled when the try's owner server closes
+        # The tester gave up on ask-human (here its client timeout) and finished its try.
+        with patch.dict(os.environ, ASK_TIMEOUT="1"):
+            error, rules, _ = self.ask(lanes, body=lambda c, result: self.assertTrue(result.returncode))
+        self.assertIsInstance(error, model_router.ProviderWait)   # was "cancelled"
+        self.assertEqual(rules, ["-I", "-D"])
+
+    def test_g10_reports_the_tester_stop_that_cancelled_both(self):
+        import argparse, threading, time
+        import run
+        c = run.Ctx(); c.card = {}; c.args = argparse.Namespace(concurrent_roles=True, bench_workers=4)
+        def calibrator(child, role):
+            if role == "strong_calibrator":
+                child.role_cancel.set()   # exam_responder: its owner failed
+                time.sleep(.3)            # cleanup and drain: the easy tester's cancel ends first
+                raise run.BudgetError("process_error")
+            child.role_cancel.wait(5)
+            raise run.BudgetError("cancelled")
+        with tempfile.TemporaryDirectory() as tmp:
+            c.work = pathlib.Path(tmp); c.case = c.work / "case"
+            with patch.object(run, "parallel_calibrators", return_value=True), patch.object(run, "sh"), \
+                 patch.object(run, "pilot_wall"), patch.object(run, "shred_tree"), patch.object(run, "calibrate", calibrator):
+                with self.assertRaisesRegex(run.BudgetError, "^process_error$"):   # was "cancelled"
+                    run.g10(c)
+
+
 if __name__ == "__main__":
     unittest.main()

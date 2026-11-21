@@ -3043,6 +3043,7 @@ def g10(c):
             contexts.append(child)
         from durable.checkpoints import concurrent_section
         with concurrent_section(c), ThreadPoolExecutor(max_workers=2) as pool:
+            futures = []
             try:
                 futures = [pool.submit(contextvars.copy_context().run, calibrate, child, role) for child, role in zip(contexts, ('strong_calibrator', 'easy_calibrator'))]
                 for future in as_completed(futures): future.result()
@@ -3050,6 +3051,12 @@ def g10(c):
             except BaseException as error:
                 if not (isinstance(error, BudgetError) and str(error) == 'budget_exhausted'):
                     c.role_cancel.set()
+                if isinstance(error, BudgetError) and str(error) == 'cancelled':
+                    # The testers share role_cancel: one's own stop (an exam owner failure) cancels the other.
+                    # Report that stop, not the other's derived cancel, whichever tester ended first.
+                    cause = next((f.exception() for f in as_completed(futures)
+                                  if f.exception() is not None and str(f.exception()) != 'cancelled'), None)
+                    if cause is not None: raise cause
                 raise  # executor joins all workers before seal/wipe; the section then publishes
         c.pilot_passes = [guard for child in contexts for guard in child.pilot_passes]
     else:
