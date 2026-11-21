@@ -261,15 +261,15 @@ class OwnerFailureTests(unittest.TestCase):
 
     def test_an_owner_that_never_gets_a_lane_stops_as_a_provider_wait(self):
         import model_router
-        from durable.classify import classify
+        from durable.classify import classify_wait
         from durable.contract import Outcome
         def full(*a, **k): raise model_router.ProviderWait("reviewer", model_router.Wait("capacity", 0))
         with patch("exam_responder.OWNER_LANE_WAIT_SECONDS", 0):
             error, rules, cancelled = self.ask(full, body=self.cancelled_tester)
         self.assertIsInstance(error, model_router.ProviderWait)
-        self.assertEqual(error.wait.reason, "capacity")
         self.assertEqual(rules, ["-I", "-D"])
-        self.assertEqual(classify(str(error), step="gates", now=0).outcome, Outcome.PROVIDER_LIMIT)
+        result, _ = classify_wait(error, step="gates", now=0)   # how the engine labels a ProviderWait
+        self.assertEqual((result.outcome, result.reason), (Outcome.PROVIDER_LIMIT, "router:capacity"))
 
     def test_real_owner_errors_are_not_waited_out_or_scored(self):
         import model_router
@@ -290,17 +290,23 @@ class OwnerFailureTests(unittest.TestCase):
     def test_a_try_that_ends_during_a_lane_wait_reports_the_wait(self):
         import threading, model_router
         from budget import BudgetError
-        calls = []
-        def lanes(ctx, *a, **k):
-            calls.append(1)
-            if len(calls) == 1: raise model_router.ProviderWait("reviewer", model_router.Wait("capacity", 0))
-            if not ctx.role_cancel.wait(10): raise AssertionError("owner never cancelled")
-            raise BudgetError("cancelled")   # await_lease, cancelled when the try's owner server closes
-        # The tester gave up on ask-human (here its client timeout) and finished its try.
-        with patch.dict(os.environ, ASK_TIMEOUT="1"):
-            error, rules, _ = self.ask(lanes, body=lambda c, result: self.assertTrue(result.returncode))
-        self.assertIsInstance(error, model_router.ProviderWait)   # was "cancelled"
-        self.assertEqual(rules, ["-I", "-D"])
+        def own_timeout(c, result): raise BudgetError("timeout")   # the tester's own time limit
+        # The tester gave up on ask-human (here its client timeout), then finished its try or hit its own limit.
+        for body, stop in ((lambda c, result: self.assertTrue(result.returncode), model_router.ProviderWait),
+                           (own_timeout, BudgetError)):
+            calls = []
+            def lanes(ctx, *a, **k):
+                calls.append(1)
+                if len(calls) == 1: raise model_router.ProviderWait("reviewer", model_router.Wait("capacity", 0))
+                if not ctx.role_cancel.wait(10): raise AssertionError("owner never cancelled")
+                raise BudgetError("cancelled")   # await_lease, cancelled when the try's owner server closes
+            with patch.dict(os.environ, ASK_TIMEOUT="1"):
+                error, rules, cancelled = self.ask(lanes, body=body)
+            self.assertIs(type(error), stop)   # was "cancelled"
+            if stop is BudgetError: self.assertEqual(str(error), "timeout")   # the tester's own cap, scored as before
+            # The ended try cancels no one: role_cancel is shared with the other G10 tester and the next try.
+            self.assertFalse(cancelled)
+            self.assertEqual(rules, ["-I", "-D"])
 
     def test_g10_reports_the_tester_stop_that_cancelled_both(self):
         import argparse, threading, time

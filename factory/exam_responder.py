@@ -87,6 +87,7 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
     token = secrets.token_hex(24)
     failure = []
     cancel = threading.Event()
+    closing = threading.Event()   # the try's body has ended; the teardown below cancels the owner
     import model_router, model_runtime
     owner = copy.copy(c)
     owner.args = copy.copy(c.args)
@@ -135,14 +136,16 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
                 raise r.BudgetError("owner_invalid_answer")
             return value, {"model": c.models["reviewers"][0][0]}
         except BaseException as error:
-            if waited is not None and cancel.is_set() and str(error) == "cancelled":
+            if waited is not None and closing.is_set() and str(error) == "cancelled":
                 error = waited   # the try ended while the owner still waited for a lane
             elif isinstance(error, r.BudgetError) and str(error) in ("timeout", "call_limit"):
                 # The tester's own caps end a scored try (run._author_try); the owner's give no answer.
                 error = r.BudgetError("owner_invalid_answer")
             failure.append(error)
             cancel.set()
-            if getattr(c, "role_cancel", None) is not None:
+            # A try that already ended is not cancelled from here: the shared role_cancel would stop the
+            # other G10 tester and this tester's next try.
+            if getattr(c, "role_cancel", None) is not None and not closing.is_set():
                 c.role_cancel.set()
             raise RuntimeError("owner unavailable") from None
 
@@ -246,6 +249,7 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
         # An owner failure recorded before the body ended is what cancelled the tester (answer() sets its
         # role_cancel): report it, not the derived "cancelled". A later one (the tester ended first) is not.
         owner_first = bool(failure)
+        closing.set()
         cancel.set()
         deadline = time.monotonic() + OWNER_DRAIN_SECONDS
         with server.condition: server.accepting = False

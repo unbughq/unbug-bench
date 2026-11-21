@@ -29,19 +29,27 @@
   - `credit` is never waited out: it is a financial refusal, and no new CLI starts after one.
 - The ceiling: a new request starts only within `OWNER_LANE_WAIT_SECONDS` (300 s) of the question.
   - That is ask-human's 600 s client timeout, minus a minute, minus one full wait (120 s), minus the answer's 120 s run.
-  - So the owner always answers or fails before the tester's client gives up. The tester never gets a client timeout
-    that the old code could not produce.
+  - That is a margin, not a guarantee. Within one `model_call`, `model_runtime` can retry and wait again after a
+    failed attempt, so one call can run past its 120 s. Usually, though, the owner answers or fails before the
+    tester's client gives up.
   - The end of the try cancels the owner sooner: `owner_server` sets the owner's cancel, and `await_lease` stops on it.
+  - A try that has already ended cancels no one. The teardown sets `closing` before it cancels the owner. When an owner
+    call ends after that, `answer()` records the failure but leaves the tester's `role_cancel` alone. That event is
+    shared with the other G10 tester and with this tester's next try.
   - We did not use "the tester's remaining try time" as the ceiling. The client stops waiting at 600 s, so a longer owner
     wait would mean telling the tester something new (see below).
 - What a real owner failure is booked as:
-  - An owner that never gets a lane stops as its `ProviderWait`. That classifies as `router:provider_wait`
-    (PROVIDER_LIMIT, a wait the engine sleeps out, not waste).
+  - An owner that never gets a lane stops as its `ProviderWait`. The engine labels it with `classify_wait`, by the
+    wait's reason: `router:capacity`, `router:quota`, `router:rate` or `router:no_route`. All are PROVIDER_LIMIT, a wait
+    the engine sleeps out, not waste.
+  - The early probe (`run.early_probe`) re-raises `provider_wait`. So a probe whose owner never gets a lane now stops
+    the step as a provider wait. Before, the probe was skipped, because the error reached it as `cancelled`.
   - A model or transport error keeps its own stop, for example `router:process_error`.
   - The owner's own `timeout` or `call_limit` becomes `owner_invalid_answer` (`infra:owner_invalid_answer`).
     `run._author_try` scores a try that ends on `timeout` or `call_limit` as the tester's own cap. So an unmasked
     owner timeout would otherwise have scored the try.
-  - When a try ends while its owner is still waiting for a lane, the stop is that wait, not `cancelled`.
+  - When a try ends cleanly while its owner is still waiting for a lane, the stop is that wait, not `cancelled`.
+    The try stays unscored, as before. A try that ends on its own cap keeps that cap.
 
 **Unchanged (exam conditions).** When the owner fails:
 - the tester is still cancelled;
@@ -65,6 +73,9 @@ today.
 (`gate_state.STAGE_DEPENDENCIES`). It is also in the exam calibration identity (`run.calibration_identity`'s `owner.files`)
 and in `exam_responder.contract`.
 - Saved strong-tester exam tries are set aside, and G10, G16 and G17 rerun on any case past them.
+- `exam_responder.contract`'s `code_sha256` changes too. Both `sealed_audit.verify_exam_metadata` and `bin/run-exam`
+  compare a sealed card's `owner_contract` with the current one. So every case sealed before this change must be
+  requalified (G10 rerun) before the exam will admit it. No case is sealed yet.
 - The blind (easy) and statement (judge breadth) identities do not change.
 - Only `g10` changed in `run.py`, and `g10` is outside `sealed_audit.delivery_contract`'s roots: the pin does not change.
 - No `VERDICT_CODE` file changed, so `invalid-runs-compat.json` needs no repin.
@@ -74,4 +85,6 @@ and in `exam_responder.contract`.
 The register is not on main. The new row, to be numbered at merge:
 - `new-owner-answer-cancel-1`: an exam owner answer with no free lane in 120 s cancels the strong tester, and three
   masks report `infra:cancelled` instead of the owner's error. Closed by `tests/factory/test_exam_responder.py`
-  `OwnerFailureTests` (all six fail on the old code).
+  `OwnerFailureTests` (all six fail on the old code). `test_a_try_that_ends_during_a_lane_wait_reports_the_wait`
+  also checks that a try ending during a lane wait leaves `role_cancel` clear, both on a clean end and on the tester's
+  own timeout.
