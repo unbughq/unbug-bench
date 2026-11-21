@@ -31,7 +31,7 @@ class NeuralwattCachedPrice(unittest.TestCase):
         lease = SimpleNamespace(route=GLM, **{k: v for k, v in _gate_maximum(GLM, gate_profile(GLM)).items() if k.startswith('max_')})
         lease.max_usd = 1.2582918
         state = gate.Allowance(lease)
-        for _ in range(100):
+        for _ in range(130):   # the old full-rate count cuts at ~110, a gate-only revert at ~113
             identity = state.reserve(gate.OPENROUTER_OUTPUT)
             self.assertIsNotNone(identity, 'a list-priced try must fit its window')
             state.finish(identity, USAGE)
