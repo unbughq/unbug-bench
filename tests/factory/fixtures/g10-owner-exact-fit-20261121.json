@@ -1,0 +1,670 @@
+{
+ "helper_try_authority": {
+  "hosted_tries": [
+   3
+  ],
+  "per_try_usd": 14.2104906,
+  "reserved_usd": 14.2104906
+ },
+ "source": "case-import-2a7b2a-h5-1 gates:1 attempts 4 and 5 (2026-11-21): checkpoint 6b6ea2021d04 continuation-budget.json and scorecard.json, control VM router leases/requests",
+ "tries": [
+  {
+   "owner": {
+    "lease": {
+     "account": "neuralwatt-key",
+     "billing": "paid",
+     "family": "xiaomi",
+     "max_input_tokens": 3932162,
+     "max_output_tokens": 1966081,
+     "max_usd": 1.7104906,
+     "pool": "neuralwatt-key",
+     "price_source": "neuralwatt:mimo-v2.6-pro:twin=token_prices:2026-10-30:openrouter:xiaomi/mimo-v2.6-pro:xiaomi/fp8:0.435,0.0036,0.87:joint-gate-v1:funded:1.710490600",
+     "route": "neuralwatt/mimo-v2.6-pro"
+    },
+    "lease_id": "bfa4c2fa306d42e6bf63f9295a35b5a7",
+    "outcome": "denied",
+    "request": {
+     "funding_usd": "1.710490600",
+     "model": "openrouter/xiaomi/mimo-v2.6-pro",
+     "role": "reviewer"
+    },
+    "requested_at": 1795254711.6517951
+   },
+   "tester": {
+    "lease": {
+     "account": "codex-auth.json",
+     "billing": "subscription",
+     "family": "openai",
+     "max_input_tokens": 3125000,
+     "max_output_tokens": 833333,
+     "max_usd": 12.5,
+     "pool": "codex-auth.json",
+     "price_source": "token_prices:2026-10-24:codex:gpt-6.1-sol:2.0,0.1,10.0:long-context=2,1.5:self-reported-v1:funded:12.500000000",
+     "route": "codex/gpt-6.1-sol"
+    },
+    "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+    "outcome": "interrupted",
+    "request": {
+     "funding_usd": "12.500000000",
+     "model": "codex/gpt-6.1-sol",
+     "role": "strong_calibrator"
+    },
+    "requested_at": 1795254647.9650543,
+    "reservation": {
+     "account": "codex-auth.json",
+     "billing": "subscription",
+     "call_name": "strong-calibrator-strong_calibrator-3",
+     "estimated_gap_usd": "0.000000000",
+     "event_ids": [
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-0",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-1",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-10",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-2",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-3",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-4",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-5",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-6",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-7",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-8",
+      "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-9"
+     ],
+     "family": "openai",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "launched": true,
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "maximum_usd": "12.500000000",
+     "operation_id": "98b19818-8a1e-48b1-80e6-8bb1be650093",
+     "parent_call_name": null,
+     "pool": "codex-auth.json",
+     "route": "codex/gpt-6.1-sol",
+     "schema_version": 1,
+     "state": "estimated"
+    }
+   },
+   "tester_events": [
+    {
+     "calls": 5,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0158348,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-0",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 3968,
+      "input_tokens": 11032,
+      "output_tokens": 131
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 3968,
+      "input_tokens": 11032,
+      "output_tokens": 131
+     }
+    },
+    {
+     "calls": 5,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.013604799999999998,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-1",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 11008,
+      "input_tokens": 16870,
+      "output_tokens": 78
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 11008,
+      "input_tokens": 16870,
+      "output_tokens": 78
+     }
+    },
+    {
+     "calls": 8,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0044888,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-2",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 16768,
+      "input_tokens": 17339,
+      "output_tokens": 167
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 16768,
+      "input_tokens": 17339,
+      "output_tokens": 167
+     }
+    },
+    {
+     "calls": 10,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.014372,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-3",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 17280,
+      "input_tokens": 22597,
+      "output_tokens": 201
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 17280,
+      "input_tokens": 22597,
+      "output_tokens": 201
+     }
+    },
+    {
+     "calls": 14,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.006711600000000001,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-4",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 22656,
+      "input_tokens": 23884,
+      "output_tokens": 199
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 22656,
+      "input_tokens": 23884,
+      "output_tokens": 199
+     }
+    },
+    {
+     "calls": 14,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.009543600000000001,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-5",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 23936,
+      "input_tokens": 26741,
+      "output_tokens": 154
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 23936,
+      "input_tokens": 26741,
+      "output_tokens": 154
+     }
+    },
+    {
+     "calls": 16,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.008963200000000001,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-6",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 26752,
+      "input_tokens": 29006,
+      "output_tokens": 178
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 26752,
+      "input_tokens": 29006,
+      "output_tokens": 178
+     }
+    },
+    {
+     "calls": 19,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.023321599999999998,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-7",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 29056,
+      "input_tokens": 37619,
+      "output_tokens": 329
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 29056,
+      "input_tokens": 37619,
+      "output_tokens": 329
+     }
+    },
+    {
+     "calls": 21,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.013354,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-8",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 37760,
+      "input_tokens": 41609,
+      "output_tokens": 188
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 37760,
+      "input_tokens": 41609,
+      "output_tokens": 188
+     }
+    },
+    {
+     "calls": 23,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.017658,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-9",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 41600,
+      "input_tokens": 47324,
+      "output_tokens": 205
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 41600,
+      "input_tokens": 47324,
+      "output_tokens": 205
+     }
+    },
+    {
+     "calls": 24,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.013494,
+     "id": "428a7f82-4976-4ab5-a835-89e34c4cd73b:request-10",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "428a7f82-4976-4ab5-a835-89e34c4cd73b",
+     "lease_id": "52d709d6658d4db5a59cb786d6fcf386",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 47360,
+      "input_tokens": 50329,
+      "output_tokens": 282
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 47360,
+      "input_tokens": 50329,
+      "output_tokens": 282
+     }
+    }
+   ]
+  },
+  {
+   "owner": {
+    "lease": {
+     "account": "neuralwatt-key",
+     "billing": "paid",
+     "family": "xiaomi",
+     "max_input_tokens": 3932162,
+     "max_output_tokens": 1966081,
+     "max_usd": 1.7104906,
+     "pool": "neuralwatt-key",
+     "price_source": "neuralwatt:mimo-v2.6-pro:twin=token_prices:2026-10-30:openrouter:xiaomi/mimo-v2.6-pro:xiaomi/fp8:0.435,0.0036,0.87:joint-gate-v1:funded:1.710490600",
+     "route": "neuralwatt/mimo-v2.6-pro"
+    },
+    "lease_id": "47042c3fe3eb4a57a07d90926c62506e",
+    "outcome": "denied",
+    "request": {
+     "funding_usd": "1.710490600",
+     "model": "openrouter/xiaomi/mimo-v2.6-pro",
+     "role": "reviewer"
+    },
+    "requested_at": 1795255387.5936732
+   },
+   "tester": {
+    "lease": {
+     "account": "codex-auth.json",
+     "billing": "subscription",
+     "family": "openai",
+     "max_input_tokens": 3125000,
+     "max_output_tokens": 833333,
+     "max_usd": 12.5,
+     "pool": "codex-auth.json",
+     "price_source": "token_prices:2026-10-24:codex:gpt-6.1-sol:2.0,0.1,10.0:long-context=2,1.5:self-reported-v1:funded:12.500000000",
+     "route": "codex/gpt-6.1-sol"
+    },
+    "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+    "outcome": "interrupted",
+    "request": {
+     "funding_usd": "12.500000000",
+     "model": "codex/gpt-6.1-sol",
+     "role": "strong_calibrator"
+    },
+    "requested_at": 1795255283.2793233,
+    "reservation": {
+     "account": "codex-auth.json",
+     "billing": "subscription",
+     "call_name": "strong-calibrator-strong_calibrator-3",
+     "estimated_gap_usd": "0.000000000",
+     "event_ids": [
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-0",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-1",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-10",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-2",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-3",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-4",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-5",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-6",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-7",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-8",
+      "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-9"
+     ],
+     "family": "openai",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "launched": true,
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "maximum_usd": "12.500000000",
+     "operation_id": "18b45323-f3ee-4bf3-bdf9-0a1221bd255c",
+     "parent_call_name": null,
+     "pool": "codex-auth.json",
+     "route": "codex/gpt-6.1-sol",
+     "schema_version": 1,
+     "state": "estimated"
+    }
+   },
+   "tester_events": [
+    {
+     "calls": 3,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0057868,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-0",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 9088,
+      "input_tokens": 11032,
+      "output_tokens": 99
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 9088,
+      "input_tokens": 11032,
+      "output_tokens": 99
+     }
+    },
+    {
+     "calls": 3,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0019088,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-1",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 11008,
+      "input_tokens": 11212,
+      "output_tokens": 40
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 11008,
+      "input_tokens": 11212,
+      "output_tokens": 40
+     }
+    },
+    {
+     "calls": 4,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0176568,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-2",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 9088,
+      "input_tokens": 16982,
+      "output_tokens": 96
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 9088,
+      "input_tokens": 16982,
+      "output_tokens": 96
+     }
+    },
+    {
+     "calls": 6,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.017479599999999998,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-3",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 16896,
+      "input_tokens": 23901,
+      "output_tokens": 178
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 16896,
+      "input_tokens": 23901,
+      "output_tokens": 178
+     }
+    },
+    {
+     "calls": 7,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0059716000000000005,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-4",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 23936,
+      "input_tokens": 25330,
+      "output_tokens": 79
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 23936,
+      "input_tokens": 25330,
+      "output_tokens": 79
+     }
+    },
+    {
+     "calls": 8,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0327056,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-5",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 11136,
+      "input_tokens": 25617,
+      "output_tokens": 263
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 11136,
+      "input_tokens": 25617,
+      "output_tokens": 263
+     }
+    },
+    {
+     "calls": 9,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.019770799999999998,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-6",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 25728,
+      "input_tokens": 33562,
+      "output_tokens": 153
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 25728,
+      "input_tokens": 33562,
+      "output_tokens": 153
+     }
+    },
+    {
+     "calls": 11,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0456636,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-7",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 25216,
+      "input_tokens": 43317,
+      "output_tokens": 694
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 25216,
+      "input_tokens": 43317,
+      "output_tokens": 694
+     }
+    },
+    {
+     "calls": 12,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0258756,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-8",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 43776,
+      "input_tokens": 53730,
+      "output_tokens": 159
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 43776,
+      "input_tokens": 53730,
+      "output_tokens": 159
+     }
+    },
+    {
+     "calls": 13,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.01557,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-9",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 53760,
+      "input_tokens": 56572,
+      "output_tokens": 457
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 53760,
+      "input_tokens": 56572,
+      "output_tokens": 457
+     }
+    },
+    {
+     "calls": 14,
+     "codex_request": true,
+     "configured_model": "codex/gpt-6.1-sol",
+     "cost": 0,
+     "estimated_subscription_cost_usd": 0.0168372,
+     "id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b:request-10",
+     "invocation": "strong-calibrator-strong_calibrator-3",
+     "invocation_id": "ba9bc22f-dca8-498a-a34e-cc3a3264285b",
+     "lease_id": "03f531daf7f44a48af0614cec7b98ba4",
+     "priced": "subscription",
+     "reported_usage": {
+      "cached_input_tokens": 56832,
+      "input_tokens": 59144,
+      "output_tokens": 653
+     },
+     "role": "strong_calibrator",
+     "tokens": {
+      "cached_input_tokens": 56832,
+      "input_tokens": 59144,
+      "output_tokens": 653
+     }
+    }
+   ]
+  }
+ ]
+}
