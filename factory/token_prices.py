@@ -139,14 +139,16 @@ def _request_worst(profile):
     return (profile['context'] * incoming + profile['output'] * outgoing) / 1_000_000
 
 
-def openrouter_cached_tokens(usage):
+def openrouter_cached_tokens(usage, route=None):
     """Prompt tokens the gate prices at the pinned cache-read rate, or None if the usage is malformed.
     Only with the provider's own charge (usage.cost) beside them: that charge is the floor, so a serving
-    endpoint whose cache read costs more than the pin is never priced below its bill (new-cached-window-1)."""
+    endpoint whose cache read costs more than the pin is never priced below its bill (new-cached-window-1).
+    A Neuralwatt route sends no cost, but its list is the pin and it never bills above its list, so its cached
+    tokens count too (cae763-h6: 98% cached GLM tries counted $1.10 of a $1.09 window for $0.25 at list)."""
     details = usage.get('prompt_tokens_details', {})
     cached = details.get('cached_tokens', 0) if isinstance(details, dict) else None
     if type(cached) is not int or not 0 <= cached <= usage.get('prompt_tokens', -1): return None
-    return cached if 'cost' in usage else 0
+    return cached if 'cost' in usage or route in NW_ROUTES else 0
 
 
 def openrouter_gate_cost(route, usage):
@@ -155,7 +157,7 @@ def openrouter_gate_cost(route, usage):
     incoming, cache_read, outgoing = map(Decimal, profile['prices'])
     values = [usage.get(k) for k in ('prompt_tokens', 'completion_tokens')]
     if any(type(v) is not int or v < 0 for v in values): return None
-    cached = openrouter_cached_tokens(usage)
+    cached = openrouter_cached_tokens(usage, route)
     if cached is None: return None
     amount = (values[0] * incoming + values[1] * outgoing) / 1_000_000
     if 'cost' in usage:
@@ -164,6 +166,7 @@ def openrouter_gate_cost(route, usage):
         # Cached prompt tokens at the pinned cache-read rate, never below the provider's charge. At the full
         # input rate cb5e26's diagnosis (412ba567, 19 November) counted $12.05 of a $12.50 window for $2.40 billed.
         amount = max(amount - cached * (incoming - cache_read) / 1_000_000, Decimal(str(cost)))
+    elif route in NW_ROUTES: amount -= cached * (incoming - cache_read) / 1_000_000
     return amount
 
 

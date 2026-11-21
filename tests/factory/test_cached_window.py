@@ -109,6 +109,28 @@ class CachedWindowTests(unittest.TestCase):
         self.assertIsNone(state.reserve(gate.OPENROUTER_OUTPUT))
         self.assertTrue(state.exhaustion.is_set())
 
+    def test_neuralwatt_cached_tokens_at_its_list_cache_rate(self):
+        # cae763-h6's G10 easy calibrator (21 November): neuralwatt/glm-5.3-flash, ~65k-token prompts 98%
+        # cached, Neuralwatt's usage shape (no cost field). At the full input rate ~100 requests counted $1.10
+        # of a $1.09 window for ~$0.25 at Neuralwatt's list ($0.15 input, $0.03 cached, $0.50 output).
+        route = 'neuralwatt/glm-5.3-flash'
+        usage = {'prompt_tokens': 65000, 'completion_tokens': 400, 'total_tokens': 65400,
+                 'prompt_tokens_details': {'cached_tokens': 63700, 'created_cache_tokens': 0},
+                 'completion_tokens_details': {'reasoning_tokens': 40}}
+        list_price = (Decimal(1300) * Decimal('0.15') + Decimal(63700) * Decimal('0.03') + Decimal(400) * Decimal('0.5')) / 1_000_000
+        self.assertEqual(openrouter_gate_cost(route, usage), list_price)
+        from token_prices import _gate_maximum, gate_profile
+        lease = SimpleNamespace(route=route, **{k: v for k, v in _gate_maximum(route, gate_profile(route)).items()
+                                                if k.startswith('max_')})
+        lease.max_usd = 1.2582918   # the easy calibrator's per-try window
+        state = gate.Allowance(lease)
+        for _ in range(100):
+            identity = state.reserve(gate.OPENROUTER_OUTPUT)
+            self.assertIsNotNone(identity, "a list-priced try must fit its window")
+            state.finish(identity, usage)
+        # An OpenRouter route with no cost field still gets no cache discount: only its bill can floor it.
+        self.assertEqual(openrouter_gate_cost('openrouter/z-ai/glm-5.3-flash', usage), full_rate('openrouter/z-ai/glm-5.3-flash', usage))
+
 
 if __name__ == '__main__':
     unittest.main()
