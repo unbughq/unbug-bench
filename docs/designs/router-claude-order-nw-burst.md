@@ -139,9 +139,10 @@ Steps (operator):
 
 `model_router.py` and `model_runtime.py` are in `durable/checkpoints.MODEL_CODE`, so this change moves the raw
 model verdict digest from `c464ced1…` to `a8c991fb…`. Nothing here changes what a finished model call or
-gate produced, only which account or seat a call is admitted to and when it retries, so
+gate produced, only which account, route or seat a call is admitted to and when it retries, so
 `invalid-runs-compat.json` repins `model.to` to `a8c991fb…`, keeping `from: 802bfc8f…` (what 19b404be answers).
-With the pin, live cases keep their model-stage receipt folders on the new release. The bench digest is
+With the pin, live cases keep their model-stage receipt folders on the new release. The control VM's router and `source-current` run `source-19b404be`, which answers `802bfc8f…`
+(checked read-only 2026-11-21). The bench digest is
 unchanged (`9511baae…`, pinned to `d4a7127a…`). Recompute after any merge that touches these files.
 
 ## Deletes
