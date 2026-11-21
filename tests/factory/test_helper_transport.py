@@ -98,7 +98,7 @@ def serve(frame):
     with patch.object(run, "BENCH", TMP / "bench"), patch.object(run, "prompt", lambda *a: "p"), \
          patch.object(run, "prepare_delivery", delivery), patch.object(run, "bench_manifest", lambda: "m"), \
          patch.object(run, "make_pilots", lambda c, ids, concurrent: open(TMP / "pilots", "a").write(json.dumps(ids) + "\\n")), \
-         patch.object(run, "_author_try", author), patch.object(run, "checkpoint", checkpoint), \
+         patch.object(run, "_author_try", author), patch.object(run, "try_checkpoint", checkpoint), \
          patch.object(run, "calibration_identity", identity), patch.object(helper_link, "_prepare", lambda w: None), \
          patch.object(run, "verdicts", lambda c, recs: [{"clean": True, "solved": True}] * len(recs)):
         return helper_link.serve(frame)

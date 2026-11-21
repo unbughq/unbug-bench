@@ -129,7 +129,8 @@ class SubmittedAtTheBellTests(unittest.TestCase):
             (root / "judge_breadth/results.json").write_text(json.dumps([{**self.LEGACY, "workspace": str(workspace)}]))
             runner = types.SimpleNamespace(
                 family=lambda x: x, jload=lambda path, default=None: json.loads(pathlib.Path(path).read_text())
-                if pathlib.Path(path).is_file() else default, make_pilots=Mock(), calibrate=Mock())
+                if pathlib.Path(path).is_file() else default, make_pilots=Mock(), calibrate=Mock(),
+                seed_tampered=lambda records: False)
             seen = []
             def review(c, r, gate, inputs, text, validate):
                 seen.append(json.loads((inputs["attempts"] / "attempts.json").read_text()))
@@ -140,6 +141,37 @@ class SubmittedAtTheBellTests(unittest.TestCase):
             self.assertEqual(counts, {"wrong_fix": 1, "missing_info": 0, "judge_too_narrow": 0})
             self.assertEqual(seen[0][0]["scientific_outcome"], "demonstrated_failure")
             runner.calibrate.assert_not_called()
+
+    def test_a_seed_tamper_try_is_reviewed_as_failed_and_not_rerun(self):
+        """2a7b2a-h4 (11-21): run.calibrate scored the tamper try failed; G17 must not rerun it into InfrastructureExhausted."""
+        import run
+        tamper = {"errors": [{"stage": "reset", "message": "Baseline changed during application startup"},
+                             {"stage": "installation", "message": "Frozen installation identity changed"}],
+                  "checker": {"valid": False}, "judge": {"invalid": "reset failed", "paths": {}, "checks": {}, "pass": False}}
+        row = {"try": 1, "solved": False, "stop_reason": "completed", "guard_submitted": True, "checked_runs": 1,
+               "solved_runs": 0, "errors": 0, "seed_data_changed": True, "scientific_outcome": "demonstrated_failure"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp).resolve()
+            c = FairnessTests.context(None, root)
+            c.case = root / "case"
+            workspace = root / "try-1"
+            (workspace / "guard").mkdir(parents=True)
+            (workspace / "guard/db.sql").write_text("UPDATE inventory_level SET reserved_quantity = 5;")
+            (workspace / "execution.json").write_text(json.dumps({"summary": {"runs": 1, "error_runs": 1, "invalid_runs": 1},
+                                                                  "records": [tamper]}))
+            (root / "strong_calibrator").mkdir()
+            (root / "strong_calibrator/results.json").write_text(json.dumps([{**row, "workspace": str(workspace)}]))
+            runner = types.SimpleNamespace(
+                family=lambda x: x, jload=lambda path, default=None: json.loads(pathlib.Path(path).read_text())
+                if pathlib.Path(path).is_file() else default, make_pilots=Mock(), calibrate=Mock(),
+                checkpoint=Mock(side_effect=AssertionError("rerun")), seed_tampered=run.seed_tampered)
+            def review(c, r, gate, inputs, text, validate):
+                return validate({"tries": [{"try": 1, "label": "wrong_fix", "finding": "rewrites seeded data",
+                                            "evidence": "guard/db.sql"}]})
+            with patch("independent_review.review", review):
+                counts = fairness.review_attempts(c, runner, "G17", "strong_calibrator")
+            self.assertEqual(counts, {"wrong_fix": 1, "missing_info": 0, "judge_too_narrow": 0})
+            runner.checkpoint.assert_not_called()
 
 
 if __name__ == "__main__":

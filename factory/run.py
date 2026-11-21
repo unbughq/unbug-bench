@@ -1496,6 +1496,49 @@ def verdicts(c, records):
     return out
 
 
+# bin/bench.py's own errors for a guard whose installation changed the seeded data the checker reads (reset
+# stops at its baseline check after app start, so the installation receipt is never issued). G6 rejects its
+# raise-stock, change-kit and delete-x probes on this reset error.
+BASELINE_CHANGED = ("reset", "Baseline changed during application startup")
+SEED_TAMPER_ERRORS = {BASELINE_CHANGED, ("installation", "Frozen installation identity changed")}
+
+
+def seed_tampered(records):
+    """Every run stopped only on the guard's own change to the seeded data: contestant.md forbids it, so the
+    batch is that guard's failure, not infrastructure (founder 2026-11-21). Any other error in any run keeps
+    the batch invalid."""
+    def tampered(r):
+        errors = r.get("errors") if isinstance(r, dict) else None
+        if not isinstance(errors, list) or not all(isinstance(e, dict) for e in errors): return False
+        found = {(e.get("stage"), e.get("message")) for e in errors}
+        return BASELINE_CHANGED in found and found <= SEED_TAMPER_ERRORS
+    return isinstance(records, list) and bool(records) and all(map(tampered, records))
+
+
+def try_checkpoint(c, scenarios, guard, runs, seed, label):
+    """checkpoint() for one calibrator try (a g10- label, so never reused), except that a complete batch whose
+    every run is seed_tampered is returned as the try's evidence instead of being retried as infrastructure.
+    checkpoint() itself is unchanged: every bench gate's identity hashes it."""
+    args = [BENCH / "bin/checkpoint"] + [x for s in scenarios for x in ("--scenario", s)]
+    if getattr(c.args, "bench_workers", 1) > 1:
+        args += ["--factory-workers", c.args.bench_workers]
+    from checkpoint_evidence import read_completed
+    from run_validity import InvalidInfra
+    identity = {"operation": "checkpoint", "case": case_hash(c), "guard": tree_digest(guard),
+                "scenarios": [tree_digest(s) for s in scenarios], "runs": runs, "seed": seed,
+                "slot": None, "label": label, "bench": getattr(c, 'manifest0', None),
+                "workers": getattr(c.args, 'bench_workers', 1)}
+    def read(p):
+        try:
+            return read_completed(p, runs, label, require_valid=True)
+        except InvalidInfra:
+            completed = read_completed(p, runs, label, require_valid=False)  # an incomplete batch stays infra
+            if not seed_tampered(completed[1]): raise
+            return completed
+    command = args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label]
+    return _checkpoint_call(c, identity, command, None, None, read)
+
+
 def find_guard(c, name, scenario):
     # The scenario's own example first (names like "repaired" repeat across scenarios); then case/bench
     # guards; then another scenario's example only if exactly one has it (S7b reuses S7a's) - never a guess.
@@ -2785,8 +2828,8 @@ def hosted_try(c, job):
         return helpers.pack_stop(str(error), interruption_label(error))
     execution = None
     if guard_submitted(ws / "guard"):
-        summary, recs = checkpoint(c, [c.case / "base"], ws / "guard", runs, job["seed"], "g10-" + name)
-        if not verdicts(c, recs): raise RuntimeError('calibrator checkpoint produced no runs')
+        summary, recs = try_checkpoint(c, [c.case / "base"], ws / "guard", runs, job["seed"], "g10-" + name)
+        if not seed_tampered(recs) and not verdicts(c, recs): raise RuntimeError('calibrator checkpoint produced no runs')
         execution = {"summary": summary, "records": recs}
     return helpers.pack_try(ws / "guard", capped, execution)
 
@@ -2838,8 +2881,10 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
             commit({"try": i, "solved": False, "guard_submitted": False,
                             "stop_reason": {"timeout": "time_limit", "call_limit": "call_limit"}.get(capped, "completed"),
                             "why": f"no guard written{' (' + capped + ')' if capped else ''}"}, ws); continue
-        summary, recs = execution or checkpoint(c, [base], ws / "guard", runs, c.seed + i, "g10-" + name)
-        v = verdicts(c, recs)
+        summary, recs = execution or try_checkpoint(c, [base], ws / "guard", runs, c.seed + i, "g10-" + name)
+        # A guard that rewrote the seeded data failed every run of its own try (founder 2026-11-21).
+        tampered = seed_tampered(recs)
+        v = [{"clean": True, "broken": True, "solved": False}] * len(recs) if tampered else verdicts(c, recs)
         if not v: raise RuntimeError('calibrator checkpoint produced no runs')  # infrastructure, not the pilot
         # Only a completed valid execution can advance the scientific attempt.
         from calibration import atomic_results
@@ -2850,6 +2895,7 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
         commit({"try": i, "solved": all(x["solved"] for x in v), "failed_checks": sorted(failed),
                         "violated_paths": sorted(violated), "errors": sum(not x["clean"] for x in v), "guard": str(ws / "guard"),
                         "guard_submitted": True, "checked_runs": len(v), "solved_runs": sum(x["solved"] for x in v),
+                        **({"seed_data_changed": True} if tampered else {}),
                         "stop_reason": {"timeout": "time_limit", "call_limit": "call_limit"}.get(capped, "completed")}, ws)
     summary, passes = series.finish()
     if collect_passes:

@@ -376,7 +376,7 @@ def _job_env(c):
             "UNBUG_FACTORY_SLOT": str(c.factory_slot) if hasattr(c, "factory_slot") else os.environ.get("UNBUG_FACTORY_SLOT")}
 
 
-def _read_batch(c, job, files, label):
+def _read_batch(c, job, files, label, *, require_valid=True):
     """(summary, records) of one checkpoint batch rebuilt on disk and read by the serial path's reader."""
     import types
     import checkpoint_evidence
@@ -386,7 +386,7 @@ def _read_batch(c, job, files, label):
     receipt = checkpoint_evidence.RECEIPT_PREFIX + json.dumps(
         {"version": 1, "path": str(out / "checkpoint.json"), "requested_runs": job["runs"]})
     summary, records, _ = checkpoint_evidence.read_completed(
-        types.SimpleNamespace(returncode=0, stdout=receipt, stderr=""), job["runs"], label, require_valid=True)
+        types.SimpleNamespace(returncode=0, stdout=receipt, stderr=""), job["runs"], label, require_valid=require_valid)
     import gate_state; gate_state.note_receipt(c, label, out)   # the gate's evidence covers helper batches too
     return summary, records
 
@@ -401,6 +401,7 @@ def try_shards(c, jobs, *, boundary=lambda: None) -> dict:
     of the identical job, so a stop or crash elsewhere never pays for the same attempt twice. A stopped
     try (a result, not a fault) is never saved."""
     store = c.work / "helper-tries"
+    from run_validity import InvalidInfra
 
     def accept(job, files, save=True):
         files = dict(files)
@@ -411,7 +412,11 @@ def try_shards(c, jobs, *, boundary=lambda: None) -> dict:
             ex = out["execution"]
             batch = {"checkpoint.json": json.dumps(ex["summary"]),
                      **{f"{i:02}.json": json.dumps(r) for i, r in enumerate(ex["records"], 1)}}
-            summary, records = _read_batch(c, job, batch, "g10-" + job["name"])
+            try: summary, records = _read_batch(c, job, batch, "g10-" + job["name"])
+            except InvalidInfra:   # run.try_checkpoint's one exception: the guard rewrote the seeded data
+                summary, records = _read_batch(c, job, batch, "g10-" + job["name"], require_valid=False)
+                import run
+                if not run.seed_tampered(records): raise
             out["execution"] = {"summary": summary, "records": records}
         if save and out["stopped"] is None:
             store.mkdir(parents=True, exist_ok=True)

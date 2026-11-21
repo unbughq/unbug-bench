@@ -99,7 +99,7 @@ class G10Tests(unittest.TestCase):
             i = seed - c_.seed
             return fake_files_exec(i)
         def delivery(case, bench, ws, **kw): ws.mkdir(parents=True); (ws / "DELIVERY.md").write_text("d")
-        for owner, n, v in [(run, "BENCH", root / "bench"), (run, "_author_try", author), (run, "checkpoint", checkpoint),
+        for owner, n, v in [(run, "BENCH", root / "bench"), (run, "_author_try", author), (run, "try_checkpoint", checkpoint),
                             (run, "prompt", lambda *a: "p"), (run, "prepare_delivery", delivery),
                             (run, "case_budget_boundary", lambda c_: None),
                             (run, "helper_try_authority", lambda c_, role, exposure, n: (Decimal("1"), n)),
@@ -206,6 +206,25 @@ class G10Tests(unittest.TestCase):
             self.assertEqual(self.local, [1])                                      # dropped, authored here
             self.assertEqual(self.rows(c)[0]["checked_runs"], 2)
             self.assertEqual(sorted(j["try"] for j in pool.jobs).count(1), helpers.MAX_ATTEMPTS)
+
+    def test_a_seed_tamper_try_scored_on_a_helper_is_accepted_as_a_failed_try(self):
+        """2a7b2a-h4 shape on a helper (founder 2026-11-21): the try counts as failed; it is not re-dispatched or re-authored."""
+        def tamper(i):
+            if i != 1: return fake_files(i)
+            errors = [{"stage": "reset", "message": "Baseline changed during application startup"},
+                      {"stage": "installation", "message": "Frozen installation identity changed"}]
+            recs = [{"run": n, "errors": errors, "checker": {"valid": False},
+                     "judge": {"pass": False, "paths": {}, "checks": {}, "invalid": "reset failed"}} for n in (1, 2)]
+            summary = {"runs": 2, "pass_runs": 0, "error_runs": 2, "invalid_runs": 2, "paths": {}, "checks": {}}
+            return {**fake_files(i), "result.json": json.dumps({"capped": None, "execution": {"summary": summary, "records": recs}})}
+        pool = TryPool(mutate=tamper)
+        c = self.hosted("tamper", pool)
+        run.calibrate(c, "easy_calibrator")
+        self.assertEqual((self.local, self.checkpoints), ([], []))
+        self.assertEqual(sorted(j["try"] for j in pool.jobs), [1, 2, 3])
+        first = self.rows(c)[0]
+        self.assertEqual((first["solved"], first["errors"], first["checked_runs"], first["solved_runs"], first["scientific_outcome"]),
+                         (False, 0, 2, 0, "demonstrated_failure"))
 
     def test_money_authority_sized_up_front_for_all_tries(self):
         c = self.context("money")

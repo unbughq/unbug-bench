@@ -407,7 +407,7 @@ class DeliveryTests(unittest.TestCase):
                     return {}, [{}, {}]
                 for obj, name, value in ((run, "BENCH", self.bench), (run, "pilot_home", lambda _: home),
                         (run, "sh", shell), (run, "shred_tree", lambda p, **kw: shutil.rmtree(p) if p.exists() else None),
-                        (run, "model_call", model), (run, "checkpoint", checkpoint),
+                        (run, "model_call", model), (run, "try_checkpoint", checkpoint),
                         (run, "verdicts", lambda ctx, rows: [{"clean": True, "solved": True}] * len(rows)),
                         (exam_responder, "owner_channel", owner), (bench, "command", command)):
                     stack.enter_context(mock.patch.object(obj, name, value))
