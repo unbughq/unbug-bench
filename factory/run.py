@@ -2148,6 +2148,23 @@ G2_SOURCE_RULINGS = (
                                  "runs. It documents intended behaviour only: no defect, issue, fix or workaround is "
                                  "reported; it does not report this case's bug.",
                     "reports_this_bug": False}},
+    # Founder 2026-11-21 10:10 handed case decisions to Claude ("Make the best decisions for the cases"); `by` stays
+    # "founder" because g2_source_ruling accepts only that. 5813be-h6's one held row: a Vercel bot wall, no archive.
+    {"gate": "G2", "kind": "hand_checked", "by": "founder", "at": "2026-11-21", "case": "case-import-5813be-h6-1",
+     "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf",
+     "url": "https://www.answeroverflow.com/m/1468225994971418839",
+     "ruling": "Hand checked: the runner gets a Vercel bot-wall 429 and no archive exists; Claude read the full thread "
+               "in a browser and decided under the founder's 2026-11-21 10:10 delegation; it does not report this "
+               "case's bug.",
+     "hand_check": {"checked_at": "2026-11-21", "checked_by": "Claude (founder delegation 2026-11-21)",
+                    "page_says": "A Medusa Community thread (Feb 2026, Medusa v2) asking why a checkout reservation is "
+                                 "made at a different stock location than the chosen shipping option's, and how to make "
+                                 "reservations follow the shipping location. Two replies: one says this is expected "
+                                 "(availability and reservations are per sales channel, not per shipping option) and "
+                                 "suggests separate sales channels; one agrees it should be documented. It never mentions "
+                                 "fulfillment, stock deducted at a different warehouse than the one that shipped, or "
+                                 "per-warehouse count drift; it does not report this case's bug.",
+                    "reports_this_bug": False}},
 )
 
 

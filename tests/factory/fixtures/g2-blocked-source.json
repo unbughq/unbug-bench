@@ -1,5 +1,5 @@
 {
- "_source": "Read in memory, 2026-11-20 ~10:40 UTC, from each held case's latest CASE_SNAPSHOT on the control VM (nothing written there): the flagged row (query and note left out), the runner's current receipt for that URL (response bodies left out) and the reviewer's retained G2 answer for that row (ordinary-retries). Verbatim except the 18681d answer's two free-text fields (answer_redacted), which name the case's bug. 5813be (added 2026-11-20 ~17:30 UTC, read the same way): its two docs-page rows, each a live HTTP 200 JS loading shell the reviewer left unresolved; createOrderFulfillmentWorkflow from case-import-5813be-h3-1's latest snapshot, api/admin/orders/create-fulfillment (first of its 4 flagged rows) from case-import-5813be-h1-1's; both answers verbatim.",
+ "_source": "Read in memory, 2026-11-20 ~10:40 UTC, from each held case's latest CASE_SNAPSHOT on the control VM (nothing written there): the flagged row (query and note left out), the runner's current receipt for that URL (response bodies left out) and the reviewer's retained G2 answer for that row (ordinary-retries). Verbatim except the 18681d answer's two free-text fields (answer_redacted), which name the case's bug. 5813be (added 2026-11-20 ~17:30 UTC, read the same way): its two docs-page rows, each a live HTTP 200 JS loading shell the reviewer left unresolved; createOrderFulfillmentWorkflow from case-import-5813be-h3-1's latest snapshot, api/admin/orders/create-fulfillment (first of its 4 flagged rows) from case-import-5813be-h1-1's; both answers verbatim. 5813be-h6 (added 2026-11-21 ~10:30 UTC, read the same way from case-import-5813be-h6-1's latest snapshot): its one held row, an answeroverflow thread behind a Vercel bot wall (HTTP 429, no Wayback copy); the answer is the one tools/check-g2-rulings.py picks, verbatim.",
  "cases": [
   {
    "answer": {
@@ -262,6 +262,59 @@
     "who": "attacker"
    },
    "snapshot": "eb3e93aa72db",
+   "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf"
+  },
+  {
+   "answer": {
+    "app_version": "2.19.0",
+    "archive_available": false,
+    "archive_checked": true,
+    "archive_snapshot_url": null,
+    "live_failure": "http_429",
+    "resolved": false,
+    "retrieved": false,
+    "retrieved_from": "none",
+    "same_bug": null,
+    "url": "https://www.answeroverflow.com/m/1468225994971418839",
+    "version_scope": "Applicability to Medusa 2.19.0 cannot be established because the live response is an HTTP 429 Vercel Security Checkpoint and the successful Wayback availability lookup returns an empty archived_snapshots object.",
+    "why": "The live page is blocked by HTTP 429 and Wayback has no snapshot, so this access failure remains unresolved and the supplied snippet cannot establish a match or exclusion."
+   },
+   "answer_file": "ordinary-retries/af814aa9c07532077c6932afd120e8686eafc191adfae79dce53ac6c19da15f4/answer-0.json",
+   "case": "case-import-5813be-h6-1",
+   "flagged_index": 3,
+   "flagged_rows": 16,
+   "receipt": {
+    "archive_available": false,
+    "archive_snapshot_url": null,
+    "at": "2026-11-21T09:21:05.159562+00:00",
+    "live_failure": "http_429",
+    "responses": [
+     {
+      "final_url": "https://www.answeroverflow.com/m/1468225994971418839",
+      "sha256": "5d5aaffb29bbe4e3cc18d5b0382eba95922f063f8eff906385406e24ccd5591f",
+      "status": 429,
+      "url": "https://www.answeroverflow.com/m/1468225994971418839"
+     },
+     {
+      "final_url": "https://archive.org/wayback/available?url=https%3A%2F%2Fwww.answeroverflow.com%2Fm%2F1468225994971418839",
+      "sha256": "9525e78def2ae97263dd6ea3c2a3499431722cea6af37406e77b89b863cbafc4",
+      "status": 200,
+      "url": "https://archive.org/wayback/available?url=https%3A%2F%2Fwww.answeroverflow.com%2Fm%2F1468225994971418839"
+     }
+    ],
+    "retrieved_from": "none",
+    "url": "https://www.answeroverflow.com/m/1468225994971418839"
+   },
+   "row": {
+    "ambiguous": true,
+    "app_version": "2.19.0",
+    "hit": false,
+    "kind": "web",
+    "retrieved": true,
+    "url": "https://www.answeroverflow.com/m/1468225994971418839",
+    "who": "attacker"
+   },
+   "snapshot": "b9751bd6c09f",
    "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf"
   }
  ]
