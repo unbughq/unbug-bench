@@ -2245,7 +2245,9 @@ def confirm_hits(c, flagged, *, retained_path=None):
             f"\"live_failure\": \"http_404\" | \"http_410\" | \"dns_failure\" | \"deleted\" | null, "
             f"\"why\": \"one sentence\"}}]}} with one row per supplied result, in the order given.")
     text += ("\nRunner-owned retrieval receipts and exact response bytes are in ./retrieval/. "
-             "Read those bytes for each supplied URL. Your retrieval/archive fields must agree with "
+             "Read those bytes for each supplied URL. A docs page whose live bytes are only a client-rendered shell "
+             "may have a second live response, its `index.html.md` twin: the same page as text; judge the page from it. "
+             "Your retrieval/archive fields must agree with "
              "receipts.json; a claimed fetch is not execution evidence. Do not modify retrieval files.\n")
     try:
         case_budget_boundary(c, c.models['reviewers'][0][0])

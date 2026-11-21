@@ -1,5 +1,6 @@
 """Real public execution/card replays; no Docker, providers, SSH, Boat or decryption."""
 import argparse
+import http.client
 import copy
 import datetime
 import gzip
@@ -158,6 +159,35 @@ class InvalidRunsTests(unittest.TestCase):
         self.assertEqual(run.checked_freshness_verdict(self.c, [row], [answer]), [])
         (self.work / 'retrieval/0-0.body').write_text('changed by reviewer')
         with self.assertRaises(InvalidInfra): retrieval.load(self.work / 'retrieval', [row])
+
+    def test_g2_docs_shell_page_keeps_its_markdown_twin(self):
+        # 1110a (18 Nov): docs.medusajs.com renders client-side; the reviewer needs the page's text twin.
+        page = 'https://docs.medusajs.com/resources/references/medusa-workflows/createAndCompleteReturnOrderWorkflow'
+        twin = page + '/index.html.md'
+        answers = {page: (200, page, b'<div>Loading...</div>'), twin: (200, twin, b'# createAndCompleteReturnOrderWorkflow'),
+                   'https://github.com/medusajs/medusa/issues/1': (200, 'https://github.com/medusajs/medusa/issues/1', b'issue')}
+        def fetched(url, **kwargs):
+            if isinstance(answers[url], Exception): raise answers[url]
+            status, final, body = answers[url]
+            return {'url': url, 'final_url': final, 'status': status}, body
+        def urls(directory, row_url=page):
+            receipt, = retrieval.retrieve([{'url': row_url}], self.work / directory, archive=False, access=True)
+            self.assertEqual(receipt['retrieved_from'], 'live')
+            return receipt, [r['url'] for r in receipt['responses']]
+        with patch.object(retrieval, 'fetch', side_effect=fetched) as fetch:
+            receipt, got = urls('docs')
+            self.assertEqual(got, [page, twin])
+            self.assertEqual([c['url'] for c in retrieval.judgment_projection([receipt])[0]['content']], [page, twin])
+            # An error body, a redirected twin or an HTML 200 is never kept as the page's text.
+            for name, answer in (('wall', (403, twin, b'denied')), ('moved', (200, page + '/other.md', b'# other')),
+                                 ('challenge', (200, twin, b'\xef\xbb\xbf\x0c<!doctype html>Checking your browser')),
+                                 ('cut', http.client.IncompleteRead(b'# partial'))):
+                answers[twin] = answer
+                receipt, got = urls(name)
+                self.assertEqual(got, [page], name)
+            fetch.reset_mock()   # other hosts are fetched once, as before
+            receipt, got = urls('gh', 'https://github.com/medusajs/medusa/issues/1')
+            self.assertEqual(fetch.call_count, 1)
 
     def test_g2_unflagged_model_retrieval_claims_cannot_clear_failed_fetches(self):
         rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]
