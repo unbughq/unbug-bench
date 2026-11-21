@@ -2148,6 +2148,23 @@ G2_SOURCE_RULINGS = (
                                  "runs. It documents intended behaviour only: no defect, issue, fix or workaround is "
                                  "reported; it does not report this case's bug.",
                     "reports_this_bug": False}},
+    # Founder 2026-11-21 10:10 handed case decisions to Claude ("Make the best decisions for the cases"); `by` stays
+    # "founder" because g2_source_ruling accepts only that. 5813be-h6's one held row: a Vercel bot wall, no archive.
+    {"gate": "G2", "kind": "hand_checked", "by": "founder", "at": "2026-11-21", "case": "case-import-5813be-h6-1",
+     "statement_sha256": "6bef1af43946d74cbe88637287e82623b2de34d97690efe9c0914394bd4f9dcf",
+     "url": "https://www.answeroverflow.com/m/1468225994971418839",
+     "ruling": "Hand checked: the runner gets a Vercel bot-wall 429 and no archive exists; Claude read the full thread "
+               "in a browser and decided under the founder's 2026-11-21 10:10 delegation; it does not report this "
+               "case's bug.",
+     "hand_check": {"checked_at": "2026-11-21", "checked_by": "Claude (founder delegation 2026-11-21)",
+                    "page_says": "A Medusa Community thread (Feb 2026, Medusa v2) asking why a checkout reservation is "
+                                 "made at a different stock location than the chosen shipping option's, and how to make "
+                                 "reservations follow the shipping location. Two replies: one says this is expected "
+                                 "(availability and reservations are per sales channel, not per shipping option) and "
+                                 "suggests separate sales channels; one agrees it should be documented. It never mentions "
+                                 "fulfillment, stock deducted at a different warehouse than the one that shipped, or "
+                                 "per-warehouse count drift; it does not report this case's bug.",
+                    "reports_this_bug": False}},
 )
 
 
@@ -3089,6 +3106,7 @@ def g10(c):
             contexts.append(child)
         from durable.checkpoints import concurrent_section
         with concurrent_section(c), ThreadPoolExecutor(max_workers=2) as pool:
+            futures = []
             try:
                 futures = [pool.submit(contextvars.copy_context().run, calibrate, child, role) for child, role in zip(contexts, ('strong_calibrator', 'easy_calibrator'))]
                 for future in as_completed(futures): future.result()
@@ -3096,6 +3114,12 @@ def g10(c):
             except BaseException as error:
                 if not (isinstance(error, BudgetError) and str(error) == 'budget_exhausted'):
                     c.role_cancel.set()
+                if isinstance(error, BudgetError) and str(error) == 'cancelled':
+                    # The testers share role_cancel: one's own stop (an exam owner failure) cancels the other.
+                    # Report that stop, not the other's derived cancel, whichever tester ended first.
+                    cause = next((f.exception() for f in as_completed(futures)
+                                  if f.exception() is not None and str(f.exception()) != 'cancelled'), None)
+                    if cause is not None: raise cause
                 raise  # executor joins all workers before seal/wipe; the section then publishes
         c.pilot_passes = [guard for child in contexts for guard in child.pilot_passes]
     else:
