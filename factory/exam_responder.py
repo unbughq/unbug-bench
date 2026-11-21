@@ -115,6 +115,10 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
                 raise r.BudgetError("owner_invalid_answer")
             return value, {"model": c.models["reviewers"][0][0]}
         except BaseException as error:
+            if isinstance(error, r.BudgetError) and str(error) in ("timeout", "call_limit"):
+                # _author_try scores these labels as the tester's own cap; the owner's leave a question unanswered.
+                cause, error = error, r.BudgetError("owner_invalid_answer")
+                error.__cause__ = cause
             failure.append(error)
             cancel.set()
             if getattr(c, "role_cancel", None) is not None:
@@ -218,6 +222,8 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
             raise failure[0]
     finally:
         body_error = sys.exc_info()[1]
+        # answer() set c.role_cancel, so the body stopped as 'cancelled': the owner's error is the real stop.
+        masked = bool(failure) and isinstance(body_error, r.BudgetError) and str(body_error) == "cancelled"
         cancel.set()
         deadline = time.monotonic() + OWNER_DRAIN_SECONDS
         with server.condition: server.accepting = False
@@ -230,6 +236,8 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
                 server.condition.wait(max(0, deadline - time.monotonic()))
             incomplete = bool(server.requests) or shutdown.is_alive() or thread.is_alive()
         server.server_close()
+        if masked:
+            raise failure[0]  # the cancellation stays chained as its __context__
         if incomplete:
             if body_error is None:
                 from run_validity import InvalidInfra

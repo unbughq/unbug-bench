@@ -119,6 +119,63 @@ class OwnerTests(unittest.TestCase):
         self.assertEqual(commands[-2][:4], ['docker','network','disconnect','-f'])
         self.assertEqual(commands[-1][:3], ['docker','network','rm'])
 
+    def test_owner_failure_is_the_g10_stop_not_the_cancellation_it_caused(self):
+        # 2abb0a: the owner's model call stopped (a router credit wait), answer() cancelled both testers,
+        # and G10 recorded "cancelled". The owner's own stop must reach the engine's classifier.
+        import threading, time
+        import run
+        from model_router import ProviderWait, Wait
+        from durable.contract import StepKind
+        from durable.classify import classify_wait
+        credit = ProviderWait("reviewer", Wait("credit", time.time() + 120,
+                                               route="openrouter/minimax/minimax-m3.1-flash", account="openrouter-key"))
+        def owner_call(*a, **k): raise credit
+        easy_stopped = threading.Event()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); case = root / "case"; case.mkdir()
+            (case / "fact-sheet.md").write_text("authored owner facts")
+            c = run.Ctx(); c.work, c.case, c.card = root, case, {}
+            c.args = types.SimpleNamespace(concurrent_roles=True, bench_workers=2)
+            c.models = {"reviewers": [["existing-reviewer"]]}
+            runner = types.SimpleNamespace(BENCH=_TEST_ROOT, model_call=owner_call, BudgetError=run.BudgetError,
+                                           jload=lambda p, default: default)
+            def calibrate(child, role):
+                if role == "easy_calibrator":   # no owner channel: it stops first, as on the VM
+                    self.assertTrue(child.role_cancel.wait(10))
+                    easy_stopped.set()
+                    raise run.BudgetError("cancelled")
+                workspace = root / "strong"; workspace.mkdir()
+                with owner_server(child, runner, workspace) as url:
+                    with self.assertRaises(urllib.error.HTTPError) as refused:
+                        urllib.request.urlopen(urllib.request.Request(url, data=b'{"question":"authored"}'), timeout=5)
+                    refused.exception.close()
+                    self.assertTrue(child.role_cancel.is_set() and easy_stopped.wait(10))
+                    time.sleep(.1)
+                    raise run.BudgetError("cancelled")   # the pilot model call, cancelled by answer()
+            with patch.object(run, "parallel_calibrators", return_value=True), patch.object(run, "sh"), \
+                 patch.object(run, "pilot_wall"), patch.object(run, "shred_tree"), patch.object(run, "calibrate", calibrate):
+                with self.assertRaises(ProviderWait) as stopped:
+                    run.g10(c)
+        self.assertIs(stopped.exception, credit)
+        self.assertEqual(str(stopped.exception.__context__), "cancelled")
+        result, _ = classify_wait(stopped.exception, step=StepKind.GATES, now=time.time())
+        self.assertEqual(result.reason, "router:credit")
+        # The owner's own 120 s window or call cap must not surface as "timeout"/"call_limit":
+        # _author_try would score that as a capped tester try.
+        for label in ("timeout", "call_limit"):
+            def capped(*a, **k): raise run.BudgetError(label)
+            runner.model_call, c.role_cancel = capped, threading.Event()
+            with tempfile.TemporaryDirectory() as tmp, self.assertRaises(run.BudgetError) as stopped:
+                (pathlib.Path(tmp) / "fact-sheet.md").write_text("authored owner facts")
+                c.case = pathlib.Path(tmp)
+                with owner_server(c, runner, pathlib.Path(tmp)) as url:
+                    with self.assertRaises(urllib.error.HTTPError) as refused:
+                        urllib.request.urlopen(urllib.request.Request(url, data=b'{"question":"authored"}'), timeout=5)
+                    refused.exception.close()
+                    self.assertTrue(c.role_cancel.is_set())
+                    raise run.BudgetError("cancelled")
+            self.assertEqual((str(stopped.exception), str(stopped.exception.__cause__)), ("owner_invalid_answer", label))
+
     def test_private_facts_client_protocol_and_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
