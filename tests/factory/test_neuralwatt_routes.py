@@ -24,6 +24,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import uuid
+import budget
 import model_router as router
 from token_prices import (FREE_ROUTES, GO_ROUTES, GATED_OPENROUTER, NW_OWN_PRICES, NW_TWINS, NW_ROUTES, go_step_cost, nw_maximum, nw_request_worst,
                           openrouter_gate_maximum, runtime_prices)
@@ -133,6 +134,82 @@ class RealStateRoutes(unittest.TestCase):
         for bad in ('x', [1], ['a b'], ['x/y'] * 17):
             with self.assertRaisesRegex(ValueError, 'invalid chain'):
                 self.store.rpc('acquire', dict(LEGACY['request'], id=uuid.uuid4().hex, deadline=self.now + 86400, chain=bad))
+
+    def burst(self, **config):
+        # The live config: neuralwatt-key capacity 3 (Basic's guaranteed seats); burst 6 when the provider has room.
+        self.store = router.Store(self.store.path, clock=lambda: self.now, capacities={'neuralwatt-key': 3}, **config)
+        self.spend_go()
+        return lambda: self.store.rpc('capacity', {'route': 'neuralwatt/mimo-v2.6-pro'})['slots']
+
+    def refuse(self, lease, reason):
+        # A Neuralwatt 429 as the worker classifies it, published before its seat is freed (model_runtime).
+        failure = budget.classify_provider_failure('429 Too Many Requests', lease['route'], status_code=429)
+        self.assertEqual(failure['reason'], 'rate')
+        self.store.rpc('observe', dict(lease_id=lease['lease_id'], reason=reason, observation_id=lease['lease_id'] + ':failure'))
+        self.store.rpc('finish', dict(lease_id=lease['lease_id'], outcome='interrupted', receipt=None))
+
+    def test_a_refusal_above_the_neuralwatt_floor_drops_to_the_floor_without_blocking(self):
+        for reason in ('rate', 'quota'):
+            with self.subTest(reason=reason):
+                self.setUp()
+                slots = self.burst(burst_capacities={'neuralwatt-key': 6})
+                leases = [self.acquire(m) for m in (MIMO, GLM, DEEPSEEK) * 2]
+                self.assertEqual({(l['kind'], l['pool']) for l in leases}, {('lease', 'neuralwatt-key')})
+                self.assertEqual(slots(), 0)
+                self.refuse(leases[5], reason)   # six held: the burst ran out, not the plan
+                health = self.store.rpc('status', {})['health']['neuralwatt-key']
+                self.assertEqual((health.get('reason'), health.get('blocked_until', 0), health.get('failures', 0)), (None, 0, 0))
+                self.assertEqual(health['burst_until'], self.now + router.BURST_COOLDOWN_SECONDS)
+                self.assertEqual(slots(), 0)   # five held against the floor of three
+                for lease in leases[:3]: self.store.rpc('finish', dict(lease_id=lease['lease_id'], outcome='done', receipt=None))
+                self.assertEqual(slots(), 1)
+                retry = self.acquire(DEEPSEEK)   # the refused call, on a floor seat
+                self.assertEqual((retry['kind'], retry['pool']), ('lease', 'neuralwatt-key'))
+                self.assertEqual(slots(), 0)
+                self.now += router.BURST_COOLDOWN_SECONDS / 2
+                for lease in (*leases[3:5], retry): self.store.rpc('renew', {'lease_id': lease['lease_id']})
+                self.assertEqual(slots(), 0)
+                self.now += router.BURST_COOLDOWN_SECONDS / 2
+                self.assertEqual(slots(), 3)   # the burst is back: 6 less the three held
+
+    def test_a_refusal_at_the_floor_still_blocks_the_pool(self):
+        for config in ({'burst_capacities': {'neuralwatt-key': 6}}, {}):   # {}: no burst key, exactly as before
+            with self.subTest(config=config):
+                self.setUp()
+                slots = self.burst(**config)
+                leases = [self.acquire(m) for m in (MIMO, GLM, DEEPSEEK)]
+                self.assertEqual(slots(), 3 if config else 0)
+                self.refuse(leases[0], 'rate')
+                health = self.store.rpc('status', {})['health']['neuralwatt-key']
+                self.assertEqual((health['reason'], health['blocked_until'], health['failures']), ('rate', self.now + 900, 1))
+                self.assertNotIn('burst_until', health)
+                self.assertEqual(slots(), 0)
+
+    def test_a_peer_finishing_before_the_observe_still_counts_as_the_burst(self):
+        # OpenCode retries a 429 before its final error event; a peer that finishes meanwhile leaves the
+        # floor or fewer held when the worker observes. The pool was above its floor moments ago: no block.
+        slots = self.burst(burst_capacities={'neuralwatt-key': 6})
+        leases = [self.acquire(m) for m in (MIMO, GLM, DEEPSEEK, MIMO)]
+        self.store.rpc('finish', dict(lease_id=leases[0]['lease_id'], outcome='done', receipt=None))
+        self.now += 30
+        self.refuse(leases[3], 'rate')   # observed with three held
+        health = self.store.rpc('status', {})['health']['neuralwatt-key']
+        self.assertEqual((health.get('reason'), health.get('blocked_until', 0)), (None, 0))
+        self.assertEqual(slots(), 1)   # capped at the floor: two held
+        # A whole window at or below the floor: the next refusal is the plan's, and blocks as before.
+        for _ in range(int(router.BURST_COOLDOWN_SECONDS / router.RENEW_SECONDS)):
+            self.now += router.RENEW_SECONDS
+            for lease in leases[1:3]: self.store.rpc('renew', {'lease_id': lease['lease_id']})
+        self.now += 1
+        self.refuse(leases[1], 'rate')
+        health = self.store.rpc('status', {})['health']['neuralwatt-key']
+        self.assertEqual((health['reason'], health['blocked_until']), ('rate', self.now + 900))
+        self.assertEqual(slots(), 0)
+
+    def test_a_burst_capacity_below_the_floor_or_not_an_int_is_refused(self):
+        for burst in ({'neuralwatt-key': 2}, {'neuralwatt-key': 101}, {'neuralwatt-key': '6'}, {'neuralwatt': 6}):
+            with self.subTest(burst=burst), self.assertRaisesRegex(ValueError, 'invalid burst capacity'):
+                router.Store(self.store.path, capacities={'neuralwatt-key': 3}, burst_capacities=burst)
 
     def test_the_off_switch_keeps_an_offered_key_on_the_openrouter_twin(self):
         # Rollout step 3 ships the lane off (disabled_routes); the key offered changes nothing until step 6.

@@ -31,7 +31,7 @@ class ModelRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary); (root / 'transcripts').mkdir()
             c = types.SimpleNamespace(work=root, case=root / 'case', card={}, model_env={},
-                router_accounts=('claude-factory-token-2',),
+                router_accounts=('claude-token',),
                 ledger=root / 'ledger.json', args=argparse.Namespace(agent_timeout=3,
                 max_cost=5, max_role_calls=10, max_total_calls=20,
                 no_progress_minutes=1, max_zero_tokens=3))

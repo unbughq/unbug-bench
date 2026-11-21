@@ -43,7 +43,7 @@ class AttemptBudget(unittest.TestCase):
         self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
         self.ledger = self.root / 'ledger.json'
         self.attempt = SimpleNamespace(key='attempt-1', baseline_spent_usd=0, ceiling_usd=50)
-        self.store = model_router.Store(self.root / 'router.sqlite', capacities={'claude-factory-token-2': 2})
+        self.store = model_router.Store(self.root / 'router.sqlite', capacities={'claude-token': 2})
         secrets = self.root / 'secrets'; secrets.mkdir()
         for account in model_router.ACCOUNTS:
             (secrets / account).write_text('synthetic-token')

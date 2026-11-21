@@ -225,7 +225,7 @@ class MaximaTests(unittest.TestCase):
             store = router.Store(self.root/(name+'.sqlite'))
             record = store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=model,
                 accounts=['claude-token','claude-factory-token-2'],role='writer',deadline=time.time()+60))
-            self.assertEqual((record['route'],record['account']),(model,'claude-factory-token-2'))
+            self.assertEqual((record['route'],record['account']),(model,'claude-token'))
             self.assertTrue(record['price_source'].endswith(f':profile={name}:usd={CLAUDE_PROFILES[model]}'))
             store.rpc('finish',dict(lease_id=record['lease_id'],outcome='denied',receipt=None))
 
@@ -545,7 +545,7 @@ class MaximaTests(unittest.TestCase):
         # Neither a CLI nor an upstream connection is launched.
         store = router.Store(self.root / 'router.sqlite', credit_reader=lambda: Decimal('11.63'))
         secrets = self.root / 'secrets'; secrets.mkdir()
-        (secrets / 'claude-factory-token-2').write_text('synthetic-only')
+        (secrets / 'claude-token').write_text('synthetic-only')
         runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(),
             lambda path, **kw: shutil.rmtree(path), Mock())
         for outcome in ('done', 'interrupted', 'denied', 'containment_denied', 'too_large'):
@@ -563,7 +563,7 @@ class MaximaTests(unittest.TestCase):
                     case_id=channel['case'], batch_id=channel['batch'], job_id=outcome,
                     batch_deadline=deadline, source_generation=None,
                     engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])),
-                    router_accounts=('claude-factory-token-2',))
+                    router_accounts=('claude-token',))
                 def process(cmd, cwd, env, transcript, ledger, timeout, **kw):
                     row = json.loads(path.read_text())['invocation_reservations'][kw['lease_id']]
                     self.assertEqual(row['maximum_usd'], '50.000000000')
@@ -915,7 +915,7 @@ class ProtocolTests(unittest.TestCase):
             finally:handler_done.set()
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
-            account = 'openrouter-key' if paid else 'claude-factory-token-2'
+            account = 'openrouter-key' if paid else 'claude-token'
             (ram/account).write_text('synthetic-only')
             deadline=float(int(time.time())+3600)
             channel=dict(schema=1,batch='synthetic',job='interrupt',case='case-interrupt',
@@ -1090,7 +1090,7 @@ class ProtocolTests(unittest.TestCase):
         for model in LEGACY_CLAUDE_PROFILES:
             with tempfile.TemporaryDirectory() as temporary:
                 root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
-                (ram/'claude-factory-token-2').write_text('synthetic-oauth-only')
+                (ram/'claude-token').write_text('synthetic-oauth-only')
                 c=SimpleNamespace(work=root,case=root,case_id='synthetic',
                     card={'roles':{'writer':{'model':model}}},ledger=root/'ledger.json',
                     batch_id='b',job_id='j',batch_deadline=time.time()+3600,

@@ -181,7 +181,10 @@ def routes(model, accounts=ACCOUNTS):
     for route in chain(model):
         billing = ('subscription' if route.startswith(('claude/', 'codex/', 'opencode-go/')) else
                    'free' if route.endswith(('-free', ':free')) else 'paid')
-        labels = (('claude-factory-token-2', 'claude-token') if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
+        # claude-token first; the small account only as its fallback (eligible() below), and never for Mythos,
+        # which the small account does not have (founder 2026-11-21: other work runs on the small account).
+        labels = ((('claude-token',) if 'mythos' in route.lower() else ('claude-token', 'claude-factory-token-2'))
+                  if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
                   ('openrouter-key',) if route.startswith('openrouter/') else
                   ('neuralwatt-key',) if route.startswith('neuralwatt/') else
                   ACCOUNTS[2:4] if route.startswith('opencode-go/') or route in ACCOUNT_FREE_ROUTES
@@ -418,6 +421,16 @@ def _hold(route):
     return _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
 
 
+# A pool with a burst capacity (router config `burst_capacities`, e.g. Neuralwatt Basic: 3 guaranteed, 6 when
+# the provider has room) leases up to its burst. A rate or quota refusal while the pool held more seats than
+# its floor (`capacities`) at any time in the last BURST_COOLDOWN_SECONDS is the burst running out, not the
+# plan: the pool drops to its floor for that long instead of being blocked. The window, not the count at
+# observe time, because OpenCode retries a 429 before it gives up and peers finish meanwhile. A refusal after
+# that long at or below the floor blocks the pool as before. ponytail: 300 s is a guess at Neuralwatt's burst
+# recovery; a real plan exhaustion during a burst takes up to one window of refused calls before it blocks.
+BURST_COOLDOWN_SECONDS = 300
+
+
 # A balance the background pass (reconcile_forever) read at most this long ago serves paid_reserve without a
 # provider round trip; an older or missing one is read live, as before the cache.
 CREDIT_FRESH_SECONDS = 120
@@ -427,7 +440,7 @@ class Store:
     """One short SQLite transaction per RPC. The only process-local state is the provider balance that
     refresh_credit reads off the request path (`balance`: nano-dollars and the time read began)."""
     def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None,
-                 paid_ceiling_usd=None, disabled_routes=()):
+                 paid_ceiling_usd=None, disabled_routes=(), burst_capacities=None):
         approved_ceiling = None if paid_ceiling_usd is None else _nano(paid_ceiling_usd, ROUND_FLOOR)
         if approved_ceiling is not None and approved_ceiling > 2**63 - 1:
             raise ValueError('invalid paid ceiling')
@@ -439,6 +452,10 @@ class Store:
         # skipped like disabled routes, so a call moves on along its chain instead of waiting for a seat.
         if any(type(n) is not int or not 0 <= n <= 100 for n in self.capacities.values()):
             raise ValueError('invalid lane capacity')
+        self.burst_capacities = burst_capacities or {}
+        if any(p not in ACCOUNTS or type(n) is not int or not self.capacities.get(p, 1) <= n <= 100
+               for p, n in self.burst_capacities.items()):
+            raise ValueError('invalid burst capacity')
         # Route prefixes the operator has switched off (e.g. "opencode-go/" while the Go plan's weekly
         # quota is spent): never leased or counted, while other routes of the same account pool, such
         # as free MiniMax on the Go accounts, stay leasable. A pool's capacity cannot do this.
@@ -516,13 +533,20 @@ class Store:
                 return next((health[k] for k in keys if k in health
                              and (lasting(k, health[k]) or health[k].get('blocked_until', 0) > now)), None)
             def eligible(route):
-                # Spare capacity and caller preferences never unlock the builder account.
-                second = health.get('claude-factory-token-2', {})
-                return (route['account'] != 'claude-token' or
-                        (second.get('reason') in ('rate', 'quota') and second.get('blocked_until', 0) > now))
+                # Spare capacity and caller preferences never unlock the small account: only claude-token's
+                # rate or quota block does (founder 2026-11-21).
+                first = health.get('claude-token', {})
+                return (route['account'] != 'claude-factory-token-2' or
+                        (first.get('reason') in ('rate', 'quota') and first.get('blocked_until', 0) > now))
+            def occupied(pool):
+                return sum(json.loads(r)['pool'] == pool for (r,) in db.execute('SELECT route FROM leases WHERE outcome IS NULL'))
             def free(route):
-                occupied = sum(json.loads(r)['pool'] == route['pool'] for (r,) in db.execute('SELECT route FROM leases WHERE outcome IS NULL'))
-                return 0 if not eligible(route) or blocked(route) else max(0, self.capacities.get(route['pool'], 1) - occupied)
+                pool = route['pool']
+                seats = (self.burst_capacities[pool] if pool in self.burst_capacities
+                         and health.get(pool, {}).get('burst_until', 0) <= now else self.capacities.get(pool, 1))
+                return 0 if not eligible(route) or blocked(route) else max(0, seats - occupied(pool))
+            for pool in self.burst_capacities:   # sampled on every RPC: each lease renews every RENEW_SECONDS
+                if occupied(pool) > self.capacities.get(pool, 1): health.setdefault(pool, {})['above_floor_at'] = now
             result = None
             if operation == 'paid_reserve':
                 result = self._paid_reserve(db, data, credit, fetched_at, started)
@@ -683,7 +707,10 @@ class Store:
                         refusals = old.get('refusals', 0) + (reason == 'credit' and old.get('reason') != 'credit')
                         reset = retry_at(reason, now=now, failures=refusals if reason == 'credit' else failures,
                                          reset_at=data.get('reset_at'))
-                        if lasting(key, old) and old['reason'] == 'credit' and reason != 'credit':
+                        if (reason in ('rate', 'quota') and route['pool'] in self.burst_capacities and not lasting(key, old)
+                                and old.get('above_floor_at', 0) > now - BURST_COOLDOWN_SECONDS):
+                            health[key] = dict(old, burst_until=now + BURST_COOLDOWN_SECONDS, observed_at=now)
+                        elif lasting(key, old) and old['reason'] == 'credit' and reason != 'credit':
                             # A 429 or quota on a call in flight never ends a credit block; lift_credit does.
                             old['blocked_until'] = max(old.get('blocked_until', 0), reset)
                         else:
@@ -914,8 +941,10 @@ def _account_order(case):
     LABELS = {'opencode': {1: 'opencode-go-key', 2: 'opencode-go-key-2'},
               'claude': {1: 'claude-token', 2: 'claude-factory-token-2', 3: 'claude-factory-token-3'}}
     preferred = {LABELS[p].get(n) for p,n in (case.card.get('provider_accounts') or {}).items() if p in LABELS}
-    # Workers are never sent the builder login; offering it turns a second-account quota wait into a credential fault.
-    offered = [a for a in getattr(case, 'router_accounts', ACCOUNTS) if a != 'claude-token' or (SECRETS / a).is_file()]
+    # A Claude login the worker was not sent is never offered: the router would lease it as the other login's
+    # fallback, turning that login's quota wait into a credential fault (2abb0a, 14 November).
+    offered = [a for a in getattr(case, 'router_accounts', ACCOUNTS)
+               if a not in ('claude-token', 'claude-factory-token-2') or (SECRETS / a).is_file()]
     return sorted(offered,
                   key=lambda a: (not (SECRETS / a).is_file(), a not in preferred))
 
@@ -1223,7 +1252,8 @@ def main():
     config = json.loads(args.config.read_text())
     store = Store(production_database(config), capacities=config.get('capacities'),
         accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit,
-        paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=config.get('disabled_routes', ()))
+        paid_ceiling_usd=config.get('paid_ceiling_usd'), disabled_routes=config.get('disabled_routes', ()),
+        burst_capacities=config.get('burst_capacities'))
     if args.lift_credit:
         print(json.dumps({'lift_credit': store.lift_credit(force=True)})); return
     if args.reconcile_once:
