@@ -149,7 +149,21 @@ def openrouter_gate_cost(route, usage):
     if 'cost' in usage:
         cost = usage['cost']
         if type(cost) not in (int, float) or not 0 <= cost < float('inf') or Decimal(str(cost)) > amount: return None
+    elif route in NW_ROUTES:
+        cached = nw_cached_tokens(usage)
+        if cached is None: return None
+        amount -= cached * (incoming - Decimal(profile['prices'][1])) / 1_000_000
     return amount
+
+
+def nw_cached_tokens(usage):
+    """A Neuralwatt usage's cached prompt tokens, or None if malformed. Neuralwatt sends no cost, but its list
+    cache rate is the pin and it never bills a standard request above its list (cae763-h6, 2026-11-21: 98%-cached
+    easy calibrator tries counted $1.10 of a $1.09 window at the full input rate for ~$0.25 at list)."""
+    details = usage.get('prompt_tokens_details', {})
+    cached = details.get('cached_tokens', 0) if isinstance(details, dict) else None
+    if type(cached) is not int or not 0 <= cached <= usage.get('prompt_tokens', -1): return None
+    return cached
 
 
 def runtime_prices(route):
