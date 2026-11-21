@@ -57,3 +57,11 @@ The register is not on main. The new row, to be numbered at merge:
   and `test_money_still_hard_stops_during_the_drain` (all four fail on the old code).
   `test_deadline_with_nothing_in_flight_is_a_hard_stop` and
   `test_the_drain_ceiling_is_a_hard_stop_with_steps_still_in_flight` pin the two ends.
+
+## ARCHITECTURE.md left unchanged on purpose
+
+Root `*.md` files are G8/G9 dependencies (`factory/gate_state.py` `DEPENDENCIES`). Editing ARCHITECTURE.md's
+guard paragraph re-keyed G8 and G9 on every case moved to the new plumbing, so the edit was reverted
+to its 0b204264 bytes. Its guard paragraph still says the deadline is a hard stop; this note supersedes it:
+the deadline stops new work, not a running step; the guard keeps renewing until no step is in flight, or
+`GATES_DEADLINE_S` past the deadline.
