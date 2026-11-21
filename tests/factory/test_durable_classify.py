@@ -269,6 +269,8 @@ class RealStops(unittest.TestCase):
         "provider_limit:": ("provider_limit", "router:provider_limit"),
         "provider_preflight_failed:x:x": ("infra_error", "router:preflight_failed"),
         "provider_routes_exhausted": ("provider_limit", "router:provider_wait"),
+        # exam_responder: a try ended while its owner question was still with the provider (unscored, not waste).
+        "provider_wait": ("provider_limit", "router:provider_wait"),
         "provider_wait_deadline": ("infra_error", "infra:deadline"),
         "refusal:": ("infra_error", "router:refusal"),
         "upstream_rejected": ("infra_error", "router:upstream_rejected"),
