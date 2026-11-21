@@ -34,7 +34,9 @@ class ServiceTests(unittest.TestCase):
             unit = configparser.ConfigParser(interpolation=None, strict=False)
             unit.read(path)
             self.assertEqual(unit["Service"]["Restart"], "always")
-            self.assertEqual(unit["Service"]["KillMode"], "control-group")
+            # SIGTERM to the controller only: its drain decides what finishes. control-group also
+            # killed the Boat helper preparing a worker, failing the attempt (7 November).
+            self.assertEqual(unit["Service"]["KillMode"], "mixed")
             self.assertGreater(int(unit["Service"]["TimeoutStopSec"]), DRAIN_S)
             self.assertEqual(unit["Unit"]["StartLimitIntervalSec"], "0")
 
