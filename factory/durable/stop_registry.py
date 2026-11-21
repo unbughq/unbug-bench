@@ -105,6 +105,11 @@ REGISTRY = {
     # Any cancel; 0ed1ef2d stopped a call's own cancel becoming the shared ledger's stop (2abb0a gates:9).
     "infra:cancelled": bug(test=
         "tests/factory/test_budget.py::BudgetTests::test_own_cancel_does_not_stop_peers_or_later_calls"),
+    # A tester try ended while its exam owner question was unanswered (often the tester CLI's own command
+    # timeout dropping ask-human). Was infra:cancelled; unscored and counted as an infra retry, as that was.
+    "infra:owner_closed_unanswered": bug(test=
+        "tests/factory/test_exam_responder.py::OwnerFailureTests::"
+        "test_a_try_that_ends_during_the_first_wait_or_answer_is_a_counted_infra_stop"),
     # Any admission processing failure; ba032666 named the second reviewer's calls (1110a-2's preflight).
     "admit:processing_failed": bug(test=
         "tests/factory/test_preflight_role_pin.py::PreflightRolePin::"
@@ -252,7 +257,7 @@ STOPS = {
         "freshness_repair_state_invalid", "freshness_review_unavailable", "freshness_source_blocked",
         "freshness_statement_changed", "freshness_unresolved", "malformed_output_exhausted",
         "ordinary_retry_completion_missing", "ordinary_retry_output_changed", "ordinary_retry_state_invalid",
-        "owner_invalid_answer", "stress_category_output_changed", "stress_category_state_invalid",
+        "owner_invalid_answer", "owner_closed_unanswered", "stress_category_output_changed", "stress_category_state_invalid",
         "stress_publication_configuration_missing", "stress_publication_not_quiescent", "stress_review_unresolved",
         "stress_validation_exhausted",
         # card stops written after the step's calls ended

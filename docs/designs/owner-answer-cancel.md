@@ -16,10 +16,11 @@
 - Unmask:
   - `owner_channel` runs the port cleanup on a copy whose `role_cancel` is None. This is how `release_pilot_home` and
     `dispose_diagnosis_pilot` already run their cleanup.
-  - `owner_server` raises the owner's failure whenever that failure is what cancelled the running try. It does so
-    whatever the tester's call raised on the way out: `cancelled`, or a `timeout` or `call_limit` reached at the same
-    moment. Before, the cancelled cleanup turned all of these into `cancelled`, so such a try was never scored. It
-    still isn't.
+  - `owner_server` raises the owner's failure when that failure set the running try's `role_cancel` and the tester's
+    call then ended `cancelled`.
+  - A tester `timeout` or `call_limit` that races the owner failure stays the tester's own cap, and `run._author_try`
+    scores it. On main, the cancelled cleanup turned such a race into `cancelled`. Keeping the tester's cap here
+    adds no new scoring rule: it is how any try that ends on its own cap is scored.
   - `g10` side by side: when a tester ends `cancelled`, the attempt raises the other tester's own stop, if it has one.
 - A lane wait is not an owner failure:
   - `model_router.await_lease` already waits for a lane and raises `ProviderWait` when its patience runs out.
@@ -39,6 +40,9 @@
     its port cleanup, and `owner_server`'s teardown then cancels the owner. When an owner call ends after `closing` is
     set, `answer()` records the failure but leaves the tester's `role_cancel` alone. That event is shared with the
     other G10 tester and with this tester's next try.
+  - One lock, `CLOSING_LOCK`, makes the check atomic. `answer()` holds it while it checks `closing` and sets
+    `role_cancel`, and every `closing.set()` holds it too. So an owner failure can't cancel a try that is ending at
+    that moment.
   - We did not use "the tester's remaining try time" as the ceiling. The client stops waiting at 600 s, so a longer owner
     wait would mean telling the tester something new (see below).
 - What a real owner failure is booked as:
@@ -51,18 +55,19 @@
   - The owner's own `timeout` or `call_limit` becomes `owner_invalid_answer` (`infra:owner_invalid_answer`).
     `run._author_try` scores a try that ends on `timeout` or `call_limit` as the tester's own cap. So an unmasked
     owner timeout would otherwise have scored the try.
-  - A try can end cleanly while its question is still with the provider, for example when the tester's CLI drops
-    ask-human on its own command timeout. The teardown's cancel then reaches the owner as `cancelled`, and the stop
-    is never that `cancelled`:
-    - after an earlier lane wait, it is that `ProviderWait`;
-    - in the first lane wait, or while the owner model is still answering, it is a plain `provider_wait`
-      (`router:provider_wait`, PROVIDER_LIMIT).
+  - A try can end cleanly while its question is still with the owner, for example when the tester's CLI drops
+    ask-human on its own command timeout. The owner may be waiting for a lane, or its model may still be answering.
+    The teardown's cancel then reaches the owner as `cancelled`. The stop becomes `owner_closed_unanswered`
+    (`infra:owner_closed_unanswered`, INFRA_ERROR).
     - The try stays unscored, as before. A try that ends on its own cap keeps that cap.
-  - The plain `provider_wait` has no reason or route, because `await_lease` does not hand back the wait it was in
-    when it was cancelled. It goes through the engine's ordinary stop path, not `write_provider_wait`, so no
-    `provider_wait.json` record is written. While the owner is still answering, it is not strictly a lane wait. It is
-    still the provider's latency, though, not our bug. Every INFRA_ERROR is booked as waste, so PROVIDER_LIMIT is the
-    only unscored outcome that isn't.
+    - It counts against `max_infra_retries_per_step` and leads to diagnosis like any other infra stop, as
+      `infra:cancelled` did.
+    - The money is unchanged: it is booked as waste exactly as `infra:cancelled` is today. The gain is a truthful
+      label for diagnosis, distinct from `infra:cancelled`.
+    - It is registered in `durable/classify.py` and `durable/stop_registry.py` (an open bug class, call scope).
+    - We tried a provider wait here and reverted it (goldfish diff 3). A PROVIDER_LIMIT that spent money is waste
+      too (`policy.settles_as_waste`). And `policy.decide` sleeps on every PROVIDER_LIMIT without counting it, so a
+      trigger that keeps happening would rerun paid G10 tries every 900 s forever and never reach diagnosis.
 
 **Unchanged (exam conditions).** When the owner fails:
 - the tester is still cancelled;
@@ -98,9 +103,10 @@ and in `exam_responder.contract`.
 The register is not on main. The new row, to be numbered at merge:
 - `new-owner-answer-cancel-1`: an exam owner answer with no free lane in 120 s cancels the strong tester, and three
   masks report `infra:cancelled` instead of the owner's error. Closed by `tests/factory/test_exam_responder.py`
-  `OwnerFailureTests`. The first six fail on the old code. `test_a_try_that_ends_during_a_lane_wait_reports_the_wait`
-  also checks that a try ending during a lane wait leaves `role_cancel` clear, both on a clean end and on the tester's
-  own timeout. Goldfish diff 2 added three more, which fail on the diff-1 head:
-  - `test_a_try_that_ends_during_the_first_wait_or_answer_is_an_unscored_provider_wait` (the reviewer's probe);
-  - `test_an_owner_failure_during_the_port_cleanup_cancels_no_one`;
-  - `test_an_owner_failure_wins_over_a_cap_reached_in_the_same_moment`.
+  `OwnerFailureTests` (nine tests). The first six fail on the old code.
+  - `test_a_try_that_ends_during_a_lane_wait_cancels_no_one` checks that a try ending during a lane wait leaves
+    `role_cancel` clear, both on a clean end and on the tester's own timeout.
+  - `test_a_try_that_ends_during_the_first_wait_or_answer_is_a_counted_infra_stop` is the diff-2 reviewer's probe.
+    It also checks that the stop is `infra:owner_closed_unanswered` with no provider sleep.
+  - `test_an_owner_failure_during_the_port_cleanup_cancels_no_one`.
+  - `test_a_tester_cap_racing_an_owner_failure_stays_the_tester_cap`.

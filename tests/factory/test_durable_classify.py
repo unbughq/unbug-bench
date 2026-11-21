@@ -221,6 +221,7 @@ class RealStops(unittest.TestCase):
         'ordinary_retry_output_changed': ("infra_error", 'infra:ordinary_retry_output_changed'),
         'ordinary_retry_state_invalid': ("infra_error", 'infra:ordinary_retry_state_invalid'),
         'owner_invalid_answer': ("infra_error", 'infra:owner_invalid_answer'),
+        'owner_closed_unanswered': ("infra_error", 'infra:owner_closed_unanswered'),
         'stress_category_output_changed': ("infra_error", 'infra:stress_category_output_changed'),
         'stress_category_state_invalid': ("infra_error", 'infra:stress_category_state_invalid'),
         'stress_publication_not_quiescent': ("infra_error", 'infra:stress_publication_not_quiescent'),
@@ -269,8 +270,6 @@ class RealStops(unittest.TestCase):
         "provider_limit:": ("provider_limit", "router:provider_limit"),
         "provider_preflight_failed:x:x": ("infra_error", "router:preflight_failed"),
         "provider_routes_exhausted": ("provider_limit", "router:provider_wait"),
-        # exam_responder: a try ended while its owner question was still with the provider (unscored, not waste).
-        "provider_wait": ("provider_limit", "router:provider_wait"),
         "provider_wait_deadline": ("infra_error", "infra:deadline"),
         "refusal:": ("infra_error", "router:refusal"),
         "upstream_rejected": ("infra_error", "router:upstream_rejected"),
