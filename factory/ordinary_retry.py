@@ -151,7 +151,12 @@ def answer(c, models, identity, kind, schema, request, invoke, validate, *, wall
         # A pending judgment with every leasable lane spent is the shape the cae763 loop saved: it was
         # queued before its call found no lane. It resets like an exhausted invalid answer.
         stuck = last and last['phase'] == 'pending' and last['kind'] == 'judgment'
-        if previous is not None and last and (last['phase'] == 'invalid' or stuck) and exhausted():
+        # A judgment whose call the router answered no_route also resets, exhausted or not: the router's
+        # disabled_routes, which this worker cannot see, left only spent lanes leasable, so every attempt
+        # would wait router:no_route again (1110a-h4, 2026-11-21: one malformed Neuralwatt MiMo answer;
+        # Go and OpenRouter MiMo disabled).
+        if previous is not None and last and ((last['phase'] == 'invalid' or stuck) and exhausted()
+                                              or stuck and last.get('no_route')):
             history = state.setdefault('exhausted_attempts', [])
             if not isinstance(history, list): raise BudgetError('ordinary_retry_state_invalid')
             history.append({'engine_attempt': previous, 'spent_routes': list(state['spent_routes'])})
@@ -227,6 +232,11 @@ def answer(c, models, identity, kind, schema, request, invoke, validate, *, wall
             save()
         try:
             invoke(context, text, output, completed)
+        except model_router.ProviderWait as error:
+            if error.wait.reason == 'no_route' and state['spent_routes']:
+                row['no_route'] = True
+                save()
+            raise
         finally:
             for key in ('budget_resumed', 'force_budget_resume'):
                 if hasattr(context, key): setattr(c, key, getattr(context, key))
