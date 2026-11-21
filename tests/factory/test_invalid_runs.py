@@ -135,14 +135,93 @@ class InvalidRunsTests(unittest.TestCase):
              patch.object(bench, 'reset'), patch.object(bench, 'load_scenario', return_value={}), \
              patch.object(run, 'model_call', side_effect=model) as paid, \
              patch.object(run, 'calibration_identity', return_value={'seed':42,'runs':1}):
-            with patch.object(run, 'checkpoint', return_value=batch('reset-invalid')):
+            with patch.object(run, 'try_checkpoint', return_value=batch('reset-invalid')):
                 with self.assertRaises(InvalidInfra): run.calibrate(self.c, 'easy_calibrator')
             self.assertFalse((self.work / 'easy_calibrator/results.json').exists())
-            with patch.object(run, 'checkpoint', return_value=batch('reference')):
+            with patch.object(run, 'try_checkpoint', return_value=batch('reference')):
                 result = run.calibrate(self.c, 'easy_calibrator')
             self.assertEqual(paid.call_count, 1)
             self.assertEqual(result['tries'], 1)
             self.assertEqual(result['solved'], 1)
+
+    def tamper_batch(self, extra=()):
+        """The 2a7b2a-h4 G10 shape (11-21): the real reset-failed S13 record carrying G6's real raise-stock reset
+        error and the installation error bench.py appends after it (twice under the factory pool), plus `extra`."""
+        summary, records = batch('reset-invalid')
+        probe = next(row for row in REAL['negative-controls']['files']['negative-tests.json'] if row['probe'] == 'raise-stock')
+        installation = {'stage': 'installation', 'message': 'Frozen installation identity changed'}
+        record = {**records[0], 'errors': [*probe['errors'][0], installation, installation, *extra]}
+        return {**summary, 'runs': 1, 'error_runs': 1, 'invalid_runs': 1, 'errors': record['errors']}, [record]
+
+    def published(self, name, summary, records):
+        from checkpoint_evidence import publish
+        directory = self.work / name; directory.mkdir()
+        for number, row in enumerate(records, 1): (directory / f'{number:02}.json').write_text(json.dumps(row))
+        return subprocess.CompletedProcess([], 0, publish(directory, summary, len(records)), '')
+
+    def test_seed_tamper_is_bench_and_g6_evidence(self):
+        source = (ROOT / 'bin/bench.py').read_text()
+        self.assertIn('raise RuntimeError("Baseline changed during application startup")', source)
+        self.assertIn('{"stage": "installation", "message": "Frozen installation identity changed"}', source)
+        controls = REAL['negative-controls']['files']['negative-tests.json']
+        for name in ('raise-stock', 'change-kit', 'delete-x'):   # G6 rejects these seed rewrites on this error
+            row = next(row for row in controls if row['probe'] == name)
+            self.assertEqual(row['outcome'], 'rejected')
+            self.assertTrue(run.seed_tampered([{'errors': errors} for errors in row['errors']]))
+        self.assertTrue(run.seed_tampered(self.tamper_batch()[1]))
+        # Anything else in any run is not the guard's tamper alone: infrastructure, as before.
+        _, unrelated = batch('reset-invalid')
+        self.assertFalse(run.seed_tampered(unrelated))
+        self.assertFalse(run.seed_tampered([*self.tamper_batch()[1], *unrelated]))
+        self.assertFalse(run.seed_tampered(self.tamper_batch([{'stage': 'traffic', 'message': 'timeout'}])[1]))
+        self.assertFalse(run.seed_tampered([{'errors': [{'stage': 'installation', 'message': 'Frozen installation identity changed'}]}]))
+        for empty in ([], None, [{}], [{'errors': []}], batch('reference')[1]): self.assertFalse(run.seed_tampered(empty))
+
+    def test_2a7b2a_seed_tamper_fails_the_try_and_the_next_try_runs(self):
+        (self.c.case / 'case.json').write_text(json.dumps(REAL['suffix-case']['files']['case.json']))
+        self.c.args.pilot_tries, self.c.args.pilot_runs = 2, 1
+        self.c.args.resume = None; self.c.pilot_passes = []
+        home = self.work / 'pilot'; home.mkdir()
+        bench_calls = [self.published('tamper', *self.tamper_batch()), self.published('good', *batch('reference'))]
+        def delivery(case, bench_root, ws, **kwargs):
+            ws.mkdir(parents=True); (ws / 'promise.md').write_text(PRACTICE['files']['promise.md'])
+        def shell(c, argv, **kwargs):
+            if Path(argv[0]).name == 'checkpoint': return bench_calls.pop(0)
+            if argv[:3] == ['sudo', 'cp', '-a'] and Path(argv[3]).exists(): shutil.copytree(argv[3], argv[4])
+        def model(c, chain, text, dest, name, **kwargs):
+            shutil.copytree(self.c.case / 'guards/reference', dest / 'guard')
+        import bench
+        with patch.object(run, 'prepare_delivery', side_effect=delivery), patch.object(run, 'pilot_home', return_value=home), \
+             patch.object(run, 'sh', side_effect=shell), patch.object(run, 'shred_tree', side_effect=lambda p, **kw: shutil.rmtree(p) if p.exists() else None), \
+             patch.object(bench, 'reset'), patch.object(bench, 'load_scenario', return_value={}), patch.object(run, 'case_budget_boundary'), \
+             patch.object(run, 'model_call', side_effect=model) as paid, \
+             patch.object(run, 'calibration_identity', return_value={'seed': 42, 'runs': 1}):
+            result = run.calibrate(self.c, 'strong_calibrator')
+        self.assertEqual((paid.call_count, bench_calls), (2, []))   # one bench batch per try: no infra retry
+        self.assertEqual((result['tries'], result['solved']), (2, 1))
+        self.assertEqual(result['scientific']['outcomes']['demonstrated_failure'], 1)
+        first = json.loads((self.work / 'strong_calibrator/results.json').read_text())[0]
+        self.assertEqual((first['solved'], first['errors'], first['checked_runs'], first['solved_runs']), (False, 0, 1, 0))
+        self.assertTrue(first['seed_data_changed'])
+        self.assertTrue(run.seed_tampered(json.loads((Path(first['workspace']) / 'execution.json').read_text())['records']))
+        journal = json.loads((self.work / 'infra-attempts.json').read_text())
+        self.assertTrue(journal and all(row['invalid_attempts'] == 0 for row in journal.values()))
+        # The engine's next attempt on the same guard is not refused (2a7b2a-h4 was, by its journal).
+        with patch.object(run, 'sh', return_value=self.published('again', *self.tamper_batch())) as shell_again, \
+             patch.object(run, 'case_budget_boundary'):
+            run.try_checkpoint(self.c, [self.c.case / 'base'], Path(first['guard']), 1, 43, 'g10-strong_calibrator')
+        self.assertEqual(shell_again.call_count, 1)
+
+    def test_unrelated_reset_failure_in_a_try_is_still_infrastructure(self):
+        calls = [self.published('bad1', *batch('reset-invalid')), self.published('bad2', *batch('reset-invalid'))]
+        mixed = self.published('mixed', *self.tamper_batch([{'stage': 'traffic', 'message': 'no response within 30 s'}]))
+        guard = self.c.case / 'guards/reference'
+        with patch.object(run, 'sh', side_effect=calls) as shell, patch.object(run, 'case_budget_boundary'):
+            with self.assertRaises(InfrastructureExhausted): run.try_checkpoint(self.c, [self.c.case / 'base'], guard, 3, 42, 'g10-strong_calibrator')
+            with self.assertRaises(InfrastructureExhausted): run.try_checkpoint(self.c, [self.c.case / 'base'], guard, 3, 42, 'g10-strong_calibrator')
+        self.assertEqual(shell.call_count, 2)   # retried once, then the journal refuses the unchanged execution
+        with patch.object(run, 'sh', side_effect=[mixed, mixed]), patch.object(run, 'case_budget_boundary'):
+            with self.assertRaises(InfrastructureExhausted): run.try_checkpoint(self.c, [self.c.case / 'base'], guard, 1, 7, 'g10-strong_calibrator')
 
     def test_g2_requires_real_retained_bytes_and_refuses_claim_only_answers(self):
         http = fixture('invalid-runs-http.json.gz')

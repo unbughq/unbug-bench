@@ -100,9 +100,11 @@ def review_attempts(c, r, gate, folder):
             guard = workspace / 'guard'
         execution = r.jload(workspace / 'execution.json', {})
         try:
-            require_valid(execution.get('summary'), execution.get('records'))
+            # A guard that rewrote the seeded data failed its own try (run.calibrate); a rerun would repeat it.
+            if not r.seed_tampered(execution.get('records')):
+                require_valid(execution.get('summary'), execution.get('records'))
         except InvalidInfra:
-            runs = (attempt.get('identity') or {}).get('runs') or (
+            runs =(attempt.get('identity') or {}).get('runs') or (
                 c.args.runs if folder == 'judge_breadth' else c.args.pilot_runs)
             seed = (attempt.get('identity') or {}).get('seed', c.seed) + (
                 1 if attempt.get('source') == 'fairness_replacement' else attempt['try'])

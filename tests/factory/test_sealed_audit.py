@@ -24,7 +24,7 @@ class AuditTests(unittest.TestCase):
         so an edit of any file below makes every sealed case unexaminable (the seal freeze; 2026-11-18 the
         hand-repair gate reuse first changed gate_state.py). Change these only with a reviewed contract pin."""
         self.assertEqual(sealed_audit.delivery_contract(), {
-            "run.py": "e9e5e71b886e448735a024d052e7db3c8ec9e1e2d53eafbe060a5b375667752c",
+            "run.py": "de695fb82af97fd6a7130a24a09df776eb84f3a629b432af0ccf8832875f90e3",
             "gate_state.py": "85ff257e30d745bd4d93636d85431b94f584d32ecfe1606c89f94eeae26325eb",
             "calibration.py": "391794408ae17a52f5e827f9aa1bacb5c58b3102cbdd67defe749dc3e573a602",
             "sealed_audit.py": "681286c25638d981f13b5090b21be5d0da365ba0669072d3df52f7ac2be198b7",

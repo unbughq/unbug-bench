@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory() as tmp:
              mock.patch.object(run, "sh", shell), mock.patch.object(run, "shred_tree", lambda p, **kw: shutil.rmtree(p) if p.exists() else None), \
              mock.patch.object(bench, "load_scenario", return_value={}), mock.patch.object(bench, "reset"), \
              mock.patch.object(run, "model_call", model), mock.patch.object(run, "prompt", return_value="synthetic"), \
-             mock.patch.object(run, "checkpoint", return_value=(None, [{}] * 5)), mock.patch.object(run, "verdicts", return_value=verdicts):
+             mock.patch.object(run, "try_checkpoint", return_value=(None, [{}] * 5)), mock.patch.object(run, "verdicts", return_value=verdicts):
             if mode == "provider_stop":
                 try: run.calibrate(c, "strong_calibrator")
                 except run.BudgetError: pass
